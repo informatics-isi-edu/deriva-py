@@ -109,6 +109,16 @@ def read_credentials(credential_file=DEFAULT_CREDENTIAL_FILE):
         credentials = json.load(cred)
         return credentials
 
+
+def resource_path(relative_path):
+    """ required to find bundled data at runtime in Pyinstaller single-file exe mode """
+    if hasattr(sys, '_MEIPASS'):
+        base_path = getattr(sys, '_MEIPASS')
+    else:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
 from .hatrac_store import HatracStore
 from .ermrest_catalog import ErmrestCatalog
 from .polling_ermrest_catalog import PollingErmrestCatalog
