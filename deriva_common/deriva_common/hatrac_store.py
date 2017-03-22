@@ -118,12 +118,15 @@ class HatracStore(DerivaBinding):
             loc = loc[len(self._server_uri):]
         return loc
 
-    def put_loc(self, path,
+    def put_loc(self,
+                path,
                 file_path,
                 headers=DEFAULT_HEADERS,
                 md5=None,
                 chunked=False,
                 chunk_size=DEFAULT_CHUNK_SIZE,
+                create_parents=True,
+                allow_versioning=True,
                 callback=None):
         """
 
@@ -133,6 +136,8 @@ class HatracStore(DerivaBinding):
         :param md5:
         :param chunked:
         :param chunk_size:
+        :param create_parents:
+        :param allow_versioning:
         :param callback:
         :return:
         """
@@ -144,13 +149,18 @@ class HatracStore(DerivaBinding):
 
         try:
             r = self.head(path)
-            if r.status_code == 200 and r.headers.get('Content-MD5') == md5:
-                # object already has same content so skip upload
-                return r.headers.get('Content-Location')
+            if r.status_code == 200:
+                if r.headers.get('Content-MD5') == md5:
+                    # object already has same content so skip upload
+                    return r.headers.get('Content-Location')
+                elif allow_versioning:
+                    logging.warn("The file [%s] cannot be uploaded because content already exists for this object and "
+                                 "multiple versions are disallowed.")
+                    return None
         except requests.HTTPError as e:
             pass
 
-        job_id = self.create_upload_job(path, file_path, md5)
+        job_id = self.create_upload_job(path, file_path, md5, create_parents=create_parents)
         if self.put_obj_chunked(path, file_path, job_id, chunk_size, callback):
             return self.finalize_upload_job(path, job_id)
 
@@ -196,8 +206,15 @@ class HatracStore(DerivaBinding):
                 pass
             raise
 
-    def create_upload_job(self, path, file_path, md5, chunk_size=DEFAULT_CHUNK_SIZE, content_disposition=None):
-        url = '%s;upload' % path
+    def create_upload_job(self,
+                          path,
+                          file_path,
+                          md5,
+                          create_parents=True,
+                          chunk_size=DEFAULT_CHUNK_SIZE,
+                          content_disposition=None):
+        url = '%s;upload%s' % (path,
+                               "" if not create_parents else "?parents=%s" % str(create_parents).lower())
         obj = {"chunk-length": chunk_size,
                "content-length": os.path.getsize(file_path),
                "content-md5": md5,

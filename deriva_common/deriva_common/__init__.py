@@ -72,10 +72,6 @@ DEFAULT_CONFIG = {
         "host": platform.uname()[1],
         "catalog_id": 1
     },
-    "credentials":
-    {
-        "cookie": "webauthn=xxxxxxxxxx"
-    },
     "session": DEFAULT_SESSION_CONFIG
 }
 
@@ -106,6 +102,12 @@ def read_config(config_file, create_default=True, default=DEFAULT_CONFIG):
             config = cf.read()
 
     return json.loads(config, object_pairs_hook=OrderedDict)
+
+
+def read_credentials(credential_file=DEFAULT_CREDENTIAL_FILE):
+    with open(credential_file) as cred:
+        credentials = json.load(cred)
+        return credentials
 
 from .hatrac_store import HatracStore
 from .ermrest_catalog import ErmrestCatalog
