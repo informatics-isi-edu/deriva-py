@@ -77,6 +77,13 @@ class DerivaUpload(object):
             if not self.uploadFile(file_path, asset_mapping, file_callback):
                 self.failed_uploads.add(file_path)
 
+        if self.failed_uploads:
+            logging.warning("The following file(s) failed to upload due to errors:\n\n%s\n" %
+                            '\n'.join(sorted(self.failed_uploads)))
+        if self.skipped_uploads:
+            logging.warning("The following file(s) were skipped because they did not satisfy the matching criteria "
+                            "of the configuration:\n\n%s" % '\n'.join(sorted(self.skipped_uploads)))
+
     def scanDirectory(self, root, abort_invalid_input=False):
         """
 
