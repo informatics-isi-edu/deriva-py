@@ -18,12 +18,11 @@ class DerivaUpload(object):
 
     This class is not intended to be instantiated directly, but rather extended by a deployment specific implementation.
     """
-    def __init__(self, config=None):
+    def __init__(self, config=None, credentials=None):
 
         protocol = config['server']['protocol']
         server = config['server']['host']
         catalog_id = config['server']['catalog_id']
-        credentials = config['credentials']
         session_config = config.get('session')
 
         self.catalog = ErmrestCatalog(protocol, server, catalog_id, credentials, session_config=session_config)
@@ -118,48 +117,6 @@ class DerivaUpload(object):
 
         return None
 
-    def _hatracUpload(self,
-                      namespace,
-                      file_name,
-                      file_path,
-                      hash_base64,
-                      headers=DEFAULT_HEADERS,
-                      create_namespaces=True,
-                      callback=None):
-        """
-
-        :param namespace:
-        :param file_name:
-        :param file_path:
-        :param hash_base64:
-        :param headers:
-        :param create_namespaces:
-        :param callback:
-        :return:
-        """
-        url = None
-        try:
-            path = "".join([namespace, "/", file_name,
-                            "" if not create_namespaces else "?parents=%s" % str(create_namespaces).lower()])
-            url = self.store.put_loc(path, file_path, headers, hash_base64, chunked=True, callback=callback)
-        except:
-            (etype, value, traceback) = sys.exc_info()
-            logging.error("Unable to upload file: [%s] - %s" % (file_path, format_exception(value)))
-
-        return url
-
-    def _hatracDelete(self, path):
-        """
-
-        :param path:
-        :return:
-        """
-        try:
-            self.store.delete(path)
-        except:
-            (etype, value, traceback) = sys.exc_info()
-            logging.error("Unable to delete file: [%s] - %s" % (path, format_exception(value)))
-
     def _catalogRecordCreate(self, catalog_table, row, default_columns=None):
         """
 
@@ -187,17 +144,33 @@ class DerivaUpload(object):
             logging.error("Unable to update catalog entry: %s" % format_exception(value))
             return False
 
-    def _catalogRecordUpdate(self, catalog_table, row, keys):
+    def _catalogRecordUpdate(self, catalog_table, old_row, new_row):
         """
 
         :param catalog_table:
-        :param row:
-        :param keys:
+        :param new_row:
+        :param old_row:
         :return:
         """
-        col_pred = ','.join([urlquote(col, safe='') for col in row.keys() if col not in keys])
         try:
-            self.catalog.put('/attributegroup/%s/%s;%s' % (catalog_table, ','.join(keys), col_pred), json=[row])
+            keys = sorted(list(new_row.keys()))
+            assert keys == sorted(list(old_row.keys()))
+            combined_row = {
+                'o%d' % i: old_row[keys[i]]
+                for i in range(len(keys))
+            }
+            combined_row.update({
+                'n%d' % i: new_row[keys[i]]
+                for i in range(len(keys))
+            })
+            self.catalog.put(
+                '/attributegroup/%s/%s;%s' % (
+                    catalog_table,
+                    ','.join(["o%d:=%s" % (i, urlquote(keys[i])) for i in range(len(keys))]),
+                    ','.join(["n%d:=%s" % (i, urlquote(keys[i])) for i in range(len(keys))])
+                ),
+                json=[combined_row]
+            )
             return True
         except:
             (etype, value, traceback) = sys.exc_info()
