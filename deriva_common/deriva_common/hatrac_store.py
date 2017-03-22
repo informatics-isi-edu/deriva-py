@@ -2,7 +2,7 @@ import os
 import datetime
 import requests
 import logging
-from . import DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE
+from . import format_exception, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE
 from .deriva_binding import DerivaBinding
 from .utils import hash_utils as hu, mime_utils as mu
 
@@ -153,11 +153,12 @@ class HatracStore(DerivaBinding):
                 if r.headers.get('Content-MD5') == md5:
                     # object already has same content so skip upload
                     return r.headers.get('Content-Location')
-                elif allow_versioning:
-                    logging.warn("The file [%s] cannot be uploaded because content already exists for this object and "
-                                 "multiple versions are disallowed.")
+                elif not allow_versioning:
+                    logging.warning("The file [%s] cannot be uploaded because content already exists for this object "
+                                    "and multiple versions are not allowed." % file_path)
                     return None
         except requests.HTTPError as e:
+            logging.debug("HEAD request failed: %s" % format_exception(e))
             pass
 
         job_id = self.create_upload_job(path, file_path, md5, create_parents=create_parents)

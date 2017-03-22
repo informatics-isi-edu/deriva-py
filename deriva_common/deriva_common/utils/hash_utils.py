@@ -24,7 +24,16 @@ def compute_hashes(fd, hashes=frozenset(['md5'])):
         for i in hashers.values():
             i.update(block)
 
-    return dict((alg, (h.hexdigest(), base64.b64encode(h.digest()))) for alg, h in hashers.items())
+    hashes = dict()
+    for alg, h in hashers.items():
+        digest = h.hexdigest()
+        base64digest = base64.b64encode(h.digest())
+        # base64.b64encode returns str on python 2.7 and bytes on 3.x, so deal with that and always return a str
+        if not isinstance(base64digest, str) and isinstance(base64digest, bytes):
+            base64digest = base64digest.decode('ascii')
+        hashes[alg] = digest, base64digest
+
+    return hashes
 
 
 def compute_file_hashes(file_path, hashes=frozenset(['md5'])):
