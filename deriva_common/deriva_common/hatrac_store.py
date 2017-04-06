@@ -23,7 +23,7 @@ class HatracStore(DerivaBinding):
         """
         DerivaBinding.__init__(self, scheme, server, credentials, caching=False, session_config=session_config)
 
-    def get_obj(self, path, headers=DEFAULT_HEADERS, destfilename=None):
+    def get_obj(self, path, headers=DEFAULT_HEADERS, destfilename=None, callback=None):
         """Retrieve resource optionally streamed to destination file.
 
            If destfilename is provided, download content to file with
@@ -41,7 +41,7 @@ class HatracStore(DerivaBinding):
         headers = headers.copy()
 
         if destfilename is not None:
-            destfile = open(destfilename, 'wb')
+            destfile = open(destfilename, 'w+b')
             stream = True
             md5 = None
         else:
@@ -54,15 +54,33 @@ class HatracStore(DerivaBinding):
             r.raise_for_status()
 
             if destfilename is not None:
-                for buf in r.iter_content(1024 ** 2):
+                total = 0
+                megabyte = 1024 ** 2
+                start = datetime.datetime.now()
+                logging.debug("Transferring file %s to %s" % (self._server_uri + path, destfilename))
+                for buf in r.iter_content(chunk_size=megabyte):
                     destfile.write(buf)
+                    total += len(buf)
+                    if callback:
+                        if not callback("Downloading: %.3f MB transferred" % (total / megabyte)):
+                            destfile.close()
+                            os.remove(destfilename)
+                            return None
+                elapsed = datetime.datetime.now() - start
+                totalSecs = elapsed.total_seconds()
+                totalMBs = total / megabyte
+                throughput = str("%.3f MB/second" % (totalMBs / totalSecs if totalSecs > 0 else 0.001))
+                logging.info('File [%s] transfer successful. %.3f MB transferred at %s. Elapsed time: %s. ' %
+                             (destfilename, totalMBs, throughput, elapsed))
 
                 if 'Content-MD5' in r.headers:
                     destfile.seek(0, 0)
-                    fmd5 = hu.compute_hashes(destfile, hashes=['md5'])
-                    rmd5 = r.headers['Content-MD5']
-                    if fmd5[1] != rmd5:
-                        raise HatracHashMismatch('Content-MD5 %s != computed MD5 %s' % (rmd5, fmd5))
+                    logging.info("Verifying checksum for file [%s]" % destfilename)
+                    hashes = hu.compute_hashes(destfile, hashes=['md5'])
+                    fmd5 = hashes['md5'][1]
+                    rmd5 = r.headers.get('Content-MD5', r.headers.get('content-md5', None))
+                    if fmd5 != rmd5:
+                        raise HatracHashMismatch('Content-MD5 %s != computed MD5 %s' % (rmd5, fmd5[1]))
 
                 return None
             else:

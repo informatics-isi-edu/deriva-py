@@ -18,10 +18,12 @@ class DerivaBinding (object):
              caching: whether to retain a GET response cache
 
         """
-        self._server_uri = "%s://%s" % (
+        self._base_server_uri = "%s://%s" % (
             scheme,
             server
         )
+        self._server_uri = self._base_server_uri
+
         if not session_config:
             session_config = DEFAULT_SESSION_CONFIG
         self._get_new_session(session_config)
@@ -76,6 +78,11 @@ class DerivaBinding (object):
     def _raise_for_status_412(r):
         if r.status_code == 412:
             raise ConcurrentUpdate(r)
+        r.raise_for_status()
+        return r
+
+    def get_authn_session(self):
+        r = self._session.get(self._base_server_uri + "/authn/session")
         r.raise_for_status()
         return r
 
