@@ -163,7 +163,8 @@ class HatracStore(DerivaBinding):
             return self.put_obj(path, file_path, headers, md5)
 
         if not md5:
-            md5 = hu.compute_file_hashes(file_path, ['md5'])
+            hashes = hu.compute_file_hashes(file_path, ['md5'])
+            md5 = hashes['md5'][1]
 
         try:
             r = self.head(path)
@@ -176,7 +177,8 @@ class HatracStore(DerivaBinding):
                                     "and multiple versions are not allowed." % file_path)
                     return None
         except requests.HTTPError as e:
-            logging.debug("HEAD request failed: %s" % format_exception(e))
+            if e.response.status_code != 404:
+                logging.debug("HEAD request failed: %s" % format_exception(e))
             pass
 
         job_id = self.create_upload_job(path, file_path, md5, create_parents=create_parents)
