@@ -88,16 +88,19 @@ def create_default_config(config=DEFAULT_CONFIG):
         cf.close()
 
 
-def read_config(config_file, create_default=True, default=DEFAULT_CONFIG):
-    config = json.dumps(DEFAULT_CONFIG)
-    if config_file == DEFAULT_CONFIG_FILE and not os.path.isfile(config_file) and create_default:
+def read_config(config_file=DEFAULT_CONFIG_FILE, create_default=False, default=DEFAULT_CONFIG):
+    config = None
+    if not os.path.isfile(config_file) and create_default:
         logging.debug("No default configuration file found, attempting to create one.")
         try:
             create_default_config(default)
+            config_file = DEFAULT_CONFIG_FILE
         except Exception as e:
-            logging.debug("Unable to create default configuration file %s. Using internal defaults. %s" %
-                          (DEFAULT_CONFIG_FILE, format_exception(e)))
-    if os.path.isfile(config_file):
+            logging.info("Unable to create default configuration file %s. Using internal defaults. %s" %
+                        (DEFAULT_CONFIG_FILE, format_exception(e)))
+            config = default
+
+    if not config:
         with open(config_file) as cf:
             config = cf.read()
 
@@ -105,6 +108,8 @@ def read_config(config_file, create_default=True, default=DEFAULT_CONFIG):
 
 
 def read_credentials(credential_file=DEFAULT_CREDENTIAL_FILE):
+    if not credential_file:
+        credential_file = DEFAULT_CREDENTIAL_FILE
     with open(credential_file) as cred:
         credentials = json.load(cred)
         return credentials
