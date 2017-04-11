@@ -18,9 +18,7 @@ class BaseCLI(object):
             '--config-file', metavar='<file>', help="Optional path to a configuration file.")
 
         self.parser.add_argument(
-            '--credential-file', default=DEFAULT_CREDENTIAL_FILE, metavar='<file>',
-            help="Optional path to a credential file. If this argument is not specified, the credential file "
-                 "defaults to: %s " % DEFAULT_CREDENTIAL_FILE)
+            '--credential-file', metavar='<file>', help="Optional path to a credential file.")
 
     def parse_cli(self):
         args = self.parser.parse_args()
