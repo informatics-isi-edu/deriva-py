@@ -105,6 +105,9 @@ class DerivaUpload(object):
         :param abort_on_invalid_input:
         :return:
         """
+        if not os.path.isdir(root):
+            raise ValueError("Invalid directory specified: [%s]" % root)
+
         logging.info("Scanning files in directory [%s]..." % root)
         for path, dirs, files in walk(root):
             for file_name in files:
