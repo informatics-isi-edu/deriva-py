@@ -75,29 +75,34 @@ DEFAULT_CONFIG = {
     "session": DEFAULT_SESSION_CONFIG
 }
 
+DEFAULT_CREDENTIAL = {
+  "cookie": "webauthn="
+}
 
-def create_default_config(config=DEFAULT_CONFIG):
-    if not os.path.isdir(DEFAULT_CONFIG_PATH):
+
+def create_default_config(config_file=DEFAULT_CONFIG_FILE, config=DEFAULT_CONFIG):
+    if not os.path.isdir(config_file):
         try:
-            os.makedirs(DEFAULT_CONFIG_PATH)
+            os.makedirs(os.path.dirname(config_file))
         except OSError as error:
             if error.errno != errno.EEXIST:
                 raise
-    with open(DEFAULT_CONFIG_FILE, 'w') as cf:
-        cf.write(json.dumps(config, sort_keys=True, indent=4, separators=(',', ': ')))
+    with open(config_file, 'w') as cf:
+        cf.write(json.dumps(config, sort_keys=True, indent=2, separators=(',', ': ')))
         cf.close()
 
 
 def read_config(config_file=DEFAULT_CONFIG_FILE, create_default=False, default=DEFAULT_CONFIG):
+    if not config_file:
+        config_file = DEFAULT_CONFIG_FILE
     config = None
     if not os.path.isfile(config_file) and create_default:
-        logging.debug("No default configuration file found, attempting to create one.")
+        logging.info("No default configuration file found, attempting to create one.")
         try:
-            create_default_config(default)
-            config_file = DEFAULT_CONFIG_FILE
+            create_default_config(config_file, default)
         except Exception as e:
-            logging.info("Unable to create default configuration file %s. Using internal defaults. %s" %
-                        (DEFAULT_CONFIG_FILE, format_exception(e)))
+            logging.warn("Unable to create default configuration file %s. Using internal defaults. %s" %
+                         (DEFAULT_CONFIG_FILE, format_exception(e)))
             config = default
 
     if not config:
@@ -107,12 +112,37 @@ def read_config(config_file=DEFAULT_CONFIG_FILE, create_default=False, default=D
     return json.loads(config, object_pairs_hook=OrderedDict)
 
 
-def read_credentials(credential_file=DEFAULT_CREDENTIAL_FILE):
+def create_default_credential(credential=DEFAULT_CREDENTIAL):
+    if not os.path.isdir(DEFAULT_CONFIG_PATH):
+        try:
+            os.makedirs(DEFAULT_CONFIG_PATH)
+        except OSError as error:
+            if error.errno != errno.EEXIST:
+                raise
+    with open(DEFAULT_CREDENTIAL_FILE, 'w') as cf:
+        cf.write(json.dumps(credential, sort_keys=True, indent=2, separators=(',', ': ')))
+        cf.close()
+
+
+def read_credential(credential_file=DEFAULT_CREDENTIAL_FILE, create_default=False, default=DEFAULT_CREDENTIAL):
     if not credential_file:
         credential_file = DEFAULT_CREDENTIAL_FILE
-    with open(credential_file) as cred:
-        credentials = json.load(cred)
-        return credentials
+    credential = None
+    if not os.path.isfile(credential_file) and create_default:
+        logging.info("No default credential file found, attempting to create one.")
+        try:
+            create_default_credential(default)
+            credential_file = DEFAULT_CREDENTIAL_FILE
+        except Exception as e:
+            logging.warn("Unable to create default configuration file %s. Using internal defaults. %s" %
+                         (DEFAULT_CREDENTIAL_FILE, format_exception(e)))
+            credential = default
+
+    if not credential:
+        with open(credential_file) as cf:
+            credential = cf.read()
+
+    return json.loads(credential, object_pairs_hook=OrderedDict)
 
 
 def resource_path(relative_path):
