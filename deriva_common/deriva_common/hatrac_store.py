@@ -2,7 +2,7 @@ import os
 import datetime
 import requests
 import logging
-from . import format_exception, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE
+from . import format_exception, NotModified, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE
 from .deriva_binding import DerivaBinding
 from .utils import hash_utils as hu, mime_utils as mu
 
@@ -173,19 +173,16 @@ class HatracStore(DerivaBinding):
                     # object already has same content so skip upload
                     return r.headers.get('Content-Location')
                 elif not allow_versioning:
-                    logging.warning("The file [%s] cannot be uploaded because content already exists for this object "
-                                    "and multiple versions are not allowed." % file_path)
-                    return None
+                    raise NotModified("The file [%s] cannot be uploaded because content already exists for this object "
+                                      "and multiple versions are not allowed." % file_path)
         except requests.HTTPError as e:
             if e.response.status_code != 404:
                 logging.debug("HEAD request failed: %s" % format_exception(e))
             pass
 
         job_id = self.create_upload_job(path, file_path, md5, create_parents=create_parents)
-        if self.put_obj_chunked(path, file_path, job_id, chunk_size, callback):
-            return self.finalize_upload_job(path, job_id)
-
-        return None
+        self.put_obj_chunked(path, file_path, job_id, chunk_size, callback)
+        return self.finalize_upload_job(path, job_id)
 
     def put_obj_chunked(self, path, file_path, job_id, chunk_size=DEFAULT_CHUNK_SIZE, callback=None):
         try:
@@ -212,14 +209,13 @@ class HatracStore(DerivaBinding):
                         if not callback(chunk, chunks):
                             logging.warn("Upload %s cancelled by user." % job_id)
                             self.cancel_upload_job(path, job_id)
-                            return False
+                            return
                 elapsed = datetime.datetime.now() - start
                 totalSecs = elapsed.total_seconds()
                 totalMBs = round(float(total_bytes) / float(1024 ** 2), 3)
                 throughput = str("%.3f MB/second" % (totalMBs / totalSecs if totalSecs > 0 else 0.001))
                 logging.info('File [%s] upload successful. %.3f MB transferred at %s. Elapsed time: %s. ' %
                              (file_path, totalMBs, throughput, elapsed))
-                return True
         except:
             try:
                 self.cancel_upload_job(path, job_id)
