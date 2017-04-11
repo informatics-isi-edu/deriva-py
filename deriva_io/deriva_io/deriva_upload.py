@@ -11,6 +11,14 @@ except ImportError:
     from scandir import scandir, walk
 
 
+class CatalogCreateError (Exception):
+    pass
+
+
+class CatalogUpdateError (Exception):
+    pass
+
+
 class DerivaUpload(object):
     """
     Base class for upload tasks. Encapsulates a catalog instance and a hatrac store instance and provides some common
@@ -74,8 +82,11 @@ class DerivaUpload(object):
 
     def uploadFiles(self, status_callback=None, file_callback=None):
         for file_path, asset_mapping in self.file_list.items():
-            if not self.uploadFile(file_path, asset_mapping, file_callback):
-                self.failed_uploads.add(file_path)
+            try:
+                self.uploadFile(file_path, asset_mapping, file_callback)
+            except:
+                (etype, value, traceback) = sys.exc_info()
+                self.failed_uploads.add((file_path, format_exception(value)))
 
         if self.failed_uploads:
             logging.warning("The following file(s) failed to upload due to errors:\n\n%s\n" %
@@ -145,11 +156,9 @@ class DerivaUpload(object):
             # for default in default_columns:
             #    row[default] = None
             self.catalog.post('/entity/%s%s' % (catalog_table, default_param), json=[row])
-            return True
         except:
             (etype, value, traceback) = sys.exc_info()
-            logging.error("Unable to update catalog entry: %s" % format_exception(value))
-            return False
+            raise CatalogCreateError(value)
 
     def _catalogRecordUpdate(self, catalog_table, old_row, new_row):
         """
@@ -178,9 +187,7 @@ class DerivaUpload(object):
                 ),
                 json=[combined_row]
             )
-            return True
         except:
             (etype, value, traceback) = sys.exc_info()
-            logging.error("Unable to update catalog entry: %s" % format_exception(value))
-            return False
+            raise CatalogUpdateError(value)
 
