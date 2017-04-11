@@ -40,8 +40,8 @@ class DerivaUpload(object):
         mu.add_types(config.get('mime_overrides'))
 
         self.file_list = dict()
+        self.failed_uploads = dict()
         self.skipped_uploads = set()
-        self.failed_uploads = set()
 
         self.config = config
 
@@ -86,20 +86,23 @@ class DerivaUpload(object):
                 self.uploadFile(file_path, asset_mapping, file_callback)
             except:
                 (etype, value, traceback) = sys.exc_info()
-                self.failed_uploads.add((file_path, format_exception(value)))
+                self.failed_uploads[file_path] = format_exception(value)
+
+        if self.skipped_uploads:
+            logging.warning("The following file(s) were skipped because they did not satisfy the matching criteria "
+                            "of the configuration:\n\n%s\n" % '\n'.join(sorted(self.skipped_uploads)))
 
         if self.failed_uploads:
             logging.warning("The following file(s) failed to upload due to errors:\n\n%s\n" %
-                            '\n'.join(sorted(self.failed_uploads)))
-        if self.skipped_uploads:
-            logging.warning("The following file(s) were skipped because they did not satisfy the matching criteria "
-                            "of the configuration:\n\n%s" % '\n'.join(sorted(self.skipped_uploads)))
+                            '\n'.join(["%s -- %s" % (key, self.failed_uploads[key])
+                                       for key in sorted(self.failed_uploads.keys())]))
+            raise RuntimeError("One or more file(s) failed to upload due to errors.")
 
-    def scanDirectory(self, root, abort_invalid_input=False):
+    def scanDirectory(self, root, abort_on_invalid_input=False):
         """
 
         :param root:
-        :param abort_invalid_input:
+        :param abort_on_invalid_input:
         :return:
         """
         logging.info("Scanning files in directory [%s]..." % root)
@@ -107,14 +110,11 @@ class DerivaUpload(object):
             for file_name in files:
                 file_entry = self.validateFile(root, path, file_name)
                 if not file_entry:
-                    if abort_invalid_input:
-                        logging.error("Invalid input detected, aborting.")
-                        return False
                     self.skipped_uploads.add(os.path.normpath(os.path.join(path, file_name)))
+                    if abort_on_invalid_input:
+                        raise ValueError("Invalid input detected, aborting.")
                 else:
                     self.file_list.update(file_entry)
-
-        return True
 
     def getAssetMapping(self, file_path):
         """
@@ -146,10 +146,9 @@ class DerivaUpload(object):
         try:
             missing = self.catalog.validateRowColumns(row, catalog_table)
             if missing:
-                logging.error(
+                raise CatalogCreateError(
                     "Unable to update catalog entry because one or more specified columns do not exist in the "
                     "target table: [%s]" % ','.join(missing))
-                return False
             if not default_columns:
                 default_columns = self.catalog.getDefaultColumns(row, catalog_table)
             default_param = ('?defaults=%s' % ','.join(default_columns)) if len(default_columns) > 0 else ''
@@ -158,7 +157,7 @@ class DerivaUpload(object):
             self.catalog.post('/entity/%s%s' % (catalog_table, default_param), json=[row])
         except:
             (etype, value, traceback) = sys.exc_info()
-            raise CatalogCreateError(value)
+            raise CatalogCreateError(format_exception(value))
 
     def _catalogRecordUpdate(self, catalog_table, old_row, new_row):
         """
@@ -189,5 +188,5 @@ class DerivaUpload(object):
             )
         except:
             (etype, value, traceback) = sys.exc_info()
-            raise CatalogUpdateError(value)
+            raise CatalogUpdateError(format_exception(value))
 
