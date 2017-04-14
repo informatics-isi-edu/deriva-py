@@ -28,9 +28,7 @@ class DerivaBinding (object):
             session_config = DEFAULT_SESSION_CONFIG
         self._get_new_session(session_config)
 
-        if credentials and ('cookie' in credentials):
-            cname, cval = credentials['cookie'].split('=', 1)
-            self._session.cookies.set(cname, cval, domain=server, path='/')
+        self.set_credentials(credentials, server)
 
         self._caching = caching
         self._cache = {}
@@ -80,6 +78,12 @@ class DerivaBinding (object):
             raise ConcurrentUpdate(r)
         r.raise_for_status()
         return r
+
+    def set_credentials(self, credentials, server):
+        assert self._session is not None
+        if credentials and ('cookie' in credentials):
+            cname, cval = credentials['cookie'].split('=', 1)
+            self._session.cookies.set(cname, cval, domain=server, path='/')
 
     def get_authn_session(self):
         r = self._session.get(self._base_server_uri + "/authn/session")
