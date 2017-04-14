@@ -80,10 +80,11 @@ DEFAULT_CREDENTIAL = {
 }
 
 
-def create_default_config(config_file=DEFAULT_CONFIG_FILE, config=DEFAULT_CONFIG):
-    if not os.path.isdir(config_file):
+def write_config(config_file=DEFAULT_CONFIG_FILE, config=DEFAULT_CONFIG):
+    config_dir = os.path.dirname(config_file)
+    if not os.path.isdir(config_dir):
         try:
-            os.makedirs(os.path.dirname(config_file))
+            os.makedirs(config_dir)
         except OSError as error:
             if error.errno != errno.EEXIST:
                 raise
@@ -99,10 +100,10 @@ def read_config(config_file=DEFAULT_CONFIG_FILE, create_default=False, default=D
     if not os.path.isfile(config_file) and create_default:
         logging.info("No default configuration file found, attempting to create one.")
         try:
-            create_default_config(config_file, default)
+            write_config(config_file, default)
         except Exception as e:
-            logging.warn("Unable to create default configuration file %s. Using internal defaults. %s" %
-                         (DEFAULT_CONFIG_FILE, format_exception(e)))
+            logging.warn("Unable to create configuration file %s. Using internal defaults. %s" %
+                         (config_file, format_exception(e)))
             config = default
 
     if not config:
@@ -112,14 +113,16 @@ def read_config(config_file=DEFAULT_CONFIG_FILE, create_default=False, default=D
     return json.loads(config, object_pairs_hook=OrderedDict)
 
 
-def create_default_credential(credential=DEFAULT_CREDENTIAL):
-    if not os.path.isdir(DEFAULT_CONFIG_PATH):
+def write_credential(credential_file=DEFAULT_CREDENTIAL_FILE, credential=DEFAULT_CREDENTIAL):
+    credential_dir = os.path.dirname(credential_file)
+    if not os.path.isdir(credential_dir):
         try:
-            os.makedirs(DEFAULT_CONFIG_PATH)
+            os.makedirs(credential_dir)
         except OSError as error:
             if error.errno != errno.EEXIST:
                 raise
-    with open(DEFAULT_CREDENTIAL_FILE, 'w') as cf:
+    with open(credential_file, 'w') as cf:
+        os.chmod(credential_file, 0o600)
         cf.write(json.dumps(credential, sort_keys=True, indent=2, separators=(',', ': ')))
         cf.close()
 
@@ -131,11 +134,10 @@ def read_credential(credential_file=DEFAULT_CREDENTIAL_FILE, create_default=Fals
     if not os.path.isfile(credential_file) and create_default:
         logging.info("No default credential file found, attempting to create one.")
         try:
-            create_default_credential(default)
-            credential_file = DEFAULT_CREDENTIAL_FILE
+            write_credential(credential_file, default)
         except Exception as e:
-            logging.warn("Unable to create default configuration file %s. Using internal defaults. %s" %
-                         (DEFAULT_CREDENTIAL_FILE, format_exception(e)))
+            logging.warn("Unable to create configuration file %s. Using internal defaults. %s" %
+                         (credential_file, format_exception(e)))
             credential = default
 
     if not credential:
