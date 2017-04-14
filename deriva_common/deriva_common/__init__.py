@@ -98,7 +98,7 @@ def read_config(config_file=DEFAULT_CONFIG_FILE, create_default=False, default=D
         config_file = DEFAULT_CONFIG_FILE
     config = None
     if not os.path.isfile(config_file) and create_default:
-        logging.info("No default configuration file found, attempting to create one.")
+        logging.info("No default configuration file found, attempting to create one at: %s" % config_file)
         try:
             write_config(config_file, default)
         except Exception as e:
@@ -132,7 +132,7 @@ def read_credential(credential_file=DEFAULT_CREDENTIAL_FILE, create_default=Fals
         credential_file = DEFAULT_CREDENTIAL_FILE
     credential = None
     if not os.path.isfile(credential_file) and create_default:
-        logging.info("No default credential file found, attempting to create one.")
+        logging.info("No default credential file found, attempting to create one at: %s" % credential_file)
         try:
             write_credential(credential_file, default)
         except Exception as e:
@@ -147,14 +147,12 @@ def read_credential(credential_file=DEFAULT_CREDENTIAL_FILE, create_default=Fals
     return json.loads(credential, object_pairs_hook=OrderedDict)
 
 
-def resource_path(relative_path):
+def resource_path(relative_path, default=os.path.abspath(".")):
     """ required to find bundled data at runtime in Pyinstaller single-file exe mode """
-    if hasattr(sys, '_MEIPASS'):
-        base_path = getattr(sys, '_MEIPASS')
-    else:
-        base_path = os.path.abspath(".")
+    if getattr(sys, 'frozen', False):
+        return os.path.join(getattr(sys, '_MEIPASS'), relative_path)
 
-    return os.path.join(base_path, relative_path)
+    return default
 
 from .hatrac_store import HatracStore
 from .ermrest_catalog import ErmrestCatalog
