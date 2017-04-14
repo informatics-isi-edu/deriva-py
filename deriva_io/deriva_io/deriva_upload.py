@@ -90,10 +90,10 @@ class DerivaUpload(object):
 
         if self.skipped_uploads:
             logging.warning("The following file(s) were skipped because they did not satisfy the matching criteria "
-                            "of the configuration:\n\n%s\n" % '\n'.join(sorted(self.skipped_uploads)))
+                            "of the configuration:\n\n%s\n\n" % '\n'.join(sorted(self.skipped_uploads)))
 
         if self.failed_uploads:
-            logging.warning("The following file(s) failed to upload due to errors:\n\n%s\n" %
+            logging.warning("The following file(s) failed to upload due to errors:\n\n%s\n\n" %
                             '\n'.join(["%s -- %s" % (key, self.failed_uploads[key])
                                        for key in sorted(self.failed_uploads.keys())]))
             raise RuntimeError("One or more file(s) failed to upload due to errors.")
