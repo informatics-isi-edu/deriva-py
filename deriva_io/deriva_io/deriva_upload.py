@@ -19,6 +19,9 @@ class CatalogUpdateError (Exception):
     pass
 
 
+FileUploadState = {"S": "Success", "F": "Failure", "P": "Pending", "R": "Retry"}
+
+
 class DerivaUpload(object):
     """
     Base class for upload tasks. Encapsulates a catalog instance and a hatrac store instance and provides some common
@@ -40,13 +43,14 @@ class DerivaUpload(object):
         mu.add_types(config.get('mime_overrides'))
 
         self.file_list = dict()
-        self.failed_uploads = dict()
-        self.skipped_uploads = set()
-
+        self.file_status = dict()
+        self.skipped_files = set()
         self.config = config
 
     def cleanup(self):
-        pass
+        self.file_list.clear()
+        self.file_status.clear()
+        self.skipped_files.clear()
 
     @staticmethod
     def getFileSize(file_path):
@@ -60,6 +64,14 @@ class DerivaUpload(object):
     def getFileHashes(file_path, hashes=frozenset(['md5'])):
         return hu.compute_file_hashes(file_path, hashes)
 
+    def getFileStatusAsArray(self):
+        result = list()
+        for key, value in self.file_status.items():
+            item = {"File": key}
+            item.update(value)
+            result.append(item)
+        return result
+
     def getFileDisplayName(self, file_path, asset_mapping):
         return os.path.basename(file_path)
 
@@ -67,10 +79,7 @@ class DerivaUpload(object):
         file_path = os.path.normpath(os.path.join(path, name))
         asset_mapping = self.getAssetMapping(file_path)
         if not asset_mapping:
-            logging.info("Skipping file: [%s] -- Invalid file type or directory location." % file_path)
             return None
-        else:
-            logging.info("Including file: [%s]." % file_path)
 
         return {file_path: asset_mapping}
 
@@ -84,18 +93,24 @@ class DerivaUpload(object):
         for file_path, asset_mapping in self.file_list.items():
             try:
                 self.uploadFile(file_path, asset_mapping, file_callback)
+                self.file_status[file_path] = {"State": FileUploadState["S"], "Status": "Transfer complete."}
             except:
                 (etype, value, traceback) = sys.exc_info()
-                self.failed_uploads[file_path] = format_exception(value)
+                self.file_status[file_path] = {"State": FileUploadState["F"], "Status": format_exception(value)}
 
-        if self.skipped_uploads:
+        failed_uploads = dict()
+        for key, value in self.file_status.items():
+            if value["State"] == FileUploadState["F"]:
+                failed_uploads[key] = value["Status"]
+
+        if self.skipped_files:
             logging.warning("The following file(s) were skipped because they did not satisfy the matching criteria "
-                            "of the configuration:\n\n%s\n\n" % '\n'.join(sorted(self.skipped_uploads)))
+                            "of the configuration:\n\n%s\n" % '\n'.join(sorted(self.skipped_files)))
 
-        if self.failed_uploads:
-            logging.warning("The following file(s) failed to upload due to errors:\n\n%s\n\n" %
-                            '\n'.join(["%s -- %s" % (key, self.failed_uploads[key])
-                                       for key in sorted(self.failed_uploads.keys())]))
+        if failed_uploads:
+            logging.warning("The following file(s) failed to upload due to errors:\n\n%s\n" %
+                            '\n'.join(["%s -- %s" % (key, failed_uploads[key])
+                                       for key in sorted(failed_uploads.keys())]))
             raise RuntimeError("One or more file(s) failed to upload due to errors.")
 
     def scanDirectory(self, root, abort_on_invalid_input=False):
@@ -111,13 +126,17 @@ class DerivaUpload(object):
         logging.info("Scanning files in directory [%s]..." % root)
         for path, dirs, files in walk(root):
             for file_name in files:
+                file_path = os.path.normpath(os.path.join(path, file_name))
                 file_entry = self.validateFile(root, path, file_name)
                 if not file_entry:
-                    self.skipped_uploads.add(os.path.normpath(os.path.join(path, file_name)))
+                    logging.info("Skipping file: [%s] -- Invalid file type or directory location." % file_path)
+                    self.skipped_files.add(file_path)
                     if abort_on_invalid_input:
                         raise ValueError("Invalid input detected, aborting.")
                 else:
+                    logging.info("Including file: [%s]." % file_path)
                     self.file_list.update(file_entry)
+                    self.file_status[file_path] = {"State": FileUploadState["P"], "Status": "Transfer Pending"}
 
     def getAssetMapping(self, file_path):
         """
