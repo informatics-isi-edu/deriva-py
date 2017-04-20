@@ -53,6 +53,13 @@ class DerivaUpload(object):
         self.skipped_files.clear()
 
     @staticmethod
+    def getDefaultConfigFilePath():
+        """
+        This method must be implemented by subclasses.
+        """
+        raise NotImplementedError("This method must be implemented by a subclass.")
+
+    @staticmethod
     def getFileSize(file_path):
         return os.path.getsize(file_path)
 
@@ -66,9 +73,9 @@ class DerivaUpload(object):
 
     def getFileStatusAsArray(self):
         result = list()
-        for key, value in self.file_status.items():
+        for key in sorted(self.file_status.keys()):
             item = {"File": key}
-            item.update(value)
+            item.update(self.file_status[key])
             result.append(item)
         return result
 
@@ -85,9 +92,9 @@ class DerivaUpload(object):
 
     def uploadFile(self, file_path, asset_mapping, callback=None):
         """
-        This method should be implemented by subclasses.
+        This method must be implemented by subclasses.
         """
-        raise NotImplementedError()
+        raise NotImplementedError("This method must be implemented by a subclass.")
 
     def uploadFiles(self, status_callback=None, file_callback=None):
         for file_path, asset_mapping in self.file_list.items():
