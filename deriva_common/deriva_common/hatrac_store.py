@@ -69,12 +69,11 @@ class HatracStore(DerivaBinding):
                 elapsed = datetime.datetime.now() - start
                 totalSecs = elapsed.total_seconds()
                 totalMBs = total / megabyte
-                throughput = str("%.3f MB/second" % (totalMBs / totalSecs if totalSecs > 0 else 0.001))
-                summary = 'File [%s] transfer successful. %.3f MB transferred at %s. Elapsed time: %s. ' % \
-                          (destfilename, totalMBs, throughput, elapsed)
-                logging.info(summary)
+                throughput = str("%.2f MB/second" % (totalMBs / totalSecs if totalSecs > 0 else 0.001))
+                summary = '%.2f MB transferred at %s. Elapsed time: %s. ' % (totalMBs, throughput, elapsed)
+                logging.info("File [%s] transfer successful. %s") % (destfilename, summary)
                 if callback:
-                    callback(summary=summary)
+                    callback(summary=summary, file_path=destfilename)
 
                 if 'Content-MD5' in r.headers:
                     destfile.seek(0, 0)
@@ -83,7 +82,7 @@ class HatracStore(DerivaBinding):
                     fmd5 = hashes['md5'][1]
                     rmd5 = r.headers.get('Content-MD5', r.headers.get('content-md5', None))
                     if fmd5 != rmd5:
-                        raise HatracHashMismatch('Content-MD5 %s != computed MD5 %s' % (rmd5, fmd5[1]))
+                        raise HatracHashMismatch('Content-MD5 %s != computed MD5 %s' % (rmd5, fmd5))
 
                 return None
             else:
@@ -209,19 +208,18 @@ class HatracStore(DerivaBinding):
                     total_bytes += len(data)
                     chunk += 1
                     if callback:
-                        if not callback(completed=chunk, total=chunks):
+                        if not callback(completed=chunk, total=chunks, file_path=file_path):
                             logging.warning("Upload %s cancelled by user." % job_id)
                             self.cancel_upload_job(path, job_id)
                             return
                 elapsed = datetime.datetime.now() - start
                 totalSecs = elapsed.total_seconds()
                 totalMBs = round(float(total_bytes) / float(1024 ** 2), 3)
-                throughput = str("%.3f MB/second" % (totalMBs / totalSecs if totalSecs > 0 else 0.001))
-                summary = 'File [%s] upload successful. %.3f MB transferred at %s. Elapsed time: %s. ' % \
-                          (file_path, totalMBs, throughput, elapsed)
-                logging.info(summary)
+                throughput = str("%.2f MB/second" % (totalMBs / totalSecs if totalSecs > 0 else 0.001))
+                summary = '%.2f MB transferred at %s. Elapsed time: %s. ' % (totalMBs, throughput, elapsed)
+                logging.info("File [%s] upload successful. %s") % (file_path, summary)
                 if callback:
-                    callback(summary=summary)
+                    callback(summary=summary, file_path=file_path)
         except:
             try:
                 self.cancel_upload_job(path, job_id)
