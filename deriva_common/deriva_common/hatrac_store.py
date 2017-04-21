@@ -62,7 +62,7 @@ class HatracStore(DerivaBinding):
                     destfile.write(buf)
                     total += len(buf)
                     if callback:
-                        if not callback(progress="Downloading: %.3f MB transferred" % (total / megabyte)):
+                        if not callback(progress="Downloading: %.2f MB transferred" % (total / megabyte)):
                             destfile.close()
                             os.remove(destfilename)
                             return None
@@ -71,7 +71,7 @@ class HatracStore(DerivaBinding):
                 totalMBs = total / megabyte
                 throughput = str("%.2f MB/second" % (totalMBs / totalSecs if totalSecs > 0 else 0.001))
                 summary = '%.2f MB transferred at %s. Elapsed time: %s. ' % (totalMBs, throughput, elapsed)
-                logging.info("File [%s] transfer successful. %s") % (destfilename, summary)
+                logging.info("File [%s] transfer successful. %s" % (destfilename, summary))
                 if callback:
                     callback(summary=summary, file_path=destfilename)
 
@@ -217,7 +217,7 @@ class HatracStore(DerivaBinding):
                 totalMBs = round(float(total_bytes) / float(1024 ** 2), 3)
                 throughput = str("%.2f MB/second" % (totalMBs / totalSecs if totalSecs > 0 else 0.001))
                 summary = '%.2f MB transferred at %s. Elapsed time: %s. ' % (totalMBs, throughput, elapsed)
-                logging.info("File [%s] upload successful. %s") % (file_path, summary)
+                logging.info("File [%s] upload successful. %s" % (file_path, summary))
                 if callback:
                     callback(summary=summary, file_path=file_path)
         except:
