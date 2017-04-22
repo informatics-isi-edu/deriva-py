@@ -115,7 +115,7 @@ class HatracStore(DerivaBinding):
             f = open(data, 'rb')
 
         if not md5:
-            md5 = hu.compute_hashes(f, hashes=['md5'])[1]
+            md5 = hu.compute_hashes(f, hashes=['md5'])['md5'][1]
 
         f.seek(0, 0)
 
@@ -165,8 +165,7 @@ class HatracStore(DerivaBinding):
             return self.put_obj(path, file_path, headers, md5)
 
         if not md5:
-            hashes = hu.compute_file_hashes(file_path, ['md5'])
-            md5 = hashes['md5'][1]
+            md5 = hu.compute_file_hashes(file_path, hashes=['md5'])['md5'][1]
 
         try:
             r = self.head(path)
