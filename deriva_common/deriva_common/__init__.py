@@ -152,7 +152,7 @@ def resource_path(relative_path, default=os.path.abspath(".")):
     if getattr(sys, 'frozen', False):
         return os.path.join(getattr(sys, '_MEIPASS'), relative_path)
 
-    return default
+    return os.path.join(default, relative_path)
 
 from .hatrac_store import HatracStore
 from .ermrest_catalog import ErmrestCatalog

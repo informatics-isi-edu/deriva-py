@@ -78,8 +78,7 @@ class HatracStore(DerivaBinding):
                 if 'Content-MD5' in r.headers:
                     destfile.seek(0, 0)
                     logging.info("Verifying checksum for file [%s]" % destfilename)
-                    hashes = hu.compute_hashes(destfile, hashes=['md5'])
-                    fmd5 = hashes['md5'][1]
+                    fmd5 = hu.compute_hashes(destfile, hashes=['md5'])['md5'][1]
                     rmd5 = r.headers.get('Content-MD5', r.headers.get('content-md5', None))
                     if fmd5 != rmd5:
                         raise HatracHashMismatch('Content-MD5 %s != computed MD5 %s' % (rmd5, fmd5))
