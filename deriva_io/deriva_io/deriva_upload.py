@@ -2,7 +2,7 @@ import os
 import re
 import sys
 import logging
-from deriva_common import ErmrestCatalog, HatracStore, format_exception, urlquote, DEFAULT_HEADERS
+from deriva_common import ErmrestCatalog, HatracStore, format_exception, urlquote
 from deriva_common.utils import hash_utils as hu, mime_utils as mu
 
 try:
@@ -53,7 +53,21 @@ class DerivaUpload(object):
         self.skipped_files.clear()
 
     @staticmethod
+    def getInstance(config=None, credentials=None):
+        """
+        This method must be implemented by subclasses.
+        """
+        raise NotImplementedError("This method must be implemented by a subclass.")
+
+    @staticmethod
     def getDefaultConfigFilePath():
+        """
+        This method must be implemented by subclasses.
+        """
+        raise NotImplementedError("This method must be implemented by a subclass.")
+
+    @staticmethod
+    def getDefaultConfig():
         """
         This method must be implemented by subclasses.
         """
@@ -218,4 +232,3 @@ class DerivaUpload(object):
         except:
             (etype, value, traceback) = sys.exc_info()
             raise CatalogUpdateError(format_exception(value))
-

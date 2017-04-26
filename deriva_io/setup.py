@@ -24,7 +24,8 @@ setup(
         'sys',
         'logging',
         're',
-        'scandir'],
+        'scandir',
+        'deriva_common'],
     license='Apache 2.0',
     classifiers=[
         'Intended Audience :: Science/Research',
