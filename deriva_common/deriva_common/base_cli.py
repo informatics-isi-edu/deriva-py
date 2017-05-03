@@ -20,6 +20,13 @@ class BaseCLI(object):
         self.parser.add_argument(
             '--credential-file', metavar='<file>', help="Optional path to a credential file.")
 
+    def remove_options(self, options):
+        for option in options:
+            for action in self.parser._actions:
+                if vars(action)['option_strings'][0] == option:
+                    self.parser._handle_conflict_resolve(None, [(option, action)])
+                    break
+
     def parse_cli(self):
         args = self.parser.parse_args()
         init_logging(level=logging.ERROR if args.quiet else (logging.DEBUG if args.debug else logging.INFO))

@@ -16,9 +16,12 @@ class DerivaUploadCLI(BaseCLI):
         if not issubclass(uploader, DerivaUpload):
             raise ValueError("DerivaUpload subclass required")
 
-        if not (config_file and os.path.isfile(config_file)):
-            config_file = uploader.getDefaultConfigFilePath()
-        config = read_config(config_file, create_default=True, default=uploader.getDefaultConfig())
+        if getattr(sys, 'frozen', False):
+            config = uploader.getDefaultConfig()
+        else:
+            if not (config_file and os.path.isfile(config_file)):
+                config_file = uploader.getDefaultConfigFilePath()
+            config = read_config(config_file, create_default=True, default=uploader.getDefaultConfig())
         credential = read_credential(credential_file, create_default=False)
         deriva_uploader = uploader.getInstance(config, credential)
         deriva_uploader.scanDirectory(data_path, False)
