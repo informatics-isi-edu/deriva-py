@@ -63,7 +63,7 @@ DEFAULT_SESSION_CONFIG = {
     "retry_connect": 5,
     "retry_read": 5,
     "retry_backoff_factor": 1.0,
-    "retry_status_forcelist": [502, 503, 504]
+    "retry_status_forcelist": [500, 502, 503, 504]
 }
 DEFAULT_CONFIG = {
     "server":
@@ -151,7 +151,8 @@ def resource_path(relative_path, default=os.path.abspath(".")):
     """ required to find bundled data at runtime in Pyinstaller single-file exe mode """
     if getattr(sys, 'frozen', False):
         return os.path.join(getattr(sys, '_MEIPASS'), relative_path)
-
+    if default is None:
+        return relative_path
     return os.path.join(default, relative_path)
 
 from .hatrac_store import HatracStore
