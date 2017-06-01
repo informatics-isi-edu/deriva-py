@@ -1,8 +1,10 @@
 import os
 import re
 import sys
+import shutil
+import tempfile
 import logging
-from deriva_common import ErmrestCatalog, HatracStore, format_exception, urlquote
+from deriva_common import ErmrestCatalog, HatracStore, format_exception, urlquote, read_config, resource_path
 from deriva_common.utils import hash_utils as hu, mime_utils as mu
 
 try:
@@ -18,7 +20,7 @@ class CatalogCreateError (Exception):
 class CatalogUpdateError (Exception):
     pass
 
-
+DefaultConfigFileName = "config.json"
 FileUploadState = {"S": "Success", "F": "Failure", "P": "Pending", "R": "Retry"}
 
 
@@ -29,28 +31,48 @@ class DerivaUpload(object):
 
     This class is not intended to be instantiated directly, but rather extended by a deployment specific implementation.
     """
+    catalog = None
+    store = None
+    asset_mappings = None
+    remote_config_path = None
+
     def __init__(self, config=None, credentials=None):
-
-        protocol = config['server']['protocol']
-        server = config['server']['host']
-        catalog_id = config['server']['catalog_id']
-        session_config = config.get('session')
-
-        self.catalog = ErmrestCatalog(protocol, server, catalog_id, credentials, session_config=session_config)
-        self.store = HatracStore(protocol, server, credentials, session_config=session_config)
-
-        self.asset_mappings = config.get('asset_mappings', [])
-        mu.add_types(config.get('mime_overrides'))
-
         self.file_list = dict()
         self.file_status = dict()
         self.skipped_files = set()
         self.config = config
+        self.credentials = credentials
+
+        self.configure()
+
+    def configure(self):
+        self.cleanup()
+        server = self.config['server']
+        protocol = server.get('protocol', 'https')
+        host = server.get('host', '')
+        self.remote_config_path = server.get('config_path')
+        catalog_id = self.config.get('catalog_id', '1')
+        session_config = self.config.get('session')
+        self.asset_mappings = self.config.get('asset_mappings', [])
+        mu.add_types(self.config.get('mime_overrides'))
+
+        if self.catalog:
+            del self.catalog
+        self.catalog = ErmrestCatalog(protocol, host, catalog_id, self.credentials, session_config=session_config)
+        if self.store:
+            del self.store
+        self.store = HatracStore(protocol, host, self.credentials, session_config=session_config)
 
     def cleanup(self):
         self.file_list.clear()
         self.file_status.clear()
         self.skipped_files.clear()
+
+    def setCredentials(self, credentials):
+        server = self.config['server']['host']
+        self.credentials = credentials
+        self.catalog.set_credentials(self.credentials, server)
+        self.store.set_credentials(self.credentials, server)
 
     @staticmethod
     def getInstance(config=None, credentials=None):
@@ -60,18 +82,15 @@ class DerivaUpload(object):
         raise NotImplementedError("This method must be implemented by a subclass.")
 
     @staticmethod
-    def getDefaultConfigFilePath():
+    def getDeployedConfigFilePath():
         """
         This method must be implemented by subclasses.
         """
         raise NotImplementedError("This method must be implemented by a subclass.")
 
     @staticmethod
-    def getDefaultConfig():
-        """
-        This method must be implemented by subclasses.
-        """
-        raise NotImplementedError("This method must be implemented by a subclass.")
+    def getDefaultConfigFilePath():
+        return os.path.normpath(resource_path(os.path.join("conf", DefaultConfigFileName)))
 
     @staticmethod
     def getFileSize(file_path):
@@ -84,6 +103,31 @@ class DerivaUpload(object):
     @staticmethod
     def getFileHashes(file_path, hashes=frozenset(['md5'])):
         return hu.compute_file_hashes(file_path, hashes)
+
+    def getUpdatedConfig(self):
+        if not self.remote_config_path:
+            logging.debug(
+                "Unable to check for updated configuration file -- remote configuration path not specified.")
+            return
+        logging.info("Checking for updated configuration file...")
+        if not self.store.content_equals(self.remote_config_path, self.getDeployedConfigFilePath()):
+            logging.info("Retrieving updated configuration file...")
+            with tempfile.TemporaryDirectory() as tempdir:
+                updated_config_path = os.path.abspath(os.path.join(tempdir, DefaultConfigFileName))
+                self.store.get_obj(self.remote_config_path,
+                                   destfilename=updated_config_path)
+                # an extra sanity check here
+                if self.store.content_equals(self.remote_config_path, updated_config_path):
+                    shutil.copy2(updated_config_path, self.getDeployedConfigFilePath())
+                else:
+                    logging.error("Downloaded configuration file does not match checksum of current server version. "
+                                  "Falling back to old version.")
+                    return
+            logging.info("Applying updated configuration file...")
+            self.config = read_config(self.getDeployedConfigFilePath())
+            self.configure()
+        else:
+            logging.info("Configuration file is up-to-date.")
 
     def getFileStatusAsArray(self):
         result = list()

@@ -1,3 +1,4 @@
+import io
 import os
 import sys
 import errno
@@ -88,8 +89,8 @@ def write_config(config_file=DEFAULT_CONFIG_FILE, config=DEFAULT_CONFIG):
         except OSError as error:
             if error.errno != errno.EEXIST:
                 raise
-    with open(config_file, 'w') as cf:
-        cf.write(json.dumps(config, sort_keys=True, indent=2, separators=(',', ': ')))
+    with io.open(config_file, 'w', newline='\n') as cf:
+        cf.write(json.dumps(config, indent=2))
         cf.close()
 
 
@@ -102,8 +103,8 @@ def read_config(config_file=DEFAULT_CONFIG_FILE, create_default=False, default=D
         try:
             write_config(config_file, default)
         except Exception as e:
-            logging.warn("Unable to create configuration file %s. Using internal defaults. %s" %
-                         (config_file, format_exception(e)))
+            logging.warning("Unable to create configuration file %s. Using internal defaults. %s" %
+                            (config_file, format_exception(e)))
             config = default
 
     if not config:
@@ -121,9 +122,9 @@ def write_credential(credential_file=DEFAULT_CREDENTIAL_FILE, credential=DEFAULT
         except OSError as error:
             if error.errno != errno.EEXIST:
                 raise
-    with open(credential_file, 'w') as cf:
+    with io.open(credential_file, 'w', newline='\n') as cf:
         os.chmod(credential_file, 0o600)
-        cf.write(json.dumps(credential, sort_keys=True, indent=2, separators=(',', ': ')))
+        cf.write(json.dumps(credential, indent=2))
         cf.close()
 
 
@@ -136,8 +137,8 @@ def read_credential(credential_file=DEFAULT_CREDENTIAL_FILE, create_default=Fals
         try:
             write_credential(credential_file, default)
         except Exception as e:
-            logging.warn("Unable to create configuration file %s. Using internal defaults. %s" %
-                         (credential_file, format_exception(e)))
+            logging.warning("Unable to create configuration file %s. Using internal defaults. %s" %
+                            (credential_file, format_exception(e)))
             credential = default
 
     if not credential:

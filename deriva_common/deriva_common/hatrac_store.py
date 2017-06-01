@@ -6,6 +6,9 @@ from . import format_exception, NotModified, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE
 from .deriva_binding import DerivaBinding
 from .utils import hash_utils as hu, mime_utils as mu
 
+Kilobyte = 1024
+Megabyte = 1024 ** 2
+
 
 class HatracHashMismatch (ValueError):
     pass
@@ -22,6 +25,21 @@ class HatracStore(DerivaBinding):
 
         """
         DerivaBinding.__init__(self, scheme, server, credentials, caching=False, session_config=session_config)
+
+    def content_equals(self, path, filename):
+        """
+        Check if a remote object's content is equal to the content of the specified input file by comparing MD5 hashes.
+        :param path: 
+        :param filename: 
+        :return: True IFF the object exists and the MD5 hash matches the MD5 hash of the input file.
+        """
+        md5 = hu.compute_file_hashes(filename, hashes=['md5'])['md5'][1]
+        r = self.head(path)
+        r.raise_for_status()
+        if r.status_code == 200 and r.headers.get('Content-MD5') == md5:
+            return True
+        elif r.status_code == 200 and r.headers.get('Content-MD5') != md5:
+            return False
 
     def get_obj(self, path, headers=DEFAULT_HEADERS, destfilename=None, callback=None):
         """Retrieve resource optionally streamed to destination file.
@@ -55,22 +73,18 @@ class HatracStore(DerivaBinding):
 
             if destfilename is not None:
                 total = 0
-                megabyte = 1024 ** 2
                 start = datetime.datetime.now()
                 logging.debug("Transferring file %s to %s" % (self._server_uri + path, destfilename))
-                for buf in r.iter_content(chunk_size=megabyte):
+                for buf in r.iter_content(chunk_size=Megabyte):
                     destfile.write(buf)
                     total += len(buf)
                     if callback:
-                        if not callback(progress="Downloading: %.2f MB transferred" % (total / megabyte)):
+                        if not callback(progress="Downloading: %.2f MB transferred" % (total / Megabyte)):
                             destfile.close()
                             os.remove(destfilename)
                             return None
                 elapsed = datetime.datetime.now() - start
-                totalSecs = elapsed.total_seconds()
-                totalMBs = total / megabyte
-                throughput = str("%.2f MB/second" % (totalMBs / totalSecs if totalSecs > 0 else 0.001))
-                summary = '%.2f MB transferred at %s. Elapsed time: %s. ' % (totalMBs, throughput, elapsed)
+                summary = self.get_transfer_summary(total, elapsed)
                 logging.info("File [%s] transfer successful. %s" % (destfilename, summary))
                 if callback:
                     callback(summary=summary, file_path=destfilename)
@@ -192,7 +206,7 @@ class HatracStore(DerivaBinding):
                 chunks += 1
             with open(file_path, 'rb') as f:
                 chunk = 0
-                total_bytes = 0
+                total = 0
                 start = datetime.datetime.now()
                 logging.debug("Transferring file %s to %s%s" % (file_path, self._server_uri, path))
                 while True:
@@ -203,7 +217,7 @@ class HatracStore(DerivaBinding):
                     headers = {'Content-Type': 'application/octet-stream', 'Content-Length': '%d' % len(data)}
                     r = self.put(url, data=data, headers=headers)
                     r.raise_for_status()
-                    total_bytes += len(data)
+                    total += len(data)
                     chunk += 1
                     if callback:
                         if not callback(completed=chunk, total=chunks, file_path=file_path):
@@ -211,10 +225,7 @@ class HatracStore(DerivaBinding):
                             self.cancel_upload_job(path, job_id)
                             return
                 elapsed = datetime.datetime.now() - start
-                totalSecs = elapsed.total_seconds()
-                totalMBs = round(float(total_bytes) / float(1024 ** 2), 3)
-                throughput = str("%.2f MB/second" % (totalMBs / totalSecs if totalSecs > 0 else 0.001))
-                summary = '%.2f MB transferred at %s. Elapsed time: %s. ' % (totalMBs, throughput, elapsed)
+                summary = self.get_transfer_summary(total, elapsed)
                 logging.info("File [%s] upload successful. %s" % (file_path, summary))
                 if callback:
                     callback(summary=summary, file_path=file_path)
@@ -298,3 +309,12 @@ class HatracStore(DerivaBinding):
         resp.raise_for_status()
         logging.info('Deleted namespace "%s%s".' % (self._server_uri, namespace_path))
 
+    @staticmethod
+    def get_transfer_summary(total_bytes, elapsed_time):
+        total_secs = elapsed_time.total_seconds()
+        transferred = total_bytes / Kilobyte if total_bytes < Megabyte else total_bytes / Megabyte
+        throughput = str(" at %.2f MB/second" % (transferred / total_secs)) if (total_secs > 0) else ""
+        elapsed = str("Elapsed time: %s." % elapsed_time) if (total_secs > 0) else ""
+        summary = "%.2f %s transferred%s. %s" % \
+                  (transferred, "KB" if total_bytes < Megabyte else "MB", throughput, elapsed)
+        return summary

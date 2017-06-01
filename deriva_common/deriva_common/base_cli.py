@@ -1,6 +1,6 @@
 import argparse
 import logging
-from deriva_common import DEFAULT_CONFIG_FILE, DEFAULT_CREDENTIAL_FILE, init_logging
+from deriva_common import init_logging
 
 
 class BaseCLI(object):
@@ -13,6 +13,9 @@ class BaseCLI(object):
 
         self.parser.add_argument(
             '--debug', action="store_true", help="Enable debug logging output.")
+
+        self.parser.add_argument(
+            '--host', metavar='<fqhn>', help="Optional fully qualified host name to connect to.")
 
         self.parser.add_argument(
             '--config-file', metavar='<file>', help="Optional path to a configuration file.")

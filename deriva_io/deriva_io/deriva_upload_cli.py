@@ -1,5 +1,6 @@
 import os
 import sys
+import shutil
 from deriva_common import read_config, read_credential, format_exception
 from deriva_common.base_cli import BaseCLI
 from deriva_io.deriva_upload import DerivaUpload
@@ -12,17 +13,18 @@ class DerivaUploadCLI(BaseCLI):
         self.uploader = uploader
 
     @staticmethod
-    def upload(uploader, data_path, config_file=None, credential_file=None):
+    def upload(uploader, data_path, config_file=None, credential_file=None, hostname=None):
         if not issubclass(uploader, DerivaUpload):
-            raise ValueError("DerivaUpload subclass required")
+            raise TypeError("DerivaUpload subclass required")
 
-        if getattr(sys, 'frozen', False):
-            config = uploader.getDefaultConfig()
-        else:
+        if not (config_file and os.path.isfile(config_file)):
+            config_file = uploader.getDeployedConfigFilePath()
             if not (config_file and os.path.isfile(config_file)):
-                config_file = uploader.getDefaultConfigFilePath()
-            config = read_config(config_file, create_default=True, default=uploader.getDefaultConfig())
-        credential = read_credential(credential_file, create_default=False)
+                shutil.copy2(uploader.getDefaultConfigFilePath(), config_file)
+        config = read_config(config_file)
+        if hostname:
+            config['server']['host'] = hostname
+        credential = read_credential(credential_file)
         deriva_uploader = uploader.getInstance(config, credential)
         deriva_uploader.scanDirectory(data_path, False)
         deriva_uploader.uploadFiles()
@@ -40,7 +42,8 @@ class DerivaUploadCLI(BaseCLI):
             DerivaUploadCLI.upload(self.uploader,
                                    os.path.abspath(args.data_path),
                                    args.config_file,
-                                   args.credential_file)
+                                   args.credential_file,
+                                   args.host)
         except Exception as e:
             sys.stderr.write(format_exception(e))
             return 1
