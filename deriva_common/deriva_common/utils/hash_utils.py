@@ -13,7 +13,7 @@ def compute_hashes(fd, hashes=frozenset(['md5'])):
     hashers = dict()
     for alg in hashes:
         try:
-            hashers[alg] = hashlib.new(alg)
+            hashers[alg] = hashlib.new(alg.lower())
         except ValueError:
             logging.warning("Unable to validate file contents using unknown hash algorithm: %s", alg)
 
@@ -41,7 +41,7 @@ def compute_file_hashes(file_path, hashes=frozenset(['md5'])):
        Digests data read from file denoted by file_path.
     """
     if not os.path.exists(file_path):
-        logging.warn("%s does not exist" % file_path)
+        logging.warning("%s does not exist" % file_path)
         return
     else:
         logging.debug("Computing [%s] hashes for file [%s]" % (','.join(hashes), file_path))
@@ -50,6 +50,6 @@ def compute_file_hashes(file_path, hashes=frozenset(['md5'])):
         with open(file_path, 'rb') as fd:
             return compute_hashes(fd, hashes)
     except (IOError, OSError) as e:
-        logging.warn("Error while calculating digest(s) for file %s: %s" % (file_path, str(e)))
+        logging.warning("Error while calculating digest(s) for file %s: %s" % (file_path, str(e)))
         raise
 

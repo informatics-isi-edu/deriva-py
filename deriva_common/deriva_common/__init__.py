@@ -1,6 +1,7 @@
 import io
 import os
 import sys
+import shutil
 import errno
 import json
 import platform
@@ -15,7 +16,7 @@ else:
 
 DEFAULT_HEADERS = {}
 
-DEFAULT_CHUNK_SIZE = 1024 ** 2
+DEFAULT_CHUNK_SIZE = 2048 ** 2
 
 
 class NotModified (ValueError):
@@ -79,6 +80,17 @@ DEFAULT_CONFIG = {
 DEFAULT_CREDENTIAL = {
   "cookie": "webauthn="
 }
+
+
+def copy_config(src, dst):
+    config_dir = os.path.dirname(dst)
+    if not os.path.isdir(config_dir):
+        try:
+            os.makedirs(config_dir)
+        except OSError as error:
+            if error.errno != errno.EEXIST:
+                raise
+    shutil.copy2(src, dst)
 
 
 def write_config(config_file=DEFAULT_CONFIG_FILE, config=DEFAULT_CONFIG):
@@ -156,6 +168,6 @@ def resource_path(relative_path, default=os.path.abspath(".")):
         return relative_path
     return os.path.join(default, relative_path)
 
-from .hatrac_store import HatracStore
+from .hatrac_store import HatracStore, HatracHashMismatch, HatracJobPaused, HatracJobAborted
 from .ermrest_catalog import ErmrestCatalog
 from .polling_ermrest_catalog import PollingErmrestCatalog
