@@ -1,7 +1,6 @@
 import os
 import sys
-import shutil
-from deriva_common import read_config, read_credential, format_exception
+from deriva_common import read_config, copy_config, read_credential, format_exception
 from deriva_common.base_cli import BaseCLI
 from deriva_io.deriva_upload import DerivaUpload
 
@@ -18,9 +17,9 @@ class DerivaUploadCLI(BaseCLI):
             raise TypeError("DerivaUpload subclass required")
 
         if not (config_file and os.path.isfile(config_file)):
-            config_file = uploader.getDeployedConfigFilePath()
+            config_file = uploader.getDeployedConfigFilePath(uploader)
             if not (config_file and os.path.isfile(config_file)):
-                shutil.copy2(uploader.getDefaultConfigFilePath(), config_file)
+                copy_config(uploader.getDefaultConfigFilePath(uploader), config_file)
         config = read_config(config_file)
         if hostname:
             config['server']['host'] = hostname
