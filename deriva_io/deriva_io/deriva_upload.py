@@ -39,7 +39,7 @@ class DerivaUpload(object):
     store = None
     asset_mappings = None
     remote_config_path = None
-    transfer_state = None
+    transfer_state = dict()
     transfer_state_fp = None
     cancelled = False
 
@@ -416,13 +416,17 @@ class DerivaUpload(object):
             raise CatalogUpdateError(format_exception(value))
 
     def loadTransferState(self):
+        transfer_state_file_path = self.getDeployedTransferStateFilePath()
+        if not os.path.isfile(transfer_state_file_path):
+            with open(transfer_state_file_path, "w") as tsfp:
+                json.dump(self.transfer_state, tsfp)
+
         self.transfer_state_fp = \
-            os.fdopen(os.open(self.getDeployedTransferStateFilePath(), os.O_RDWR | os.O_CREAT), 'r+')
+            open(transfer_state_file_path, 'r+')
         try:
             self.transfer_state = json.load(self.transfer_state_fp, object_pairs_hook=OrderedDict)
         except JSONDecodeError as e:
             logging.debug("Unable to read transfer state: %s" % format_exception(e))
-            self.transfer_state = dict()
 
     def getTransferState(self, file_path):
         return self.transfer_state.get(file_path)
