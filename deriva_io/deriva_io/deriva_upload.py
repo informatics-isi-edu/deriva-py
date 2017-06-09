@@ -25,7 +25,7 @@ class CatalogUpdateError (Exception):
     pass
 
 
-FileUploadState = {"S": "Success", "F": "Failure", "P": "Pending", "R": "Retry", "C": "Cancelled"}
+FileUploadState = {"S": "Success", "F": "Failure", "P": "Pending", "I": "In-progress", "R": "Retry", "C": "Cancelled"}
 
 
 class DerivaUpload(object):
@@ -212,20 +212,25 @@ class DerivaUpload(object):
     def uploadFiles(self, status_callback=None, file_callback=None):
         for file_path, (asset_mapping, groupdict) in self.file_list.items():
             if self.cancelled:
-                self.file_status[file_path] = {"State": FileUploadState["C"], "Status": "Cancelled by user."}
+                self.file_status[file_path] = {"State": FileUploadState["C"], "Status": "Cancelled by user"}
                 continue
             try:
+                self.file_status[file_path] = {"State": FileUploadState["I"], "Status": FileUploadState["I"]}
+                if status_callback:
+                    status_callback()
                 self.uploadFile(file_path, asset_mapping, groupdict, file_callback)
-                self.file_status[file_path] = {"State": FileUploadState["S"], "Status": "Transfer complete."}
+                self.file_status[file_path] = {"State": FileUploadState["S"], "Status": FileUploadState["S"]}
             except HatracJobPaused:
-                self.file_status[file_path] = {"State": FileUploadState["R"], "Status": "Paused by user."}
+                self.file_status[file_path] = {"State": FileUploadState["R"], "Status": "Paused by user"}
                 continue
             except HatracJobAborted:
-                self.file_status[file_path] = {"State": FileUploadState["C"], "Status": "Cancelled by user."}
+                self.file_status[file_path] = {"State": FileUploadState["C"], "Status": "Aborted by user"}
             except:
                 (etype, value, traceback) = sys.exc_info()
                 self.file_status[file_path] = {"State": FileUploadState["F"], "Status": format_exception(value)}
             self.delTransferState(file_path)
+            if status_callback:
+                status_callback()
 
         failed_uploads = dict()
         for key, value in self.file_status.items():
@@ -271,7 +276,7 @@ class DerivaUpload(object):
                             round(((transfer_state["completed"] / transfer_state["total"]) % 100) * 100))
                         self.file_status[file_path] = {"State": FileUploadState["R"], "Status": status}
                     else:
-                        self.file_status[file_path] = {"State": FileUploadState["P"], "Status": "Transfer Pending"}
+                        self.file_status[file_path] = {"State": FileUploadState["P"], "Status": FileUploadState["P"]}
 
     def getAssetMapping(self, file_path):
         """
