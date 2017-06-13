@@ -50,10 +50,9 @@ class HatracStore(DerivaBinding):
         r = self.head(path)
         r.raise_for_status()
         if r.status_code == 200 and \
-                (r.headers.get('Content-MD5') == md5 or r.headers.get('Content-SHA256') == sha256):
+                (md5 and r.headers.get('Content-MD5') == md5 or sha256 and r.headers.get('Content-SHA256') == sha256):
             return True
-        elif r.status_code == 200 and \
-                (r.headers.get('Content-MD5') != md5 or r.headers.get('Content-SHA256') != sha256):
+        else:
             return False
 
     def get_obj(self, path, headers=DEFAULT_HEADERS, destfilename=None, callback=None):
@@ -157,7 +156,7 @@ class HatracStore(DerivaBinding):
         try:
             r = self.head(path)
             if r.status_code == 200 and \
-                    (r.headers.get('Content-MD5') == md5 or r.headers.get('Content-SHA256') == sha256):
+                    (md5 and r.headers.get('Content-MD5') == md5 or sha256 and r.headers.get('Content-SHA256') == sha256):
                 # object already has same content so skip upload
                 f.close()
                 return r.headers.get('Content-Location')
@@ -210,7 +209,7 @@ class HatracStore(DerivaBinding):
         try:
             r = self.head(path)
             if r.status_code == 200 and \
-                    (r.headers.get('Content-MD5') == md5 or r.headers.get('Content-SHA256') == sha256):
+                    (md5 and r.headers.get('Content-MD5') == md5 or sha256 and r.headers.get('Content-SHA256') == sha256):
                 # object already has same content so skip upload
                 return r.headers.get('Content-Location')
             elif not allow_versioning:
