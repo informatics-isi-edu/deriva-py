@@ -76,15 +76,16 @@ class DerivaUpload(object):
         self.server_url = protocol + "://" + host
         self.remote_config_path = self.server.get('config_path')
 
-        # credential and configuration file vars
+        # credential and configuration initialization
         if not (config_file and os.path.isfile(config_file)):
             config_file = self.getDeployedConfigFilePath()
-            if not (config_file and os.path.isfile(config_file)):
+            if (not(config_file and os.path.isfile(config_file))
+                    or self.isFileNewer(self.getDefaultConfigFilePath(), self.getDeployedConfigFilePath())):
                 copy_config(self.getDefaultConfigFilePath(), config_file)
         self.config = read_config(config_file)
         self.credentials = read_credential(credential_file) if credential_file else None
 
-        # uploader vars from configuration file
+        # uploader initialization from configuration file
         catalog_id = self.config.get('catalog_id', '1')
         session_config = self.config.get('session')
         self.asset_mappings = self.config.get('asset_mappings', [])
@@ -163,6 +164,12 @@ class DerivaUpload(object):
     @classmethod
     def getFileDisplayName(cls, file_path, asset_mapping=None):
         return os.path.basename(file_path)
+
+    @staticmethod
+    def isFileNewer(src, dst):
+        src_mtime = os.path.getmtime(os.path.abspath(src))
+        dst_mtime = os.path.getmtime(os.path.abspath(dst))
+        return src_mtime > dst_mtime
 
     @staticmethod
     def getFileSize(file_path):
