@@ -1,3 +1,4 @@
+import errno
 import json
 import os
 import re
@@ -8,8 +9,8 @@ import logging
 from collections import OrderedDict, namedtuple
 from json import JSONDecodeError
 from deriva_common import ErmrestCatalog, HatracStore, HatracJobAborted, HatracJobPaused, format_exception, urlquote, \
-    read_config, resource_path
-from deriva_common.utils import hash_utils as hu, mime_utils as mu
+    read_credential, read_config, copy_config, resource_path
+from deriva_common.utils import hash_utils as hu, mime_utils as mu, version_utils as vu
 
 try:
     from os import scandir, walk
@@ -39,8 +40,12 @@ class DerivaUpload(object):
 
     This class is not intended to be instantiated directly, but rather extended by a deployment specific implementation.
     """
+    server = None
+    server_url = None
     catalog = None
     store = None
+    config = None
+    credentials = None
     asset_mappings = None
     remote_config_path = None
     transfer_state = dict()
@@ -50,26 +55,36 @@ class DerivaUpload(object):
     DefaultConfigFileName = "config.json"
     DefaultTransferStateFileName = "transfers.json"
 
-    def __init__(self, config=None, credentials=None):
+    def __init__(self, config_file=None, credential_file=None, server=None):
         self.file_list = OrderedDict()
         self.file_status = OrderedDict()
         self.skipped_files = set()
-        self.config = config
-        self.credentials = credentials
-
-        self.configure()
+        self.config_file = config_file
+        self.credential_file = credential_file
+        self.server = self.getDefaultServer() if not server else server
+        self.configure(config_file, credential_file)
 
     def __del__(self):
-        if self.transfer_state_fp:
-            self.transfer_state_fp.flush()
-            self.transfer_state_fp.close()
+        self.cleanupTransferState()
 
-    def configure(self):
+    def configure(self, config_file=None, credential_file=None):
         self.cleanup()
-        server = self.config['server']
-        protocol = server.get('protocol', 'https')
-        host = server.get('host', '')
-        self.remote_config_path = server.get('config_path')
+
+        # server vars
+        protocol = self.server.get('protocol', 'https')
+        host = self.server.get('host', '')
+        self.server_url = protocol + "://" + host
+        self.remote_config_path = self.server.get('config_path')
+
+        # credential and configuration file vars
+        if not (config_file and os.path.isfile(config_file)):
+            config_file = self.getDeployedConfigFilePath()
+            if not (config_file and os.path.isfile(config_file)):
+                copy_config(self.getDefaultConfigFilePath(), config_file)
+        self.config = read_config(config_file)
+        self.credentials = read_credential(credential_file) if credential_file else None
+
+        # uploader vars from configuration file
         catalog_id = self.config.get('catalog_id', '1')
         session_config = self.config.get('session')
         self.asset_mappings = self.config.get('asset_mappings', [])
@@ -87,24 +102,67 @@ class DerivaUpload(object):
     def cancel(self):
         self.cancelled = True
 
-    def cleanup(self):
+    def reset(self):
         self.file_list.clear()
         self.file_status.clear()
         self.skipped_files.clear()
         self.cancelled = False
 
+    def cleanup(self):
+        self.reset()
+        self.config = None
+        self.credentials = None
+        self.cleanupTransferState()
+
+    def setServer(self, server):
+        self.server = server
+        self.configure(self.config_file, self.credential_file)
+
     def setCredentials(self, credentials):
-        server = self.config['server']['host']
+        server = self.server['host']
         self.credentials = credentials
         self.catalog.set_credentials(self.credentials, server)
         self.store.set_credentials(self.credentials, server)
 
-    @staticmethod
-    def getInstance(config=None, credentials=None):
+    @classmethod
+    def getDefaultServer(cls):
+        servers = cls.getServers()
+        for server in servers:
+            lower = {k.lower(): v for k, v in server.items()}
+            if lower.get("default", False):
+                return server
+        return servers[0]
+
+    @classmethod
+    def getServers(cls):
         """
         This method must be implemented by subclasses.
         """
         raise NotImplementedError("This method must be implemented by a subclass.")
+
+    @classmethod
+    def getDeployedConfigPath(cls):
+        """
+        This method must be implemented by subclasses.
+        """
+        raise NotImplementedError("This method must be implemented by a subclass.")
+
+    @classmethod
+    def getVersion(cls):
+        """
+        This method must be implemented by subclasses.
+        """
+        raise NotImplementedError("This method must be implemented by a subclass.")
+
+    def getVersionCompatibility(self):
+        return self.config.get("version_compatibility", list())
+
+    def isVersionCompatible(self):
+        return vu.is_compatible(self.getVersion(), self.getVersionCompatibility())
+
+    @classmethod
+    def getFileDisplayName(cls, file_path, asset_mapping=None):
+        return os.path.basename(file_path)
 
     @staticmethod
     def getFileSize(file_path):
@@ -127,7 +185,7 @@ class DerivaUpload(object):
     def processTemplates(src, dst, allowNone=False):
         dst = dst.copy()
         # prune None values from the src, we don't want those to be replaced with the string 'None' in the dest
-        empty = [k for k, v in src.items() if v == None]
+        empty = [k for k, v in src.items() if v is None]
         for k in empty:
             del src[k]
         # perform the string replacement for the values in the destination dict
@@ -142,31 +200,30 @@ class DerivaUpload(object):
             dst.update({k: value})
         # remove all None valued entries in the dest, if disallowed
         if not allowNone:
-            empty = [k for k, v in dst.items() if v == None]
+            empty = [k for k, v in dst.items() if v is None]
             for k in empty:
                 del dst[k]
 
         return dst
 
     def getDefaultConfigFilePath(self):
-        return os.path.normpath(resource_path(os.path.join("conf", DerivaUpload.DefaultConfigFileName)))
+        return os.path.normpath(resource_path(os.path.join("conf", self.DefaultConfigFileName)))
 
     def getDeployedConfigFilePath(self):
-        """
-        This method must be implemented by subclasses.
-        """
-        raise NotImplementedError("This method must be implemented by a subclass.")
+        return os.path.join(
+            self.getDeployedConfigPath(), self.server.get('host', ''), self.DefaultConfigFileName)
 
     def getDeployedTransferStateFilePath(self):
-        """
-        This method must be implemented by subclasses.
-        """
-        raise NotImplementedError("This method must be implemented by a subclass.")
+        return os.path.join(
+            self.getDeployedConfigPath(), self.server.get('host', ''), self.DefaultTransferStateFileName)
 
     def getUpdatedConfig(self):
         if not self.remote_config_path:
             logging.debug(
                 "Unable to check for updated configuration file -- remote configuration path not specified.")
+            return
+        # if we are using an overridden config file, skip the update check
+        if self.config_file:
             return
         logging.info("Checking for updated configuration file...")
         if not self.store.content_equals(self.remote_config_path, self.getDeployedConfigFilePath()):
@@ -195,9 +252,6 @@ class DerivaUpload(object):
             item.update(self.file_status[key])
             result.append(item)
         return result
-
-    def getFileDisplayName(self, file_path, asset_mapping=None):
-        return os.path.basename(file_path)
 
     def validateFile(self, root, path, name):
         file_path = os.path.normpath(os.path.join(path, name))
@@ -260,6 +314,7 @@ class DerivaUpload(object):
         :param abort_on_invalid_input:
         :return:
         """
+        root = os.path.abspath(root)
         if not os.path.isdir(root):
             raise ValueError("Invalid directory specified: [%s]" % root)
 
@@ -325,8 +380,6 @@ class DerivaUpload(object):
                       allow_versioning=True,
                       callback=None):
 
-        server = self.config['server']['protocol'] + "://" + self.config['server']['host']
-
         # check if there is already an in-progress transfer for this file,
         # and if so, that the local file has not been modified since the original upload job was created
         can_resume = False
@@ -351,7 +404,7 @@ class DerivaUpload(object):
             self.store.finalize_upload_job(path, job_id)
         else:
             logging.info("Uploading file: [%s] to host %s. Please wait..." % (
-                self.getFileDisplayName(file_path), server))
+                self.getFileDisplayName(file_path), self.server_url))
             self.store.put_loc(uri,
                                file_path,
                                md5=md5,
@@ -426,6 +479,14 @@ class DerivaUpload(object):
 
     def loadTransferState(self):
         transfer_state_file_path = self.getDeployedTransferStateFilePath()
+        transfer_state_dir = os.path.dirname(transfer_state_file_path)
+        if not os.path.isdir(transfer_state_dir):
+            try:
+                os.makedirs(transfer_state_dir)
+            except OSError as error:
+                if error.errno != errno.EEXIST:
+                    raise
+
         if not os.path.isfile(transfer_state_file_path):
             with open(transfer_state_file_path, "w") as tsfp:
                 json.dump(self.transfer_state, tsfp)
@@ -455,6 +516,11 @@ class DerivaUpload(object):
         self.transfer_state_fp.truncate()
         json.dump(self.transfer_state, self.transfer_state_fp, indent=2)
         self.transfer_state_fp.flush()
+
+    def cleanupTransferState(self):
+        if self.transfer_state_fp:
+            self.transfer_state_fp.flush()
+            self.transfer_state_fp.close()
 
     def getTransferStateStatus(self, file_path):
         transfer_state = self.getTransferState(file_path)

@@ -1,6 +1,7 @@
 import os
 import sys
-from deriva_common import read_config, copy_config, read_credential, format_exception
+import traceback
+import urllib.parse
 from deriva_common.base_cli import BaseCLI
 from deriva_io.deriva_upload import DerivaUpload
 
@@ -16,15 +17,18 @@ class DerivaUploadCLI(BaseCLI):
         if not issubclass(uploader, DerivaUpload):
             raise TypeError("DerivaUpload subclass required")
 
-        if not (config_file and os.path.isfile(config_file)):
-            config_file = uploader.getDeployedConfigFilePath(uploader)
-            if not (config_file and os.path.isfile(config_file)):
-                copy_config(uploader.getDefaultConfigFilePath(uploader), config_file)
-        config = read_config(config_file)
+        server = None
         if hostname:
-            config['server']['host'] = hostname
-        credential = read_credential(credential_file)
-        deriva_uploader = uploader.getInstance(config, credential)
+            server = dict()
+            if hostname.startswith("http"):
+                url = urllib.parse.urlparse(hostname)
+                server["protocol"] = url.scheme
+                server["host"] = url.netloc
+            else:
+                server["protocol"] = "https"
+                server["host"] = hostname
+
+        deriva_uploader = uploader(config_file, credential_file, server)
         deriva_uploader.scanDirectory(data_path, False)
         deriva_uploader.uploadFiles()
         deriva_uploader.cleanup()
@@ -43,8 +47,8 @@ class DerivaUploadCLI(BaseCLI):
                                    args.config_file,
                                    args.credential_file,
                                    args.host)
-        except Exception as e:
-            sys.stderr.write(format_exception(e))
+        except:
+            traceback.print_exc()
             return 1
         finally:
             sys.stderr.write("\n\n")
