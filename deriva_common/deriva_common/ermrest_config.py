@@ -11,6 +11,9 @@ class AttrDict (dict):
     def __getattr__(self, a):
         return self[a]
 
+    def __setattr__(self, a, v):
+        self[a] = v
+
 # convenient enumeration of common annotation tags
 tag = AttrDict({
     'generated':          'tag:isrd.isi.edu,2016:generated',
