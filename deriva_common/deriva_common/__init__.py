@@ -170,4 +170,5 @@ def resource_path(relative_path, default=os.path.abspath(".")):
 
 from .hatrac_store import HatracStore, HatracHashMismatch, HatracJobPaused, HatracJobAborted
 from .ermrest_catalog import ErmrestCatalog
+from .ermrest_config import AttrDict, CatalogConfig
 from .polling_ermrest_catalog import PollingErmrestCatalog
