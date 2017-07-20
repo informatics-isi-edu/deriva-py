@@ -55,14 +55,8 @@ class NodeConfig (object):
         self.update_uri_path = uri_path
         self.annotations = dict(node_doc.get('annotations', {}))
 
-    def fromcatalog(self, catalog):
-        """Retrieve current node config as a management object."""
-        return NodeConfig(catalog.get(self.uri_path).json())
-
     def apply(self, catalog, existing=None):
-        if existing is None:
-            existing = self.fromcatalog(catalog)
-        if not equivalent(self.annotations, existing.annotations):
+        if existing is None or not equivalent(self.annotations, existing.annotations):
             catalog.put(
                 '%s/%s' % (self.update_uri_path, 'annotation'),
                 json=self.annotations
@@ -141,10 +135,8 @@ class NodeConfigAcl (NodeConfig):
         self.acls = AttrDict(node_doc.get('acls', {}))
 
     def apply(self, catalog, existing=None):
-        if existing is None:
-            existing = self.fromcatalog(catalog)
         NodeConfig.apply(self, catalog, existing)
-        if not equivalent(self.acls, existing.acls):
+        if existing is None or not equivalent(self.acls, existing.acls):
             catalog.put(
                 '%s/%s' % (self.update_uri_path, 'acl'),
                 json=self.acls
@@ -179,10 +171,8 @@ class NodeConfigAclBinding (NodeConfigAcl):
         self.acl_bindings = AttrDict(node_doc.get('acl_bindings', {}))
 
     def apply(self, catalog, existing=None):
-        if existing is None:
-            existing = self.fromcatalog(catalog)
         NodeConfigAcl.apply(self, catalog, existing)
-        if not equivalent(self.acl_bindings, existing.acl_bindings):
+        if existing is None or not equivalent(self.acl_bindings, existing.acl_bindings):
             catalog.put(
                 '%s/%s' % (self.update_uri_path, 'acl_binding'),
                 json=self.acl_bindings
@@ -273,16 +263,10 @@ class CatalogSchema (NodeConfigAcl):
         }
 
     def apply(self, catalog, existing=None):
-        if existing is None:
-            existing = self.fromcatalog(catalog)
         NodeConfigAcl.apply(self, catalog, existing)
         for tname, table in self.tables.items():
-            table.apply(catalog, existing.tables[tname])
+            table.apply(catalog, existing.tables[tname] if existing else None)
         
-    def fromcatalog(self, catalog):
-        """Retrieve current node config as a management object."""
-        return ModelSchema(self.name, catalog.get(self.uri_path).json())
-
     def clear(self):
         """Clear all configuration in schema and children."""
         NodeConfigAcl.clear(self)
@@ -370,20 +354,14 @@ class CatalogTable (NodeConfigAclBinding):
             for fkdoc in table_doc.get('foreign_keys', [])
         ])
 
-    def fromcatalog(self, catalog):
-        """Retrieve current node config as a management object."""
-        return ModelTable(self.sname, self.name, catalog.get(self.uri_path).json())
-
     def apply(self, catalog, existing=None):
-        if existing is None:
-            existing = self.fromcatalog(catalog)
         NodeConfigAclBinding.apply(self, catalog, existing)
         for col in self.column_definitions:
-            col.apply(catalog, existing.column_definitions[col.name])
+            col.apply(catalog, existing.column_definitions[col.name] if existing else None)
         for key in self.keys:
-            key.apply(catalog, existing.keys[key.names[0]])
+            key.apply(catalog, existing.keys[key.names[0]] if existing else None)
         for fkey in self.foreign_keys:
-            fkey.apply(catalog, existing.foreign_keys[fkey.names[0]])
+            fkey.apply(catalog, existing.foreign_keys[fkey.names[0]] if existing else None)
 
     def clear(self):
         """Clear all configuration in table and children."""
@@ -451,10 +429,6 @@ class CatalogColumn (NodeConfigAclBinding):
         self.tname = tname
         self.name = cname
 
-    def fromcatalog(self, catalog):
-        """Retrieve current node config as a management object."""
-        return ModelColumn(self.sname, self.tname, self.name, catalog.get(self.uri_path).json())
-
     def prejson(self, prune=True):
         """Produce a representation of configuration as generic Python data structures"""
         d = NodeConfig.prejson(self)
@@ -490,10 +464,6 @@ class CatalogKey (NodeConfig):
         self.names = [ tuple(name) for name in key_doc['names'] ]
         self.unique_columns = key_doc['unique_columns']
     
-    def fromcatalog(self, catalog):
-        """Retrieve current node config as a management object."""
-        return ModelColumn(self.sname, self.tname, catalog.get(self.uri_path).json())
-
     def prejson(self, prune=True):
         """Produce a representation of configuration as generic Python data structures"""
         d = NodeConfig.prejson(self)
@@ -528,10 +498,6 @@ class CatalogForeignKey (NodeConfigAclBinding):
         self.foreign_key_columns = fkey_doc['foreign_key_columns']
         self.referenced_columns = fkey_doc['referenced_columns']
     
-    def fromcatalog(self, catalog):
-        """Retrieve current node config as a management object."""
-        return ModelColumn(self.sname, self.tname, catalog.get(self.uri_path).json())
-
     def prejson(self, prune=True):
         """Produce a representation of configuration as generic Python data structures"""
         d = NodeConfig.prejson(self)
