@@ -1,6 +1,5 @@
+from deriva_common import urlquote
 
-from urllib import quote
-import json
 
 class AttrDict (dict):
     """Dictionary with optional attribute-based lookup.
@@ -27,6 +26,7 @@ tag = AttrDict({
     'asset':              'tag:isrd.isi.edu,2017:asset',
 })
 
+
 def equivalent(doc1, doc2):
     """Determine whether two dict/array/literal documents are structurally equivalent."""
     if isinstance(doc1, dict) and isinstance(doc2, dict):
@@ -39,6 +39,7 @@ def equivalent(doc1, doc2):
                 return False
         return True
     return doc1 == doc2
+
 
 class NodeConfig (object):
     """Generic model document node configuration management.
@@ -61,7 +62,7 @@ class NodeConfig (object):
                 '%s/%s' % (self.update_uri_path, 'annotation'),
                 json=self.annotations
             )
-        
+
     def clear(self):
         """Clear existing annotations on node."""
         self.annotations.clear()
@@ -78,7 +79,7 @@ class NodeConfig (object):
         if tag not in self.annotations:
             self.annotations[tag] = AttrDict({})
         return self.annotations[tag]
-    
+
     def annotation_presence(self, tag):
         """Return True if annotation is present for given tag, False otherwise."""
         return tag in self.annotations
@@ -100,24 +101,27 @@ class NodeConfig (object):
         if self.annotations:
             d["annotations"] = self.annotations
         return d
-            
+
     @property
     def immutable(self):
         return self.annotation_presence(tag.immutable)
+
     @immutable.setter
     def immutable(self, value):
-        return self.set_annotation_presence(tag.immutable, value)
+        self.set_annotation_presence(tag.immutable, value)
 
     @property
     def generated(self):
         return self.annotation_presence(tag.generated)
+
     @generated.setter
     def generated(self, value):
-        return self.set_annotation_presence(tag.generated, value)
+        self.set_annotation_presence(tag.generated, value)
 
     @property
     def display(self):
         return self.annotation_obj(tag.display)
+
 
 class NodeConfigAcl (NodeConfig):
     """Generic model acl-bearing document node configuration management.
@@ -141,7 +145,7 @@ class NodeConfigAcl (NodeConfig):
                 '%s/%s' % (self.update_uri_path, 'acl'),
                 json=self.acls
             )
-    
+
     def clear(self):
         """Clear existing acls and annotations on node."""
         NodeConfig.clear(self)
@@ -153,7 +157,8 @@ class NodeConfigAcl (NodeConfig):
         if self.acls:
             d["acls"] = self.acls
         return d
-            
+
+
 class NodeConfigAclBinding (NodeConfigAcl):
     """Generic model acl_binding-bearing document node configuration management.
 
@@ -177,7 +182,7 @@ class NodeConfigAclBinding (NodeConfigAcl):
                 '%s/%s' % (self.update_uri_path, 'acl_binding'),
                 json=self.acl_bindings
             )
-    
+
     def clear(self):
         """Clear existing acl_bindings, acls, and annotations on node."""
         NodeConfigAcl.clear(self)
@@ -189,6 +194,7 @@ class NodeConfigAclBinding (NodeConfigAcl):
         if self.acl_bindings:
             d["acl_bindings"] = self.acl_bindings
         return d
+
 
 class CatalogConfig (NodeConfigAcl):
     """Top-level catalog configuration management.
@@ -216,7 +222,7 @@ class CatalogConfig (NodeConfigAcl):
         NodeConfigAcl.apply(self, catalog, existing)
         for sname, schema in self.schemas.items():
             schema.apply(catalog, existing.schemas[sname])
-        
+
     def clear(self):
         """Clear all configuration in catalog and children."""
         NodeConfigAcl.clear(self)
@@ -240,6 +246,7 @@ class CatalogConfig (NodeConfigAcl):
         }
         return d
 
+
 class CatalogSchema (NodeConfigAcl):
     """Schema-level configuration management.
 
@@ -253,7 +260,7 @@ class CatalogSchema (NodeConfigAcl):
     def __init__(self, sname, schema_doc):
         NodeConfigAcl.__init__(
             self,
-            "/schema/%s" % quote(sname),
+            "/schema/%s" % urlquote(sname),
             schema_doc
         )
         self.name = sname
@@ -266,7 +273,7 @@ class CatalogSchema (NodeConfigAcl):
         NodeConfigAcl.apply(self, catalog, existing)
         for tname, table in self.tables.items():
             table.apply(catalog, existing.tables[tname] if existing else None)
-        
+
     def clear(self):
         """Clear all configuration in schema and children."""
         NodeConfigAcl.clear(self)
@@ -282,6 +289,7 @@ class CatalogSchema (NodeConfigAcl):
         }
         return d
 
+
 class KeyedList (list):
     """Keyed list."""
     def __init__(self, l):
@@ -293,10 +301,11 @@ class KeyedList (list):
 
     def __getitem__(self, idx):
         """Get element by key or by list index or slice."""
-        if isinstance(idx, (unicode, str)):
-            return self.elements[idx]
-        else:
+        if isinstance(idx, (int, slice)):
             return list.__getitem__(self, idx)
+        else:
+            return self.elements[idx]
+
 
 class MultiKeyedList (list):
     """Multi-keyed list."""
@@ -314,6 +323,7 @@ class MultiKeyedList (list):
             return self.elements[idx]
         else:
             return list.__getitem__(self, idx)
+
 
 class CatalogTable (NodeConfigAclBinding):
     """Table-level configuration management.
@@ -336,7 +346,7 @@ class CatalogTable (NodeConfigAclBinding):
     def __init__(self, sname, tname, table_doc):
         NodeConfigAclBinding.__init__(
             self,
-            "/schema/%s/table/%s" % (quote(sname), quote(tname)),
+            "/schema/%s/table/%s" % (urlquote(sname), urlquote(tname)),
             table_doc
         )
         self.sname = sname
@@ -402,6 +412,7 @@ class CatalogTable (NodeConfigAclBinding):
     def visible_foreign_keys(self):
         return self.annotation_obj(tag.visible_foreign_keys)
 
+
 class CatalogColumn (NodeConfigAclBinding):
     """Column-level configuration management.
 
@@ -409,7 +420,7 @@ class CatalogColumn (NodeConfigAclBinding):
        acls: column-level ACL configuration
        annotations: column-level annotations
        name: name of column
-       
+
        Convenience access to common annotations:
          self.asset: tag.asset object
          self.column_display:: tag.column_display object
@@ -422,7 +433,7 @@ class CatalogColumn (NodeConfigAclBinding):
         cname = column_doc['name']
         NodeConfigAclBinding.__init__(
             self,
-            "/schema/%s/table/%s/column/%s" % (quote(sname), quote(tname), quote(cname)),
+            "/schema/%s/table/%s/column/%s" % (urlquote(sname), urlquote(tname), urlquote(cname)),
             column_doc
         )
         self.sname = sname
@@ -443,6 +454,7 @@ class CatalogColumn (NodeConfigAclBinding):
     def column_display(self):
         return self.annotation_obj(tag.column_display)
 
+
 class CatalogKey (NodeConfig):
     """Key-level configuration management.
 
@@ -453,9 +465,9 @@ class CatalogKey (NodeConfig):
         NodeConfig.__init__(
             self,
             '/schema/%s/table/%s/key/%s' % (
-                quote(sname),
-                quote(tname),
-                ','.join([ quote(cname) for cname in key_doc['unique_columns'] ])
+                urlquote(sname),
+                urlquote(tname),
+                ','.join([ urlquote(cname) for cname in key_doc['unique_columns'] ])
             ),
             key_doc
         )
@@ -463,14 +475,15 @@ class CatalogKey (NodeConfig):
         self.tname = tname
         self.names = [ tuple(name) for name in key_doc['names'] ]
         self.unique_columns = key_doc['unique_columns']
-    
+
     def prejson(self, prune=True):
         """Produce a representation of configuration as generic Python data structures"""
         d = NodeConfig.prejson(self)
         d['unique_columns'] = self.unique_columns
         d['names'] = self.names
         return d
-    
+
+
 class CatalogForeignKey (NodeConfigAclBinding):
     """Foreign key-level configuration management.
 
@@ -483,12 +496,12 @@ class CatalogForeignKey (NodeConfigAclBinding):
         NodeConfigAclBinding.__init__(
             self,
             '/schema/%s/table/%s/foreignkey/%s/reference/%s:%s/%s' % (
-                quote(sname),
-                quote(tname),
-                ','.join([ quote(col['column_name']) for col in fkey_doc['foreign_key_columns'] ]),
-                quote(refcols[0]['schema_name']),
-                quote(refcols[0]['table_name']),
-                ','.join([ quote(col['column_name']) for col in refcols ]),
+                urlquote(sname),
+                urlquote(tname),
+                ','.join([ urlquote(col['column_name']) for col in fkey_doc['foreign_key_columns'] ]),
+                urlquote(refcols[0]['schema_name']),
+                urlquote(refcols[0]['table_name']),
+                ','.join([ urlquote(col['column_name']) for col in refcols ]),
             ),
             fkey_doc
         )
