@@ -1,7 +1,7 @@
 import logging
 from . import urlquote
+from .ermrest_config import CatalogConfig
 from .deriva_binding import DerivaBinding
-
 
 class ErmrestCatalog(DerivaBinding):
     """Persistent handle for an ERMrest catalog.
@@ -31,6 +31,12 @@ class ErmrestCatalog(DerivaBinding):
             self._server_uri,
             catalog_id
         )
+
+    def getCatalogConfig(self):
+        return CatalogConfig.fromcatalog(self)
+
+    def applyCatalogConfig(self, config):
+        return config.apply(self)
 
     def getCatalogSchema(self):
         if self.catalog_schema:
