@@ -1,4 +1,4 @@
-from deriva_common import urlquote
+from . import urlquote
 
 
 class AttrDict (dict):
