@@ -14,7 +14,7 @@ setup(
     url='https://github.com/informatics-isi-edu/deriva-py/deriva_io',
     maintainer='USC Information Sciences Institute ISR Division',
     maintainer_email='misd-support@isi.edu',
-    version="0.1.0",
+    version="0.2.0",
     packages=find_packages(),
     package_data={},
     test_suite='test',

@@ -3,19 +3,22 @@ import json
 import os
 import re
 import sys
-import shutil
 import tempfile
 import logging
 from collections import OrderedDict, namedtuple
 from json import JSONDecodeError
-from deriva_common import ErmrestCatalog, HatracStore, HatracJobAborted, HatracJobPaused, format_exception, urlquote, \
-    read_credential, read_config, copy_config, resource_path
+from deriva_common import ErmrestCatalog, CatalogConfig, HatracStore, HatracJobAborted, HatracJobPaused, \
+    format_exception, urlquote, read_credential, read_config, copy_config, resource_path, stob
 from deriva_common.utils import hash_utils as hu, mime_utils as mu, version_utils as vu
 
 try:
     from os import scandir, walk
 except ImportError:
     from scandir import scandir, walk
+
+
+class ConfigurationError (Exception):
+    pass
 
 
 class CatalogCreateError (Exception):
@@ -47,50 +50,53 @@ class DerivaUpload(object):
     config = None
     credentials = None
     asset_mappings = None
-    remote_config_path = None
     transfer_state = dict()
     transfer_state_fp = None
     cancelled = False
+    metadata = dict()
 
     DefaultConfigFileName = "config.json"
+    DefaultServerListFileName = "servers.json"
     DefaultTransferStateFileName = "transfers.json"
 
     def __init__(self, config_file=None, credential_file=None, server=None):
         self.file_list = OrderedDict()
         self.file_status = OrderedDict()
         self.skipped_files = set()
-        self.config_file = config_file
-        self.credential_file = credential_file
+        self.override_config_file = config_file
+        self.override_credential_file = credential_file
         self.server = self.getDefaultServer() if not server else server
-        self.configure(config_file, credential_file)
+        self.initialize()
 
     def __del__(self):
         self.cleanupTransferState()
 
-    def configure(self, config_file=None, credential_file=None):
-        self.cleanup()
+    def initialize(self, cleanup=False):
+        logging.info("Initializing uploader...")
 
-        # server vars
+        # cleanup invalidates the current configuration and credentials in addition to clearing internal state
+        if cleanup:
+            self.cleanup()
+        # reset just clears the internal state
+        else:
+            self.reset()
+
+        if not self.server:
+            logging.warning("A server was not specified and an internal default has not been set.")
+            return
+
+        # server variable initialization
         protocol = self.server.get('protocol', 'https')
         host = self.server.get('host', '')
         self.server_url = protocol + "://" + host
-        self.remote_config_path = self.server.get('config_path')
+        catalog_id = self.server.get("catalog_id", "1")
+        session_config = self.server.get('session')
 
-        # credential and configuration initialization
-        if not (config_file and os.path.isfile(config_file)):
-            config_file = self.getDeployedConfigFilePath()
-            if (not(config_file and os.path.isfile(config_file))
-                    or self.isFileNewer(self.getDefaultConfigFilePath(), self.getDeployedConfigFilePath())):
-                copy_config(self.getDefaultConfigFilePath(), config_file)
-        self.config = read_config(config_file)
+        # credential initialization
+        credential_file = self.override_credential_file if self.override_credential_file else None
         self.credentials = read_credential(credential_file) if credential_file else None
 
-        # uploader initialization from configuration file
-        catalog_id = self.config.get('catalog_id', '1')
-        session_config = self.config.get('session')
-        self.asset_mappings = self.config.get('asset_mappings', [])
-        mu.add_types(self.config.get('mime_overrides'))
-
+        # catalog and file store initialization
         if self.catalog:
             del self.catalog
         self.catalog = ErmrestCatalog(protocol, host, catalog_id, self.credentials, session_config=session_config)
@@ -98,12 +104,38 @@ class DerivaUpload(object):
             del self.store
         self.store = HatracStore(protocol, host, self.credentials, session_config=session_config)
 
+        # configuration initialization - this is a bit noodley...
+        config_file = self.override_config_file if self.override_config_file else None
+        # 1. If we don't already have a valid (i.e., overridden) path to a config file...
+        if not (config_file and os.path.isfile(config_file)):
+            # 2. Get the currently deployed config file path
+            config_file = self.getDeployedConfigFilePath()
+            # 3. If the deployed default path is not valid, OR, it is valid AND is older than the bundled default
+            if (not(config_file and os.path.isfile(config_file))
+                    or self.isFileNewer(self.getDefaultConfigFilePath(), self.getDeployedConfigFilePath())):
+                # 4. If for some reason there is no internal default config,
+                #    this is a programming error and we cannot continue
+                if not os.path.isfile(self.getDefaultConfigFilePath()):
+                    logging.warning(
+                        "A configuration file was not specified and a suitable internal default does not exist.")
+                    return
+                # 5. copy the bundled internal default config to the deployment-specific config path
+                copy_config(self.getDefaultConfigFilePath(), config_file)
+        # 6. Finally, read the configuration file into a config object
+        self.config = read_config(config_file)
+
+        # uploader initialization from configuration
+        self.asset_mappings = self.config.get('asset_mappings', [])
+        mu.add_types(self.config.get('mime_overrides'))
+
+        # transfer state initialization
         self.loadTransferState()
 
     def cancel(self):
         self.cancelled = True
 
     def reset(self):
+        self.metadata.clear()
         self.file_list.clear()
         self.file_status.clear()
         self.skipped_files.clear()
@@ -116,8 +148,9 @@ class DerivaUpload(object):
         self.cleanupTransferState()
 
     def setServer(self, server):
+        cleanup = self.server != server
         self.server = server
-        self.configure(self.config_file, self.credential_file)
+        self.initialize(cleanup)
 
     def setCredentials(self, credentials):
         server = self.server['host']
@@ -132,17 +165,10 @@ class DerivaUpload(object):
             lower = {k.lower(): v for k, v in server.items()}
             if lower.get("default", False):
                 return server
-        return servers[0]
+        return servers[0] if len(servers) else {}
 
     @classmethod
     def getServers(cls):
-        """
-        This method must be implemented by subclasses.
-        """
-        raise NotImplementedError("This method must be implemented by a subclass.")
-
-    @classmethod
-    def getDeployedConfigPath(cls):
         """
         This method must be implemented by subclasses.
         """
@@ -155,11 +181,26 @@ class DerivaUpload(object):
         """
         raise NotImplementedError("This method must be implemented by a subclass.")
 
+    @classmethod
+    def getConfigPath(cls):
+        """
+        This method must be implemented by subclasses.
+        """
+        raise NotImplementedError("This method must be implemented by a subclass.")
+
+    @classmethod
+    def getDeployedConfigPath(cls):
+        return os.path.expanduser(os.path.normpath(cls.getConfigPath()))
+
     def getVersionCompatibility(self):
         return self.config.get("version_compatibility", list())
 
     def isVersionCompatible(self):
-        return vu.is_compatible(self.getVersion(), self.getVersionCompatibility())
+        compatibility = self.getVersionCompatibility()
+        if len(compatibility) > 0:
+            return vu.is_compatible(self.getVersion(), compatibility)
+        else:
+            return True
 
     @classmethod
     def getFileDisplayName(cls, file_path, asset_mapping=None):
@@ -167,6 +208,8 @@ class DerivaUpload(object):
 
     @staticmethod
     def isFileNewer(src, dst):
+        if not (src and dst):
+            return False
         src_mtime = os.path.getmtime(os.path.abspath(src))
         dst_mtime = os.path.getmtime(os.path.abspath(dst))
         return src_mtime > dst_mtime
@@ -184,8 +227,14 @@ class DerivaUpload(object):
         return hu.compute_file_hashes(file_path, hashes)
 
     @staticmethod
-    def getCatalogTable(asset_mapping):
-        schema_name, table_name = asset_mapping['base_record_type']
+    def getCatalogTable(asset_mapping, metadata_dict=None):
+        schema_name, table_name = asset_mapping.get('target_table', [None, None])
+        if not (schema_name and table_name):
+            metadata_dict_lower = {k.lower(): v for k, v in metadata_dict.items()}
+            schema_name = metadata_dict_lower.get("schema")
+            table_name = metadata_dict_lower.get("table")
+        if not (schema_name and table_name):
+            raise ValueError("Unable to determine target catalog table for asset type.")
         return '%s:%s' % (urlquote(schema_name), urlquote(table_name))
 
     @staticmethod
@@ -213,6 +262,17 @@ class DerivaUpload(object):
 
         return dst
 
+    @staticmethod
+    def pruneDict(src, dst, stringify=True):
+        # return {k: src[k] for k in src.keys() & dst}
+        dst = dst.copy()
+        for k in dst.keys():
+            dst[k] = str(src.get(k)) if stringify else src.get(k)
+        return dst
+
+    def getCurrentConfigFilePath(self):
+        return self.override_config_file if self.override_config_file else self.getDeployedConfigFilePath()
+
     def getDefaultConfigFilePath(self):
         return os.path.normpath(resource_path(os.path.join("conf", self.DefaultConfigFileName)))
 
@@ -224,33 +284,34 @@ class DerivaUpload(object):
         return os.path.join(
             self.getDeployedConfigPath(), self.server.get('host', ''), self.DefaultTransferStateFileName)
 
+    def getRemoteConfig(self):
+        catalog_config = CatalogConfig.fromcatalog(self.catalog)
+        return catalog_config.annotation_obj("tag:isrd.isi.edu,2017:bulk-asset-upload")
+
     def getUpdatedConfig(self):
-        if not self.remote_config_path:
-            logging.debug(
-                "Unable to check for updated configuration file -- remote configuration path not specified.")
-            return
         # if we are using an overridden config file, skip the update check
-        if self.config_file:
+        if self.override_config_file:
             return
-        logging.info("Checking for updated configuration file...")
-        if not self.store.content_equals(self.remote_config_path, self.getDeployedConfigFilePath()):
-            logging.info("Retrieving updated configuration file...")
-            with tempfile.TemporaryDirectory() as tempdir:
-                updated_config_path = os.path.abspath(os.path.join(tempdir, DerivaUpload.DefaultConfigFileName))
-                self.store.get_obj(self.remote_config_path,
-                                   destfilename=updated_config_path)
-                # an extra sanity check here
-                if self.store.content_equals(self.remote_config_path, updated_config_path):
-                    shutil.copy2(updated_config_path, self.getDeployedConfigFilePath())
-                else:
-                    logging.error("Downloaded configuration file does not match checksum of current server version. "
-                                  "Falling back to old version.")
-                    return
-            logging.info("Applying updated configuration file...")
-            self.config = read_config(self.getDeployedConfigFilePath())
-            self.configure()
-        else:
-            logging.info("Configuration file is up-to-date.")
+
+        logging.info("Checking for updated configuration...")
+        remote_config = self.getRemoteConfig()
+        if not remote_config:
+            logging.info("Remote configuration not present, using default local configuration file.")
+            return
+
+        current_md5 = hu.compute_file_hashes(self.getDeployedConfigFilePath(), hashes=['md5'])['md5'][0]
+        with tempfile.TemporaryDirectory() as tempdir:
+            updated_config_path = os.path.abspath(os.path.join(tempdir, DerivaUpload.DefaultConfigFileName))
+            with open(updated_config_path, 'w') as config:
+                json.dump(remote_config, config, sort_keys=True, indent=2)
+            new_md5 = hu.compute_file_hashes(updated_config_path, hashes=['md5'])['md5'][0]
+            if current_md5 != new_md5:
+                logging.info("Updated configuration found.")
+                config = read_config(updated_config_path)
+                return config
+            else:
+                logging.info("Configuration is up-to-date.")
+                return None
 
     def getFileStatusAsArray(self):
         result = list()
@@ -267,52 +328,6 @@ class DerivaUpload(object):
             return None
 
         return {file_path: (asset_mapping, groupdict)}
-
-    def uploadFile(self, file_path, asset_mapping, match_groupdict, callback=None):
-        """
-        This method must be implemented by subclasses.
-        """
-        raise NotImplementedError("This method must be implemented by a subclass.")
-
-    def uploadFiles(self, status_callback=None, file_callback=None):
-        for file_path, (asset_mapping, groupdict) in self.file_list.items():
-            if self.cancelled:
-                self.file_status[file_path] = FileUploadState(UploadState.Cancelled, "Cancelled by user")._asdict()
-                continue
-            try:
-                self.file_status[file_path] = FileUploadState(UploadState.Running, "In-progress")._asdict()
-                if status_callback:
-                    status_callback()
-                self.uploadFile(file_path, asset_mapping, groupdict, file_callback)
-                self.file_status[file_path] = FileUploadState(UploadState.Success, "Complete")._asdict()
-            except HatracJobPaused:
-                status = self.getTransferStateStatus(file_path)
-                if status:
-                    self.file_status[file_path] = FileUploadState(UploadState.Paused, "Paused: %s" % status)._asdict()
-                continue
-            except HatracJobAborted:
-                self.file_status[file_path] = FileUploadState(UploadState.Aborted, "Aborted by user")._asdict()
-            except:
-                (etype, value, traceback) = sys.exc_info()
-                self.file_status[file_path] = FileUploadState(UploadState.Failed, format_exception(value))._asdict()
-            self.delTransferState(file_path)
-            if status_callback:
-                status_callback()
-
-        failed_uploads = dict()
-        for key, value in self.file_status.items():
-            if value["State"] == UploadState.Failed:
-                failed_uploads[key] = value["Status"]
-
-        if self.skipped_files:
-            logging.warning("The following file(s) were skipped because they did not satisfy the matching criteria "
-                            "of the configuration:\n\n%s\n" % '\n'.join(sorted(self.skipped_files)))
-
-        if failed_uploads:
-            logging.warning("The following file(s) failed to upload due to errors:\n\n%s\n" %
-                            '\n'.join(["%s -- %s" % (key, failed_uploads[key])
-                                       for key in sorted(failed_uploads.keys())]))
-            raise RuntimeError("One or more file(s) failed to upload due to errors.")
 
     def scanDirectory(self, root, abort_on_invalid_input=False):
         """
@@ -375,6 +390,178 @@ class DerivaUpload(object):
 
         return None, None
 
+    def uploadFiles(self, status_callback=None, file_callback=None):
+        for file_path, (asset_mapping, groupdict) in self.file_list.items():
+            if self.cancelled:
+                self.file_status[file_path] = FileUploadState(UploadState.Cancelled, "Cancelled by user")._asdict()
+                continue
+            try:
+                self.file_status[file_path] = FileUploadState(UploadState.Running, "In-progress")._asdict()
+                if status_callback:
+                    status_callback()
+                self.uploadFile(file_path, asset_mapping, groupdict, file_callback)
+                self.file_status[file_path] = FileUploadState(UploadState.Success, "Complete")._asdict()
+            except HatracJobPaused:
+                status = self.getTransferStateStatus(file_path)
+                if status:
+                    self.file_status[file_path] = FileUploadState(UploadState.Paused, "Paused: %s" % status)._asdict()
+                continue
+            except HatracJobAborted:
+                self.file_status[file_path] = FileUploadState(UploadState.Aborted, "Aborted by user")._asdict()
+            except:
+                (etype, value, traceback) = sys.exc_info()
+                self.file_status[file_path] = FileUploadState(UploadState.Failed, format_exception(value))._asdict()
+            self.delTransferState(file_path)
+            if status_callback:
+                status_callback()
+
+        failed_uploads = dict()
+        for key, value in self.file_status.items():
+            if value["State"] == UploadState.Failed:
+                failed_uploads[key] = value["Status"]
+
+        if self.skipped_files:
+            logging.warning("The following file(s) were skipped because they did not satisfy the matching criteria "
+                            "of the configuration:\n\n%s\n" % '\n'.join(sorted(self.skipped_files)))
+
+        if failed_uploads:
+            logging.warning("The following file(s) failed to upload due to errors:\n\n%s\n" %
+                            '\n'.join(["%s -- %s" % (key, failed_uploads[key])
+                                       for key in sorted(failed_uploads.keys())]))
+            raise RuntimeError("One or more file(s) failed to upload due to errors.")
+
+    def uploadFile(self, file_path, asset_mapping, match_groupdict, callback=None):
+        """
+        Primary API subclass function.
+        :param file_path:
+        :param asset_mapping:
+        :param match_groupdict:
+        :param callback:
+        :return:
+        """
+        logging.info("Processing file: [%s]" % file_path)
+
+        # 1. Populate metadata by querying the catalog
+        self._getFileMetadata(file_path, asset_mapping, match_groupdict)
+
+        # 2. If "create_record_before_upload" specified in asset_mapping, check for an existing record, creating a new
+        #    one if necessary. Otherwise delay this logic until after the file upload.
+        record = None
+        if stob(asset_mapping.get("create_record_before_upload", False)):
+            record = self._getFileRecord(asset_mapping)
+
+        # 3. Perform the Hatrac upload
+        self._getFileHatracMetadata(asset_mapping)
+        hatrac_options = asset_mapping.get("hatrac_options", {})
+        versioned_url = \
+            self._hatracUpload(self.metadata["URI"],
+                               file_path,
+                               md5=self.metadata.get("md5_base64"),
+                               sha256=self.metadata.get("sha256_base64"),
+                               content_type=self.guessContentType(file_path),
+                               content_disposition=self.metadata.get("content-disposition"),
+                               chunked=True,
+                               create_parents=stob(hatrac_options.get("create_parents", True)),
+                               allow_versioning=stob(hatrac_options.get("allow_versioning", True)),
+                               callback=callback)
+        if stob(hatrac_options.get("versioned_urls", True)):
+            self.metadata["URI"] = versioned_url
+        self.metadata["URI_ESCAPED"] = urlquote(self.metadata["URI"], '')
+
+        # 3. Check for an existing record and create a new one if necessary
+        if not record:
+            record = self._getFileRecord(asset_mapping)
+
+        # 4. Update an existing record, if necessary
+        column_map = asset_mapping.get("column_map", {})
+        updated_record = self.processTemplates(self.metadata, column_map)
+        if updated_record != record:
+            logging.info("Updating catalog for file [%s]" % self.getFileDisplayName(file_path))
+            self._catalogRecordUpdate(self.metadata['target_table'], record, updated_record)
+
+    def _getFileRecord(self, asset_mapping):
+        """
+        Helper function that queries the catalog to get a record linked to the asset, or create it if it doesn't exist.
+        :return: the file record
+        """
+        column_map = asset_mapping.get("column_map", {})
+        rqt = asset_mapping['record_query_template']
+        try:
+            path = rqt % self.metadata
+        except KeyError as e:
+            raise ConfigurationError("Record query template substitution error: %s" % format_exception(e))
+        result = self.catalog.get(path).json()
+        if result:
+            self.metadata.update(result[0])
+            return self.pruneDict(result[0], column_map)
+        else:
+            row = self.processTemplates(self.metadata, column_map)
+            result = self._catalogRecordCreate(self.metadata['target_table'], row)
+            if result:
+                self.metadata.update(result[0])
+            return self.processTemplates(self.metadata, column_map, allowNone=True)
+
+    def _getFileMetadata(self, file_path, asset_mapping, match_groupdict):
+        """
+        Helper function that queries the catalog to get required metadata for a given file/asset
+        """
+        file_name = self.getFileDisplayName(file_path)
+        logging.info("Computing metadata for file: [%s]." % file_name)
+
+        self.metadata.clear()
+        self.metadata.update(match_groupdict)
+        for k, v in self.metadata.items():
+            self.metadata[k] = urlquote(v)
+
+        self.metadata['target_table'] = self.getCatalogTable(asset_mapping, match_groupdict)
+        self.metadata["file_name"] = self.getFileDisplayName(file_path)
+        self.metadata["file_size"] = self.getFileSize(file_path)
+
+        logging.info("Computing checksums for file: [%s]. Please wait..." % file_name)
+        hashes = self.getFileHashes(file_path, asset_mapping.get('checksum_types', ['md5', 'sha256']))
+        for alg, checksum in hashes.items():
+            alg = alg.lower()
+            self.metadata[alg] = urlquote(checksum[0])
+            self.metadata[alg + "_base64"] = checksum[1]
+
+        for uri in asset_mapping.get("metadata_query_templates", []):
+            try:
+                path = uri % self.metadata
+            except KeyError as e:
+                raise RuntimeError("Metadata query template substitution error: %s" % format_exception(e))
+            result = self.catalog.get(path).json()
+            if result:
+                self.metadata.update(result[0])
+            else:
+                raise RuntimeError("Metadata query did not return any results: %s" % path)
+
+        self._getFileExtensionMetadata(self.metadata.get("file_ext"))
+
+        for k, v in asset_mapping.get("column_value_templates", {}).items():
+            try:
+                self.metadata[k] = v % self.metadata
+            except KeyError as e:
+                logging.warning("Column value template substitution error: %s" % format_exception(e))
+                continue
+
+    def _getFileExtensionMetadata(self, ext):
+        ext_map = self.config.get("file_ext_mappings", {})
+        entry = ext_map.get(ext)
+        if entry:
+            self.metadata.update(entry)
+
+    def _getFileHatracMetadata(self, asset_mapping):
+        try:
+            hatrac_templates = asset_mapping["hatrac_templates"]
+            # URI is required
+            self.metadata["URI"] = hatrac_templates["hatrac_uri"] % self.metadata
+            # overridden content-disposition is optional
+            content_disposition = hatrac_templates.get("content-disposition")
+            self.metadata["content-disposition"] = \
+                None if not content_disposition else content_disposition % self.metadata
+        except KeyError as e:
+            raise ConfigurationError("Hatrac template substitution error: %s" % format_exception(e))
+
     def _hatracUpload(self,
                       uri,
                       file_path,
@@ -408,20 +595,20 @@ class DerivaUpload(object):
                                        job_id,
                                        callback=callback,
                                        start_chunk=transfer_state["completed"])
-            self.store.finalize_upload_job(path, job_id)
+            return self.store.finalize_upload_job(path, job_id)
         else:
             logging.info("Uploading file: [%s] to host %s. Please wait..." % (
                 self.getFileDisplayName(file_path), self.server_url))
-            self.store.put_loc(uri,
-                               file_path,
-                               md5=md5,
-                               sha256=sha256,
-                               content_type=content_type,
-                               content_disposition=content_disposition,
-                               chunked=chunked,
-                               create_parents=create_parents,
-                               allow_versioning=allow_versioning,
-                               callback=callback)
+            return self.store.put_loc(uri,
+                                      file_path,
+                                      md5=md5,
+                                      sha256=sha256,
+                                      content_type=content_type,
+                                      content_disposition=content_disposition,
+                                      chunked=chunked,
+                                      create_parents=create_parents,
+                                      allow_versioning=allow_versioning,
+                                      callback=callback)
 
     def _catalogRecordCreate(self, catalog_table, row, default_columns=None):
         """
@@ -463,7 +650,11 @@ class DerivaUpload(object):
 
         try:
             keys = sorted(list(new_row.keys()))
-            assert keys == sorted(list(old_row.keys()))
+            old_keys = sorted(list(old_row.keys()))
+            if keys != old_keys:
+                raise RuntimeError("Cannot update catalog - "
+                                   "new row column list and old row column list do not match: New: %s != Old: %s" %
+                                   (keys, old_keys))
             combined_row = {
                 'o%d' % i: old_row[keys[i]]
                 for i in range(len(keys))
@@ -525,7 +716,7 @@ class DerivaUpload(object):
         self.transfer_state_fp.flush()
 
     def cleanupTransferState(self):
-        if self.transfer_state_fp:
+        if self.transfer_state_fp and not self.transfer_state_fp.closed:
             self.transfer_state_fp.flush()
             self.transfer_state_fp.close()
 
