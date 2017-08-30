@@ -8,6 +8,7 @@ import platform
 import logging
 import requests
 from collections import OrderedDict
+from distutils.util import strtobool
 
 if sys.version_info > (3,):
     from urllib.parse import quote as urlquote
@@ -25,6 +26,10 @@ class NotModified (ValueError):
 
 class ConcurrentUpdate (ValueError):
     pass
+
+
+def stob(string):
+    return bool(strtobool(str(string)))
 
 
 def format_exception(e):
