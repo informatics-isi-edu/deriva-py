@@ -441,8 +441,15 @@ class DerivaUpload(object):
         """
         logging.info("Processing file: [%s]" % file_path)
 
+        if asset_mapping.get("asset_type", "file") == "data":
+            self._uploadData(file_path, asset_mapping, match_groupdict)
+        else:
+            self._uploadAsset(file_path, asset_mapping, match_groupdict, callback)
+
+    def _uploadAsset(self, file_path, asset_mapping, match_groupdict, callback=None):
+
         # 1. Populate metadata by querying the catalog
-        self._getFileMetadata(file_path, asset_mapping, match_groupdict)
+        self._queryFileMetadata(file_path, asset_mapping, match_groupdict)
 
         # 2. If "create_record_before_upload" specified in asset_mapping, check for an existing record, creating a new
         #    one if necessary. Otherwise delay this logic until after the file upload.
@@ -479,6 +486,31 @@ class DerivaUpload(object):
             logging.info("Updating catalog for file [%s]" % self.getFileDisplayName(file_path))
             self._catalogRecordUpdate(self.metadata['target_table'], record, updated_record)
 
+    def _uploadData(self, file_path, asset_mapping, match_groupdict, callback=None):
+        if self.cancelled:
+            return None
+
+        self._initFileMetadata(file_path, asset_mapping, match_groupdict)
+        try:
+            default_columns = self.metadata.get("default_columns")
+            if not default_columns:
+                default_columns = self.catalog.getDefaultColumns({}, self.metadata['target_table'])
+            default_param = ('?defaults=%s' % ','.join(default_columns)) if len(default_columns) > 0 else ''
+            file_ext = self.metadata['file_ext']
+            if file_ext == 'csv':
+                headers = {'content-type': 'text/csv'}
+            elif file_ext == 'json':
+                headers = {'content-type': 'application/json'}
+            else:
+                raise CatalogCreateError("Unsupported file type for catalog bulk upload: %s" % file_ext)
+            with open(file_path) as fp:
+                result = self.catalog.post(
+                    '/entity/%s%s' % (self.metadata['target_table'], default_param), fp, headers=headers).json()
+                return result
+        except:
+            (etype, value, traceback) = sys.exc_info()
+            raise CatalogCreateError(format_exception(value))
+
     def _getFileRecord(self, asset_mapping):
         """
         Helper function that queries the catalog to get a record linked to the asset, or create it if it doesn't exist.
@@ -501,13 +533,7 @@ class DerivaUpload(object):
                 self.metadata.update(result[0])
             return self.processTemplates(self.metadata, column_map, allowNone=True)
 
-    def _getFileMetadata(self, file_path, asset_mapping, match_groupdict):
-        """
-        Helper function that queries the catalog to get required metadata for a given file/asset
-        """
-        file_name = self.getFileDisplayName(file_path)
-        logging.info("Computing metadata for file: [%s]." % file_name)
-
+    def _initFileMetadata(self, file_path, asset_mapping, match_groupdict):
         self.metadata.clear()
         self.metadata.update(match_groupdict)
         for k, v in self.metadata.items():
@@ -516,6 +542,14 @@ class DerivaUpload(object):
         self.metadata['target_table'] = self.getCatalogTable(asset_mapping, match_groupdict)
         self.metadata["file_name"] = self.getFileDisplayName(file_path)
         self.metadata["file_size"] = self.getFileSize(file_path)
+
+    def _queryFileMetadata(self, file_path, asset_mapping, match_groupdict):
+        """
+        Helper function that queries the catalog to get required metadata for a given file/asset
+        """
+        file_name = self.getFileDisplayName(file_path)
+        logging.info("Computing metadata for file: [%s]." % file_name)
+        self._initFileMetadata(file_path, asset_mapping, match_groupdict)
 
         logging.info("Computing checksums for file: [%s]. Please wait..." % file_name)
         hashes = self.getFileHashes(file_path, asset_mapping.get('checksum_types', ['md5', 'sha256']))
