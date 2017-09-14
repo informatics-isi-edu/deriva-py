@@ -492,7 +492,7 @@ class DerivaUpload(object):
 
         self._initFileMetadata(file_path, asset_mapping, match_groupdict)
         try:
-            default_columns = self.metadata.get("default_columns")
+            default_columns = asset_mapping.get("default_columns")
             if not default_columns:
                 default_columns = self.catalog.getDefaultColumns({}, self.metadata['target_table'])
             default_param = ('?defaults=%s' % ','.join(default_columns)) if len(default_columns) > 0 else ''
@@ -505,7 +505,7 @@ class DerivaUpload(object):
                 raise CatalogCreateError("Unsupported file type for catalog bulk upload: %s" % file_ext)
             with open(file_path) as fp:
                 result = self.catalog.post(
-                    '/entity/%s%s' % (self.metadata['target_table'], default_param), fp, headers=headers).json()
+                    '/entity/%s%s' % (self.metadata['target_table'], default_param), fp, headers=headers)
                 return result
         except:
             (etype, value, traceback) = sys.exc_info()
