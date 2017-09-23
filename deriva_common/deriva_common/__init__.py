@@ -9,6 +9,7 @@ import logging
 import requests
 from collections import OrderedDict
 from distutils.util import strtobool
+from portalocker import Lock, LOCK_EX, LOCK_SH
 
 if sys.version_info > (3,):
     from urllib.parse import quote as urlquote
@@ -82,9 +83,7 @@ DEFAULT_CONFIG = {
     "session": DEFAULT_SESSION_CONFIG
 }
 
-DEFAULT_CREDENTIAL = {
-  "cookie": "webauthn="
-}
+DEFAULT_CREDENTIAL = {}
 
 
 def copy_config(src, dst):
@@ -139,9 +138,10 @@ def write_credential(credential_file=DEFAULT_CREDENTIAL_FILE, credential=DEFAULT
         except OSError as error:
             if error.errno != errno.EEXIST:
                 raise
-    with io.open(credential_file, 'w', newline='\n') as cf:
+    with Lock(credential_file, 'w', timeout=60, flags=LOCK_EX) as cf:
         os.chmod(credential_file, 0o600)
         cf.write(json.dumps(credential, indent=2))
+        cf.flush()
         cf.close()
 
 
@@ -159,10 +159,15 @@ def read_credential(credential_file=DEFAULT_CREDENTIAL_FILE, create_default=Fals
             credential = default
 
     if not credential:
-        with open(credential_file) as cf:
+        with Lock(credential_file, 'r', timeout=60, flags=LOCK_EX) as cf:
             credential = cf.read()
 
     return json.loads(credential, object_pairs_hook=OrderedDict)
+
+
+def get_credential(host, credential_file=DEFAULT_CREDENTIAL_FILE):
+    credentials = read_credential(credential_file)
+    return credentials.get(host)
 
 
 def resource_path(relative_path, default=os.path.abspath(".")):
