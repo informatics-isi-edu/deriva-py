@@ -8,7 +8,7 @@ import logging
 from collections import OrderedDict, namedtuple
 from json import JSONDecodeError
 from deriva_common import ErmrestCatalog, CatalogConfig, HatracStore, HatracJobAborted, HatracJobPaused, \
-    format_exception, urlquote, read_credential, read_config, copy_config, resource_path, stob
+    format_exception, urlquote, get_credential, read_config, copy_config, resource_path, stob
 from deriva_common.utils import hash_utils as hu, mime_utils as mu, version_utils as vu
 
 try:
@@ -31,6 +31,7 @@ class CatalogUpdateError (Exception):
 
 class Enum(tuple):
     __getattr__ = tuple.index
+
 
 UploadState = Enum(["Success", "Failed", "Pending", "Running", "Paused", "Aborted", "Cancelled"])
 FileUploadState = namedtuple("FileUploadState", ["State", "Status"])
@@ -92,9 +93,9 @@ class DerivaUpload(object):
         catalog_id = self.server.get("catalog_id", "1")
         session_config = self.server.get('session')
 
-        # credential initialization
-        credential_file = self.override_credential_file if self.override_credential_file else None
-        self.credentials = read_credential(credential_file) if credential_file else None
+        # overriden credential initialization
+        if self.override_credential_file:
+            self.credentials = get_credential(host, self.override_config_file)
 
         # catalog and file store initialization
         if self.catalog:
@@ -153,10 +154,10 @@ class DerivaUpload(object):
         self.initialize(cleanup)
 
     def setCredentials(self, credentials):
-        server = self.server['host']
+        host = self.server['host']
         self.credentials = credentials
-        self.catalog.set_credentials(self.credentials, server)
-        self.store.set_credentials(self.credentials, server)
+        self.catalog.set_credentials(self.credentials, host)
+        self.store.set_credentials(self.credentials, host)
 
     @classmethod
     def getDefaultServer(cls):
@@ -286,7 +287,7 @@ class DerivaUpload(object):
 
     def getRemoteConfig(self):
         catalog_config = CatalogConfig.fromcatalog(self.catalog)
-        return catalog_config.annotation_obj("tag:isrd.isi.edu,2017:bulk-asset-upload")
+        return catalog_config.annotation_obj("tag:isrd.isi.edu,2017:bulk-upload")
 
     def getUpdatedConfig(self):
         # if we are using an overridden config file, skip the update check
@@ -473,7 +474,7 @@ class DerivaUpload(object):
                                callback=callback)
         if stob(hatrac_options.get("versioned_urls", True)):
             self.metadata["URI"] = versioned_url
-        self.metadata["URI_ESCAPED"] = urlquote(self.metadata["URI"], '')
+        self.metadata["URI.urlencoded"] = urlquote(self.metadata["URI"], '')
 
         # 3. Check for an existing record and create a new one if necessary
         if not record:
@@ -503,7 +504,7 @@ class DerivaUpload(object):
                 headers = {'content-type': 'application/json'}
             else:
                 raise CatalogCreateError("Unsupported file type for catalog bulk upload: %s" % file_ext)
-            with open(file_path) as fp:
+            with open(file_path, "rb") as fp:
                 result = self.catalog.post(
                     '/entity/%s%s' % (self.metadata['target_table'], default_param), fp, headers=headers)
                 return result
@@ -533,15 +534,23 @@ class DerivaUpload(object):
                 self.metadata.update(result[0])
             return self.processTemplates(self.metadata, column_map, allowNone=True)
 
+    def _urlEncodeMetadata(self):
+        urlencoded = dict()
+        for k, v in self.metadata.items():
+            if k.endswith(".urlencoded"):
+                continue
+            urlencoded[k + ".urlencoded"] = urlquote(str(v))
+        self.metadata.update(urlencoded)
+
     def _initFileMetadata(self, file_path, asset_mapping, match_groupdict):
         self.metadata.clear()
         self.metadata.update(match_groupdict)
-        for k, v in self.metadata.items():
-            self.metadata[k] = urlquote(v)
 
         self.metadata['target_table'] = self.getCatalogTable(asset_mapping, match_groupdict)
         self.metadata["file_name"] = self.getFileDisplayName(file_path)
         self.metadata["file_size"] = self.getFileSize(file_path)
+
+        self._urlEncodeMetadata()
 
     def _queryFileMetadata(self, file_path, asset_mapping, match_groupdict):
         """
@@ -578,6 +587,8 @@ class DerivaUpload(object):
                 logging.warning("Column value template substitution error: %s" % format_exception(e))
                 continue
 
+        self._urlEncodeMetadata()
+
     def _getFileExtensionMetadata(self, ext):
         ext_map = self.config.get("file_ext_mappings", {})
         entry = ext_map.get(ext)
@@ -593,6 +604,7 @@ class DerivaUpload(object):
             content_disposition = hatrac_templates.get("content-disposition")
             self.metadata["content-disposition"] = \
                 None if not content_disposition else content_disposition % self.metadata
+            self._urlEncodeMetadata()
         except KeyError as e:
             raise ConfigurationError("Hatrac template substitution error: %s" % format_exception(e))
 

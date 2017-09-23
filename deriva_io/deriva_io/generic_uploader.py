@@ -15,7 +15,7 @@ class GenericUploader(DerivaUpload):
 
     @classmethod
     def getVersion(cls):
-        return "0.2.0"
+        return "0.2.1"
 
     @classmethod
     def getConfigPath(cls):
@@ -34,6 +34,7 @@ class GenericUploader(DerivaUpload):
 def main():
     cli = DerivaUploadCLI(GenericUploader, DESC, INFO)
     cli.main()
+
 
 if __name__ == '__main__':
     sys.exit(main())
