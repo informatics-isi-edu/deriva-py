@@ -303,7 +303,7 @@ class DerivaUpload(object):
         current_md5 = hu.compute_file_hashes(self.getDeployedConfigFilePath(), hashes=['md5'])['md5'][0]
         with tempfile.TemporaryDirectory() as tempdir:
             updated_config_path = os.path.abspath(os.path.join(tempdir, DerivaUpload.DefaultConfigFileName))
-            with open(updated_config_path, 'w') as config:
+            with open(updated_config_path, 'w', newline='\n') as config:
                 json.dump(remote_config, config, sort_keys=True, indent=2)
             new_md5 = hu.compute_file_hashes(updated_config_path, hashes=['md5'])['md5'][0]
             if current_md5 != new_md5:
