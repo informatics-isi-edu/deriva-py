@@ -7,6 +7,7 @@
 """
 
 from setuptools import setup, find_packages
+from deriva_common import __version__
 
 setup(
     name="deriva_common",
@@ -14,7 +15,7 @@ setup(
     url='https://github.com/informatics-isi-edu/deriva-py/deriva_common',
     maintainer='USC Information Sciences Institute ISR Division',
     maintainer_email='misd-support@isi.edu',
-    version="0.1.1",
+    version=__version__,
     packages=find_packages(),
     package_data={},
     test_suite='test',
