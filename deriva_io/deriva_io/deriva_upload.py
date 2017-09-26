@@ -211,6 +211,14 @@ class DerivaUpload(object):
     def isFileNewer(src, dst):
         if not (src and dst):
             return False
+
+        # This comparison wont work with PyInstaller single-file bundles because the bundle is extracted to a temp dir
+        # and every file timestamp for every file in the bundle is reset to the bundle extraction/creation time.
+        if getattr(sys, 'frozen', False):
+            prefix = os.sep + "_MEI"
+            if prefix in src:
+                return False
+
         src_mtime = os.path.getmtime(os.path.abspath(src))
         dst_mtime = os.path.getmtime(os.path.abspath(dst))
         return src_mtime > dst_mtime
