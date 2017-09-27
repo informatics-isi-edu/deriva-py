@@ -5,6 +5,10 @@ from multiprocessing import Queue
 from . import ConcurrentUpdate, NotModified, DEFAULT_HEADERS, DEFAULT_SESSION_CONFIG
 
 
+class DerivaPathError (ValueError):
+    pass
+
+
 class DerivaBinding (object):
     """This is a base-class for implementation purposes. Not useful for clients."""
 
@@ -44,6 +48,7 @@ class DerivaBinding (object):
                             HTTPAdapter(max_retries=retries))
 
     def _pre_get(self, path, headers):
+        self.check_path(path)
         url = self._server_uri + path
         headers = headers.copy()
         prev_response = self._cache.get(url)
@@ -55,11 +60,20 @@ class DerivaBinding (object):
         return url, headers, prev_response
 
     def _pre_mutate(self, path, headers, guard_response=None):
+        self.check_path(path)
         url = self._server_uri + path
         headers = headers.copy()
         if guard_response and 'etag' in guard_response.headers:
             headers['If-Match'] = guard_response.headers['etag']
         return url, headers
+
+    @staticmethod
+    def check_path(path):
+        if not path:
+            raise DerivaPathError("Path not specified")
+
+        if not path.startswith("/"):
+            raise DerivaPathError("Malformed path error (not rooted with \"/\"): %s" % path)
 
     @staticmethod
     def _raise_for_status_304(r, p, raise_not_modified):

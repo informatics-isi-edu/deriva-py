@@ -41,6 +41,8 @@ class HatracStore(DerivaBinding):
         :return: True IFF the object exists and the MD5 or SHA256 hash matches the MD5 or SHA256 hash of the input file
                  or the passed MD5 or SHA256 parameters.
         """
+        self.check_path(path)
+
         assert filename or md5 or sha256
         if filename:
             hashes = hu.compute_file_hashes(filename, hashes=['md5', 'sha256'])
@@ -70,6 +72,8 @@ class HatracStore(DerivaBinding):
            object.
 
         """
+        self.check_path(path)
+
         headers = headers.copy()
 
         if destfilename is not None:
@@ -141,6 +145,8 @@ class HatracStore(DerivaBinding):
            instead of creating a new one.
 
         """
+        self.check_path(path)
+
         headers = headers.copy()
 
         if hasattr(data, 'read') and hasattr(data, 'seek'):
@@ -200,6 +206,8 @@ class HatracStore(DerivaBinding):
         :param callback:
         :return:
         """
+        self.check_path(path)
+
         if not chunked:
             return self.put_obj(path, file_path, headers, md5, sha256)
 
@@ -228,6 +236,8 @@ class HatracStore(DerivaBinding):
         return self.finalize_upload_job(path, job_id)
 
     def put_obj_chunked(self, path, file_path, job_id, chunk_size=DEFAULT_CHUNK_SIZE, callback=None, start_chunk=0):
+        self.check_path(path)
+
         job_info = self.get_upload_job(path, job_id).json()
         try:
             file_size = os.path.getsize(file_path)
@@ -286,6 +296,8 @@ class HatracStore(DerivaBinding):
                           chunk_size=DEFAULT_CHUNK_SIZE,
                           content_type=None,
                           content_disposition=None):
+        self.check_path(path)
+
         url = '%s;upload%s' % (path, "" if not create_parents else "?parents=%s" % str(create_parents).lower())
         obj = {"chunk-length": chunk_size,
                "content-length": os.path.getsize(file_path)}
@@ -302,6 +314,7 @@ class HatracStore(DerivaBinding):
         return job_id
 
     def get_upload_job(self, path, job_id):
+        self.check_path(path)
         url = '%s;upload/%s' % (path, job_id)
         headers = {}
         r = self.get(url, headers=headers)
@@ -309,6 +322,7 @@ class HatracStore(DerivaBinding):
         return r
 
     def finalize_upload_job(self, path, job_id):
+        self.check_path(path)
         url = '%s;upload/%s' % (path, job_id)
         headers = {}
         r = self.post(url, headers=headers)
@@ -316,6 +330,7 @@ class HatracStore(DerivaBinding):
         return r.text.strip()
 
     def cancel_upload_job(self, path, job_id):
+        self.check_path(path)
         url = '%s;upload/%s' % (path, job_id)
         headers = {}
         r = self.delete(url, headers=headers)
@@ -347,6 +362,7 @@ class HatracStore(DerivaBinding):
     def create_namespace(self, namespace_path, parents=True):
         """Create a namespace.
         """
+        self.check_path(namespace_path)
         url = "?".join([namespace_path, "parents=%s" % str(parents).lower()])
         headers = {'Content-Type': 'application/x-hatrac-namespace', 'Accept': 'application/json'}
         resp = self.put(url, headers=headers)
@@ -356,6 +372,7 @@ class HatracStore(DerivaBinding):
     def delete_namespace(self, namespace_path):
         """Delete a namespace.
         """
+        self.check_path(namespace_path)
         headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
         resp = self.delete(namespace_path, headers=headers)
         resp.raise_for_status()
