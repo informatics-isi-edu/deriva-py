@@ -99,14 +99,25 @@ class Schema (object):
         self._catalog = catalog
         self._name = name
         tables_doc = doc.get('tables', {})
-        keys = tables_doc.keys()
-        self.tables = LazyDict(lambda a: Table(self, a, tables_doc[a]), keys)
+        self.table_names = tables_doc.keys()
+        self.tables = LazyDict(lambda a: Table(self, a, tables_doc[a]), self.table_names)
         self._identifiers = dir(Schema) + ['tables'] + [
-            key for key in keys if _isidentifier(key)
+            table_name for table_name in self.table_names if _isidentifier(table_name)
         ]
 
     def __dir__(self):
         return self._identifiers
+
+    def __getattr__(self, a):
+        return self.tables[a]
+
+    def __repr__(self):
+        s = "Schema name: '%s'\nList of tables:\n" % self._name
+        if len(self.table_names) == 0:
+            s += "none"
+        else:
+            s += "\n".join("  '%s'" % tname for tname in self.table_names)
+        return s
 
     @property
     def name(self):
@@ -117,9 +128,6 @@ class Schema (object):
     def fqname(self):
         """the url encoded fully qualified name"""
         return self.name
-
-    def __getattr__(self, a):
-        return self.tables[a]
 
 
 class Relation (object):
@@ -208,6 +216,14 @@ class Table (Relation):
     def __dir__(self):
         return self._identifiers
 
+    def __repr__(self):
+        s = "Table name: '%s'\nList of columns:\n" % self._name
+        if len(self.columns) == 0:
+            s += "none"
+        else:
+            s += "\n".join("  %s" % repr(col) for col in self.columns.values())
+        return s
+
     @property
     def name(self):
         """the url encoded name"""
@@ -280,6 +296,11 @@ class Column (object):
         assert isinstance(table, Table)
         self._table = table
         self._name = name
+        self._doc = doc
+
+    def __repr__(self):
+        return "Column name: '%s'\tType: %s\tComment: '%s'" % \
+               (self._name, self._doc['type']['typename'], self._doc['comment'])
 
     @property
     def name(self):
@@ -294,7 +315,7 @@ class Column (object):
     @property
     def instancename(self):
         table_instancename = self._table.instancename
-        if len(table_instancename)>0:
+        if len(table_instancename) > 0:
             return "%s:%s" % (table_instancename, self.name)
         else:
             return self.name
