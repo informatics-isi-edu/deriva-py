@@ -273,7 +273,7 @@ class TableAlias (Table):
     @property
     def fqname(self):
         """the url encoded fully qualified name"""
-        return self.name
+        return self._table.fqname
 
     @property
     def instancename(self):
