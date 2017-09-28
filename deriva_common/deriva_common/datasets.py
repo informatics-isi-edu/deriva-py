@@ -35,20 +35,20 @@ class LazyDict (MappingBaseClass):
     """A lazy dictionary object that acts like a Mapping object.
     This class is intended for internal usage within this module.
     """
-    def __init__(self, new_elem, keys=[]):
+    def __init__(self, new_elem_fn, keys=[]):
         """Initializes the lazy dict.
-        :param new_elem: a function that takes an 'item' key and returns a new element
+        :param new_elem_fn: a function that takes an 'item' key and returns a new element
         :param keys: the list of keys expected to be valid
         """
-        self._new_elem = new_elem
+        self._new_elem_fn = new_elem_fn
         self._keys = set(keys)
         self._storage = {}
 
     def __getitem__(self, item):
-        # Uses the 'new_elem' function to create a new element when the item
+        # Uses the 'new_elem_fn' function to create a new element when the item
         # is not already in the storage dictionary.
         if item not in self._storage:
-            self._storage[item] = self._new_elem(item)
+            self._storage[item] = self._new_elem_fn(item)
             self._keys.update([item])
         return self._storage[item]
 
