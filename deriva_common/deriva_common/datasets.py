@@ -5,9 +5,9 @@ import re
 
 try:
     from collections.abc import Mapping
-    MappingBaseClass = Mapping
+    _MappingBaseClass = Mapping
 except:
-    MappingBaseClass = object
+    _MappingBaseClass = object
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ def _isidentifier(a):
         return re.match("[_A-Za-z][_a-zA-Z0-9]*$", a) is not None
 
 
-class LazyDict (MappingBaseClass):
+class _LazyDict (_MappingBaseClass):
     """A lazy dictionary object that acts like a Mapping object.
     This class is intended for internal usage within this module.
     """
@@ -75,7 +75,7 @@ class Datasets (object):
         """
         schemas_doc = doc.get('schemas', {})
         keys = schemas_doc.keys()
-        self.schemas = LazyDict(lambda a: Schema(catalog, a, schemas_doc[a]), keys)
+        self.schemas = _LazyDict(lambda a: Schema(catalog, a, schemas_doc[a]), keys)
         self._identifiers = dir(Datasets) + ['schemas'] + [
             key for key in keys if _isidentifier(key)
         ]
@@ -100,7 +100,7 @@ class Schema (object):
         self._name = name
         tables_doc = doc.get('tables', {})
         self.table_names = tables_doc.keys()
-        self.tables = LazyDict(lambda a: Table(self, a, tables_doc[a]), self.table_names)
+        self.tables = _LazyDict(lambda a: Table(self, a, tables_doc[a]), self.table_names)
         self._identifiers = dir(Schema) + ['tables'] + [
             table_name for table_name in self.table_names if _isidentifier(table_name)
         ]
