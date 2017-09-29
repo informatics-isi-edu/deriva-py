@@ -196,7 +196,7 @@ class Relation (object):
 
     def select(self, *args):
         """Filters the columns of the relation based on the specified list of columns.
-        :param args: a list of Column objects
+        :param args: a list of Column and/or TableAlias objects.
         """
         return Relation(Project(self._expression, args))
 
@@ -414,15 +414,20 @@ class Project (Operator):
         assert isinstance(attrs, tuple)
         assert len(attrs) > 0
         self._attrs = []
-        for attr in attrs:
-            if isinstance(attr, Table):
-                iname = attr.instancename
-                if len(iname)>0:
-                    self._attrs.append(iname + ':*')
+        if len(attrs) == 1 and isinstance(attrs[0], TableAlias):
+            self.__mode = 'entity'
+            self._attrs.append("$%s" % attrs[0].name)
+        else:
+            self.__mode = 'attribute'
+            for attr in attrs:
+                if isinstance(attr, Table):
+                    iname = attr.instancename
+                    if len(iname) > 0:
+                        self._attrs.append(iname + ':*')
+                    else:
+                        self._attrs.append('*')
                 else:
-                    self._attrs.append('*')
-            else:
-                self._attrs.append(attr.instancename)
+                    self._attrs.append(attr.instancename)
 
     @property
     def _path(self):
@@ -430,7 +435,7 @@ class Project (Operator):
 
     @property
     def _mode(self):
-        return 'attribute'
+        return self.__mode
 
 
 class Join (Operator):
