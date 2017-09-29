@@ -171,7 +171,7 @@ class Relation (object):
         assert isinstance(formula, Predicate)
         return Relation(Select(self._expression, formula))
 
-    def join(self, other, on=None):
+    def join(self, other, on=None, outer=''):
         """Joins this relation with another relation.
         :param other: must be a Table relation
         :param on: an equality comparison predicate between columns of this
@@ -179,10 +179,20 @@ class Relation (object):
         participate in a foreign key reference constraint may be joined on.
         Limitation 2: at present the implementation only supports single
         column keys.
+        :param outer: 'left', 'right', 'full' outer joins or '' for inner join
         """
         assert isinstance(other, Table)
         assert on is None or isinstance(on, BinaryPredicate) or isinstance(on, Relation)
-        return Relation(Join(self._expression, other, on))
+        return Relation(Join(self._expression, other, on, outer))
+
+    def left_outer_join(self, other, on):
+        return self.join(other, on, 'left')
+
+    def right_outer_join(self, other, on):
+        return self.join(other, on, 'right')
+
+    def full_outer_join(self, other, on):
+        return self.join(other, on, 'full')
 
     def select(self, *args):
         """Filters the columns of the relation based on the specified list of columns.
@@ -424,12 +434,14 @@ class Project (Operator):
 
 
 class Join (Operator):
-    def __init__(self, r, s, on=None):
+    def __init__(self, r, s, on=None, outer=''):
         super(Join, self).__init__(r)
         assert isinstance(s, Table)
         assert on is None or isinstance(on, BinaryPredicate) or isinstance(on, TableAlias)
+        assert outer == '' or (outer in ('left', 'right', 'full') and isinstance(on, BinaryPredicate))
         self._s = s
         self._on = on
+        self._outer = outer
 
     @property
     def _path(self):
@@ -438,9 +450,9 @@ class Join (Operator):
         elif isinstance(self._on, TableAlias):
             return "%s/$%s/%s" % (self._r._path, self._on.name, self._s.fromname)
         elif isinstance(self._s, TableAlias):
-            return "%s/%s:=%s" % (self._r._path, self._s.name, str(self._on))
+            return "%s/%s:=%s%s" % (self._r._path, self._s.name, self._outer, str(self._on))
         else:
-            return "%s/%s" % (self._r._path, str(self._on))
+            return "%s/%s%s" % (self._r._path, self._outer, str(self._on))
 
 
 class Predicate (object):
