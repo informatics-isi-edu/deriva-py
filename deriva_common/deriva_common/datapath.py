@@ -13,10 +13,10 @@ logger = logging.getLogger(__name__)
 
 
 def from_catalog(catalog):
-    """Creates a datasets object from a derivapy ermrest catalog.
-    :param catalog: an ermrest catalog object
+    """Creates a PathBuilder object from a derivapy ERMrest catalog.
+    :param catalog: an ERMrest catalog object
     """
-    return Datasets(catalog, catalog.getCatalogSchema())
+    return PathBuilder(catalog, catalog.getCatalogSchema())
 
 
 def _isidentifier(a):
@@ -65,18 +65,18 @@ class _LazyDict (_MappingBaseClass):
         return list(self._keys)
 
 
-class Datasets (object):
-    """Datasets is the main container object and beginning interface for this module.
+class PathBuilder (object):
+    """PathBuilder is the main container object and beginning interface for this module.
     """
     def __init__(self, catalog, doc):
-        """Initializes the Datasets.
+        """Initializes the PathBuilder.
         :param catalog: an ermrest catalog instance
         :param doc: the schema document for the catalog
         """
         schemas_doc = doc.get('schemas', {})
         keys = schemas_doc.keys()
         self.schemas = _LazyDict(lambda a: Schema(catalog, a, schemas_doc[a]), keys)
-        self._identifiers = dir(Datasets) + ['schemas'] + [
+        self._identifiers = dir(PathBuilder) + ['schemas'] + [
             key for key in keys if _isidentifier(key)
         ]
 
@@ -88,7 +88,7 @@ class Datasets (object):
 
 
 class Schema (object):
-    """Represents a schema, which is a collection of (table) relations.
+    """Represents a schema.
     """
     def __init__(self, catalog, name, doc):
         """Initializes the Schema.
@@ -130,11 +130,11 @@ class Schema (object):
         return self.name
 
 
-class Relation (object):
-    """Represents an arbitrary relation."""
-    def __init__(self, expression):
-        assert isinstance(expression, Operator)
-        self._expression = expression
+class DataPath (object):
+    """Represents an arbitrary data path."""
+    def __init__(self, path_expression):
+        assert isinstance(path_expression, PathNode)
+        self._path_expression = path_expression
         self._results_doc = None
         self._dataframe = None
 
@@ -148,69 +148,60 @@ class Relation (object):
         return iter(self._fetch())
 
     def _fetch(self, limit=None):
-        # Evaluates the expression and fetches the resulting relation instance
-        # data. We probably will want to make this method or a wrapper of this
-        # method available to the client so that they can initiate a fetch
-        # explicitly.
+        # Evaluates the expression and fetches the resulting entity set.
         if self._results_doc is None:
-            self._results_doc = self._expression.eval(limit)
+            self._results_doc = self._path_expression.eval(limit)
         return self._results_doc
 
     @property
     def dataframe(self):
-        """Pandas DataFrame representation of this relation."""
+        """Pandas DataFrame representation of this path."""
         if self._dataframe is None:
             from pandas import DataFrame
             self._dataframe = DataFrame(self._fetch())
         return self._dataframe
 
-    def filter(self, formula):
-        """Filters the rows of the relation based on the specified formula.
-        :param formula: should be a valid Predicate object
+    def filter(self, filter_expression):
+        """Filters the path based on the specified formula.
+        :param filter_expression: should be a valid Predicate object
         """
-        assert isinstance(formula, Predicate)
-        return Relation(Select(self._expression, formula))
+        assert isinstance(filter_expression, Predicate)
+        return DataPath(Filter(self._path_expression, filter_expression))
 
-    def join(self, other, on=None, outer=''):
-        """Joins this relation with another relation.
-        :param other: must be a Table relation
-        :param on: an equality comparison predicate between columns of this
-        relation and the 'other' relation. Limitation 1: only columns that
-        participate in a foreign key reference constraint may be joined on.
-        Limitation 2: at present the implementation only supports single
-        column keys.
-        :param outer: 'left', 'right', 'full' outer joins or '' for inner join
+    def link(self, on, as_=None, type=''):
+        """Links this path with another table.
+        At present, the implementation only supports single column keys.
+        :param on: may be a table or an equality comparison between keys and foreign keys
+        :param as_: an optional table alias to assign this table instance to
+        :param type: the join type of this link which may be 'left', 'right', 'full' outer joins or '' for inner join link by default.
         """
-        assert isinstance(other, Table)
-        assert on is None or isinstance(on, BinaryPredicate) or isinstance(on, Relation)
-        return Relation(Join(self._expression, other, on, outer))
+        return DataPath(Link(self._path_expression, on, as_, type))
 
-    def left_outer_join(self, other, on):
-        return self.join(other, on, 'left')
-
-    def right_outer_join(self, other, on):
-        return self.join(other, on, 'right')
-
-    def full_outer_join(self, other, on):
-        return self.join(other, on, 'full')
-
-    def select(self, *args):
-        """Filters the columns of the relation based on the specified list of columns.
-        :param args: a list of Column and/or TableAlias objects.
+    def context_reset(self, alias):
+        """Resets path context to aliased table.
+        The table alias must have been defined earlier within this path expression in order for it to be valid.
+        :param alias: the table alias that this path context will be reset to
         """
-        return Relation(Project(self._expression, args))
+        assert isinstance(alias, TableAlias)
+        return DataPath(ContextReset(self._path_expression, alias))
+
+    def attributes(self, *args):
+        """Projects the columns of the path based on the specified list of columns.
+        :param args: a list of Columns.
+        """
+        return DataPath(Projection(self._path_expression, args))
 
 
-class Table (Relation):
-    """Represents a table relation.
+class Table (DataPath):
+    """Represents a table.
     """
     def __init__(self, schema, name, doc):
-        """Initializes the table relation.
+        """Initializes the table.
         :param schema: the schema object to which this table belongs
         :param name: the name of the table
         :param doc: the table definition doc
         """
-        super(Table, self).__init__(Scan(self))
+        super(Table, self).__init__(Root(self))
         assert isinstance(schema, Schema)
         self._schema = schema
         self._name = name
@@ -295,7 +286,7 @@ class TableAlias (Table):
 
 
 class Column (object):
-    """Represents a column in a relation.
+    """Represents a column in a table.
     """
     def __init__(self, table, name, doc):
         """Initializes a column.
@@ -349,11 +340,11 @@ class Column (object):
         return BinaryPredicate(self, "::geq::", other)
 
 
-class Operator (object):
+class PathNode (object):
     def __init__(self, r):
-        assert isinstance(r, Operator) or isinstance(r, Relation)
-        if isinstance(r, Project):
-            raise Exception("Operation not supported: projected relations cannot be queried")
+        assert isinstance(r, PathNode) or isinstance(r, DataPath)
+        if isinstance(r, Projection):
+            raise Exception("This path cannot be extended")
         self._r = r
 
     @property
@@ -378,9 +369,9 @@ class Operator (object):
         return resp.json()
 
 
-class Scan (Operator):
+class Root (PathNode):
     def __init__(self, r):
-        super(Scan, self).__init__(r)
+        super(Root, self).__init__(r)
         assert isinstance(r, Table)
         self._table = r
 
@@ -397,9 +388,20 @@ class Scan (Operator):
         return self._table._schema._catalog
 
 
-class Select(Operator):
+class ContextReset (PathNode):
+    def __init__(self, r, alias):
+        super(ContextReset, self).__init__(r)
+        assert isinstance(alias, TableAlias)
+        self._alias = alias
+
+    @property
+    def _path(self):
+        return "%s/$%s" % (self._r._path, self._alias.name)
+
+
+class Filter(PathNode):
     def __init__(self, r, formula):
-        super(Select, self).__init__(r)
+        super(Filter, self).__init__(r)
         assert isinstance(formula, BinaryPredicate) or isinstance(formula, JunctionPredicate)
         self._formula = formula
 
@@ -408,9 +410,9 @@ class Select(Operator):
         return "%s/%s" % (self._r._path, str(self._formula))
 
 
-class Project (Operator):
+class Projection (PathNode):
     def __init__(self, r, attrs):
-        super(Project, self).__init__(r)
+        super(Projection, self).__init__(r)
         assert isinstance(attrs, tuple)
         assert len(attrs) > 0
         self._attrs = []
@@ -438,26 +440,21 @@ class Project (Operator):
         return self.__mode
 
 
-class Join (Operator):
-    def __init__(self, r, s, on=None, outer=''):
-        super(Join, self).__init__(r)
-        assert isinstance(s, Table)
-        assert on is None or isinstance(on, BinaryPredicate) or isinstance(on, TableAlias)
-        assert outer == '' or (outer in ('left', 'right', 'full') and isinstance(on, BinaryPredicate))
-        self._s = s
+class Link (PathNode):
+    def __init__(self, r, on, as_=None, type=''):
+        super(Link, self).__init__(r)
+        assert isinstance(on, BinaryPredicate) or isinstance(on, Table)
+        assert as_ is None or isinstance(as_, TableAlias)
+        assert type == '' or (type in ('left', 'right', 'full') and isinstance(on, BinaryPredicate))
         self._on = on
-        self._outer = outer
+        self._as = as_
+        self._type = type
 
     @property
     def _path(self):
-        if self._on is None:
-            return "%s/%s" % (self._r._path, self._s.fromname)
-        elif isinstance(self._on, TableAlias):
-            return "%s/$%s/%s" % (self._r._path, self._on.name, self._s.fromname)
-        elif isinstance(self._s, TableAlias):
-            return "%s/%s:=%s%s" % (self._r._path, self._s.name, self._outer, str(self._on))
-        else:
-            return "%s/%s%s" % (self._r._path, self._outer, str(self._on))
+        assign = '' if self._as is None else "%s:=" % self._as.name
+        cond = self._on.fqname if isinstance(self._on, Table) else str(self._on)
+        return "%s/%s%s%s" % (self._r._path, assign, self._type, cond)
 
 
 class Predicate (object):
@@ -479,7 +476,7 @@ class BinaryPredicate (Predicate):
 
     def __str__(self):
         if isinstance(self._rop, Column):
-            # The only valid circumstance for a Column rop is in a join 'on' predicate
+            # The only valid circumstance for a Column rop is in a link 'on' predicate
             # TODO: ultimately, this should be a Column Set equality comparison
             return "(%s)=(%s)" % (self._lop.instancename, self._rop.fqname)
         else:

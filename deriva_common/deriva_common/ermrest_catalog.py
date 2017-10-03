@@ -1,5 +1,6 @@
 import logging
 from . import urlquote
+from . import datapath
 from .ermrest_config import CatalogConfig
 from .deriva_binding import DerivaBinding
 
@@ -49,6 +50,10 @@ class ErmrestCatalog(DerivaBinding):
         r.raise_for_status()
 
         return resp
+
+    def getPathBuilder(self):
+        """Returns the 'path builder' interface for this catalog."""
+        return datapath.from_catalog(self)
 
     def getTableSchema(self, fq_table_name):
         # first try to get from cache(s)
