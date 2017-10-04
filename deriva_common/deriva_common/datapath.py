@@ -35,7 +35,7 @@ class _LazyDict (_MappingBaseClass):
     """A lazy dictionary object that acts like a Mapping object.
     This class is intended for internal usage within this module.
     """
-    def __init__(self, new_elem_fn, keys=[]):
+    def __init__(self, new_elem_fn, keys=list()):
         """Initializes the lazy dict.
         :param new_elem_fn: a function that takes an 'item' key and returns a new element
         :param keys: the list of keys expected to be valid
@@ -135,31 +135,11 @@ class DataPath (object):
     def __init__(self, path_expression):
         assert isinstance(path_expression, PathNode)
         self._path_expression = path_expression
-        self._results_doc = None
-        self._dataframe = None
-
-    def __len__(self):
-        return len(self._fetch())
-
-    def __getitem__(self, item):
-        return self._fetch()[item]
-
-    def __iter__(self):
-        return iter(self._fetch())
-
-    def _fetch(self, limit=None):
-        # Evaluates the expression and fetches the resulting entity set.
-        if self._results_doc is None:
-            self._results_doc = self._path_expression.eval(limit)
-        return self._results_doc
 
     @property
-    def dataframe(self):
-        """Pandas DataFrame representation of this path."""
-        if self._dataframe is None:
-            from pandas import DataFrame
-            self._dataframe = DataFrame(self._fetch())
-        return self._dataframe
+    def uri(self):
+        catalog = self._path_expression._catalog
+        return catalog._server_uri + str(self._path_expression)
 
     def filter(self, filter_expression):
         """Filters the path based on the specified formula.
@@ -168,14 +148,14 @@ class DataPath (object):
         assert isinstance(filter_expression, Predicate)
         return DataPath(Filter(self._path_expression, filter_expression))
 
-    def link(self, on, as_=None, type=''):
+    def link(self, on, as_=None, join_type=''):
         """Links this path with another table.
         At present, the implementation only supports single column keys.
         :param on: may be a table or an equality comparison between keys and foreign keys
         :param as_: an optional table alias to assign this table instance to
-        :param type: the join type of this link which may be 'left', 'right', 'full' outer joins or '' for inner join link by default.
+        :param join_type: the join type of this link which may be 'left', 'right', 'full' outer joins or '' for inner join link by default.
         """
-        return DataPath(Link(self._path_expression, on, as_, type))
+        return DataPath(Link(self._path_expression, on, as_, join_type))
 
     def context_reset(self, alias):
         """Resets path context to aliased table.
@@ -190,6 +170,59 @@ class DataPath (object):
         :param args: a list of Columns.
         """
         return DataPath(Projection(self._path_expression, args))
+
+    def entities(self, limit=None):
+        """Returns the entity set computed by this data path.
+        :param limit: an optional limit on the size of the entity set.
+        """
+        assert limit is None or isinstance(limit, int)
+        opts = '?limit=%d' % limit if limit else ''
+        path = str(self._path_expression) + opts
+        catalog = self._path_expression._catalog
+
+        def fetcher():
+            logger.debug(path)
+            resp = catalog.get(path)
+            resp.raise_for_status()
+            return resp.json()
+
+        return EntitySet(fetcher)
+
+
+class EntitySet (object):
+    """Represents an entity set.
+    Data paths return results as sets of entities.
+    """
+    def __init__(self, fetcher_fn):
+        """Initializes the EntitySet.
+        :param fetcher_fn: a function that fetches the data
+        """
+        assert fetcher_fn is not None
+        self._fetcher_fn = fetcher_fn
+        self._results_doc = None
+        self._dataframe = None
+
+    @property
+    def dataframe(self):
+        """Pandas DataFrame representation of this path."""
+        if self._dataframe is None:
+            from pandas import DataFrame
+            self._dataframe = DataFrame(self._fetch())
+        return self._dataframe
+
+    def __len__(self):
+        return len(self._fetch())
+
+    def __getitem__(self, item):
+        return self._fetch()[item]
+
+    def __iter__(self):
+        return iter(self._fetch())
+
+    def _fetch(self):
+        if self._results_doc is None:
+            self._results_doc = self._fetcher_fn()
+        return self._results_doc
 
 
 class Table (DataPath):
@@ -359,14 +392,8 @@ class PathNode (object):
     def _catalog(self):
         return self._r._catalog
 
-    def eval(self, limit=None):
-        assert limit is None or isinstance(limit, int)
-        limit = '?limit=%d' if limit else ''
-        uri = "/%s/%s%s" % (self._mode, self._path, limit)
-        logger.debug(uri)
-        resp = self._catalog.get(uri)
-        resp.raise_for_status()
-        return resp.json()
+    def __str__(self):
+        return "/%s/%s" % (self._mode, self._path)
 
 
 class Root (PathNode):
@@ -441,20 +468,21 @@ class Projection (PathNode):
 
 
 class Link (PathNode):
-    def __init__(self, r, on, as_=None, type=''):
+    def __init__(self, r, on, as_=None, join_type=''):
         super(Link, self).__init__(r)
         assert isinstance(on, BinaryPredicate) or isinstance(on, Table)
         assert as_ is None or isinstance(as_, TableAlias)
-        assert type == '' or (type in ('left', 'right', 'full') and isinstance(on, BinaryPredicate))
+        assert join_type == '' or (join_type in ('left', 'right', 'full') and isinstance(on, BinaryPredicate))
+        # TODO: we should test that parent path and `on` belong to the same catalog
         self._on = on
         self._as = as_
-        self._type = type
+        self._join_type = join_type
 
     @property
     def _path(self):
         assign = '' if self._as is None else "%s:=" % self._as.name
         cond = self._on.fqname if isinstance(self._on, Table) else str(self._on)
-        return "%s/%s%s%s" % (self._r._path, assign, self._type, cond)
+        return "%s/%s%s%s" % (self._r._path, assign, self._join_type, cond)
 
 
 class Predicate (object):
