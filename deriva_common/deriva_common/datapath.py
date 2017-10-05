@@ -508,7 +508,7 @@ class BinaryPredicate (Predicate):
             # TODO: ultimately, this should be a Column Set equality comparison
             return "(%s)=(%s)" % (self._lop.instancename, self._rop.fqname)
         else:
-            return "(%s%s%s)" % (self._lop.instancename, self._op, urlquote(str(self._rop)))
+            return "%s%s%s" % (self._lop.instancename, self._op, urlquote(str(self._rop)))
 
     def __and__(self, other):
         return JunctionPredicate(self, "&", other)
@@ -529,7 +529,7 @@ class JunctionPredicate (Predicate):
 
     def __str__(self):
         # TODO: not sure this is 100% correct. Barely thought about it so far.
-        return "(%s%s%s)" % (self._left, self._op, self._right)
+        return "(%s)%s(%s)" % (self._left, self._op, self._right)
 
     def __and__(self, other):
         return JunctionPredicate(self, "&", other)
