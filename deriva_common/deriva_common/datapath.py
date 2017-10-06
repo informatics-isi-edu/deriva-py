@@ -165,11 +165,11 @@ class DataPath (object):
         assert isinstance(alias, TableAlias)
         return DataPath(ContextReset(self._path_expression, alias))
 
-    def attributes(self, *args):
+    def attributes(self, *attributes, **renamed_attributes):
         """Projects the columns of the path based on the specified list of columns.
         :param args: a list of Columns.
         """
-        return DataPath(Projection(self._path_expression, args))
+        return DataPath(Projection(self._path_expression, attributes, renamed_attributes))
 
     def entities(self, limit=None):
         """Returns the entity set computed by this data path.
@@ -438,25 +438,28 @@ class Filter(PathNode):
 
 
 class Projection (PathNode):
-    def __init__(self, r, attrs):
+    def __init__(self, r, attributes, renamed_attributes):
         super(Projection, self).__init__(r)
-        assert isinstance(attrs, tuple)
-        assert len(attrs) > 0
+        assert len(attributes) > 0 or len(renamed_attributes) > 0
         self._attrs = []
-        if len(attrs) == 1 and isinstance(attrs[0], TableAlias):
-            self.__mode = 'entity'
-            self._attrs.append("$%s" % attrs[0].name)
-        else:
-            self.__mode = 'attribute'
-            for attr in attrs:
-                if isinstance(attr, Table):
-                    iname = attr.instancename
-                    if len(iname) > 0:
-                        self._attrs.append(iname + ':*')
-                    else:
-                        self._attrs.append('*')
+        self.__mode = 'attribute'
+
+        # Build up the list of project attributes
+        for attr in attributes:
+            if isinstance(attr, Table):
+                iname = attr.instancename
+                if len(iname) > 0:
+                    self._attrs.append(iname + ':*')
                 else:
-                    self._attrs.append(attr.instancename)
+                    self._attrs.append('*')
+            else:
+                self._attrs.append(attr.instancename)
+
+        # Extend the list with renamed attributes (i.e., "out alias" named)
+        for new_name in renamed_attributes:
+            attr = renamed_attributes[new_name]
+            self._attrs.append("%s:=%s" % (new_name, attr.instancename))
+
 
     @property
     def _path(self):
