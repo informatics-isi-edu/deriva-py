@@ -30,32 +30,6 @@ class MINIDError(Exception):
     def __init__(self, message):
         self.message = message
 
-
-def catalog_from_minid(ark):
-    """Given an MIND, return the URL for the ERMREst Catalog that the MINID refers to.
-
-    The Argument should be an ARK of the form ark:/99999/fk43n2fv37
-    The ARK is looked up using N2T and resolved to a MINID landing page.
-    The location link on that page is returned as a string
-
-    """
-
-    assert ('ark:/' == ark[:len('ark:/')])
-
-    # Make ARK resolvable by prepending with N2T
-    n2t_url = 'http://n2t.net/' + ark
-
-    # Get landing page ....
-    headers = {'Accept': 'application/json'}
-    r = requests.get(n2t_url, headers=headers)
-
-    # Get the location element from the landing page. There are a list of locations....
-    location = r.json()['locations'][0]
-
-    # Return the URL to the location.
-    return location['link']
-
-
 def compute_catalog_checksum(caturl, hashalg='sha256'):
     """
 
@@ -76,7 +50,16 @@ def get_catalog_url(scheme, ermresthost, catalog_id, catalog_version=None):
     :param catalog_version: Version of the catalog to use
     :rtype: URL with catalog and version included.
     """
-    assert (scheme is not None and ermresthost is not None and catalog_id is not None)
+
+    if not (scheme == 'http' or scheme == 'https'):
+        raise MINIDError('Scheme must be either http or https')
+    if ermresthost is None:
+        raise MINIDError('ERMRest host name must be provided')
+    if catalog_id is None:
+        raise MINIDError('Catalog ID must be specified')
+    if not catalog_id.isdigit():
+        raise MINIDError('Catalog ID must be an integer')
+
     credential = get_credential(ermresthost)
     catalog = ErmrestCatalog(scheme, ermresthost, catalog_id, credentials=credential)
 
@@ -156,14 +139,48 @@ def update_catalog_minid(scheme, ermresthost, catalog_id, minidserver, email, co
 
 
 def get_catalog_minid(scheme, ermresthost, catalog_id, minidserver, version=None, test=False):
-    # Need to use Deriva authentication agent before executing this
+    """
+    Return a list of entities by looking up values using the checksum
+    :param scheme: HTTP or HTTPS
+    :param ermresthost: Hostname of ERMRest server
+    :param catalog_id: ID number of the catalog
+    :param minidserver: Hostname of minid server
+    :param version: Catalog version number, defaults to current version
+    :param test: user test MINID server
+    :return:  List of entitys that match the requested catalog
+    """
 
     catalog_location = get_catalog_url(scheme, ermresthost, catalog_id, version)
-
-    # see if this catalog or name exists
     checksum = compute_catalog_checksum(catalog_location)
     entities = mca.get_entities(minidserver, checksum, test)
     return entities
+
+
+def catalog_from_minid(ark):
+    """
+   Given an MIND, return the URL for the ERMREst Catalog that the MINID refers to.
+
+    The Argument should be an ARK of the form ark:/99999/fk43n2fv37
+    The ARK is looked up using N2T and resolved to a MINID landing page.
+    The location link on that page is returned as a string
+
+    """
+
+    if not ('ark:/' == ark[:len('ark:/')]):
+        raise MINIDError('MINID must be in form of ark:/99999/fk43n2fv37')
+
+    # Make ARK resolvable by prepending with N2T
+    n2t_url = 'http://n2t.net/' + ark
+
+    # Get landing page ....
+    headers = {'Accept': 'application/json'}
+    r = requests.get(n2t_url, headers=headers)
+
+    # Get the location element from the landing page. There are a list of locations....
+    location = r.json()['locations'][0]
+
+    # Return the URL to the location.
+    return location['link']
 
 
 def parse_cli():
@@ -177,7 +194,8 @@ def parse_cli():
     group.add_argument('--register', action="store_true", help="Register a catalog")
     group.add_argument('--update', action="store_true", help="Update a minid")
     group.add_argument('--register_user', action="store_true", help="Register a new user")
-    group.add_argument('--get', action="store_true", help="Return the ID for a catalog")
+    group.add_argument('--url', action="store_true", help="Return URL of a catalog from a MINID")
+    group.add_argument('--landingpage', action="store_true", help="Return the landing page info for a catalog")
 
     # Overrides of the config file...
     parser.add_argument('--config', default=mca.DEFAULT_CONFIG_FILE)
@@ -196,8 +214,10 @@ def parse_cli():
     parser.add_argument('--status', help="Status of the minid (ACTIVE or TOMBSTONE)")
     parser.add_argument('--obsoleted_by', help="A minid that replaces this minid")
 
+    parser.add_argument('--from_minid')
+
     parser.add_argument('ermresthost', nargs='?', help="Hostname where catalog server is located")
-    parser.add_argument('catalogid', nargs='?', type=int, help="Catalog ID number")
+    parser.add_argument('catalogid', nargs='?', help="Catalog ID number")
     parser.add_argument('version', nargs='?', help="Version number of catalog to be identified")
 
     return parser.parse_args()
@@ -209,7 +229,7 @@ def main():
     # Need to change this....
     args.scheme = 'https'
 
-    if not (args.register or args.update or args.register_user or args.get):
+    if not (args.register or args.update or args.register_user or args.url or args.landingpage):
         args.register = True
 
     if not args.quiet:
@@ -226,11 +246,6 @@ def main():
             mca.register_user(server, email, config['name'], args.orcid)
             return
 
-        # if we got this far we *must* have a catalog (or identifier) arg
-        if args.ermresthost is None or args.catalogid is None:
-            print("A catalog and an identifier must be specified.")
-            return
-
         # register file or display info about the entity
         if args.register:
             minid_from_catalog(args.scheme, args.ermresthost, args.catalogid, server, email, code,
@@ -239,14 +254,22 @@ def main():
             update_catalog_minid(args.scheme, args.ermresthost, args.catalogid, server, email, code,
                                  title=args.title, version=args.version,
                                  status=args.status, obsoleted_by=args.obsoleted_by, test=args.test)
+        elif args.url:
+            url = catalog_from_minid(args.ermresthost)
+            print(url)
         else:
-            entities = get_catalog_minid(args.scheme, args.ermresthost, args.catalogid, server, test=args.test)
+            if args.ermresthost[0:len('ark:')] == 'ark:':
+                entities = mca.get_entities(server, args.ermresthost, args.test)
+            else:
+                entities = get_catalog_minid(args.scheme, args.ermresthost, args.catalogid, server, test=args.test)
             if entities is not None:
                 mca.print_entities(entities, args.json)
             else:
                 print("Catalog is not named. Use --register to create a name for this file.")
     except MINIDError as err:
         print('ERROR: ' + err.message)
+    except requests.exceptions.HTTPError as err:
+        print(err)
 
 
 if __name__ == '__main__':
