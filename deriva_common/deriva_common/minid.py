@@ -3,7 +3,6 @@
 from argparse import ArgumentParser
 import minid_client.minid_client_api as mca
 import requests
-import io
 
 from deriva_common import ErmrestCatalog, get_credential, urlquote
 from deriva_common.utils.hash_utils import compute_hashes
@@ -31,86 +30,7 @@ class MINIDError(Exception):
     def __init__(self, message):
         self.message = message
 
-def compute_catalog_checksum(caturl, hashalg='sha256'):
-    """
-
-    :rtype: basestring
-    """
-    fd = io.BytesIO(caturl.encode())
-
-    # Get back a dictionary of hash codes....
-    hashcodes = compute_hashes(fd, [hashalg])
-    return hashcodes[hashalg][0]
-
-
-def parse_catalog_url(url, version=None):
-    """
-    Parse a URL to an ermrest catalog, defaulting the version to the current version if not provided
-
-    :param url: catalog URL
-    :return:  A dictionary will catalog URL parts broken out.
-    """
-    urlparts = urlparse(url)
-    catparts = re.match(r'/ermrest/catalog/(?P<id>\d+)(@(?P<version>[^/]+))?(?P<path>.*)', urlparts.path)
-
-    if catparts is None:
-        raise MINIDError("Ill formed catalog URL: " + url)
-
-    catalog_id, catalog_version, catalog_path = catparts.group('id', 'version', 'path')
-
-    # If there was no version in the URL, either use provided version, or current version.
-    if catalog_version is None:
-        if version is None
-            credential = get_credential(urlparts.netloc)
-            catalog = ErmrestCatalog(urlparts.scheme, urlparts.netloc, catalog_id, credentials=credential)
-
-            # Get current version of catalog and construct a new URL that fully qualifies catalog with version.
-            catalog_version = catalog.get('/').json()['version']
-        else:
-            catalog_version = version
-
-    versioned_path = urlquote('/ermrest/catalog/%s@%s%s' % (catalog_id, catalog_version, catalog_path))
-    #  Ermrest bug on quoting @?
-    versioned_path = str.replace(versioned_path, '%40', '@')
-    catalog_url = urlunparse([urlparts.scheme, urlparts.netloc,
-                                       versioned_path,
-                                       urlparts.params, urlparts.query, urlparts.fragment])
-    return {'scheme': scheme,
-            'netloc': urlparts.netloc,
-            'params': urlparts.params,
-            'query': urlparts.query,
-            'fragment': urlparts.fragment,
-            'catalog_host': urlparts.netloc,
-            'catalog_id': catalog_id,
-            'catalog_version': catalog_version,
-            'catalog_query': catalog_path,
-            'catalog_url': catalog_url}
-
-
-def get_catalog_url(scheme, host, id, version=None):
-    """
-    :param scheme:  scheme used for catalog URL
-    :param host:  hostname of ERMRest catalog service
-    :param id:  Integer ID number of catalog
-    :param version: Version of the catalog to use
-    :rtype: URL with catalog and version included.
-    """
-
-    if not (scheme == 'http' or scheme == 'https'):
-        raise MINIDError('Scheme must be either http or https')
-    if host is None:
-        raise MINIDError('ERMRest host name must be provided')
-    if id is None:
-        raise MINIDError('Catalog ID must be specified')
-    if not id.isdigit():
-        raise MINIDError('Catalog ID must be an integer')
-
-    urlparts = parse_catalog_url('%s/%s/ermrest/catalog/%s' % (scheme, host, id), version)
-
-    return urlparts['catalog_url']
-
-
-def minid_from_catalog(scheme, ermresthost, catalog_id, minidserver, email, code,
+def minid_from_catalog(catalog, minidserver, email, code,
                        title=None, version=None, test=False, key=None):
     """
     Create a MIND from a ERMRest catalog
@@ -128,15 +48,14 @@ def minid_from_catalog(scheme, ermresthost, catalog_id, minidserver, email, code
     :return: ID of an ARK
     """
 
-    catalog_location = get_catalog_url(scheme, ermresthost, catalog_id, version)
-    catalog_path = urlparse(catalog_location).path
+    catalog_path = catalog.path
 
     # Create a default title...
     if title is None:
         title = "ERMRest Catalog: " + catalog_path
 
     # see if this catalog or name exists
-    checksum = compute_catalog_checksum(catalog_location)
+    checksum = catalog.CheckSum()
     entities = mca.get_entities(minidserver, checksum, test)
 
     # register file or display info about the entity
@@ -148,12 +67,12 @@ def minid_from_catalog(scheme, ermresthost, catalog_id, minidserver, email, code
         return minid
 
 
-def update_catalog_minid(scheme, ermresthost, catalog_id, minidserver, email, code,
+def update_catalog_minid(catalog, minidserver, email, code,
                          status=None, obsoleted_by=None, title=None, version=None, test=False):
-    catalog_location = get_catalog_url(scheme, ermresthost, catalog_id, version)
+    catalog_location = catalog.URL()
 
     # see if this catalog or name exists
-    checksum = compute_catalog_checksum(catalog_location)
+    checksum = catalog.CheckSum()
     entities = mca.get_entities(minidserver, checksum, test)
 
     if entities is None:
@@ -173,11 +92,9 @@ def update_catalog_minid(scheme, ermresthost, catalog_id, minidserver, email, co
         return updated_entity
 
 
-def get_catalog_minid(scheme, ermresthost, catalog_id, minidserver, version=None, test=False):
+def get_catalog_minid(catalog minidserver, version=None, test=False):
     """
     Return a list of entities by looking up values using the checksum
-    :param scheme: HTTP or HTTPS
-    :param ermresthost: Hostname of ERMRest server
     :param catalog_id: ID number of the catalog
     :param minidserver: Hostname of minid server
     :param version: Catalog version number, defaults to current version
@@ -185,8 +102,8 @@ def get_catalog_minid(scheme, ermresthost, catalog_id, minidserver, version=None
     :return:  List of entitys that match the requested catalog
     """
 
-    catalog_location = get_catalog_url(scheme, ermresthost, catalog_id, version)
-    checksum = compute_catalog_checksum(catalog_location)
+    catalog_location = catalog.URL()
+    checksum = catalog.CheckSum()
     entities = mca.get_entities(minidserver, checksum, test)
     return entities
 
