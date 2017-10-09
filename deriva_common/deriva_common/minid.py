@@ -43,7 +43,7 @@ def compute_catalog_checksum(caturl, hashalg='sha256'):
     return hashcodes[hashalg][0]
 
 
-def parse_catalog_url(url):
+def parse_catalog_url(url, version=None):
     """
     Parse a URL to an ermrest catalog, defaulting the version to the current version if not provided
 
@@ -58,12 +58,16 @@ def parse_catalog_url(url):
 
     catalog_id, catalog_version, catalog_path = catparts.group('id', 'version', 'path')
 
+    # If there was no version in the URL, either use provided version, or current version.
     if catalog_version is None:
-        credential = get_credential(urlparts.netloc)
-        catalog = ErmrestCatalog(urlparts.scheme, urlparts.netloc, catalog_id, credentials=credential)
+        if version is None
+            credential = get_credential(urlparts.netloc)
+            catalog = ErmrestCatalog(urlparts.scheme, urlparts.netloc, catalog_id, credentials=credential)
 
-        # Get current version of catalog and construct a new URL that fully qualifies catalog with version.
-        catalog_version = catalog.get('/').json()['version']
+            # Get current version of catalog and construct a new URL that fully qualifies catalog with version.
+            catalog_version = catalog.get('/').json()['version']
+        else:
+            catalog_version = version
 
     versioned_path = urlquote('/ermrest/catalog/%s@%s%s' % (catalog_id, catalog_version, catalog_path))
     #  Ermrest bug on quoting @?
@@ -83,37 +87,27 @@ def parse_catalog_url(url):
             'catalog_url': catalog_url}
 
 
-def get_catalog_url(scheme, ermresthost, catalog_id, catalog_version=None):
+def get_catalog_url(scheme, host, id, version=None):
     """
     :param scheme:  scheme used for catalog URL
-    :param ermresthost:  hostname of ERMRest catalog service
-    :param catalog_id:  Integer ID number of catalog
-    :param catalog_version: Version of the catalog to use
+    :param host:  hostname of ERMRest catalog service
+    :param id:  Integer ID number of catalog
+    :param version: Version of the catalog to use
     :rtype: URL with catalog and version included.
     """
 
     if not (scheme == 'http' or scheme == 'https'):
         raise MINIDError('Scheme must be either http or https')
-    if ermresthost is None:
+    if host is None:
         raise MINIDError('ERMRest host name must be provided')
-    if catalog_id is None:
+    if id is None:
         raise MINIDError('Catalog ID must be specified')
-    if not catalog_id.isdigit():
+    if not id.isdigit():
         raise MINIDError('Catalog ID must be an integer')
 
-    credential = get_credential(ermresthost)
-    catalog = ErmrestCatalog(scheme, ermresthost, catalog_id, credentials=credential)
+    urlparts = parse_catalog_url('%s/%s/ermrest/catalog/%s' % (scheme, host, id), version)
 
-    # Get current version of catalog and construct a new URL that fully qualifies catalog with version.
-    catalog_url = urlparse(catalog._server_uri)
-    catalog_version = catalog_version if catalog_version is not None else catalog.get('/').json()['version']
-    catalog_location = urlunparse([catalog_url.scheme, catalog_url.hostname,
-                                   urlquote(catalog_url.path + '@' + catalog_version),
-                                   '', '', ''])
-
-    #  Ermrest bug on quoting @?
-    catalog_location = str.replace(catalog_location, '%40', '@')
-    return catalog_location
+    return urlparts['catalog_url']
 
 
 def minid_from_catalog(scheme, ermresthost, catalog_id, minidserver, email, code,
