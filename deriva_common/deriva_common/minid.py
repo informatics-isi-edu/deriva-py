@@ -10,6 +10,7 @@ from deriva_common.utils.hash_utils import compute_hashes
 
 from urllib.parse import urlparse, urlunparse
 
+
 # Usage
 # minid.py <file_path> --- will give you info on file if it has been registered
 # minid.py <identifer> -- will give you info on identifier
@@ -26,7 +27,7 @@ class MINIDError(Exception):
         message -- explanation of the error
     """
 
-    def __init__(self,  message):
+    def __init__(self, message):
         self.message = message
 
 
@@ -39,7 +40,7 @@ def catalog_from_minid(ark):
 
     """
 
-    assert('ark:/' == ark[:len('ark:/')])
+    assert ('ark:/' == ark[:len('ark:/')])
 
     # Make ARK resolvable by prepending with N2T
     n2t_url = 'http://n2t.net/' + ark
@@ -56,6 +57,10 @@ def catalog_from_minid(ark):
 
 
 def compute_catalog_checksum(caturl, hashalg='sha256'):
+    """
+
+    :rtype: basestring
+    """
     fd = io.BytesIO(caturl.encode())
 
     # Get back a dictionary of hash codes....
@@ -68,10 +73,10 @@ def get_catalog_url(scheme, ermresthost, catalog_id, catalog_version=None):
     :param scheme:  scheme used for catalog URL
     :param ermresthost:  hostname of ERMRest catalog service
     :param catalog_id:  Integer ID number of catalog
-    :param Version of the catalog to use
+    :param catalog_version: Version of the catalog to use
     :rtype: URL with catalog and version included.
     """
-    assert(scheme is not None and ermresthost is not None and catalog_id is not None)
+    assert (scheme is not None and ermresthost is not None and catalog_id is not None)
     credential = get_credential(ermresthost)
     catalog = ErmrestCatalog(scheme, ermresthost, catalog_id, credentials=credential)
 
@@ -126,8 +131,7 @@ def minid_from_catalog(scheme, ermresthost, catalog_id, minidserver, email, code
 
 
 def update_catalog_minid(scheme, ermresthost, catalog_id, minidserver, email, code,
-                          status=None, obsoleted_by=None, title=None, version=None, test=False):
-
+                         status=None, obsoleted_by=None, title=None, version=None, test=False):
     catalog_location = get_catalog_url(scheme, ermresthost, catalog_id, version)
 
     # see if this catalog or name exists
@@ -140,9 +144,10 @@ def update_catalog_minid(scheme, ermresthost, catalog_id, minidserver, email, co
         raise MINIDError("More than one minid identified. Please use a minid identifier")
     else:
         entity = entities.values()[0]
-        if status:
+
+        if status is not None:
             entity['status'] = status
-        if obsoleted_by:
+        if obsoleted_by is not None:
             entity['obsoleted_by'] = obsoleted_by
         if title is not None:
             entity['titles'] = [{"title": title}]
