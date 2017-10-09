@@ -9,6 +9,7 @@ from deriva_common import ErmrestCatalog, get_credential, urlquote
 from deriva_common.utils.hash_utils import compute_hashes
 
 from urllib.parse import urlparse, urlunparse
+import re
 
 
 # Usage
@@ -40,6 +41,46 @@ def compute_catalog_checksum(caturl, hashalg='sha256'):
     # Get back a dictionary of hash codes....
     hashcodes = compute_hashes(fd, [hashalg])
     return hashcodes[hashalg][0]
+
+
+def parse_catalog_url(url):
+    """
+    Parse a URL to an ermrest catalog, defaulting the version to the current version if not provided
+
+    :param url: catalog URL
+    :return:  A dictionary will catalog URL parts broken out.
+    """
+    urlparts = urlparse(url)
+    catparts = re.match(r'/ermrest/catalog/(?P<id>\d+)(@(?P<version>[^/]+))?(?P<path>.*)', urlparts.path)
+
+    if catparts is None:
+        raise MINIDError("Ill formed catalog URL: " + url)
+
+    catalog_id, catalog_version, catalog_path = catparts.group('id', 'version', 'path')
+
+    if catalog_version is None:
+        credential = get_credential(urlparts.netloc)
+        catalog = ErmrestCatalog(urlparts.scheme, urlparts.netloc, catalog_id, credentials=credential)
+
+        # Get current version of catalog and construct a new URL that fully qualifies catalog with version.
+        catalog_version = catalog.get('/').json()['version']
+
+    versioned_path = urlquote('/ermrest/catalog/%s@%s%s' % (catalog_id, catalog_version, catalog_path))
+    #  Ermrest bug on quoting @?
+    versioned_path = str.replace(versioned_path, '%40', '@')
+    catalog_url = urlunparse([urlparts.scheme, urlparts.netloc,
+                                       versioned_path,
+                                       urlparts.params, urlparts.query, urlparts.fragment])
+    return {'scheme': scheme,
+            'netloc': urlparts.netloc,
+            'params': urlparts.params,
+            'query': urlparts.query,
+            'fragment': urlparts.fragment,
+            'catalog_host': urlparts.netloc,
+            'catalog_id': catalog_id,
+            'catalog_version': catalog_version,
+            'catalog_query': catalog_path,
+            'catalog_url': catalog_url}
 
 
 def get_catalog_url(scheme, ermresthost, catalog_id, catalog_version=None):
