@@ -5,6 +5,7 @@ from urllib.parse import urlsplit, urlunsplit
 import re
 import io
 
+
 class VersionedCatalogError(Exception):
         """Exception raised for errors in the input.
 
@@ -16,8 +17,10 @@ class VersionedCatalogError(Exception):
         def __init__(self, message):
             self.message = message
 
+
 class VersionedCatalog:
-    def __init__(self, url, host=None, id=None, version=None):
+
+    def __init__(self, url, host=None, cid=None, version=None):
 
         # Initialize everything to None.
         self.scheme = self.host = self.query = self.fragment = self.id = self.version = self.path = None
@@ -26,22 +29,22 @@ class VersionedCatalog:
         if url == 'http' or url == 'https':
             if host is None:
                 raise VersionedCatalogError('ERMRest host name required')
-            if id is None:
+            if cid is None:
                 raise VersionedCatalogError('Catalog ID number required')
             if not str(id).isdigit():
                 raise VersionedCatalogError('Catalog ID must be an integer')
 
             url = '%s://%s/ermrest/catalog/%s' % (url, host, id)
 
-        dict = self.ParseCatalogURL(url, version)
+        vc = self.ParseCatalogURL(url, version)
 
-        self.scheme = dict['scheme']
-        self.host = dict['host']
-        self.query = dict['query']
-        self.fragment = dict['fragment']
-        self.id = dict['id']
-        self.version = dict['version']
-        self.path = dict['path']
+        self.scheme = vc['scheme']
+        self.host = vc['host']
+        self.query = vc['query']
+        self.fragment = vc['fragment']
+        self.id = vc['id']
+        self.version = vc['version']
+        self.path = vc['path']
 
     def ParseCatalogURL(self, url, version=None):
         """
@@ -50,7 +53,7 @@ class VersionedCatalog:
         :param url: catalog URL
 
         """
-        urlparts = urlsplit(url)
+        urlparts = urlsplit(url,scheme='https')
 
         scheme = urlparts.scheme
         host = urlparts.netloc
@@ -58,44 +61,41 @@ class VersionedCatalog:
         fragment = urlparts.fragment
 
         # Look in the path and pull out id, version number if it exists, and ermrest path....
-        catparts = re.match(r'/ermrest/catalog/(?P<id>\d+)(@(?P<version>[^/]+))?(?P<path>.*)', urlparts.path)
-        if catparts is None:
-            raise VersionedCatalogError("Ill formed catalog URL: " + url)
+        catparts = re.match(r'(/ermrest/catalog/(?P<id>\d+)(@(?P<version>[^/]+))?)?(?P<path>.*)', urlparts.path)
 
-        id, version, path = catparts.group('id', 'version', 'path')
+        cid, version, path = catparts.group('id', 'version', 'path')
 
         # fill in missing values ....
         scheme = scheme if scheme is not None else self.scheme
         host = host if host is not None else self.host
-        id = id if id is not None else self.id
+        cid = cid if cid is not None else self.id
         version = version if version is not None else self.version
 
         # If there was no version in the URL, either use provided version, or current version.
         if version is None:
             credential = get_credential(host)
-            catalog = ErmrestCatalog(scheme, host, id, credentials=credential)
+            catalog = ErmrestCatalog(scheme, host, cid, credentials=credential)
 
             # Get current version of catalog and construct a new URL that fully qualifies catalog with version.
             version = catalog.get('/').json()['version']
 
         return {'scheme': scheme, 'host': host, 'query': query, 'fragment': fragment,
-                'id': id, 'version': version, 'path': path}
-
+                'id': cid, 'version': version, 'path': path}
 
     def URL(self, path=None, version=None):
 
         # Use path if it is provided as an argument.
         path = self.path if path is None else path
 
-        dict = self.ParseCatalogURL(path, version)
+        vc = self.ParseCatalogURL(path, version)
+        vc['path'] = vc['path'][0] if vc['path'][0]== '/' else '/' + vc['path']
 
-        versioned_path = urlquote('/ermrest/catalog/%s@%s%s' % (dict['id'], dict['version'], dict['path']))
+        versioned_path = urlquote('/ermrest/catalog/%s@%s%s' % (vc['id'], vc['version'], vc['path']))
 
         #  Ermrest bug on quoting @?
         versioned_path = str.replace(versioned_path, '%40', '@')
-        url = urlunsplit([scheme, host, versioned_path, query, fragment])
+        url = urlunsplit([vc['scheme'], vc['host'], versioned_path, vc['query'], vc['fragment']])
         return url
-
 
     def CheckSum(self, path=None, version=None, hashalg='sha256'):
         """

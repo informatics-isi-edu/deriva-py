@@ -1,11 +1,19 @@
 # !/usr/bin/python
 
+import sys
+
+print (sys.path)
+
 from argparse import ArgumentParser
 import minid_client.minid_client_api as mca
 import requests
 
+import deriva_common
+import deriva_common.versioned_catalog
+
 from deriva_common import ErmrestCatalog, get_credential, urlquote
 from deriva_common.utils.hash_utils import compute_hashes
+from deriva_common.versioned_catalog import VersionedCatalog
 
 from urllib.parse import urlparse, urlunparse
 import re
@@ -30,19 +38,16 @@ class MINIDError(Exception):
     def __init__(self, message):
         self.message = message
 
-def minid_from_catalog(catalog, minidserver, email, code,
-                       title=None, version=None, test=False, key=None):
+
+def create_catalog_minid(catalog, minidserver, email, code, title=None, test=False, key=None):
     """
     Create a MIND from a ERMRest catalog
 
-    :param scheme:  scheme used for catalog URL
-    :param ermresthost:  hostname of ERMRest catalog service
-    :param catalog_id:  Integer ID number of catalog
+    :param catalog:  VersionedCatalog object
     :param minidserver:  Host name of minid service
     :param email: EMAIL address to be used for MINID metadata
     :param code:  Authentication code for MINID serivce users
     :param title: Title of catalog MIND.  Will default to catalog URL and version if not provided
-    :param version: Version string of catalog to use. Defaults to current version if not provided
     :param test:  Use MINID test ID space
     :param key: contect key
     :return: ID of an ARK
@@ -68,8 +73,8 @@ def minid_from_catalog(catalog, minidserver, email, code,
 
 
 def update_catalog_minid(catalog, minidserver, email, code,
-                         status=None, obsoleted_by=None, title=None, version=None, test=False):
-    catalog_location = catalog.URL()
+                         status=None, obsoleted_by=None, title=None, test=False):
+    catalog_location = catalog.URL(version=version)
 
     # see if this catalog or name exists
     checksum = catalog.CheckSum()
@@ -92,23 +97,21 @@ def update_catalog_minid(catalog, minidserver, email, code,
         return updated_entity
 
 
-def get_catalog_minid(catalog minidserver, version=None, test=False):
+def lookup_catalog_minid(catalog, minidserver, test=False):
     """
     Return a list of entities by looking up values using the checksum
-    :param catalog_id: ID number of the catalog
+    :param catalog: VersionedCatalog object
     :param minidserver: Hostname of minid server
-    :param version: Catalog version number, defaults to current version
     :param test: user test MINID server
     :return:  List of entitys that match the requested catalog
     """
 
-    catalog_location = catalog.URL()
     checksum = catalog.CheckSum()
     entities = mca.get_entities(minidserver, checksum, test)
     return entities
 
 
-def catalog_from_minid(ark):
+def resolve_catalog_minid(ark):
     """
    Given an MIND, return the URL for the ERMREst Catalog that the MINID refers to.
 
@@ -168,7 +171,7 @@ def parse_cli():
 
     parser.add_argument('--from_minid')
 
-    parser.add_argument('ermresthost', nargs='?', help="Hostname where catalog server is located")
+    parser.add_argument('url', nargs='?', help="Hostname where catalog server is located")
     parser.add_argument('catalogid', nargs='?', help="Catalog ID number")
     parser.add_argument('version', nargs='?', help="Version number of catalog to be identified")
 
@@ -198,26 +201,30 @@ def main():
             mca.register_user(server, email, config['name'], args.orcid)
             return
 
-        # register file or display info about the entity
-        if args.register:
-            minid_from_catalog(args.scheme, args.ermresthost, args.catalogid, server, email, code,
-                               title=args.title, version=args.version, test=args.test)
-        elif args.update:
-            update_catalog_minid(args.scheme, args.ermresthost, args.catalogid, server, email, code,
-                                 title=args.title, version=args.version,
-                                 status=args.status, obsoleted_by=args.obsoleted_by, test=args.test)
-        elif args.url:
-            url = catalog_from_minid(args.ermresthost)
+        if args.url:
+            url = resolve_catalog_minid(args.path)
             print(url)
-        else:
-            if args.ermresthost[0:len('ark:')] == 'ark:':
-                entities = mca.get_entities(server, args.ermresthost, args.test)
+            return
+
+        if args.landingpage:
+            if args.path[0:len('ark:')] == 'ark:':
+                entities = mca.get_entities(server, args.path, args.test)
             else:
-                entities = get_catalog_minid(args.scheme, args.ermresthost, args.catalogid, server, test=args.test)
+                vc = VersionedCatalog(args.url, args.version)
+                entities = lookup_catalog_minid(vc, server, test=args.test)
             if entities is not None:
                 mca.print_entities(entities, args.json)
             else:
                 print("Catalog is not named. Use --register to create a name for this file.")
+            return
+
+        vc = VersionedCatalog(args.url, args.version)
+        # register file or display info about the entity
+        if args.register:
+            create_catalog_minid(vc, server, email, code, title=args.title, test=args.test)
+        elif args.update:
+            update_catalog_minid(vc, server, email, code,
+                                 title=args.title, status=args.status, obsoleted_by=args.obsoleted_by, test=args.test)
     except MINIDError as err:
         print('ERROR: ' + err.message)
     except requests.exceptions.HTTPError as err:
