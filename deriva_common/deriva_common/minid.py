@@ -1,19 +1,13 @@
 # !/usr/bin/python
-
-import sys
-
-print (sys.path)
-
 from argparse import ArgumentParser
 import minid_client.minid_client_api as mca
 import requests
 
 import deriva_common
-import deriva_common.versioned_catalog
 
 from deriva_common import ErmrestCatalog, get_credential, urlquote
 from deriva_common.utils.hash_utils import compute_hashes
-from deriva_common.versioned_catalog import VersionedCatalog
+from versioned_catalog import VersionedCatalog
 
 from urllib.parse import urlparse, urlunparse
 import re
@@ -68,7 +62,7 @@ def create_catalog_minid(catalog, minidserver, email, code, title=None, test=Fal
         raise MINIDError("MINID for this catalog version already exists: " + [x for x in entities.keys()][0])
     else:
         # register_entity wants a list of locations....
-        minid = mca.register_entity(minidserver, checksum, email, code, [catalog_location], title, test, key)
+        minid = mca.register_entity(minidserver, checksum, email, code, [catalog.URL()], title, test, key)
         return minid
 
 
@@ -171,7 +165,7 @@ def parse_cli():
 
     parser.add_argument('--from_minid')
 
-    parser.add_argument('url', nargs='?', help="Hostname where catalog server is located")
+    parser.add_argument('path', nargs='?', help="Hostname where catalog server is located")
     parser.add_argument('catalogid', nargs='?', help="Catalog ID number")
     parser.add_argument('version', nargs='?', help="Version number of catalog to be identified")
 
@@ -218,7 +212,12 @@ def main():
                 print("Catalog is not named. Use --register to create a name for this file.")
             return
 
-        vc = VersionedCatalog(args.url, args.version)
+        if args.path is None:
+            print("Catalog path must be specified")
+            return
+
+        vc = VersionedCatalog(args.path, args.version)
+
         # register file or display info about the entity
         if args.register:
             create_catalog_minid(vc, server, email, code, title=args.title, test=args.test)

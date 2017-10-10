@@ -53,7 +53,7 @@ class VersionedCatalog:
         :param url: catalog URL
 
         """
-        urlparts = urlsplit(url,scheme='https')
+        urlparts = urlsplit(url, scheme='https')
 
         scheme = urlparts.scheme
         host = urlparts.netloc
@@ -88,19 +88,23 @@ class VersionedCatalog:
         path = self.path if path is None else path
 
         vc = self.ParseCatalogURL(path, version)
-        vc['path'] = vc['path'][0] if vc['path'][0]== '/' else '/' + vc['path']
 
-        versioned_path = urlquote('/ermrest/catalog/%s@%s%s' % (vc['id'], vc['version'], vc['path']))
+        if len(vc['path']) > 0 and vc['path'][0] != '/':
+            vc['path'] = '/' + vc['path']
 
-        #  Ermrest bug on quoting @?
-        versioned_path = str.replace(versioned_path, '%40', '@')
+        versioned_path = urlquote('/ermrest/catalog/%s' % (vc['id'])) + '@' \
+                                  + urlquote('%s%s' % (vc['version'], vc['path']))
+
         url = urlunsplit([vc['scheme'], vc['host'], versioned_path, vc['query'], vc['fragment']])
         return url
 
     def CheckSum(self, path=None, version=None, hashalg='sha256'):
         """
         """
+        # Use path if it is provided as an argument.
+        path = self.path if path is None else path
 
+        print('checksum path is: ' + path)
         fd = io.BytesIO(self.URL(path, version).encode())
 
         # Get back a dictionary of hash codes....
