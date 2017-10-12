@@ -186,15 +186,6 @@ class DataPath (object):
         self._path_expression = Filter(self._path_expression, filter_expression)
         return self
 
-    def attributes(self, *attributes, **renamed_attributes):
-        """Projects the columns of the path based on the specified list of columns.
-        :param attributes: a list of Columns.
-        :param renamed_attributes: a list of renamed Columns.
-        :returns self
-        """
-        self._path_expression = Project(self._path_expression, attributes, renamed_attributes)
-        return self
-
     def link(self, right, on=None, join_type=''):
         """Links this path with another table.
         At present, the implementation only supports single column keys.
@@ -236,18 +227,27 @@ class DataPath (object):
 
         return self
 
-    def entities(self, limit=None):
+    def entities(self, *attributes, **renamed_attributes):
         """Returns the entity set computed by this data path.
-        :param limit: an optional limit on the size of the entity set.
-        :returns fetched entity set
+        Optionally, caller may specify the attributes to be included in the entity set. The attributes may be from the
+        current context of the path or from a linked table instance. Columns may be renamed in the output and will
+        take the name of the keyword parameter used. If no attributes are specified, the entity set will contain whole
+        entities of the type of the path's context.
+        :param attributes: a list of Columns.
+        :param renamed_attributes: a list of renamed Columns.
+        :returns an entity set
         """
-        assert limit is None or isinstance(limit, int)
-        opts = '?limit=%d' % limit if limit else ''
-        path = str(self._path_expression) + opts
         catalog = self._root.catalog
+        if attributes or renamed_attributes:
+            base_path = str(Project(self._path_expression, attributes, renamed_attributes))
+        else:
+            base_path = str(self._path_expression)
 
-        def fetcher():
-            logger.debug("fetching " + path)
+        def fetcher(limit=None):
+            assert limit is None or isinstance(limit, int)
+            opts = '?limit=%d' % limit if limit else ''
+            path = base_path + opts
+            logger.debug("Fetching " + path)
             try:
                 resp = catalog.get(path)
                 return resp.json()
@@ -259,12 +259,14 @@ class DataPath (object):
 
 
 class EntitySet (object):
-    """Represents an entity set.
-    Data paths return results as sets of entities.
+    """A set of entities.
+    The EntitySet is produced by a path. The results may be explicitly fetched. The EntitySet behaves like a
+    container. If the EntitySet has not been fetched explicitly, on first use of container operations, it will
+    be implicitly fetched from the catalog.
     """
     def __init__(self, fetcher_fn):
         """Initializes the EntitySet.
-        :param fetcher_fn: a function that fetches the data
+        :param fetcher_fn: a function that fetches the entities from the catalog.
         """
         assert fetcher_fn is not None
         self._fetcher_fn = fetcher_fn
@@ -272,27 +274,38 @@ class EntitySet (object):
         self._dataframe = None
 
     @property
+    def _results(self):
+        if self._results_doc is None:
+            self.fetch()
+        return self._results_doc
+
+    @property
     def dataframe(self):
         """Pandas DataFrame representation of this path."""
         if self._dataframe is None:
             from pandas import DataFrame
-            self._dataframe = DataFrame(self._fetch())
+            self._dataframe = DataFrame(self._results)
         return self._dataframe
 
     def __len__(self):
-        return len(self._fetch())
+        return len(self._results)
 
     def __getitem__(self, item):
-        return self._fetch()[item]
+        return self._results[item]
 
     def __iter__(self):
-        return iter(self._fetch())
+        return iter(self._results)
 
-    def _fetch(self):
-        if self._results_doc is None:
-            self._results_doc = self._fetcher_fn()
-        return self._results_doc
-
+    def fetch(self, limit=None):
+        """Fetches the entities from the catalog.
+        :param limit: maximum number of entities to fetch from the catalog.
+        :returns self
+        """
+        limit = int(limit) if limit else None
+        self._results_doc = self._fetcher_fn(limit)
+        self._dataframe = None  # clear potentially cached state
+        logger.debug("Fetched %d entities" % len(self._results_doc))
+        return self
 
 class Table (object):
     """Represents a table.
@@ -379,14 +392,11 @@ class Table (object):
     def filter(self, filter_expression):
         return self.path.filter(filter_expression)
 
-    def attributes(self, *attributes, **renamed_attributes):
-        return self.path.attributes(attributes, renamed_attributes)
-
     def link(self, right, on=None, join_type=''):
         return self.path.link(right, on, join_type)
 
-    def entities(self, limit=None):
-        return self.path.entities(limit)
+    def entities(self, *attributes, **renamed_attributes):
+        return self.path.entities(*attributes, **renamed_attributes)
 
 
 class TableAlias (Table):
