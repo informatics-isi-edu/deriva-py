@@ -214,7 +214,7 @@ class DataPath (object):
             while alias in self.nodes:
                 counter += 1
                 alias = table_name + str(counter)
-            right = right.as_(alias)
+            right = right.alias(alias)
 
         if on is None:
             on = right
@@ -371,7 +371,7 @@ class Table (object):
         """Always a new DataPath instance that is rooted at this table.
         Note that this table will be automatically aliased using its own table name.
         """
-        return DataPath(self.as_(self.name))
+        return DataPath(self.alias(self.name))
 
     @path.setter
     def path(self, value):
@@ -383,11 +383,11 @@ class Table (object):
     def uri(self):
         return self.path.uri
 
-    def as_(self, alias):
+    def alias(self, alias_name):
         """Returns a table alias object.
-        :param alias: a string to use as the alias name
+        :param alias_name: a string to use as the alias name
         """
-        return TableAlias(self, alias)
+        return TableAlias(self, alias_name)
 
     def filter(self, filter_expression):
         return self.path.filter(filter_expression)
