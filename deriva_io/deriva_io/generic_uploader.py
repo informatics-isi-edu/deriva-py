@@ -1,7 +1,7 @@
 import os
 import sys
 from deriva_common import read_config, write_config
-from deriva_io import __version__
+import deriva_io
 from deriva_io.deriva_upload import DerivaUpload
 from deriva_io.deriva_upload_cli import DerivaUploadCLI
 
@@ -16,7 +16,7 @@ class GenericUploader(DerivaUpload):
 
     @classmethod
     def getVersion(cls):
-        return __version__
+        return deriva_io.__version__
 
     @classmethod
     def getConfigPath(cls):

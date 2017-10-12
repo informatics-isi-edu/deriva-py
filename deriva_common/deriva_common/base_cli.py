@@ -5,8 +5,14 @@ from deriva_common import init_logging
 
 class BaseCLI(object):
 
-    def __init__(self, description, epilog):
+    def __init__(self, description, epilog, version=None):
+        assert version
+        self.version = version
+
         self.parser = argparse.ArgumentParser(description=description, epilog=epilog)
+
+        self.parser.add_argument(
+            '--version', action='version', version=self.version, help="Print version and exit.")
 
         self.parser.add_argument(
             '--quiet', action="store_true", help="Suppress logging output.")

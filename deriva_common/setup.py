@@ -7,7 +7,13 @@
 """
 
 from setuptools import setup, find_packages
-from deriva_common import __version__
+import re
+import io
+
+__version__ = re.search(
+    r'__version__\s*=\s*[\'"]([^\'"]*)[\'"]',
+    io.open('deriva_common/__init__.py', encoding='utf_8_sig').read()
+    ).group(1)
 
 setup(
     name="deriva_common",
@@ -34,6 +40,11 @@ setup(
         'requests',
         'pika',
         'portalocker'],
+#    install_requires=[
+#        'requests',
+#        'pika',
+#        'portalocker'
+#    ],
     license='Apache 2.0',
     classifiers=[
         'Intended Audience :: Science/Research',

@@ -11,7 +11,7 @@ from collections import OrderedDict
 from distutils.util import strtobool
 from portalocker import Lock, LOCK_EX, LOCK_SH
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 if sys.version_info > (3,):
     from urllib.parse import quote as urlquote
