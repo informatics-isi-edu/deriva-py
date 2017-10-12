@@ -2,11 +2,11 @@ from . import urlquote
 from datetime import date
 import logging
 import re
+from requests import HTTPError
 
 try:
-    from collections.abc import Mapping
-    _MappingBaseClass = Mapping
-except:
+    from collections.abc import Mapping as _MappingBaseClass
+except ImportError:
     _MappingBaseClass = object
 
 logger = logging.getLogger(__name__)
@@ -100,7 +100,8 @@ class Schema (object):
         self._name = name
         tables_doc = doc.get('tables', {})
         self.table_names = tables_doc.keys()
-        self.tables = _LazyDict(lambda a: Table(self, a, tables_doc[a]), self.table_names)
+        self.tables = _LazyDict(lambda a: Table(catalog, self._name, a, tables_doc[a].get('column_definitions', {})),
+                                self.table_names)
         self._identifiers = dir(Schema) + ['tables'] + [
             table_name for table_name in self.table_names if _isidentifier(table_name)
         ]
@@ -120,6 +121,10 @@ class Schema (object):
         return s
 
     @property
+    def catalog(self):
+        return self._catalog
+
+    @property
     def name(self):
         """the url encoded name"""
         return urlquote(self._name)
@@ -132,59 +137,123 @@ class Schema (object):
 
 class DataPath (object):
     """Represents an arbitrary data path."""
-    def __init__(self, path_expression):
-        assert isinstance(path_expression, PathNode)
-        self._path_expression = path_expression
+    def __init__(self, root):
+        assert isinstance(root, TableAlias)
+        self._path_expression = Root(root)
+        self._root = root
+        self.nodes = dict()  # map of alias_name => TableAlias object
+        self._context = None
+        self._identifiers = dir(DataPath) + ['nodes']
+        self._bind_table_instance(root)
+
+    def __dir__(self):
+        return self._identifiers
+
+    def __getattr__(self, a):
+        return self.nodes[a]
+
+    @property
+    def context(self):
+        return self._context
+
+    @context.setter
+    def context(self, value):
+        assert isinstance(value, TableAlias)
+        assert value.name in self.nodes
+        self._path_expression = ResetContext(self._path_expression, value)
+        self._context = value
 
     @property
     def uri(self):
-        catalog = self._path_expression._catalog
-        return catalog._server_uri + str(self._path_expression)
+        return self._root.catalog._server_uri + str(self._path_expression)
+
+    def _bind_table_instance(self, table):
+        """Binds a new table into this path.
+        """
+        assert isinstance(table, TableAlias)
+        table_name = table.name
+        table.path = self
+        self.nodes[table_name] = self._context = table
+        if _isidentifier(table_name):
+            self._identifiers.append(table_name)
 
     def filter(self, filter_expression):
         """Filters the path based on the specified formula.
         :param filter_expression: should be a valid Predicate object
+        :returns self
         """
         assert isinstance(filter_expression, Predicate)
-        return DataPath(Filter(self._path_expression, filter_expression))
-
-    def link(self, on, as_=None, join_type=''):
-        """Links this path with another table.
-        At present, the implementation only supports single column keys.
-        :param on: may be a table or an equality comparison between keys and foreign keys
-        :param as_: an optional table alias to assign this table instance to
-        :param join_type: the join type of this link which may be 'left', 'right', 'full' outer joins or '' for inner join link by default.
-        """
-        return DataPath(Link(self._path_expression, on, as_, join_type))
-
-    def context_reset(self, alias):
-        """Resets path context to aliased table.
-        The table alias must have been defined earlier within this path expression in order for it to be valid.
-        :param alias: the table alias that this path context will be reset to
-        """
-        assert isinstance(alias, TableAlias)
-        return DataPath(ContextReset(self._path_expression, alias))
+        self._path_expression = Filter(self._path_expression, filter_expression)
+        return self
 
     def attributes(self, *attributes, **renamed_attributes):
         """Projects the columns of the path based on the specified list of columns.
-        :param args: a list of Columns.
+        :param attributes: a list of Columns.
+        :param renamed_attributes: a list of renamed Columns.
+        :returns self
         """
-        return DataPath(Projection(self._path_expression, attributes, renamed_attributes))
+        self._path_expression = Project(self._path_expression, attributes, renamed_attributes)
+        return self
+
+    def link(self, right, on=None, join_type=''):
+        """Links this path with another table.
+        At present, the implementation only supports single column keys.
+        :param right: the right hand table of the link expression
+        :param on: an equality comparison between keys and foreign keys
+        :param join_type: the join type of this link which may be 'left', 'right', 'full' outer joins or '' for inner
+        join link by default.
+        :returns self
+        """
+        assert isinstance(right, Table)
+        assert on is None or isinstance(on, BinaryPredicate)
+        assert join_type == '' or on is not None
+
+        if right.catalog != self._root.catalog:
+            raise Exception("Cannot link across catalogs.")
+
+        if isinstance(right, TableAlias):
+            # Validate that alias has not been used
+            if right.name in self.nodes:
+                raise Exception("Table instance is already linked. Consider renaming it.")
+        else:
+            # Generate an unused alias name for the table
+            table_name = right.name
+            alias = table_name
+            counter = 1
+            while alias in self.nodes:
+                counter += 1
+                alias = table_name + str(counter)
+            right = right.as_(alias)
+
+        if on is None:
+            on = right
+
+        # Extend path expression
+        self._path_expression = Link(self._path_expression, on, right, join_type)
+
+        # Bind alias and this data path
+        self._bind_table_instance(right)
+
+        return self
 
     def entities(self, limit=None):
         """Returns the entity set computed by this data path.
         :param limit: an optional limit on the size of the entity set.
+        :returns fetched entity set
         """
         assert limit is None or isinstance(limit, int)
         opts = '?limit=%d' % limit if limit else ''
         path = str(self._path_expression) + opts
-        catalog = self._path_expression._catalog
+        catalog = self._root.catalog
 
         def fetcher():
-            logger.debug(path)
-            resp = catalog.get(path)
-            resp.raise_for_status()
-            return resp.json()
+            logger.debug("fetching " + path)
+            try:
+                resp = catalog.get(path)
+                return resp.json()
+            except HTTPError as e:
+                logger.error(e.response.text)
+                raise e
 
         return EntitySet(fetcher)
 
@@ -225,23 +294,24 @@ class EntitySet (object):
         return self._results_doc
 
 
-class Table (DataPath):
+class Table (object):
     """Represents a table.
     """
-    def __init__(self, schema, name, doc):
+    def __init__(self, catalog, schema_name, table_name, columns_doc):
         """Initializes the table.
-        :param schema: the schema object to which this table belongs
-        :param name: the name of the table
-        :param doc: the table definition doc
+        :param catalog: the catalog object
+        :param schema_name: name of the schema
+        :param table_name: name of the table
+        :param columns_doc: deserialized json columns document from the table definition
         """
-        super(Table, self).__init__(Root(self))
-        assert isinstance(schema, Schema)
-        self._schema = schema
-        self._name = name
-        self._doc = doc
+        self._catalog = catalog
+        self._schema_name = schema_name
+        self._name = table_name
+        self._doc = columns_doc
+
         self.columns = {}
         self._identifiers = dir(Table) + ['columns']
-        for cdoc in doc.get('column_definitions', {}):
+        for cdoc in self._doc:
             column_name = cdoc['name']
             self.columns[column_name] = Column(self, column_name, cdoc)
             if _isidentifier(column_name):
@@ -249,6 +319,9 @@ class Table (DataPath):
 
     def __dir__(self):
         return self._identifiers
+
+    def __getattr__(self, a):
+        return self.columns[a]
 
     def __repr__(self):
         s = "Table name: '%s'\nList of columns:\n" % self._name
@@ -259,6 +332,10 @@ class Table (DataPath):
         return s
 
     @property
+    def catalog(self):
+        return self._catalog
+
+    @property
     def name(self):
         """the url encoded name"""
         return urlquote(self._name)
@@ -266,7 +343,7 @@ class Table (DataPath):
     @property
     def fqname(self):
         """the url encoded fully qualified name"""
-        return "%s:%s" % (self._schema.name, self.name)
+        return "%s:%s" % (self._schema_name, self.name)
 
     @property
     def instancename(self):
@@ -276,14 +353,40 @@ class Table (DataPath):
     def fromname(self):
         return self.fqname
 
-    def __getattr__(self, a):
-        return self.columns[a]
+    @property
+    def path(self):
+        """Always a new DataPath instance that is rooted at this table.
+        Note that this table will be automatically aliased using its own table name.
+        """
+        return DataPath(self.as_(self.name))
+
+    @path.setter
+    def path(self, value):
+        """Not allowed on base tables.
+        """
+        raise Exception("Path assignment not allowed on base table objects.")
+
+    @property
+    def uri(self):
+        return self.path.uri
 
     def as_(self, alias):
         """Returns a table alias object.
         :param alias: a string to use as the alias name
         """
         return TableAlias(self, alias)
+
+    def filter(self, filter_expression):
+        return self.path.filter(filter_expression)
+
+    def attributes(self, *attributes, **renamed_attributes):
+        return self.path.attributes(attributes, renamed_attributes)
+
+    def link(self, right, on=None, join_type=''):
+        return self.path.link(right, on, join_type)
+
+    def entities(self, limit=None):
+        return self.path.entities(limit)
 
 
 class TableAlias (Table):
@@ -295,9 +398,10 @@ class TableAlias (Table):
         :param alias: the alias name
         """
         assert isinstance(table, Table)
-        super(TableAlias, self).__init__(table._schema, table._name, table._doc)
+        super(TableAlias, self).__init__(table._catalog, table._schema_name, table._name, table._doc)
         self._table = table
         self._alias = alias
+        self._parent = None
 
     @property
     def name(self):
@@ -316,6 +420,24 @@ class TableAlias (Table):
     @property
     def fromname(self):
         return "%s:=%s" % (self.name, self._table.fqname)
+
+    @property
+    def path(self):
+        """Returns the parent path for this alias and conditionally resets the context to this table instance.
+        """
+        if not self._parent:
+            self._parent = DataPath(self)
+        elif self._parent.context != self:
+            self._parent.context = self
+        return self._parent
+
+    @path.setter
+    def path(self, value):
+        if self._parent:
+            raise Exception("Cannot bind a table instance that has already been bound.")
+        elif not isinstance(value, DataPath):
+            raise Exception("value must be a DataPath instance.")
+        self._parent = value
 
 
 class Column (object):
@@ -373,30 +495,28 @@ class Column (object):
         return BinaryPredicate(self, "::geq::", other)
 
 
-class PathNode (object):
+class PathOperator (object):
     def __init__(self, r):
-        assert isinstance(r, PathNode) or isinstance(r, DataPath)
-        if isinstance(r, Projection):
-            raise Exception("This path cannot be extended")
+        assert isinstance(r, PathOperator) or isinstance(r, Table)
+        if isinstance(r, Project):
+            raise Exception("Cannot extend a path after an attribute projection")
         self._r = r
 
     @property
     def _path(self):
+        assert isinstance(self._r, PathOperator)
         return self._r._path
 
     @property
     def _mode(self):
+        assert isinstance(self._r, PathOperator)
         return self._r._mode
-
-    @property
-    def _catalog(self):
-        return self._r._catalog
 
     def __str__(self):
         return "/%s/%s" % (self._mode, self._path)
 
 
-class Root (PathNode):
+class Root (PathOperator):
     def __init__(self, r):
         super(Root, self).__init__(r)
         assert isinstance(r, Table)
@@ -410,23 +530,22 @@ class Root (PathNode):
     def _mode(self):
         return 'entity'
 
-    @property
-    def _catalog(self):
-        return self._table._schema._catalog
 
-
-class ContextReset (PathNode):
+class ResetContext (PathOperator):
     def __init__(self, r, alias):
-        super(ContextReset, self).__init__(r)
+        if isinstance(r, ResetContext):
+            r = r._r  # discard the previous context reset operator
+        super(ResetContext, self).__init__(r)
         assert isinstance(alias, TableAlias)
         self._alias = alias
 
     @property
     def _path(self):
+        assert isinstance(self._r, PathOperator)
         return "%s/$%s" % (self._r._path, self._alias.name)
 
 
-class Filter(PathNode):
+class Filter(PathOperator):
     def __init__(self, r, formula):
         super(Filter, self).__init__(r)
         assert isinstance(formula, BinaryPredicate) or isinstance(formula, JunctionPredicate)
@@ -434,15 +553,15 @@ class Filter(PathNode):
 
     @property
     def _path(self):
+        assert isinstance(self._r, PathOperator)
         return "%s/%s" % (self._r._path, str(self._formula))
 
 
-class Projection (PathNode):
+class Project (PathOperator):
     def __init__(self, r, attributes, renamed_attributes):
-        super(Projection, self).__init__(r)
+        super(Project, self).__init__(r)
         assert len(attributes) > 0 or len(renamed_attributes) > 0
         self._attrs = []
-        self.__mode = 'attribute'
 
         # Build up the list of project attributes
         for attr in attributes:
@@ -460,29 +579,29 @@ class Projection (PathNode):
             attr = renamed_attributes[new_name]
             self._attrs.append("%s:=%s" % (new_name, attr.instancename))
 
-
     @property
     def _path(self):
+        assert isinstance(self._r, PathOperator)
         return "%s/%s" % (self._r._path, ','.join(attr for attr in self._attrs))
 
     @property
     def _mode(self):
-        return self.__mode
+        return 'attribute'
 
 
-class Link (PathNode):
+class Link (PathOperator):
     def __init__(self, r, on, as_=None, join_type=''):
         super(Link, self).__init__(r)
         assert isinstance(on, BinaryPredicate) or isinstance(on, Table)
         assert as_ is None or isinstance(as_, TableAlias)
         assert join_type == '' or (join_type in ('left', 'right', 'full') and isinstance(on, BinaryPredicate))
-        # TODO: we should test that parent path and `on` belong to the same catalog
         self._on = on
         self._as = as_
         self._join_type = join_type
 
     @property
     def _path(self):
+        assert isinstance(self._r, PathOperator)
         assign = '' if self._as is None else "%s:=" % self._as.name
         cond = self._on.fqname if isinstance(self._on, Table) else str(self._on)
         return "%s/%s%s%s" % (self._r._path, assign, self._join_type, cond)
@@ -531,7 +650,6 @@ class JunctionPredicate (Predicate):
         self._right = right
 
     def __str__(self):
-        # TODO: not sure this is 100% correct. Barely thought about it so far.
         return "(%s)%s(%s)" % (self._left, self._op, self._right)
 
     def __and__(self, other):
