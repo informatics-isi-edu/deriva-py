@@ -154,6 +154,7 @@ class DataPath (object):
         assert isinstance(root, TableAlias)
         self._path_expression = Root(root)
         self._root = root
+        self._base_uri = root.catalog._server_uri
         self.tables = dict()  # map of alias_name => TableAlias object
         self._context = None
         self._identifiers = dir(DataPath) + ['tables']
@@ -179,7 +180,7 @@ class DataPath (object):
 
     @property
     def uri(self):
-        return self._root.catalog._server_uri + str(self._path_expression)
+        return self._base_uri + str(self._path_expression)
 
     def _contextualized_uri(self, context):
         """Returns a path uri for the specified context.
@@ -189,7 +190,7 @@ class DataPath (object):
         assert isinstance(context, TableAlias)
         assert context.name in self.tables
         if self._context != context:
-            return self._root.catalog._server_uri + str(ResetContext(self._path_expression, context))
+            return self._base_uri + str(ResetContext(self._path_expression, context))
         else:
             return self.uri
 
@@ -300,7 +301,7 @@ class DataPath (object):
                     # For all others, throw original exception
                     raise e
 
-        return EntitySet(fetcher)
+        return EntitySet(self._base_uri + base_path, fetcher)
 
 
 class EntitySet (object):
@@ -309,14 +310,16 @@ class EntitySet (object):
     container. If the EntitySet has not been fetched explicitly, on first use of container operations, it will
     be implicitly fetched from the catalog.
     """
-    def __init__(self, fetcher_fn):
+    def __init__(self, uri, fetcher_fn):
         """Initializes the EntitySet.
+        :param uri: the uri for the entity set in the catalog.
         :param fetcher_fn: a function that fetches the entities from the catalog.
         """
         assert fetcher_fn is not None
         self._fetcher_fn = fetcher_fn
         self._results_doc = None
         self._dataframe = None
+        self.uri = uri
 
     @property
     def _results(self):
