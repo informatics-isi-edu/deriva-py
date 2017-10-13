@@ -31,6 +31,19 @@ def _isidentifier(a):
         return re.match("[_A-Za-z][_a-zA-Z0-9]*$", a) is not None
 
 
+class DataPathException (Exception):
+    """DataPath exception
+    """
+    def __init__(self, message, reason=None):
+        super(DataPathException, self).__init__(message, reason)
+        assert isinstance(message, str)
+        self.message = message
+        self.reason = reason
+
+    def __str__(self):
+        return self.message
+
+
 class _LazyDict (_MappingBaseClass):
     """A lazy dictionary object that acts like a Mapping object.
     This class is intended for internal usage within this module.
@@ -141,16 +154,16 @@ class DataPath (object):
         assert isinstance(root, TableAlias)
         self._path_expression = Root(root)
         self._root = root
-        self.nodes = dict()  # map of alias_name => TableAlias object
+        self.tables = dict()  # map of alias_name => TableAlias object
         self._context = None
-        self._identifiers = dir(DataPath) + ['nodes']
+        self._identifiers = dir(DataPath) + ['tables']
         self._bind_table_instance(root)
 
     def __dir__(self):
         return self._identifiers
 
     def __getattr__(self, a):
-        return self.nodes[a]
+        return self.tables[a]
 
     @property
     def context(self):
@@ -159,13 +172,26 @@ class DataPath (object):
     @context.setter
     def context(self, value):
         assert isinstance(value, TableAlias)
-        assert value.name in self.nodes
-        self._path_expression = ResetContext(self._path_expression, value)
-        self._context = value
+        assert value.name in self.tables
+        if self._context != value:
+            self._path_expression = ResetContext(self._path_expression, value)
+            self._context = value
 
     @property
     def uri(self):
         return self._root.catalog._server_uri + str(self._path_expression)
+
+    def _contextualized_uri(self, context):
+        """Returns a path uri for the specified context.
+        :param context: a table instance that is bound to this path
+        :return: string representation of the path uri
+        """
+        assert isinstance(context, TableAlias)
+        assert context.name in self.tables
+        if self._context != context:
+            return self._root.catalog._server_uri + str(ResetContext(self._path_expression, context))
+        else:
+            return self.uri
 
     def _bind_table_instance(self, table):
         """Binds a new table into this path.
@@ -173,7 +199,7 @@ class DataPath (object):
         assert isinstance(table, TableAlias)
         table_name = table.name
         table.path = self
-        self.nodes[table_name] = self._context = table
+        self.tables[table_name] = self._context = table
         if _isidentifier(table_name):
             self._identifiers.append(table_name)
 
@@ -204,14 +230,14 @@ class DataPath (object):
 
         if isinstance(right, TableAlias):
             # Validate that alias has not been used
-            if right.name in self.nodes:
+            if right.name in self.tables:
                 raise Exception("Table instance is already linked. Consider renaming it.")
         else:
             # Generate an unused alias name for the table
             table_name = right.name
             alias = table_name
             counter = 1
-            while alias in self.nodes:
+            while alias in self.tables:
                 counter += 1
                 alias = table_name + str(counter)
             right = right.alias(alias)
@@ -237,11 +263,24 @@ class DataPath (object):
         :param renamed_attributes: a list of renamed Columns.
         :returns an entity set
         """
+        return self._entities(attributes, renamed_attributes)
+
+    def _entities(self, attributes, renamed_attributes, context=None):
+        """Returns the entity set computed by this data path from the perspective of the given 'context'.
+        :param attributes: a list of Columns.
+        :param renamed_attributes: a list of renamed Columns.
+        :param context: optional context for the entities.
+        :returns an entity set
+        """
+        assert context is None or isinstance(context, TableAlias)
         catalog = self._root.catalog
+
+        expression = self._path_expression
+        if context:
+            expression = ResetContext(self._path_expression, context)
         if attributes or renamed_attributes:
-            base_path = str(Project(self._path_expression, attributes, renamed_attributes))
-        else:
-            base_path = str(self._path_expression)
+            expression = Project(self._path_expression, attributes, renamed_attributes)
+        base_path = str(expression)
 
         def fetcher(limit=None):
             assert limit is None or isinstance(limit, int)
@@ -253,7 +292,13 @@ class DataPath (object):
                 return resp.json()
             except HTTPError as e:
                 logger.error(e.response.text)
-                raise e
+                if 400 <= e.response.status_code < 500:
+                    # Reformat exception within the client errors range
+                    msg = '\n'.join(e.response.text.splitlines()[1:]) + '\n' + str(e)
+                    raise DataPathException(msg, e)
+                else:
+                    # For all others, throw original exception
+                    raise e
 
         return EntitySet(fetcher)
 
@@ -306,6 +351,7 @@ class EntitySet (object):
         self._dataframe = None  # clear potentially cached state
         logger.debug("Fetched %d entities" % len(self._results_doc))
         return self
+
 
 class Table (object):
     """Represents a table.
@@ -380,6 +426,13 @@ class Table (object):
         raise Exception("Path assignment not allowed on base table objects.")
 
     @property
+    def _contextualized_path(self):
+        """Returns the path as contextualized for this table instance.
+        Conditionally updates the context of the path to which this table instance is bound.
+        """
+        return self.path
+
+    @property
     def uri(self):
         return self.path.uri
 
@@ -390,13 +443,13 @@ class Table (object):
         return TableAlias(self, alias_name)
 
     def filter(self, filter_expression):
-        return self.path.filter(filter_expression)
+        return self._contextualized_path.filter(filter_expression)
 
     def link(self, right, on=None, join_type=''):
-        return self.path.link(right, on, join_type)
+        return self._contextualized_path.link(right, on, join_type)
 
     def entities(self, *attributes, **renamed_attributes):
-        return self.path.entities(*attributes, **renamed_attributes)
+        return self.path._entities(attributes, renamed_attributes)
 
 
 class TableAlias (Table):
@@ -433,12 +486,10 @@ class TableAlias (Table):
 
     @property
     def path(self):
-        """Returns the parent path for this alias and conditionally resets the context to this table instance.
+        """Returns the parent path for this alias.
         """
         if not self._parent:
             self._parent = DataPath(self)
-        elif self._parent.context != self:
-            self._parent.context = self
         return self._parent
 
     @path.setter
@@ -448,6 +499,23 @@ class TableAlias (Table):
         elif not isinstance(value, DataPath):
             raise Exception("value must be a DataPath instance.")
         self._parent = value
+
+    @property
+    def _contextualized_path(self):
+        """Returns the path as contextualized for this table instance.
+        Conditionally updates the context of the path to which this table instance is bound.
+        """
+        path = self.path
+        if path.context != self:
+            path.context = self
+        return path
+
+    @property
+    def uri(self):
+        return self.path._contextualized_uri(self)
+
+    def entities(self, *attributes, **renamed_attributes):
+        return self.path._entities(attributes, renamed_attributes, self)
 
 
 class Column (object):
