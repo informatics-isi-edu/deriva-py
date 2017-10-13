@@ -40,11 +40,11 @@ setup(
         'requests',
         'pika',
         'portalocker'],
-#    install_requires=[
-#        'requests',
-#        'pika',
-#        'portalocker'
-#    ],
+    install_requires=[
+        'requests',
+        'pika',
+        'portalocker'
+    ],
     license='Apache 2.0',
     classifiers=[
         'Intended Audience :: Science/Research',
