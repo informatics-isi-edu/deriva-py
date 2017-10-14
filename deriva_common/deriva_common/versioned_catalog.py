@@ -104,7 +104,6 @@ class VersionedCatalog:
         # Use path if it is provided as an argument.
         path = self.path if path is None else path
 
-        print('checksum path is: ' + path)
         fd = io.BytesIO(self.URL(path, version).encode())
 
         # Get back a dictionary of hash codes....
