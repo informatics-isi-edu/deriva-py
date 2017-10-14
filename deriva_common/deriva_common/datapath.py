@@ -155,16 +155,16 @@ class DataPath (object):
         self._path_expression = Root(root)
         self._root = root
         self._base_uri = root.catalog._server_uri
-        self.tables = dict()  # map of alias_name => TableAlias object
+        self.table_instances = dict()  # map of alias_name => TableAlias object
         self._context = None
-        self._identifiers = dir(DataPath) + ['tables']
+        self._identifiers = dir(DataPath) + ['table_instances']
         self._bind_table_instance(root)
 
     def __dir__(self):
         return self._identifiers
 
     def __getattr__(self, a):
-        return self.tables[a]
+        return self.table_instances[a]
 
     @property
     def context(self):
@@ -173,7 +173,7 @@ class DataPath (object):
     @context.setter
     def context(self, value):
         assert isinstance(value, TableAlias)
-        assert value.name in self.tables
+        assert value.name in self.table_instances
         if self._context != value:
             self._path_expression = ResetContext(self._path_expression, value)
             self._context = value
@@ -188,7 +188,7 @@ class DataPath (object):
         :return: string representation of the path uri
         """
         assert isinstance(context, TableAlias)
-        assert context.name in self.tables
+        assert context.name in self.table_instances
         if self._context != context:
             return self._base_uri + str(ResetContext(self._path_expression, context))
         else:
@@ -200,7 +200,7 @@ class DataPath (object):
         assert isinstance(table, TableAlias)
         table_name = table.name
         table.path = self
-        self.tables[table_name] = self._context = table
+        self.table_instances[table_name] = self._context = table
         if _isidentifier(table_name):
             self._identifiers.append(table_name)
 
@@ -231,14 +231,15 @@ class DataPath (object):
 
         if isinstance(right, TableAlias):
             # Validate that alias has not been used
-            if right.name in self.tables:
-                raise Exception("Table instance is already linked. Consider renaming it.")
+            if right.name in self.table_instances:
+                raise Exception("Table instance is already linked. "
+                                "Consider aliasing it if you want to link another instance of the base table.")
         else:
             # Generate an unused alias name for the table
             table_name = right.name
             alias = table_name
             counter = 1
-            while alias in self.tables:
+            while alias in self.table_instances:
                 counter += 1
                 alias = table_name + str(counter)
             right = right.alias(alias)
