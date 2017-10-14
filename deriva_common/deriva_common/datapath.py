@@ -279,9 +279,9 @@ class DataPath (object):
 
         expression = self._path_expression
         if context:
-            expression = ResetContext(self._path_expression, context)
+            expression = ResetContext(expression, context)
         if attributes or renamed_attributes:
-            expression = Project(self._path_expression, attributes, renamed_attributes)
+            expression = Project(expression, attributes, renamed_attributes)
         base_path = str(expression)
 
         def fetcher(limit=None):
