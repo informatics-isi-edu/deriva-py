@@ -1,6 +1,6 @@
 import argparse
 import logging
-from deriva_common import init_logging
+from deriva_py import init_logging
 
 
 class BaseCLI(object):

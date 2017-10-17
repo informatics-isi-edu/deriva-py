@@ -3,7 +3,7 @@
 # Distributed under the Apache License, Version 2.0. See LICENSE for more info.
 #
 
-""" Installation script for the deriva_common module.
+""" Installation script for the deriva-py module.
 """
 
 from setuptools import setup, find_packages
@@ -12,13 +12,13 @@ import io
 
 __version__ = re.search(
     r'__version__\s*=\s*[\'"]([^\'"]*)[\'"]',
-    io.open('deriva_common/__init__.py', encoding='utf_8_sig').read()
+    io.open('deriva_py/__init__.py', encoding='utf_8_sig').read()
     ).group(1)
 
 setup(
-    name="deriva_common",
-    description="Shared library functions for Python-based DERIVA platform code",
-    url='https://github.com/informatics-isi-edu/deriva-py/deriva_common',
+    name="deriva-py",
+    description="DERIVA Platform Python APIs",
+    url='https://github.com/informatics-isi-edu/deriva-py',
     maintainer='USC Information Sciences Institute ISR Division',
     maintainer_email='misd-support@isi.edu',
     version=__version__,
@@ -60,4 +60,3 @@ setup(
         'Programming Language :: Python :: 3.5'
     ]
 )
-

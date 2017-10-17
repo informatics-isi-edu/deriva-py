@@ -4,6 +4,7 @@ from . import datapath
 from .ermrest_config import CatalogConfig
 from .deriva_binding import DerivaBinding
 
+
 class ErmrestCatalog(DerivaBinding):
     """Persistent handle for an ERMrest catalog.
 
