@@ -1,14 +1,21 @@
 import os
 import sys
 import traceback
-import urllib.parse
-from deriva_common.base_cli import BaseCLI
-from deriva_io.deriva_upload import DerivaUpload
+from deriva.transfer import DerivaUpload
+from deriva.core import BaseCLI
+
+if sys.version_info > (3,):
+    from urllib.parse import urlparse
+else:
+    from urlparse import urlparse
 
 
 class DerivaUploadCLI(BaseCLI):
     def __init__(self, uploader, description, epilog):
-        BaseCLI.__init__(self, description, epilog)
+        if not issubclass(uploader, DerivaUpload):
+            raise TypeError("DerivaUpload subclass required")
+
+        BaseCLI.__init__(self, description, epilog, uploader.getVersion())
         self.parser.add_argument("data_path", nargs="?", metavar="<dir>", help="Path to the input directory")
         self.uploader = uploader
 
@@ -21,7 +28,7 @@ class DerivaUploadCLI(BaseCLI):
         if hostname:
             server = dict()
             if hostname.startswith("http"):
-                url = urllib.parse.urlparse(hostname)
+                url = urlparse(hostname)
                 server["protocol"] = url.scheme
                 server["host"] = url.netloc
             else:

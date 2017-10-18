@@ -11,7 +11,7 @@ from collections import OrderedDict
 from distutils.util import strtobool
 from portalocker import Lock, LOCK_EX, LOCK_SH
 
-__version__ = "0.2.2"
+__version__ = "0.3.0"
 
 if sys.version_info > (3,):
     from urllib.parse import quote as urlquote
@@ -180,7 +180,10 @@ def resource_path(relative_path, default=os.path.abspath(".")):
         return relative_path
     return os.path.join(default, relative_path)
 
-from .hatrac_store import HatracStore, HatracHashMismatch, HatracJobPaused, HatracJobAborted
-from .ermrest_catalog import ErmrestCatalog
-from .ermrest_config import AttrDict, CatalogConfig
-from .polling_ermrest_catalog import PollingErmrestCatalog
+from deriva.core import datapath
+from deriva.core.base_cli import BaseCLI
+from deriva.core.deriva_binding import DerivaBinding
+from deriva.core.ermrest_catalog import ErmrestCatalog
+from deriva.core.ermrest_config import AttrDict, CatalogConfig
+from deriva.core.polling_ermrest_catalog import PollingErmrestCatalog
+from deriva.core.hatrac_store import HatracStore, HatracHashMismatch, HatracJobPaused, HatracJobAborted
