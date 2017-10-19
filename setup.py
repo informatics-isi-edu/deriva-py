@@ -24,7 +24,6 @@ setup(
     version=__version__,
     packages=find_packages(),
     package_data={},
-    namespace_packages=["deriva"],
     test_suite='tests',
     entry_points={
         'console_scripts': [
