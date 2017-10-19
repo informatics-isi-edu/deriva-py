@@ -1,8 +1,9 @@
 import logging
-from . import urlquote
-from . import datapath
-from .ermrest_config import CatalogConfig
+
+from . import urlquote, datapath
 from .deriva_binding import DerivaBinding
+from .ermrest_config import CatalogConfig
+
 
 class ErmrestCatalog(DerivaBinding):
     """Persistent handle for an ERMrest catalog.

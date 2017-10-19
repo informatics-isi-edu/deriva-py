@@ -1,9 +1,15 @@
-from deriva_common import ErmrestCatalog, get_credential, urlquote
-from deriva_common.utils.hash_utils import compute_hashes
-
-from urllib.parse import urlsplit, urlunsplit
-import re
 import io
+import re
+import sys
+
+from . import get_credential, urlquote
+from .ermrest_catalog import ErmrestCatalog
+from .utils.hash_utils import compute_hashes
+
+if sys.version_info > (3,):
+    from urllib.parse import urlsplit, urlunsplit
+else:
+    from urlparse import urlsplit, urlunsplit
 
 
 class VersionedCatalogError(Exception):
@@ -92,8 +98,8 @@ class VersionedCatalog:
         if len(vc['path']) > 0 and vc['path'][0] != '/':
             vc['path'] = '/' + vc['path']
 
-        versioned_path = urlquote('/ermrest/catalog/%s' % (vc['id'])) + '@' \
-                                  + urlquote('%s%s' % (vc['version'], vc['path']))
+        versioned_path = \
+            urlquote('/ermrest/catalog/%s' % (vc['id'])) + '@' + urlquote('%s%s' % (vc['version'], vc['path']))
 
         url = urlunsplit([vc['scheme'], vc['host'], versioned_path, vc['query'], vc['fragment']])
         return url

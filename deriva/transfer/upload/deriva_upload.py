@@ -1,15 +1,16 @@
-import errno
-import json
+import io
 import os
 import re
 import sys
+import errno
+import json
+import shutil
 import tempfile
 import logging
 from collections import OrderedDict, namedtuple
-from json import JSONDecodeError
-from deriva_common import ErmrestCatalog, CatalogConfig, HatracStore, HatracJobAborted, HatracJobPaused, \
+from deriva.core import ErmrestCatalog, CatalogConfig, HatracStore, HatracJobAborted, HatracJobPaused, \
     format_exception, urlquote, get_credential, read_config, copy_config, resource_path, stob
-from deriva_common.utils import hash_utils as hu, mime_utils as mu, version_utils as vu
+from deriva.core.utils import hash_utils as hu, mime_utils as mu, version_utils as vu
 
 try:
     from os import scandir, walk
@@ -209,11 +210,11 @@ class DerivaUpload(object):
 
     @staticmethod
     def isFileNewer(src, dst):
-        if not (src and dst):
+        if not (os.path.isfile(src) and os.path.isfile(dst)):
             return False
 
         # This comparison wont work with PyInstaller single-file bundles because the bundle is extracted to a temp dir
-        # and every file timestamp for every file in the bundle is reset to the bundle extraction/creation time.
+        # and every timestamp for every file in the bundle is reset to the bundle extraction/creation time.
         if getattr(sys, 'frozen', False):
             prefix = os.sep + "_MEI"
             if prefix in src:
@@ -309,18 +310,21 @@ class DerivaUpload(object):
             return
 
         current_md5 = hu.compute_file_hashes(self.getDeployedConfigFilePath(), hashes=['md5'])['md5'][0]
-        with tempfile.TemporaryDirectory() as tempdir:
+        tempdir = tempfile.mkdtemp(prefix="deriva_upload_")
+        if os.path.exists(tempdir):
             updated_config_path = os.path.abspath(os.path.join(tempdir, DerivaUpload.DefaultConfigFileName))
-            with open(updated_config_path, 'w', newline='\n') as config:
+            with io.open(updated_config_path, 'w', newline='\n') as config:
                 json.dump(remote_config, config, sort_keys=True, indent=2)
             new_md5 = hu.compute_file_hashes(updated_config_path, hashes=['md5'])['md5'][0]
             if current_md5 != new_md5:
                 logging.info("Updated configuration found.")
                 config = read_config(updated_config_path)
-                return config
             else:
                 logging.info("Configuration is up-to-date.")
-                return None
+                config = None
+            shutil.rmtree(tempdir, ignore_errors=True)
+
+            return config
 
     def getFileStatusAsArray(self):
         result = list()
@@ -747,7 +751,7 @@ class DerivaUpload(object):
             open(transfer_state_file_path, 'r+')
         try:
             self.transfer_state = json.load(self.transfer_state_fp, object_pairs_hook=OrderedDict)
-        except JSONDecodeError as e:
+        except Exception as e:
             logging.debug("Unable to read transfer state: %s" % format_exception(e))
 
     def getTransferState(self, file_path):

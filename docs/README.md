@@ -1,5 +1,5 @@
-# deriva_common
-Shared library functions for Python-based DERIVA platform code.
+# deriva-py
+DERIVA platform Python APIs.
 
 ## DataPath
 
