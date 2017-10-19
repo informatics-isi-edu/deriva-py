@@ -48,6 +48,7 @@ setup(
         'portalocker'],
     install_requires=[
         'setuptools',
+        'scandir',
         'requests',
         'pika',
         'portalocker'
