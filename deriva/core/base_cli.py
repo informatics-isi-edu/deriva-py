@@ -7,7 +7,8 @@ from . import init_logging
 class BaseCLI(object):
 
     def __init__(self, description, epilog, version=None):
-        assert version
+        assert version, "A valid version string is required"
+
         self.version = version
 
         self.parser = argparse.ArgumentParser(description=description, epilog=epilog)
