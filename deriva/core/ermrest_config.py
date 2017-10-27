@@ -20,6 +20,7 @@ tag = AttrDict({
     'display':            'tag:misd.isi.edu,2015:display',
     'visible_columns':    'tag:isrd.isi.edu,2016:visible-columns',
     'visible_foreign_keys': 'tag:isrd.isi.edu,2016:visible-foreign-keys',
+    'foreign_key':        'tag:isrd.isi.edu,2016:foreign-key',
     'table_display':      'tag:isrd.isi.edu,2016:table-display',
     'table_alternatives': 'tag:isrd.isi.edu,2016:table-alternatives',
     'column_display':     'tag:isrd.isi.edu,2016:column-display',
@@ -518,3 +519,7 @@ class CatalogForeignKey (NodeConfigAclBinding):
         d['referenced_columns'] = self.referenced_columns
         d['names'] = self.names
         return d
+
+    @property
+    def foreign_key(self):
+        return self.annotation_obj(tag.foreign_key)
