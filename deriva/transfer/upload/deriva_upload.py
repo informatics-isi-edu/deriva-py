@@ -124,14 +124,18 @@ class DerivaUpload(object):
                 # 5. copy the bundled internal default config to the deployment-specific config path
                 copy_config(self.getDefaultConfigFilePath(), config_file)
         # 6. Finally, read the configuration file into a config object
-        self.config = read_config(config_file)
-
-        # uploader initialization from configuration
-        self.asset_mappings = self.config.get('asset_mappings', [])
-        mu.add_types(self.config.get('mime_overrides'))
+        self._update_internal_config(read_config(config_file))
 
         # transfer state initialization
         self.loadTransferState()
+
+    def _update_internal_config(self, config):
+        """This updates the internal state of the uploader based on the config.
+        """
+        self.config = config
+        # uploader initialization from configuration
+        self.asset_mappings = self.config.get('asset_mappings', [])
+        mu.add_types(self.config.get('mime_overrides'))
 
     def cancel(self):
         self.cancelled = True
@@ -324,6 +328,7 @@ class DerivaUpload(object):
             if current_md5 != new_md5:
                 logging.info("Updated configuration found.")
                 config = read_config(updated_config_path)
+                self._update_internal_config(config)
             else:
                 logging.info("Configuration is up-to-date.")
                 config = None
