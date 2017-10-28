@@ -309,7 +309,12 @@ class DerivaUpload(object):
             logging.info("Remote configuration not present, using default local configuration file.")
             return
 
-        current_md5 = hu.compute_file_hashes(self.getDeployedConfigFilePath(), hashes=['md5'])['md5'][0]
+        deployed_config_file_path = self.getDeployedConfigFilePath()
+        if os.path.isfile(deployed_config_file_path):
+            current_md5 = hu.compute_file_hashes(deployed_config_file_path, hashes=['md5'])['md5'][0]
+        else:
+            logging.info("Local config not found.")
+            current_md5 = None
         tempdir = tempfile.mkdtemp(prefix="deriva_upload_")
         if os.path.exists(tempdir):
             updated_config_path = os.path.abspath(os.path.join(tempdir, DerivaUpload.DefaultConfigFileName))
