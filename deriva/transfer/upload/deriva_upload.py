@@ -106,6 +106,9 @@ class DerivaUpload(object):
             del self.store
         self.store = HatracStore(protocol, host, self.credentials, session_config=session_config)
 
+        # transfer state initialization
+        self.loadTransferState()
+
         # configuration initialization - this is a bit noodley...
         config_file = self.override_config_file if self.override_config_file else None
         # 1. If we don't already have a valid (i.e., overridden) path to a config file...
@@ -125,9 +128,6 @@ class DerivaUpload(object):
                 copy_config(self.getDefaultConfigFilePath(), config_file)
         # 6. Finally, read the configuration file into a config object
         self._update_internal_config(read_config(config_file))
-
-        # transfer state initialization
-        self.loadTransferState()
 
     def _update_internal_config(self, config):
         """This updates the internal state of the uploader based on the config.
