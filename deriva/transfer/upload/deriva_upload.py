@@ -322,8 +322,9 @@ class DerivaUpload(object):
         tempdir = tempfile.mkdtemp(prefix="deriva_upload_")
         if os.path.exists(tempdir):
             updated_config_path = os.path.abspath(os.path.join(tempdir, DerivaUpload.DefaultConfigFileName))
-            with io.open(updated_config_path, 'w', newline='\n') as config:
-                json.dump(remote_config, config, sort_keys=True, indent=2)
+            with io.open(updated_config_path, 'w', newline='\n', encoding='utf-8') as config:
+                config.write(json.dumps(
+                    remote_config, ensure_ascii=False, sort_keys=True, separators=(',', ': '), indent=2))
             new_md5 = hu.compute_file_hashes(updated_config_path, hashes=['md5'])['md5'][0]
             if current_md5 != new_md5:
                 logging.info("Updated configuration found.")
@@ -654,8 +655,8 @@ class DerivaUpload(object):
                     can_resume = True
 
         if transfer_state and can_resume:
-            logging.info("Resuming upload of file: [%s] to host %s. Please wait..." % (
-                file_path, transfer_state.get("host")))
+            logging.info("Resuming upload (%s) of file: [%s] to host %s. Please wait..." % (
+                self.getTransferStateStatus(file_path), file_path, transfer_state.get("host")))
             path = transfer_state["target"]
             job_id = transfer_state['url'].rsplit("/", 1)[1]
             self.store.put_obj_chunked(path,
@@ -743,6 +744,31 @@ class DerivaUpload(object):
             (etype, value, traceback) = sys.exc_info()
             raise CatalogUpdateError(format_exception(value))
 
+    def defaultFileCallback(self,  **kwargs):
+        completed = kwargs.get("completed")
+        total = kwargs.get("total")
+        file_path = kwargs.get("file_path")
+        file_name = os.path.basename(file_path) if file_path else ""
+        job_info = kwargs.get("job_info", {})
+        job_info.update()
+        if completed and total:
+            file_name = " [%s]" % file_name
+            job_info.update({"completed": completed, "total": total, "host": kwargs.get("host")})
+            status = "Uploading file%s: %d%% complete" % (
+                file_name, round(((float(completed) / float(total)) % 100) * 100))
+            self.setTransferState(file_path, job_info)
+        else:
+            summary = kwargs.get("summary", "")
+            file_name = "Uploaded file: [%s] " % file_name
+            status = file_name  # + summary
+        if status:
+            # logging.debug(status)
+            pass
+        if self.cancelled:
+            return -1
+
+        return True
+
     def loadTransferState(self):
         transfer_state_file_path = self.getDeployedTransferStateFilePath()
         transfer_state_dir = os.path.dirname(transfer_state_file_path)
@@ -791,5 +817,6 @@ class DerivaUpload(object):
     def getTransferStateStatus(self, file_path):
         transfer_state = self.getTransferState(file_path)
         if transfer_state:
-            return "%d%% complete" % (round(((transfer_state["completed"] / transfer_state["total"]) % 100) * 100))
+            return "%d%% complete" % (
+                round(((float(transfer_state["completed"]) / float(transfer_state["total"])) % 100) * 100))
         return None

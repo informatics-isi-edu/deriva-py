@@ -55,7 +55,7 @@ class DerivaUploadCLI(BaseCLI):
         if not config_file and not no_update:
             deriva_uploader.getUpdatedConfig()
         deriva_uploader.scanDirectory(data_path, False)
-        deriva_uploader.uploadFiles()
+        deriva_uploader.uploadFiles(file_callback=deriva_uploader.defaultFileCallback)
         deriva_uploader.cleanup()
 
     def main(self):
