@@ -14,9 +14,21 @@ from portalocker import Lock, LOCK_EX, LOCK_SH
 __version__ = "0.3.1"
 
 if sys.version_info > (3,):
-    from urllib.parse import quote as urlquote
+    from urllib.parse import quote as _urlquote
 else:
-    from urllib import quote as urlquote
+    from urllib import quote as _urlquote
+
+def urlquote(s, safe=''):
+    """Quote all reserved characters according to RFC3986 unless told otherwise.
+
+       The urllib.urlquote has a weird default which excludes '/' from
+       quoting even though it is a reserved character.  We would never
+       want this when encoding elements in Deriva REST API URLs, so
+       this wrapper changes the default to have no declared safe
+       characters.
+
+    """
+    return _urlquote(s, safe=safe)
 
 DEFAULT_HEADERS = {}
 
