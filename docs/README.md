@@ -31,3 +31,5 @@ See the Jupyter Notebook tutorials in the `docs/` folder.
 - [Example 2](./derivapy-datapath-example-2.ipynb): basic data retrieval
 - [Example 3](./derivapy-datapath-example-3.ipynb): building simple data paths
 - [Example 4](./derivapy-datapath-example-4.ipynb): slightly more advanced topics
+
+Now, [get started](./get-started.ipynb)!
