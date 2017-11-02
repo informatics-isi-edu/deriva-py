@@ -17,7 +17,6 @@ its present form, the module provides a limited programmatic interface to ERMres
 
 - Only supports `entity` and `attribute` resources
 - Only supports `GET` method
-- Only supports binary predicates (e.g., `NOT` is not supported)
 - Only supports `application/json` CONTENT-TYPE (i.e., protocol could be made more efficient)
 - The `EntitySet` interface is a thin wrapper over a dictionary of a list of results
 - Many user errors are caught by Python `assert` statements rather than checking for "invalid paramters" and throwing

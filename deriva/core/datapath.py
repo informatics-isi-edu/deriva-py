@@ -223,7 +223,7 @@ class DataPath (object):
         :returns self
         """
         assert isinstance(right, Table)
-        assert on is None or isinstance(on, BinaryPredicate)
+        assert on is None or isinstance(on, FilterPredicate)
         assert join_type == '' or on is not None
 
         if right.catalog != self._root.catalog:
@@ -562,19 +562,35 @@ class Column (object):
         return self._name
 
     def __eq__(self, other):
-        return BinaryPredicate(self, "=", other)
+        if other is None:
+            return FilterPredicate(self, "::null::", '')
+        else:
+            return FilterPredicate(self, "=", other)
 
     def __lt__(self, other):
-        return BinaryPredicate(self, "::lt::", other)
+        return FilterPredicate(self, "::lt::", other)
 
     def __le__(self, other):
-        return BinaryPredicate(self, "::leq::", other)
+        return FilterPredicate(self, "::leq::", other)
 
     def __gt__(self, other):
-        return BinaryPredicate(self, "::gt::", other)
+        return FilterPredicate(self, "::gt::", other)
 
     def __ge__(self, other):
-        return BinaryPredicate(self, "::geq::", other)
+        return FilterPredicate(self, "::geq::", other)
+
+    def regexp(self, other):
+        assert isinstance(other, str), "This comparison only supports string literals."
+        return FilterPredicate(self, "::regexp::", other)
+
+    def ciregexp(self, other):
+        assert isinstance(other, str), "This comparison only supports string literals."
+        return FilterPredicate(self, "::ciregexp::", other)
+
+    def ts(self, other):
+        assert isinstance(other, str), "This comparison only supports string literals."
+        return FilterPredicate(self, "::ts::", other)
+
 
 
 class PathOperator (object):
@@ -630,7 +646,7 @@ class ResetContext (PathOperator):
 class Filter(PathOperator):
     def __init__(self, r, formula):
         super(Filter, self).__init__(r)
-        assert isinstance(formula, BinaryPredicate) or isinstance(formula, JunctionPredicate)
+        assert isinstance(formula, Predicate)
         self._formula = formula
 
     @property
@@ -674,9 +690,9 @@ class Project (PathOperator):
 class Link (PathOperator):
     def __init__(self, r, on, as_=None, join_type=''):
         super(Link, self).__init__(r)
-        assert isinstance(on, BinaryPredicate) or isinstance(on, Table)
+        assert isinstance(on, FilterPredicate) or isinstance(on, Table)
         assert as_ is None or isinstance(as_, TableAlias)
-        assert join_type == '' or (join_type in ('left', 'right', 'full') and isinstance(on, BinaryPredicate))
+        assert join_type == '' or (join_type in ('left', 'right', 'full') and isinstance(on, FilterPredicate))
         self._on = on
         self._as = as_
         self._join_type = join_type
@@ -693,10 +709,19 @@ class Predicate (object):
     def __init__(self):
         pass
 
+    def __and__(self, other):
+        return JunctionPredicate(self, "&", other)
 
-class BinaryPredicate (Predicate):
+    def __or__(self, other):
+        return JunctionPredicate(self, ";", other)
+
+    def __invert__(self):
+        return NegationPredicate(self)
+
+
+class FilterPredicate (Predicate):
     def __init__(self, lop, op, rop):
-        super(BinaryPredicate, self).__init__()
+        super(FilterPredicate, self).__init__()
         assert isinstance(lop, Column)
         assert isinstance(rop, Column) or isinstance(rop, int) or \
             isinstance(rop, float) or isinstance(rop, str) or \
@@ -714,12 +739,6 @@ class BinaryPredicate (Predicate):
         else:
             return "%s%s%s" % (self._lop.instancename, self._op, urlquote(str(self._rop)))
 
-    def __and__(self, other):
-        return JunctionPredicate(self, "&", other)
-
-    def __or__(self, other):
-        return JunctionPredicate(self, ";", other)
-
 
 class JunctionPredicate (Predicate):
     def __init__(self, left, op, right):
@@ -734,8 +753,12 @@ class JunctionPredicate (Predicate):
     def __str__(self):
         return "(%s)%s(%s)" % (self._left, self._op, self._right)
 
-    def __and__(self, other):
-        return JunctionPredicate(self, "&", other)
 
-    def __or__(self, other):
-        return JunctionPredicate(self, ";", other)
+class NegationPredicate (Predicate):
+    def __init__(self, child):
+        super(NegationPredicate, self).__init__()
+        assert isinstance(child, Predicate)
+        self._child = child
+
+    def __str__(self):
+        return "!(%s)" % self._child
