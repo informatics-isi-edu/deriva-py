@@ -88,7 +88,7 @@ class VersionedCatalog:
         return {'scheme': scheme, 'host': host, 'query': query, 'fragment': fragment,
                 'id': cid, 'version': version, 'path': path}
 
-    def URL(self, path=None, version=None):
+    def uri(self, path=None, version=None):
 
         # Use path if it is provided as an argument.
         path = self.path if path is None else path
@@ -104,13 +104,13 @@ class VersionedCatalog:
         url = urlunsplit([vc['scheme'], vc['host'], versioned_path, vc['query'], vc['fragment']])
         return url
 
-    def CheckSum(self, path=None, version=None, hashalg='sha256'):
+    def checksum(self, path=None, version=None, hashalg='sha256'):
         """
         """
         # Use path if it is provided as an argument.
         path = self.path if path is None else path
 
-        fd = io.BytesIO(self.URL(path, version).encode())
+        fd = io.BytesIO(self.uri(path, version).encode())
 
         # Get back a dictionary of hash codes....
         hashcodes = compute_hashes(fd, [hashalg])
