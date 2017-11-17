@@ -27,7 +27,8 @@ setup(
     test_suite='tests',
     entry_points={
         'console_scripts': [
-            'deriva-upload-cli = deriva.transfer.upload.__main__:main'
+            'deriva-upload-cli = deriva.transfer.upload.__main__:main',
+            'deriva-hatrac-cli = deriva.transfer.hatrac.cli:main'
         ]
     },
     requires=[
