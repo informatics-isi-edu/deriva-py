@@ -2,7 +2,7 @@ import os
 import datetime
 import requests
 import logging
-from . import format_exception, NotModified, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE
+from . import format_exception, NotModified, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, urlquote
 from .deriva_binding import DerivaBinding
 from .utils import hash_utils as hu, mime_utils as mu
 
@@ -384,13 +384,15 @@ class HatracStore(DerivaBinding):
         headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
         url = namespace_path + ';acl'
         if access:
-            url += '/' + access
+            url += '/' + urlquote(access)
         if role:
-            url += '/' + role
+            url += '/' + urlquote(role)
         resp = self.get(url, headers)
         if resp.status_code == requests.codes.ok:
             if role:
-                return resp.text
+                return {access: [role]}
+            elif access:
+                return {access: resp.json()}
             else:
                 return resp.json()
         if resp.status_code == requests.codes.not_found:

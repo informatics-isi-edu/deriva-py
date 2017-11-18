@@ -128,14 +128,14 @@ class DerivaHatracCLI (BaseCLI):
         credentials = self._get_credential(host_name, args.token)
         store = HatracStore('https', host_name, credentials)
         try:
-            role = None
-            if args.role:
-                if not args.access:
-                    print('Must use --access option with --role option.')
-                    return 1
-                role = urlquote(args.role)
-            acls = store.get_acl(namespace, args.access, role)
-            print(acls)
+            if args.role and not args.access:
+                print('Must use --access option with --role option.')
+                return 1
+            acls = store.get_acl(namespace, args.access, args.role)
+            for access in acls:
+                print("%s:" % access)
+                for role in acls.get(access, []):
+                    print("  %s" % role)
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
                 print('%s: no such object or namespace or ACL subresource.' % args.namespace)
@@ -158,6 +158,17 @@ class DerivaHatracCLI (BaseCLI):
                 self.parser.print_usage()
                 return 1
             return args.func(args)
+        except HTTPError as e:
+            if e.response.status_code == requests.codes.unauthorized:
+                print('Authentication required.')
+                logging.debug(e)
+                return 1
+            elif e.response.status_code == requests.codes.forbidden:
+                print('Permission denied.')
+                logging.debug(e)
+                return 1
+            else:
+                raise e
         except RuntimeError:
             return 1
         except Exception:
