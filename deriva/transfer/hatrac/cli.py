@@ -27,7 +27,7 @@ class DerivaHatracCLI (BaseCLI):
 
         # mkdir parser
         mkdir_parser = subparsers.add_parser('mkdir', help="make a hatrac namespace")
-        mkdir_parser.add_argument("--parents", action="store_true",
+        mkdir_parser.add_argument("-p", "--parents", action="store_true",
                                   help="Create intermediate parent namespaces as required")
         mkdir_parser.add_argument("namespace", metavar="<namespace>", type=str, help="namespace")
         mkdir_parser.set_defaults(func=self.mkdir)
@@ -39,12 +39,20 @@ class DerivaHatracCLI (BaseCLI):
 
         # getacl parser
         getacl_parser = subparsers.add_parser('getacl', help="get ACL")
-        getacl_parser.add_argument("namespace", metavar="<namespace>", type=str, help="namespace")
+        getacl_parser.add_argument("resource", metavar="<resource-name>", type=str, help="object or namespace")
         getacl_parser.add_argument("--access", default=None, metavar="<access-mode>",
                                    help="Optionally specify 'access' mode.")
         getacl_parser.add_argument("--role", default=None, metavar="<role>",
                                    help="Optionally specify 'role'. Must specify 'access' with this option.")
         getacl_parser.set_defaults(func=self.getacl)
+
+        # setacl parser
+        setacl_parser = subparsers.add_parser('setacl', help="set ACL")
+        setacl_parser.add_argument("resource", metavar="<resource-name>", type=str, help="object or namespace")
+        setacl_parser.add_argument("access", metavar="<access-mode>", help="access mode")
+        setacl_parser.add_argument("roles", nargs='+', metavar="<role>", help="role")
+        setacl_parser.add_argument("--add", action="store_true", help="add a single role to the ACL")
+        setacl_parser.set_defaults(func=self.setacl)
 
 
     def _get_credential(self, host_name, token=None):
@@ -123,31 +131,56 @@ class DerivaHatracCLI (BaseCLI):
     def getacl(self, args):
         """Implements the getacl sub-command.
         """
+        if args.role and not args.access:
+            print('Must use --access option with --role option.')
+            return 1
+
         host_name = args.host
-        namespace = urlquote(args.namespace, '/')
+        resource = urlquote(args.resource, '/')
         credentials = self._get_credential(host_name, args.token)
         store = HatracStore('https', host_name, credentials)
         try:
-            if args.role and not args.access:
-                print('Must use --access option with --role option.')
-                return 1
-            acls = store.get_acl(namespace, args.access, args.role)
+            acls = store.get_acl(resource, args.access, args.role)
             for access in acls:
                 print("%s:" % access)
                 for role in acls.get(access, []):
                     print("  %s" % role)
+            return 0
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                print('%s: no such object or namespace or ACL subresource.' % args.namespace)
+                print('%s: no such object or namespace or ACL subresource.' % args.resource)
                 logging.debug(e)
-                return 1
             elif e.response.status_code == requests.codes.bad_request:
-                print('%s: invalid ACL name %s.' % (args.namespace, args.access))
+                print('%s: invalid ACL name %s.' % (args.resource, args.access))
                 logging.debug(e)
-                return 1
             else:
                 raise e
-        return 0
+            return 1
+
+    def setacl(self, args):
+        """Implements the setacl sub-command.
+        """
+        if args.add and len(args.roles) > 1:
+            print("Option '--add' is only valid for a single role.")
+            return 1
+
+        host_name = args.host
+        resource = urlquote(args.resource, '/')
+        credentials = self._get_credential(host_name, args.token)
+        store = HatracStore('https', host_name, credentials)
+        try:
+            store.set_acl(resource, args.access, args.roles, args.add)
+            return 0
+        except HTTPError as e:
+            if e.response.status_code == requests.codes.not_found:
+                print('%s: no such object or namespace.' % args.resource)
+                logging.debug(e)
+            elif e.response.status_code == requests.codes.bad_request:
+                print('%s: resource cannot be updated as requested.' % args.resource)
+                logging.debug(e)
+            else:
+                raise e
+            return 1
 
     def main(self):
         """Main routine of the CLI.

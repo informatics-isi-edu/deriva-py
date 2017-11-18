@@ -378,11 +378,11 @@ class HatracStore(DerivaBinding):
         resp.raise_for_status()
         logging.info('Deleted namespace "%s%s".' % (self._server_uri, namespace_path))
 
-    def get_acl(self, namespace_path, access=None, role=None):
+    def get_acl(self, resource_name, access=None, role=None):
         """Get the object or namespace ACL resource.
         """
         headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
-        url = namespace_path + ';acl'
+        url = resource_name + ';acl'
         if access:
             url += '/' + urlquote(access)
         if role:
@@ -396,6 +396,25 @@ class HatracStore(DerivaBinding):
             else:
                 return resp.json()
         if resp.status_code == requests.codes.not_found:
+            return None
+        resp.raise_for_status()
+
+    def set_acl(self, resource_name, access, roles, add_role=False):
+        """Set the object or namespace ACL resource.
+
+        if 'add_role' is True, the operation will add a single role to the ACL, else it will attempt to replace
+        all of the ACL's roles. This option is only valid when a list of one role is given.
+        """
+        assert not add_role or len(roles) == 1, "Cannot 'add' more than one role at a time"
+        headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
+        url = "%(resource_name)s;acl/%(access)s" % {'resource_name': resource_name, 'access': access}
+        roles_obj = None
+        if add_role:
+            url += '/' + urlquote(roles[0])
+        else:
+            roles_obj = roles
+        resp = self.put(url, json=roles_obj, headers=headers)
+        if resp.status_code == requests.codes.no_content:
             return None
         resp.raise_for_status()
 
