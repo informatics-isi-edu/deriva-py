@@ -33,6 +33,10 @@ class DerivaHatracCLI (BaseCLI):
                                   help="Create intermediate parent namespaces as required")
         mkdir_parser.add_argument("namespace", metavar="<namespace>", type=str, help="namespace")
         mkdir_parser.set_defaults(func=self.mkdir)
+        # rmdir parser
+        rmdir_parser = subparsers.add_parser('rmdir', help="remove a hatrac namespace")
+        rmdir_parser.add_argument("namespace", metavar="<namespace>", type=str, help="namespace")
+        rmdir_parser.set_defaults(func=self.rmdir)
 
 
     def _get_credential(self, host_name, token=None):
@@ -54,7 +58,7 @@ class DerivaHatracCLI (BaseCLI):
                 print(name)
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                print('%s not found.' % args.namespace)
+                print('%s: no such object or namespace.' % args.namespace)
                 logging.debug(e)
                 return 1
             elif e.response.status_code == requests.codes.conflict:
@@ -79,7 +83,29 @@ class DerivaHatracCLI (BaseCLI):
                 logging.debug(e)
                 return 1
             elif e.response.status_code == requests.codes.conflict:
-                print("%s exists or the parent path is not a namespace." % args.namespace)
+                print("%s: namespace exists or the parent path is not a namespace." % args.namespace)
+                logging.debug(e)
+                return 1
+            else:
+                raise e
+        return 0
+
+    def rmdir(self, args):
+        """Implements the mkdir sub-command.
+        """
+        host_name = args.host
+        namespace = urlquote(args.namespace, '/')
+        credentials = self._get_credential(host_name, args.token)
+        store = HatracStore('https', host_name, credentials)
+        try:
+            store.delete_namespace(namespace)
+        except HTTPError as e:
+            if e.response.status_code == requests.codes.not_found:
+                print('%s: no such object or namespace.' % args.namespace)
+                logging.debug(e)
+                return 1
+            elif e.response.status_code == requests.codes.conflict:
+                print("%s: namespace not empty." % args.namespace)
                 logging.debug(e)
                 return 1
             else:
