@@ -1,10 +1,9 @@
 import logging
+import requests
+from requests.exceptions import HTTPError
 import sys
 import traceback
-from deriva.core import __version__ as VERSION
-from deriva.core import BaseCLI
-from deriva.core import HatracStore, get_credential
-from json.decoder import JSONDecodeError
+from deriva.core import __version__ as VERSION, BaseCLI, HatracStore, get_credential, urlquote
 
 if sys.version_info > (3,):
     from urllib.parse import urlparse
@@ -37,22 +36,32 @@ class DerivaHatracCLI (BaseCLI):
         """Implements the list sub-command.
         """
         host_name = args.host
-        namespace = args.namespace
+        namespace = urlquote(args.namespace, '/')
         credentials = self._get_credential(host_name, args.token)
         store = HatracStore('https', host_name, credentials)
-        namespaces = store.retrieve_namespace(namespace)
-        for name in namespaces:
-            print(name)
+        try:
+            namespaces = store.retrieve_namespace(namespace)
+            for name in namespaces:
+                print(name)
+        except HTTPError as e:
+            if e.response.status_code == requests.codes.not_found:
+                print('%s not found' % (namespace,))
+                logging.debug(e)
+            elif e.response.status_code == requests.codes.conflict:
+                # this just means the namespace has no contents - ok
+                logging.debug(e)
+            else:
+                raise e
 
     def main(self):
         """Main routine of the CLI.
         """
         args = self.parse_cli()
         try:
+            if not hasattr(args, 'func'):
+                self.parser.print_usage()
+                return 1
             args.func(args)
-        except AttributeError:
-            self.parser.print_usage()
-            return 1
         except RuntimeError:
             return 1
         except Exception:
