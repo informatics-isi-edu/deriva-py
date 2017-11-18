@@ -54,6 +54,13 @@ class DerivaHatracCLI (BaseCLI):
         setacl_parser.add_argument("--add", action="store_true", help="add a single role to the ACL")
         setacl_parser.set_defaults(func=self.setacl)
 
+        # detacl parser
+        delacl_parser = subparsers.add_parser('delacl', help="delete ACL")
+        delacl_parser.add_argument("resource", metavar="<resource-name>", type=str, help="object or namespace")
+        delacl_parser.add_argument("access", metavar="<access-mode>", help="access mode")
+        delacl_parser.add_argument("role", nargs='?', metavar="<role>", help="role")
+        delacl_parser.set_defaults(func=self.delacl)
+
 
     def _get_credential(self, host_name, token=None):
         if token:
@@ -148,7 +155,7 @@ class DerivaHatracCLI (BaseCLI):
             return 0
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                print('%s: no such object or namespace or ACL subresource.' % args.resource)
+                print('%s: no such object or namespace or ACL entry.' % args.resource)
                 logging.debug(e)
             elif e.response.status_code == requests.codes.bad_request:
                 print('%s: invalid ACL name %s.' % (args.resource, args.access))
@@ -174,6 +181,27 @@ class DerivaHatracCLI (BaseCLI):
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
                 print('%s: no such object or namespace.' % args.resource)
+                logging.debug(e)
+            elif e.response.status_code == requests.codes.bad_request:
+                print('%s: resource cannot be updated as requested.' % args.resource)
+                logging.debug(e)
+            else:
+                raise e
+            return 1
+
+    def delacl(self, args):
+        """Implements the getacl sub-command.
+        """
+        resource = urlquote(args.resource, '/')
+        host_name = args.host
+        credentials = self._get_credential(host_name, args.token)
+        store = HatracStore('https', host_name, credentials)
+        try:
+            store.del_acl(resource, args.access, args.role)
+            return 0
+        except HTTPError as e:
+            if e.response.status_code == requests.codes.not_found:
+                print('%s: no such object or namespace or ACL entry.' % args.resource)
                 logging.debug(e)
             elif e.response.status_code == requests.codes.bad_request:
                 print('%s: resource cannot be updated as requested.' % args.resource)

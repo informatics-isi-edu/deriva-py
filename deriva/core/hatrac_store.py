@@ -407,13 +407,25 @@ class HatracStore(DerivaBinding):
         """
         assert not add_role or len(roles) == 1, "Cannot 'add' more than one role at a time"
         headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
-        url = "%(resource_name)s;acl/%(access)s" % {'resource_name': resource_name, 'access': access}
+        url = "%(resource_name)s;acl/%(access)s" % {'resource_name': resource_name, 'access': urlquote(access)}
         roles_obj = None
         if add_role:
             url += '/' + urlquote(roles[0])
         else:
             roles_obj = roles
         resp = self.put(url, json=roles_obj, headers=headers)
+        if resp.status_code == requests.codes.no_content:
+            return None
+        resp.raise_for_status()
+
+    def del_acl(self, resource_name, access, role=None):
+        """Delete the object or namespace ACL resource.
+        """
+        headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
+        url = "%(resource_name)s;acl/%(access)s" % {'resource_name': resource_name, 'access': urlquote(access)}
+        if role:
+            url += '/' + urlquote(role)
+        resp = self.delete(url, headers)
         if resp.status_code == requests.codes.no_content:
             return None
         resp.raise_for_status()
