@@ -3,13 +3,7 @@ import requests
 from requests.exceptions import HTTPError
 import sys
 import traceback
-from urllib.parse import unquote
 from deriva.core import __version__ as VERSION, BaseCLI, HatracStore, get_credential, urlquote
-
-if sys.version_info > (3,):
-    from urllib.parse import urlparse
-else:
-    from urlparse import urlparse
 
 
 class DerivaHatracCLI (BaseCLI):
