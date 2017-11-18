@@ -3,6 +3,7 @@ import requests
 from requests.exceptions import HTTPError
 import sys
 import traceback
+from urllib.parse import unquote
 from deriva.core import __version__ as VERSION, BaseCLI, HatracStore, get_credential, urlquote
 
 if sys.version_info > (3,):
@@ -18,25 +19,38 @@ class DerivaHatracCLI (BaseCLI):
         """Initializes the CLI.
         """
         BaseCLI.__init__(self, description, epilog, VERSION)
+
+        # parent arg parser
         self.parser.add_argument("--token", default=None, metavar="<auth-token>", help="Authorization bearer token.")
         self.remove_options(['--host'])
         self.parser.add_argument('host', metavar='<host>', help="Fully qualified host name.")
-        # subparsers
         subparsers = self.parser.add_subparsers(title='sub-commands')
+
         # list parser
         ls_parser = subparsers.add_parser('list', aliases=['ls'], help="list contents of a hatrac namespace")
         ls_parser.add_argument("namespace", metavar="<namespace>", type=str, help="namespace")
         ls_parser.set_defaults(func=self.list)
+
         # mkdir parser
         mkdir_parser = subparsers.add_parser('mkdir', help="make a hatrac namespace")
         mkdir_parser.add_argument("--parents", action="store_true",
                                   help="Create intermediate parent namespaces as required")
         mkdir_parser.add_argument("namespace", metavar="<namespace>", type=str, help="namespace")
         mkdir_parser.set_defaults(func=self.mkdir)
+
         # rmdir parser
         rmdir_parser = subparsers.add_parser('rmdir', help="remove a hatrac namespace")
         rmdir_parser.add_argument("namespace", metavar="<namespace>", type=str, help="namespace")
         rmdir_parser.set_defaults(func=self.rmdir)
+
+        # getacl parser
+        getacl_parser = subparsers.add_parser('getacl', help="get ACL")
+        getacl_parser.add_argument("namespace", metavar="<namespace>", type=str, help="namespace")
+        getacl_parser.add_argument("--access", default=None, metavar="<access-mode>",
+                                   help="Optionally specify 'access' mode.")
+        getacl_parser.add_argument("--role", default=None, metavar="<role>",
+                                   help="Optionally specify 'role'. Must specify 'access' with this option.")
+        getacl_parser.set_defaults(func=self.getacl)
 
 
     def _get_credential(self, host_name, token=None):
@@ -106,6 +120,35 @@ class DerivaHatracCLI (BaseCLI):
                 return 1
             elif e.response.status_code == requests.codes.conflict:
                 print("%s: namespace not empty." % args.namespace)
+                logging.debug(e)
+                return 1
+            else:
+                raise e
+        return 0
+
+    def getacl(self, args):
+        """Implements the getacl sub-command.
+        """
+        host_name = args.host
+        namespace = urlquote(args.namespace, '/')
+        credentials = self._get_credential(host_name, args.token)
+        store = HatracStore('https', host_name, credentials)
+        try:
+            role = None
+            if args.role:
+                if not args.access:
+                    print('Must use --access option with --role option.')
+                    return 1
+                role = urlquote(args.role)
+            acls = store.get_acl(namespace, args.access, role)
+            print(acls)
+        except HTTPError as e:
+            if e.response.status_code == requests.codes.not_found:
+                print('%s: no such object or namespace or ACL subresource.' % args.namespace)
+                logging.debug(e)
+                return 1
+            elif e.response.status_code == requests.codes.bad_request:
+                print('%s: invalid ACL name %s.' % (args.namespace, args.access))
                 logging.debug(e)
                 return 1
             else:

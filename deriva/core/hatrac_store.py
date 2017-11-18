@@ -378,6 +378,25 @@ class HatracStore(DerivaBinding):
         resp.raise_for_status()
         logging.info('Deleted namespace "%s%s".' % (self._server_uri, namespace_path))
 
+    def get_acl(self, namespace_path, access=None, role=None):
+        """Get the object or namespace ACL resource.
+        """
+        headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
+        url = namespace_path + ';acl'
+        if access:
+            url += '/' + access
+        if role:
+            url += '/' + role
+        resp = self.get(url, headers)
+        if resp.status_code == requests.codes.ok:
+            if role:
+                return resp.text
+            else:
+                return resp.json()
+        if resp.status_code == requests.codes.not_found:
+            return None
+        resp.raise_for_status()
+
     @staticmethod
     def get_transfer_summary(total_bytes, elapsed_time):
         total_secs = elapsed_time.total_seconds()
