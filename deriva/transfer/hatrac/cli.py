@@ -21,10 +21,19 @@ class DerivaHatracCLI (BaseCLI):
         self.parser.add_argument("--token", default=None, metavar="<auth-token>", help="Authorization bearer token.")
         self.remove_options(['--host'])
         self.parser.add_argument('host', metavar='<host>', help="Fully qualified host name.")
+        # subparsers
         subparsers = self.parser.add_subparsers(title='sub-commands')
+        # list parser
         ls_parser = subparsers.add_parser('list', aliases=['ls'], help="list contents of a hatrac namespace")
         ls_parser.add_argument("namespace", metavar="<namespace>", type=str, help="namespace")
         ls_parser.set_defaults(func=self.list)
+        # mkdir parser
+        mkdir_parser = subparsers.add_parser('mkdir', help="make a hatrac namespace")
+        mkdir_parser.add_argument("--parents", action="store_true",
+                                  help="Create intermediate parent namespaces as required")
+        mkdir_parser.add_argument("namespace", metavar="<namespace>", type=str, help="namespace")
+        mkdir_parser.set_defaults(func=self.mkdir)
+
 
     def _get_credential(self, host_name, token=None):
         if token:
@@ -45,13 +54,37 @@ class DerivaHatracCLI (BaseCLI):
                 print(name)
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                print('%s not found' % (namespace,))
+                print('%s not found.' % args.namespace)
                 logging.debug(e)
+                return 1
             elif e.response.status_code == requests.codes.conflict:
                 # this just means the namespace has no contents - ok
                 logging.debug(e)
             else:
                 raise e
+        return 0
+
+    def mkdir(self, args):
+        """Implements the mkdir sub-command.
+        """
+        host_name = args.host
+        namespace = urlquote(args.namespace, '/')
+        credentials = self._get_credential(host_name, args.token)
+        store = HatracStore('https', host_name, credentials)
+        try:
+            store.create_namespace(namespace, parents=args.parents)
+        except HTTPError as e:
+            if e.response.status_code == requests.codes.not_found:
+                print("Parent namespace not found. Use '--parents' to create parent namespace.")
+                logging.debug(e)
+                return 1
+            elif e.response.status_code == requests.codes.conflict:
+                print("%s exists or the parent path is not a namespace." % args.namespace)
+                logging.debug(e)
+                return 1
+            else:
+                raise e
+        return 0
 
     def main(self):
         """Main routine of the CLI.
@@ -61,13 +94,12 @@ class DerivaHatracCLI (BaseCLI):
             if not hasattr(args, 'func'):
                 self.parser.print_usage()
                 return 1
-            args.func(args)
+            return args.func(args)
         except RuntimeError:
             return 1
         except Exception:
             traceback.print_exc()
             return 1
-        return 0
 
 
 def main():
