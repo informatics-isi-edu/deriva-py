@@ -14,6 +14,10 @@ class DerivaHatracCLI (BaseCLI):
         """
         BaseCLI.__init__(self, description, epilog, VERSION)
 
+        # initialized after argument parsing
+        self.resource = None
+        self.store = None
+
         # parent arg parser
         self.parser.add_argument("--token", default=None, metavar="<auth-token>", help="Authorization bearer token.")
         self.remove_options(['--host'])
@@ -22,19 +26,19 @@ class DerivaHatracCLI (BaseCLI):
 
         # list parser
         ls_parser = subparsers.add_parser('list', aliases=['ls'], help="list contents of a hatrac namespace")
-        ls_parser.add_argument("namespace", metavar="<namespace>", type=str, help="namespace")
+        ls_parser.add_argument("resource", metavar="<namespace>", type=str, help="namespace")
         ls_parser.set_defaults(func=self.list)
 
         # mkdir parser
-        mkdir_parser = subparsers.add_parser('mkdir', help="make a hatrac namespace")
+        mkdir_parser = subparsers.add_parser('mkdir', help="make a hatrac resource")
         mkdir_parser.add_argument("-p", "--parents", action="store_true",
                                   help="Create intermediate parent namespaces as required")
-        mkdir_parser.add_argument("namespace", metavar="<namespace>", type=str, help="namespace")
+        mkdir_parser.add_argument("resource", metavar="<namespace>", type=str, help="namespace")
         mkdir_parser.set_defaults(func=self.mkdir)
 
         # rmdir parser
         rmdir_parser = subparsers.add_parser('rmdir', help="remove a hatrac namespace")
-        rmdir_parser.add_argument("namespace", metavar="<namespace>", type=str, help="namespace")
+        rmdir_parser.add_argument("resource", metavar="<namespace>", type=str, help="namespace")
         rmdir_parser.set_defaults(func=self.rmdir)
 
         # getacl parser
@@ -61,27 +65,29 @@ class DerivaHatracCLI (BaseCLI):
         delacl_parser.add_argument("role", nargs='?', metavar="<role>", help="role")
         delacl_parser.set_defaults(func=self.delacl)
 
-
-    def _get_credential(self, host_name, token=None):
+    @staticmethod
+    def _get_credential(host_name, token=None):
         if token:
             return {"cookie": "webauthn=%s" % token}
         else:
             return get_credential(host_name)
 
+    def _post_parser_init(self, args):
+        """Shared initialization for all sub-commands.
+        """
+        self.resource = urlquote(args.resource, '/')
+        self.store = HatracStore('https', args.host, DerivaHatracCLI._get_credential(args.host, args.token))
+
     def list(self, args):
         """Implements the list sub-command.
         """
-        host_name = args.host
-        namespace = urlquote(args.namespace, '/')
-        credentials = self._get_credential(host_name, args.token)
-        store = HatracStore('https', host_name, credentials)
         try:
-            namespaces = store.retrieve_namespace(namespace)
+            namespaces = self.store.retrieve_namespace(self.resource)
             for name in namespaces:
                 print(name)
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                print('%s: no such object or namespace.' % args.namespace)
+                print('%s: no such object or namespace.' % self.resource)
                 logging.debug(e)
                 return 1
             elif e.response.status_code == requests.codes.conflict:
@@ -94,19 +100,15 @@ class DerivaHatracCLI (BaseCLI):
     def mkdir(self, args):
         """Implements the mkdir sub-command.
         """
-        host_name = args.host
-        namespace = urlquote(args.namespace, '/')
-        credentials = self._get_credential(host_name, args.token)
-        store = HatracStore('https', host_name, credentials)
         try:
-            store.create_namespace(namespace, parents=args.parents)
+            self.store.create_namespace(self.resource, parents=args.parents)
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
                 print("Parent namespace not found. Use '--parents' to create parent namespace.")
                 logging.debug(e)
                 return 1
             elif e.response.status_code == requests.codes.conflict:
-                print("%s: namespace exists or the parent path is not a namespace." % args.namespace)
+                print("%s: namespace exists or the parent path is not a namespace." % self.resource)
                 logging.debug(e)
                 return 1
             else:
@@ -116,19 +118,15 @@ class DerivaHatracCLI (BaseCLI):
     def rmdir(self, args):
         """Implements the mkdir sub-command.
         """
-        host_name = args.host
-        namespace = urlquote(args.namespace, '/')
-        credentials = self._get_credential(host_name, args.token)
-        store = HatracStore('https', host_name, credentials)
         try:
-            store.delete_namespace(namespace)
+            self.store.delete_namespace(self.resource)
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                print('%s: no such object or namespace.' % args.namespace)
+                print('%s: no such object or namespace.' % self.resource)
                 logging.debug(e)
                 return 1
             elif e.response.status_code == requests.codes.conflict:
-                print("%s: namespace not empty." % args.namespace)
+                print("%s: namespace not empty." % self.resource)
                 logging.debug(e)
                 return 1
             else:
@@ -142,12 +140,8 @@ class DerivaHatracCLI (BaseCLI):
             print('Must use --access option with --role option.')
             return 1
 
-        host_name = args.host
-        resource = urlquote(args.resource, '/')
-        credentials = self._get_credential(host_name, args.token)
-        store = HatracStore('https', host_name, credentials)
         try:
-            acls = store.get_acl(resource, args.access, args.role)
+            acls = self.store.get_acl(self.resource, args.access, args.role)
             for access in acls:
                 print("%s:" % access)
                 for role in acls.get(access, []):
@@ -171,12 +165,8 @@ class DerivaHatracCLI (BaseCLI):
             print("Option '--add' is only valid for a single role.")
             return 1
 
-        host_name = args.host
-        resource = urlquote(args.resource, '/')
-        credentials = self._get_credential(host_name, args.token)
-        store = HatracStore('https', host_name, credentials)
         try:
-            store.set_acl(resource, args.access, args.roles, args.add)
+            self.store.set_acl(self.resource, args.access, args.roles, args.add)
             return 0
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
@@ -192,12 +182,8 @@ class DerivaHatracCLI (BaseCLI):
     def delacl(self, args):
         """Implements the getacl sub-command.
         """
-        resource = urlquote(args.resource, '/')
-        host_name = args.host
-        credentials = self._get_credential(host_name, args.token)
-        store = HatracStore('https', host_name, credentials)
         try:
-            store.del_acl(resource, args.access, args.role)
+            self.store.del_acl(self.resource, args.access, args.role)
             return 0
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
@@ -218,6 +204,7 @@ class DerivaHatracCLI (BaseCLI):
             if not hasattr(args, 'func'):
                 self.parser.print_usage()
                 return 1
+            self._post_parser_init(args)
             return args.func(args)
         except HTTPError as e:
             if e.response.status_code == requests.codes.unauthorized:

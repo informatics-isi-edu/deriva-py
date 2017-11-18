@@ -367,7 +367,7 @@ class HatracStore(DerivaBinding):
         headers = {'Content-Type': 'application/x-hatrac-namespace', 'Accept': 'application/json'}
         resp = self.put(url, headers=headers)
         resp.raise_for_status()
-        logging.info('Created namespace "%s%s".' % (self._server_uri, namespace_path))
+        logging.debug('Created namespace "%s%s".' % (self._server_uri, namespace_path))
 
     def delete_namespace(self, namespace_path):
         """Delete a namespace.
@@ -376,7 +376,7 @@ class HatracStore(DerivaBinding):
         headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
         resp = self.delete(namespace_path, headers=headers)
         resp.raise_for_status()
-        logging.info('Deleted namespace "%s%s".' % (self._server_uri, namespace_path))
+        logging.debug('Deleted namespace "%s%s".' % (self._server_uri, namespace_path))
 
     def get_acl(self, resource_name, access=None, role=None):
         """Get the object or namespace ACL resource.
