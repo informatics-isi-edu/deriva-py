@@ -1,9 +1,11 @@
+from json.decoder import JSONDecodeError
 import logging
+from os.path import basename
 import requests
 from requests.exceptions import HTTPError
 import sys
 import traceback
-from deriva.core import __version__ as VERSION, BaseCLI, HatracStore, get_credential, urlquote
+from deriva.core import __version__ as VERSION, BaseCLI, HatracStore, HatracHashMismatch, get_credential, urlquote
 
 
 class DerivaHatracCLI (BaseCLI):
@@ -65,6 +67,12 @@ class DerivaHatracCLI (BaseCLI):
         delacl_parser.add_argument("role", nargs='?', metavar="<role>", help="role")
         delacl_parser.set_defaults(func=self.delacl)
 
+        # getobj parser
+        getobj_parser = subparsers.add_parser('getobj', aliases=['get'], help="get object")
+        getobj_parser.add_argument("resource", metavar="<resource-name>", type=str, help="object or namespace")
+        getobj_parser.add_argument('outfile', metavar="<outfile>", nargs='?', type=str, help="output filename or -")
+        getobj_parser.set_defaults(func=self.getobj)
+
     @staticmethod
     def _get_credential(host_name, token=None):
         if token:
@@ -87,7 +95,7 @@ class DerivaHatracCLI (BaseCLI):
                 print(name)
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                print('%s: no such object or namespace.' % self.resource)
+                print('%s: No such object or namespace' % self.resource)
                 logging.debug(e)
                 return 1
             elif e.response.status_code == requests.codes.conflict:
@@ -95,6 +103,8 @@ class DerivaHatracCLI (BaseCLI):
                 logging.debug(e)
             else:
                 raise e
+        except JSONDecodeError:
+            print('%s: Not a namespace' % self.resource)
         return 0
 
     def mkdir(self, args):
@@ -104,11 +114,11 @@ class DerivaHatracCLI (BaseCLI):
             self.store.create_namespace(self.resource, parents=args.parents)
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                print("Parent namespace not found. Use '--parents' to create parent namespace.")
+                print("Parent namespace not found (use '--parents' to create parent namespace)")
                 logging.debug(e)
                 return 1
             elif e.response.status_code == requests.codes.conflict:
-                print("%s: namespace exists or the parent path is not a namespace." % self.resource)
+                print("%s: Namespace exists or the parent path is not a namespace" % self.resource)
                 logging.debug(e)
                 return 1
             else:
@@ -122,11 +132,11 @@ class DerivaHatracCLI (BaseCLI):
             self.store.delete_namespace(self.resource)
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                print('%s: no such object or namespace.' % self.resource)
+                print('%s: No such object or namespace' % self.resource)
                 logging.debug(e)
                 return 1
             elif e.response.status_code == requests.codes.conflict:
-                print("%s: namespace not empty." % self.resource)
+                print("%s: Namespace not empty" % self.resource)
                 logging.debug(e)
                 return 1
             else:
@@ -137,7 +147,7 @@ class DerivaHatracCLI (BaseCLI):
         """Implements the getacl sub-command.
         """
         if args.role and not args.access:
-            print('Must use --access option with --role option.')
+            print('Must use --access option with --role option')
             return 1
 
         try:
@@ -149,10 +159,10 @@ class DerivaHatracCLI (BaseCLI):
             return 0
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                print('%s: no such object or namespace or ACL entry.' % args.resource)
+                print('%s: No such object or namespace or ACL entry' % args.resource)
                 logging.debug(e)
             elif e.response.status_code == requests.codes.bad_request:
-                print('%s: invalid ACL name %s.' % (args.resource, args.access))
+                print('%s: Invalid ACL name %s' % (args.resource, args.access))
                 logging.debug(e)
             else:
                 raise e
@@ -162,7 +172,7 @@ class DerivaHatracCLI (BaseCLI):
         """Implements the setacl sub-command.
         """
         if args.add and len(args.roles) > 1:
-            print("Option '--add' is only valid for a single role.")
+            print("Option '--add' is only valid for a single role")
             return 1
 
         try:
@@ -170,10 +180,10 @@ class DerivaHatracCLI (BaseCLI):
             return 0
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                print('%s: no such object or namespace.' % args.resource)
+                print('%s: No such object or namespace' % args.resource)
                 logging.debug(e)
             elif e.response.status_code == requests.codes.bad_request:
-                print('%s: resource cannot be updated as requested.' % args.resource)
+                print('%s: Resource cannot be updated as requested' % args.resource)
                 logging.debug(e)
             else:
                 raise e
@@ -187,10 +197,31 @@ class DerivaHatracCLI (BaseCLI):
             return 0
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                print('%s: no such object or namespace or ACL entry.' % args.resource)
+                print('%s: No such object or namespace or ACL entry' % args.resource)
                 logging.debug(e)
             elif e.response.status_code == requests.codes.bad_request:
-                print('%s: resource cannot be updated as requested.' % args.resource)
+                print('%s: Resource cannot be updated as requested' % args.resource)
+                logging.debug(e)
+            else:
+                raise e
+            return 1
+
+    def getobj(self, args):
+        """Implements the getobj sub-command.
+        """
+        try:
+            if args.outfile and args.outfile == '-':
+                r = self.store.get_obj(self.resource)
+                logging.debug('Content encoding: %s' % r.apparent_encoding)
+                assert r.text, 'content cannot be read as text'
+                sys.stdout.write(r.text)
+            else:
+                outfilename = args.outfile if args.outfile else basename(self.resource)
+                self.store.get_obj(self.resource, destfilename=outfilename)
+            return 0
+        except HTTPError as e:
+            if e.response.status_code == requests.codes.not_found:
+                print('%s: No such object' % args.resource)
                 logging.debug(e)
             else:
                 raise e
@@ -208,20 +239,20 @@ class DerivaHatracCLI (BaseCLI):
             return args.func(args)
         except HTTPError as e:
             if e.response.status_code == requests.codes.unauthorized:
-                print('Authentication required.')
+                print('Authentication required')
                 logging.debug(e)
-                return 1
             elif e.response.status_code == requests.codes.forbidden:
-                print('Permission denied.')
+                print('Permission denied')
                 logging.debug(e)
-                return 1
             else:
                 raise e
+        except HatracHashMismatch as e:
+            print('Checksum verification failed: %s' % str(e))
         except RuntimeError:
-            return 1
+            print('Runtime error')
         except Exception:
             traceback.print_exc()
-            return 1
+        return 1
 
 
 def main():
