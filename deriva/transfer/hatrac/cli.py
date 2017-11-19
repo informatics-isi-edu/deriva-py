@@ -73,6 +73,12 @@ class DerivaHatracCLI (BaseCLI):
         getobj_parser.add_argument('outfile', metavar="<outfile>", nargs='?', type=str, help="output filename or -")
         getobj_parser.set_defaults(func=self.getobj)
 
+        # putobj parser
+        putobj_parser = subparsers.add_parser('putobj', aliases=['put'], help="put object")
+        putobj_parser.add_argument('infile', metavar="<infile>", type=str, help="input filename")
+        putobj_parser.add_argument("resource", metavar="<resource-name>", type=str, help="object or namespace")
+        putobj_parser.set_defaults(func=self.putobj)
+
     @staticmethod
     def _get_credential(host_name, token=None):
         if token:
@@ -226,6 +232,17 @@ class DerivaHatracCLI (BaseCLI):
             else:
                 raise e
             return 1
+
+    def putobj(self, args):
+        """Implements the putobj sub-command.
+        """
+        try:
+            loc = self.store.put_obj(self.resource, args.infile)
+            print(loc)
+            return 0
+        except HTTPError as e:
+            logging.debug(e)
+            raise e
 
     def main(self):
         """Main routine of the CLI.
