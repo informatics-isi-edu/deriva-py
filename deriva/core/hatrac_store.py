@@ -180,6 +180,14 @@ class HatracStore(DerivaBinding):
             loc = loc[len(self._server_uri):]
         return loc
 
+    def del_obj(self, path):
+        """Delete an object.
+        """
+        self.check_path(path)
+        resp = self.delete(path)
+        resp.raise_for_status()
+        logging.debug('Deleted object "%s%s".' % (self._server_uri, path))
+
     def put_loc(self,
                 path,
                 file_path,

@@ -22,30 +22,30 @@ class DerivaHatracCLI (BaseCLI):
 
         # parent arg parser
         self.parser.add_argument("--token", default=None, metavar="<auth-token>", help="Authorization bearer token.")
-        self.remove_options(['--host'])
+        self.remove_options(['--host', '--config-file', '--credential-file'])
         self.parser.add_argument('host', metavar='<host>', help="Fully qualified host name.")
         subparsers = self.parser.add_subparsers(title='sub-commands')
 
         # list parser
-        ls_parser = subparsers.add_parser('list', aliases=['ls'], help="list contents of a hatrac namespace")
-        ls_parser.add_argument("resource", metavar="<namespace>", type=str, help="namespace")
+        ls_parser = subparsers.add_parser('list', aliases=['ls'], help="list the elements of a namespace")
+        ls_parser.add_argument("resource", metavar="<path>", type=str, help="namespace path")
         ls_parser.set_defaults(func=self.list)
 
         # mkdir parser
-        mkdir_parser = subparsers.add_parser('mkdir', help="make a hatrac resource")
+        mkdir_parser = subparsers.add_parser('mkdir', help="create a namespace")
         mkdir_parser.add_argument("-p", "--parents", action="store_true",
                                   help="Create intermediate parent namespaces as required")
-        mkdir_parser.add_argument("resource", metavar="<namespace>", type=str, help="namespace")
+        mkdir_parser.add_argument("resource", metavar="<path>", type=str, help="namespace path")
         mkdir_parser.set_defaults(func=self.mkdir)
 
         # rmdir parser
-        rmdir_parser = subparsers.add_parser('rmdir', help="remove a hatrac namespace")
-        rmdir_parser.add_argument("resource", metavar="<namespace>", type=str, help="namespace")
+        rmdir_parser = subparsers.add_parser('rmdir', help="remove a namespace")
+        rmdir_parser.add_argument("resource", metavar="<path>", type=str, help="namespace path")
         rmdir_parser.set_defaults(func=self.rmdir)
 
         # getacl parser
         getacl_parser = subparsers.add_parser('getacl', help="get ACL")
-        getacl_parser.add_argument("resource", metavar="<resource-name>", type=str, help="object or namespace")
+        getacl_parser.add_argument("resource", metavar="<path>", type=str, help="object or namespace path")
         getacl_parser.add_argument("--access", default=None, metavar="<access-mode>",
                                    help="Optionally specify 'access' mode.")
         getacl_parser.add_argument("--role", default=None, metavar="<role>",
@@ -54,7 +54,7 @@ class DerivaHatracCLI (BaseCLI):
 
         # setacl parser
         setacl_parser = subparsers.add_parser('setacl', help="set ACL")
-        setacl_parser.add_argument("resource", metavar="<resource-name>", type=str, help="object or namespace")
+        setacl_parser.add_argument("resource", metavar="<path>", type=str, help="object or namespace path")
         setacl_parser.add_argument("access", metavar="<access-mode>", help="access mode")
         setacl_parser.add_argument("roles", nargs='+', metavar="<role>", help="role")
         setacl_parser.add_argument("--add", action="store_true", help="add a single role to the ACL")
@@ -62,22 +62,27 @@ class DerivaHatracCLI (BaseCLI):
 
         # detacl parser
         delacl_parser = subparsers.add_parser('delacl', help="delete ACL")
-        delacl_parser.add_argument("resource", metavar="<resource-name>", type=str, help="object or namespace")
+        delacl_parser.add_argument("resource", metavar="<path>", type=str, help="object or namespace path")
         delacl_parser.add_argument("access", metavar="<access-mode>", help="access mode")
         delacl_parser.add_argument("role", nargs='?', metavar="<role>", help="role")
         delacl_parser.set_defaults(func=self.delacl)
 
         # getobj parser
         getobj_parser = subparsers.add_parser('getobj', aliases=['get'], help="get object")
-        getobj_parser.add_argument("resource", metavar="<resource-name>", type=str, help="object or namespace")
+        getobj_parser.add_argument("resource", metavar="<path>", type=str, help="object path")
         getobj_parser.add_argument('outfile', metavar="<outfile>", nargs='?', type=str, help="output filename or -")
         getobj_parser.set_defaults(func=self.getobj)
 
         # putobj parser
         putobj_parser = subparsers.add_parser('putobj', aliases=['put'], help="put object")
         putobj_parser.add_argument('infile', metavar="<infile>", type=str, help="input filename")
-        putobj_parser.add_argument("resource", metavar="<resource-name>", type=str, help="object or namespace")
+        putobj_parser.add_argument("resource", metavar="<path>", type=str, help="object path")
         putobj_parser.set_defaults(func=self.putobj)
+
+        # delobj parser
+        delobj_parser = subparsers.add_parser('delobj', aliases=['del', 'rm'], help="delete object")
+        delobj_parser.add_argument("resource", metavar="<path>", type=str, help="object path")
+        delobj_parser.set_defaults(func=self.delobj)
 
     @staticmethod
     def _get_credential(host_name, token=None):
@@ -241,8 +246,30 @@ class DerivaHatracCLI (BaseCLI):
             print(loc)
             return 0
         except HTTPError as e:
-            logging.debug(e)
-            raise e
+            if e.response.status_code == requests.codes.not_found:
+                print('%s: Parent path does not exit' % args.resource)
+                logging.debug(e)
+            elif e.response.status_code == requests.codes.conflict:
+                # this just means the object may have once existed
+                print('%s: Cannot create object (parent path is not a namespace or object name is in use)' % args.resource)
+                logging.debug(e)
+            else:
+                raise e
+            return 1
+
+    def delobj(self, args):
+        """Implements the delobj sub-command.
+        """
+        try:
+            self.store.del_obj(self.resource)
+            return 0
+        except HTTPError as e:
+            if e.response.status_code == requests.codes.not_found:
+                print('%s: No such object' % args.resource)
+                logging.debug(e)
+            else:
+                raise e
+            return 1
 
     def main(self):
         """Main routine of the CLI.
