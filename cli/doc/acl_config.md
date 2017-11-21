@@ -267,4 +267,4 @@ and you decide to change to a configuration that restricts access only to one se
 
 ```
 
-then it's possible that the change to the table ACL will occur before the change to the column ACL, temporarily exposing the table and all its columns. The solution is to either run `acl_config` in two passes, first adding restrictions and then removing them, or using some other mechanism (such as iptables) to restrict access while changes are made.
+then it's possible that the change to the table ACL will occur before the change to the column ACL, temporarily exposing the table and all its columns. The solution is to run `acl_config` in two passes, first adding the new restrictions and then removing the old ones.
