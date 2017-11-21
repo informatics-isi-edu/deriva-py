@@ -1,0 +1,506 @@
+import sys
+import deriva
+import os
+from urllib import quote
+import json
+import re
+from deriva.core import ErmrestCatalog, AttrDict, ermrest_config, CatalogConfig
+from deriva.core.ermrest_config import CatalogSchema, CatalogTable, CatalogColumn, CatalogForeignKey
+import argparse
+from base_config import BaseSpec, BaseSpecList, ConfigUtil, ConfigBaseCLI
+from requests.exceptions import HTTPError
+from uuid import UUID
+
+MY_VERSION = 0.99
+
+class NoForeignKeyError(ValueError):
+    pass
+
+class ACLSpecList(BaseSpecList):
+    def __init__(self, dictlist = []):
+        BaseSpecList.__init__(self, ACLSpec, dictlist)
+
+class ACLSpec(BaseSpec):
+    def __init__(self, specdict):
+        BaseSpec.__init__(self, specdict, ["acl", "no_acl", "acl_bindings"], "acl")
+    def validate(self):
+        BaseSpec.validate(self)
+        if self.get("no_acl") not in [True, False, None]:
+            raise ValueError("no_acl must be True or False (or not present)")
+        if self.get("acl") != None and self.get("no_acl") == True:
+            raise ValueError("can't specify an acl and no_acl=True in the same spec")
+        if self.get("acl") == None and self.get("no_acl") == False:
+            raise ValueError("if no_acl=False, an acl must be specified")        
+
+class AclConfig:
+    NC_NAME = 'name'
+    GC_NAME = 'groups'
+    ACL_TYPES=["catalog_acl", "schema_acls", "table_acls", "column_acls", "foreign_key_acls"]
+    GLOBUS_PREFIX='https://auth.globus.org/'
+    def __init__(self, server, catalog_id, config_file, credentials, schema_name=None, table_name=None, verbose=False):
+        self.config = json.load(open(config_file))
+        self.ignored_schema_patterns = []
+        self.verbose=verbose
+        ip = self.config.get("ignored_schema_patterns")
+        if ip != None:
+            for p in ip:
+                self.ignored_schema_patterns.append(re.compile(p))
+        self.acl_specs = {"catalog_acl" : self.config.get("catalog_acl")}
+        for key in self.ACL_TYPES:
+            if key != "catalog_acl":
+                self.acl_specs[key] = self.make_speclist(key)
+        self.groups = self.config.get("groups")
+        self.expand_groups()
+        self.acl_definitions = self.config.get("acl_definitions")
+        self.expand_acl_definitions()
+        self.acl_bindings = self.config.get("acl_bindings")
+        self.server = server
+        self.catalog_id = catalog_id
+
+        old_catalog = ErmrestCatalog('https', self.server, self.catalog_id, credentials)
+        self.saved_toplevel_config = ConfigUtil.find_toplevel_node(old_catalog.getCatalogConfig(), schema_name, table_name)
+        self.catalog = ErmrestCatalog('https', self.server, self.catalog_id, credentials)
+        self.toplevel_config = ConfigUtil.find_toplevel_node(self.catalog.getCatalogConfig(), schema_name, table_name)
+
+    def make_speclist(self, name):
+        d=self.config.get(name)
+        if d == None:
+            d=dict()
+        return ACLSpecList(d)
+
+    def add_node_acl(self, node, acl_name):
+        acl = self.acl_definitions.get(acl_name)
+        if acl == None:
+            raise ValueError("no acl set called '{name}'".format(name=acl_name))
+        for k in acl.keys():
+            node.acls[k] = acl[k]
+
+    def add_node_acl_binding(self, node, table_node, binding_name, is_first_binding):
+        if not self.acl_bindings.has_key(binding_name):
+            raise ValueError("no acl binding called '{name}'".format(name=binding_name))
+        binding = self.acl_bindings.get(binding_name)
+        try:
+            node.acl_bindings[binding_name] = self.expand_acl_binding(binding, table_node, is_first_binding)
+        except NoForeignKeyError as e:
+            detail = ''
+            if isinstance(node, CatalogColumn):
+                detail = 'on column {n}'.format(n=node.name)
+            elif isinstance(node, CatalogForeignKey):
+                detail = 'on foreign key {s}.{n}'.format(s=node.names[0][0], n=node.names[0][1])
+            else:
+                detail = ' {t}'.format(t=type(node))
+            print("couldn't expand acl binding {b} {d} table {s}.{t}".format(b=binding_name, d=detail, s=table_node.sname, t=table_node.name))
+            raise e
+        
+
+    def expand_acl_binding(self, binding, table_node, is_first_binding):
+        if not isinstance(binding, dict):
+            return binding
+        new_binding = dict()
+        for k in binding.keys():
+            if k == "projection":
+                new_binding[k] = []
+                for proj in binding.get(k):
+                    new_binding[k].append(self.expand_projection(proj, table_node, is_first_binding))
+            else:
+                new_binding[k] = binding[k]
+        return new_binding
+
+    def expand_projection(self, proj, table_node, is_first_binding):
+        if isinstance(proj, dict):
+            new_proj = dict()
+            for k in proj.keys():
+                if k == "outbound_col":
+                    if not is_first_binding:
+                        raise NotImplementedError("don't know how to expand 'outbound_col' on anything but the first entry in a projection; use 'outbound' instead")
+                    if table_node == None:
+                        raise NotImplementedError("don't know how to expand 'outbound_col' in a foreign key acl/annotation; use 'outbound' instead")
+                    new_proj["outbound"] = self.expand_projection_column(proj[k], table_node)
+                    if new_proj["outbound"] == None:
+                        return None
+                else:
+                    new_proj[k] = proj[k]
+            return new_proj
+        else:
+            return proj
+
+
+
+    def expand_projection_column(self, col_name, table_node):
+        for fkey in table_node.foreign_keys:
+            if len(fkey.foreign_key_columns) == 1:
+                col = fkey.foreign_key_columns[0]
+                if col.get("table_name") == table_node.name and col.get("schema_name") == table_node.sname and col.get("column_name") == col_name:
+                    return fkey.names[0]
+        raise NoForeignKeyError("can't find foreign key for column %I.%I(%I)", table_node.sname, table_node.name, col_name)
+    
+
+    def set_node_acl_bindings(self, node, table_node, binding_list):
+       node.acl_bindings.clear()
+       if binding_list != None:
+           is_first = True
+           for binding_name in binding_list:
+               self.add_node_acl_binding(node, table_node, binding_name, is_first)
+               is_first = False
+
+    def save_groups(self):
+        glt = self.create_or_validate_group_table()
+        if glt != None and self.groups != None:
+            rows = []
+            for name in self.groups.keys():
+                row = {'name' : name, 'groups' : self.groups.get(name)}
+                for c in ['RCB', 'RMB']:
+                    if glt.getColumn(c) != None:
+                        row[c] = None
+                rows.append(row)
+
+            glt.upsertRows(self.catalog, rows)
+
+    def create_or_validate_schema(self, schema_name):
+        schema = self.catalog.getCatalogSchema()['schemas'].get(schema_name)
+        if schema == None:
+            self.catalog.post("/schema/{s}".format(s=schema_name))
+        return self.catalog.getCatalogSchema()['schemas'].get(schema_name)
+
+    def create_table(self, schema, table_name, table_spec, comment=None):
+        if table_spec == None:
+            table_spec = dict()
+        if schema == None:
+            return None
+        table_spec["schema_name"] = schema_name
+        table_spec["table_name"] = table_name
+        if table_spec.get('comment') == None and comment != None:
+            table_spec['comment'] = comment
+        if table_spec.get('kind') == None:
+            table_spec['kind'] = 'table'
+        self.post("/schema/{s}/table".format(s=schema.name), json=table_spec)
+        schema = self.catalog.GetCatalogSchema()['schemas'].get(schema_name)
+        return schema['tables'].get(table_name)
+    
+            
+    def create_or_validate_group_table(self):
+        glt_spec = self.config.get('group_list_table')
+        if glt_spec == None:
+            return none;
+        sname = glt_spec.get('schema')
+        tname = glt_spec.get('table')
+        if sname == None or tname == None:
+            raise ValueError("group_list_table missing schema or table")
+        schema = self.create_or_validate_schema(sname)
+        assert schema != None
+        glt = Table(schema['tables'].get(tname))
+        if glt == {}:
+            glt_spec = {
+                'comment' : "Named lists of groups used in ACLs. Maintained by the rbk_acls program. Do not update this table manually.",
+                'annotations' : {
+                    'tag:isrd.isi.edu,2016:generated' : None
+                    },
+                'column_definitions': [
+                    {
+                        'name' : self.NC_NAME,
+                        'type' : {'typename' : 'text'},
+                        'nullok' : False,
+                        'comment' : 'Name of grouplist, used in foreign keys. This table is maintained by the rbk_acls program and should not be updated by hand.'
+                    },
+                    {
+                        'name' : self.GC_NAME,
+                        'type' : {'base_type': {'typename' : 'text'}, 'is_array': True},
+                        'nullok' : True,
+                        'comment' : 'List of groups. This table is maintained by the rbk_acls program and should not be updated by hand.'                        
+                    }                    
+                    
+                ],
+                'keys' : [
+                    {
+                        'names' :[[sname, "{t}_{c}_u".format(t=tname, c=self.NC_NAME)]],
+                        'unique_columns' : [self.NC_NAME]
+                    }
+                ]
+            }
+            glt = Table(self.catalog.createTable(sname, tname, glt_spec))
+        
+        else:            
+            name_col = glt.getColumn(self.NC_NAME)
+            if name_col == None:
+                raise ValueError('table specified for group lists ({s}.{t}) lacks a "{n}" column'.format(s=sname, t=tname, n=self.NC_NAME))
+            if name_col.get('nullok') != False:
+                raise ValueError("{n} column in group list table ({s}.{t}) allows nulls".format(n=self.NC_NAME, s=sname, t=tname))
+            nc_uniq = False
+            for key in glt.get('keys'):
+                cols = key.get('unique_columns')
+                if len(cols) == 1 and cols[0] == self.NC_NAME:
+                    nc_uniq = True
+                    break
+                if nc_uniq:
+                    break
+            if not nc_uniq:
+                raise ValueError("{n} column in group list table ({s}.{t}) is not a key".format(n=self.NC_NAME, s=sname, t=tname))
+            
+            val_col = glt.getColumn(self.GC_NAME)
+            if val_col == None:
+                raise ValueError('table specified for group lists ({s}.{t}) lacks a "{n}" column'.format(s=sname, t=tname, n=self.GC_NAME))
+        if glt == {}:
+            return None
+        else:
+            return glt
+            
+    def set_node_acl(self, node, spec):
+        node.acls.clear()
+        acl_name = spec.get("acl")
+        if acl_name != None:
+            self.add_node_acl(node, acl_name)
+
+    def expand_groups(self):
+        for group_name in self.groups.keys():
+            self.expand_group(group_name)
+
+    def get_group(self, group_name):
+        group = self.groups.get(group_name)
+        if group == None:
+             group = [group_name]
+        return group
+
+    def validate_group(self, group):
+        if group == '*':
+            return
+        elif group.startswith(self.GLOBUS_PREFIX):
+            self.validate_globus_group(group)
+        else:
+            raise ValueError("Can't determine format of group '{g}'".format(g=group))
+
+    def validate_globus_group(self, group):
+        guid=group[len(self.GLOBUS_PREFIX):]
+        try:
+            UUID(guid)
+        except ValueError:
+            raise ValueError("Group '{g}' appears to be a malformed Globus group".format(g=group))
+        if self.verbose:
+            print("group '{g}' appears to be a syntactically-correct Globus group".format(g=group))
+        
+
+    def expand_group(self, group_name):
+        groups=[]
+        for child_name in self.groups.get(group_name):
+            child = self.groups.get(child_name)
+            if child == None:
+                self.validate_group(child_name)
+                groups.append(child_name)
+            else:
+                self.expand_group(child_name)
+                groups = groups + self.groups[child_name]
+        self.groups[group_name] = list(set(groups))
+
+    def expand_acl_definitions(self):
+        for acl_name in self.acl_definitions.keys():
+            self.expand_acl_definition(acl_name)
+
+    def expand_acl_definition(self, acl_name):
+        spec = self.acl_definitions.get(acl_name)
+        for op_type in spec.keys():
+            groups=[]
+            raw_groups = spec[op_type]
+            if isinstance(raw_groups, list):
+                for group_name in spec[op_type]:
+                    groups = groups + self.get_group(group_name)
+            else:
+                groups = self.get_group(raw_groups)
+            spec[op_type] = groups
+
+    def set_table_acls(self, table):
+        spec = self.acl_specs["table_acls"].find_best_table_spec(table.sname, table.name)
+        table.acls.clear()
+        table.acl_bindings.clear()
+        if spec != None:
+            self.set_node_acl(table, spec)
+            self.set_node_acl_bindings(table, table, spec.get("acl_bindings"))
+        if self.verbose:
+            print("set table {s}.{t} acls to {a}, bindings to {b}".format(s=table.sname, t=table.name, a=str(table.acls), b=str(table.acl_bindings)))
+        for column in table.column_definitions:            
+            self.set_column_acls(column, table)
+        for fkey in table.foreign_keys:
+            self.set_fkey_acls(fkey, table)
+
+    def set_column_acls(self, column, table):
+        spec = self.acl_specs["column_acls"].find_best_column_spec(column.sname, column.tname, column.name)
+        column.acls.clear()
+        column.acl_bindings.clear()
+        if spec != None:
+            self.set_node_acl(column, spec)
+            self.set_node_acl_bindings(column, table, spec.get("acl_bindings"))
+        if self.verbose:
+            print("set column {s}.{t}.{c} acls to {a}, bindings to {b}".format(s=column.sname, t=column.tname, c=column.name, a=str(column.acls), b=str(column.acl_bindings)))            
+
+    def set_fkey_acls(self, fkey, table):
+        spec = self.acl_specs["foreign_key_acls"].find_best_foreign_key_spec(fkey.sname, fkey.tname, fkey.names)
+        fkey.acls.clear()
+        fkey.acl_bindings.clear()
+        if spec != None:
+            self.set_node_acl(fkey, spec)
+            self.set_node_acl_bindings(fkey, table, spec.get("acl_bindings"))
+        if self.verbose:
+            print("set fkey {f} acls to {a}, bindings to {b}".format(f=str(fkey.names), a=str(fkey.acls), b=str(fkey.acl_bindings)))
+                
+    def set_catalog_acls(self, catalog):
+        spec = self.acl_specs["catalog_acl"]
+        if spec != None:
+            catalog.acls.clear()
+            self.set_node_acl(catalog, spec)
+        if self.verbose:
+            print("set catalog acls to {a}".format(a=str(catalog.acls)))
+        for schema in self.toplevel_config.schemas.values():
+            self.set_schema_acls(schema)
+        
+
+    def set_schema_acls(self, schema):
+        for pattern in self.ignored_schema_patterns:
+            if pattern.match(schema.name) != None:
+                print("ignoring schema {s}".format(s=schema.name))                
+                return
+        spec = self.acl_specs["schema_acls"].find_best_schema_spec(schema.name)
+        schema.acls.clear()
+        if spec != None:
+            self.set_node_acl(schema, spec)
+        if self.verbose:
+            print("set schema {s} acls to {a}".format(s=schema.name, a=str(schema.acls)))
+
+        for table in schema.tables.values():
+            self.set_table_acls(table)        
+                
+    def set_acls(self):
+        if isinstance(self.toplevel_config, ermrest_config.CatalogConfig):
+            self.set_catalog_acls(self.toplevel_config)
+        elif isinstance(self.toplevel_config, ermrest_config.CatalogSchema):
+            self.set_schema_acls(self.toplevel_config)
+        elif isinstance(self.toplevel_config, ermrest_config.CatalogTable):
+            self.set_table_acls(self.toplevel_config)
+        else:
+            raise ValueError("toplevel config is a {t}".format(t=str(type(self.toplevel_config))))
+            
+    def apply_acls(self):
+        self.toplevel_config.apply(self.catalog, self.saved_toplevel_config)
+
+class Table(AttrDict):
+    ERMREST_DEFAULT_COLS=["RID", "RCB", "RMB", "RCT", "RMT"]    
+    def __init__(self, d):
+        if d == None:
+            return None
+        self.base_entity_url= "/entity/{s}:{t}".format(s=d['schema_name'], t=d['table_name'])        
+        return AttrDict.__init__(self, d)
+    
+    def getColumn(self, name):
+        if self.get('column_definitions') == None:
+            return None
+        for c in self['column_definitions']:
+            if c.get('name') == name:
+                return c
+        return None
+
+    def getBaseEntityURL(self):
+        return self.base_entity_url
+
+    def upsertRows(self, catalog, rows):
+        retval = None
+        try:
+            self.insertRows(catalog, rows)
+        except HTTPError as err:
+            if err.response.status_code == 409:
+                for row in rows:
+                    self.upsertRow(catalog, row)
+
+    def find_keys(self):
+        keys = self.get('keys')
+        if keys == None:
+            return keys
+        for k in keys:
+            for u in k.get('unique_columns'):
+                c = self.getColumn(u)
+                if c.get('nullok') == True:
+                    keys.remove(k)
+                    break
+        return keys
+
+    def row_has_key(self, row, key):
+        for u in key.get('unique_columns'):
+            if row.get(u) == None:
+                return False
+        return True
+
+    def getRowFilter(self, row):
+        filters=[]
+        key = None
+        for k in self.find_keys():
+            if self.row_has_key(row, k):
+                key = k
+                break
+
+        if key == None:
+            raise ValueError("can't find appropriate key")
+        for k in key.get('unique_columns'):
+            filters.append("{k}={v}".format(k=k, v=row[k]))
+        return filters
+
+    def getRow(self, catalog, row, filters):
+        url = "{u}/{f}".format(u=self.getBaseEntityURL(), f="&".join(filters))
+        vals = catalog.get(url, headers={'Content-Type': 'application/json'}).json()
+        if vals == None or len(vals) == 0:
+            return None
+        return vals[0]
+
+    def getDefaultCols(self, add_ermrest_defaults=True):
+        default_cols = []
+        for col in self.column_definitions:
+            if col.get("default") != None:
+                default_cols.append(col.get("name"))
+        if add_ermrest_defaults:
+            default_cols = list(set(default_cols + self.ERMREST_DEFAULT_COLS))
+        return default_cols
+
+    def upsertRow(self, catalog, row):
+        try:
+            return self.insertRows(catalog, [row])
+        except HTTPError as err:
+            if err.response.status_code == 409:
+                return self.updateRow(catalog, row)
+
+    def updateRow(self, catalog, row):                
+        filters = self.getRowFilter(row)
+        old_row = self.getRow(catalog, row, filters)        
+        for c in self.getDefaultCols():
+            if row.get(c) == None and old_row.get(c) != None:
+                row[c] = old_row[c]
+        return catalog.put(self.getBaseEntityURL(), json=[row], headers={'Content-Type': 'application/json'})                
+        
+                
+    def insertRows(self, catalog, rows):
+        default_cols = self.getDefaultCols(False)
+        if default_cols != None and len(default_cols) != 0:
+            url = "{u}?defaults={d}".format(u=self.getBaseEntityURL(), d=",".join(default_cols))
+        else:
+            url = self.getBaseEntityURL()
+        return catalog.post(url, json=rows, headers={'Content-Type': 'application/json'})
+    
+    def __str__(self):
+        return dict.__str__(self)
+
+class AclCLI(ConfigBaseCLI):
+    def __init__(self):
+        ConfigBaseCLI.__init__(self, "ACL configuration tool", None, version=MY_VERSION)
+        self.parser.add_argument('-g', '--groups-only', help="create group table only", action="store_true")
+        
+
+if __name__ == '__main__':
+    cli = AclCLI()
+    args = cli.parse_cli()
+    host = args.host
+    if host == None:
+        host = 'localhost'
+    credentials = ConfigUtil.get_credentials(host, open(args.credential_file, 'r'))
+    acl_config = AclConfig(host, args.catalog, args.config_file, credentials, schema_name=args.schema, table_name=args.table, verbose=args.verbose or args.debug)
+    if not args.dryrun:
+        acl_config.save_groups()                
+    if not args.groups_only:
+        acl_config.set_acls()
+        if not args.dryrun:
+            acl_config.apply_acls()
+
+
