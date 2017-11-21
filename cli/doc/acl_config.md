@@ -6,31 +6,51 @@ The `acl_config.py` script reads a configuration file and uses it to set ACLs fo
 where the required arguments are:
 
 _catalog_: an ermrest catalog number (e.g., 1)
+
 `--config_file` file: the name of a configuration file
 
 Options are:
+
 `-credential_file` file: read credentials from the named _file_ (if not specified, look for credentials maintained by `deriva-auth`)
+
 `--groups-only`: create and populate a group table (used for dynamic ACLs) based on the contents of the config file
+
 `--dryrun`: do nothing, just print out the catalog schema that would be applied
+
 `--verbose`: verbose, print acls and acl bindings for each object
+
 `--schema` schema: operate only on the named _schema_, not the whole catalog
+
 `--table` table: operate only on the named _table_, not the whole catalog (requires the `--schema` option)
+
+`--host` host: configure the server on the specified _host_ (default `localhost`)
 
 #### Config file format ####
 The config file is a json file divided into the following stanzas:
 
-`groups`: defines a set of groups. These groups can be used in ACL definitions later in the config file.
-`group_list_table`: the schema and table name of a table to populate with the group information from the `groups` stanza. These can be used in dynamic ACL bindings.
-`acl_definitions`: static ACL definitions (e.g., "{"write": "consortium", "select": "*"}) that can be referred to later on in the config file
+`groups`: defines a set of named group lists, which can be used in ACL definitions later in the config file.
+
+`group_list_table`: the schema and table name of a table to populate with the information from the `groups` stanza, so you can use the same named group lists in both static and dynamic ACLs and maintain them in one place. This table will typically be the last step in most dynamic ACL projections.
+
+`acl_definitions`: static ACL definitions (e.g., "{"write": "consortium", "select": "everyone"}) that can be referred to later on in the config file (in this example, `consortium` and `everyone` are group lists defined in the `groups` stanza).
+
 `acl_bindings`: dynamic ACL definitions
-`catalog_acl`: the ACL for the catalog
-`schema_acls`: ACLs for individual schemas
-`table_acls`: ACLs for individual tables
-`column_acls`: ACLs for individual columns.
+
+`catalog_acl`: the ACL for the catalog; this will be one of the ACLs defined in the `acl_definitions` stanza.
+
+`schema_acls`: ACLs for individual schemas. Static ACLs (from `acl_definitions`) stanza are assigned to schemas.
+
+`table_acls`: ACLs for individual tables. Static ACLs (from `acl_definitions`) and dynamic ACLs (from `acl_bindings`) are assigned to tabless.
+
+`column_acls`: ACLs for individual columns. Static ACLs (from `acl_definitions`) and dynamic ACLs (from `acl_bindings`) are assigned to columns
+
+`foreign_key_acls`: ACLs for foreign keys. Static ACLs (from `acl_definitions`) and dynamic ACLs (from `acl_bindings`) are assigned to foreign keys
 
 ##### The groups stanza #####
 The `groups` stanza is a list of entries of the form 
+
 name: [values]
+
 where _name_ is a name that will be used to refer to a set of groups, and _values_ is a list of group entries. The entries can be either the actual group IDs (from webauthn) or names of previously-defined groups. For example:
 
 ```
@@ -63,7 +83,9 @@ This will cause the `_acl_admin.group_lists` table to be created (if it doesn't 
 
 ##### The acl_definitions stanza #####
 This is where you define static ACLs for later use. The syntax is a list of
+
 name: value
+
 entries, where the _name_ is a name you can refer to later, to assign these ACLs to objects, and the _value_ is the ACL itself (which will probably contain references to the groups defined in the `groups` stanza). For example:
 ```
     "acl_definitions" : {
@@ -76,7 +98,9 @@ In this example, the `unrestricted_read` ACL grants read access to everyone and 
 
 ##### The acl_definitions stanza #####
 This is where you define dynamic ACLs for later use. The syntax is a list of
+
 name: value
+
 pairs, where the _name_ is a name you can refer to later, and the _value_ is a dynamic ACL. For example:
 ```
     "acl_bindings" : {
@@ -114,10 +138,15 @@ This applies the `unrestricted_read` ACL defined above to the catalog.
 
 ##### The schema_acls stanza #####
 This is where ACLs for schemas are set. The syntax is a list of entries of the form:
+
 {schema_descriptor: value, acl_descriptor: value}
+
 A schema_descriptor is either:
+
 `"schema":` _schema_name_
+
 or
+
 `"schema_pattern:"` _regular_expression_
 
 When setting permissions on a schema:
@@ -128,7 +157,9 @@ When setting permissions on a schema:
 An acl descriptor has the form
 
 `"acl":` _name_of_acl_defined_earlier_
+
 or
+
 `"no_acl": true`
 
 If an `acl` is specified, the named static ACL is expanded and applied to the schema. If `no_acl` is specified, no ACL is applied to the schema (and as a result, it inherits whatever permissions are set by the catalog ACL).
@@ -149,8 +180,11 @@ This is where ACLs for tables are set. The syntax is a list of entries of the fo
 A schema descriptor has the same form as in the schema_acls stanza.
 
 A table_descriptor is either:
+
 `"table":` _table_name_
+
 or
+
 `"table_pattern:"` _regular_expression_
 
 Regular expression matching is used:
@@ -162,7 +196,9 @@ Regular expression matching is used:
 An acl_descriptor is the same as defined above.
 
 An `acl_bindings_descriptor` has the form:
+
 `"acl_bindings":` [list_of_bindings]`
+
 where _list_of_bindings_ is a list of ACL bindings defined in the acl_bindings stanza.
 
 ##### The column_acls stanza #####
@@ -170,9 +206,13 @@ This is where ACLs for columns are set. The syntax is a list of entries of the f
 {schema_descriptor, table_descriptor, column_descriptor, [acl_descriptor], [acl_bindings_descriptor]}
 The schema, table, acl, and acl_bindings descriptors have the same form as above.
 The column_descriptor is either:
+
 `"column":` _table_name_
+
 or
+
 `"column_pattern:"` _regular_expression_
+
 Regular expression matching is used:
 * If an entry with exact `schema`, `table`, and `column` matches is found, the associated ACL is used (and any other matching entries are ignored).
 * Otherwise, if exactly one entry is found with `schema`, `table`, and `column` matches is found, that ACL is used
@@ -181,16 +221,24 @@ Regular expression matching is used:
 ##### The foreign_key_acls stanza #####
 
 This is where ACLs for foreign keys are set. The syntax is a list of entries of the form:
+
 {schema_descriptor, table_descriptor, fkey_schema_descriptor, fkey_name_descriptor, [acl_descriptor], [acl_bindings_descriptor]}
+
 The schema, table, acl, and acl_bindings descriptors have the same form as above.
 The fkey_schema_descriptor is either:
+
 `"foreign_key_schema":` foreign_key_schema_name
+
 or
+
 `"foreign_key_schema_pattern":` regular_expression
 
 The fkey_name_descriptor is either:
+
 `"foreign_key":` foreign_key_name
+
 or
+
 `"foreign_key_pattern":` regular_expression
 
 These specify the foreign key schema and name. As with the column_acls stanza:
