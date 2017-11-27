@@ -5,8 +5,8 @@ import requests
 from requests.exceptions import HTTPError
 import sys
 import traceback
-from deriva.core import __version__ as VERSION, BaseCLI, HatracStore, HatracHashMismatch, get_credential, urlquote, \
-    format_exception
+from deriva.core import __version__ as VERSION, BaseCLI, DerivaPathError, HatracStore, HatracHashMismatch, \
+    get_credential, urlquote, format_exception
 from deriva.core.utils import mime_utils as mu
 
 
@@ -251,7 +251,7 @@ class DerivaHatracCLI (BaseCLI):
             return 0
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                print('%s: Parent path does not exit' % args.resource)
+                print('%s: Parent path does not exist' % args.resource)
                 logging.debug(format_exception(e))
             elif e.response.status_code == requests.codes.conflict:
                 # this just means the object may have once existed
@@ -297,7 +297,7 @@ class DerivaHatracCLI (BaseCLI):
                 print(format_exception(e))
         except HatracHashMismatch as e:
             print('Checksum verification failed: %s' % format_exception(e))
-        except RuntimeError as e:
+        except (DerivaPathError, RuntimeError) as e:
             print(format_exception(e))
         except Exception:
             traceback.print_exc()
