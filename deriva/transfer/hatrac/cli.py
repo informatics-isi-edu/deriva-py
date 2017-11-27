@@ -2,7 +2,7 @@ from json.decoder import JSONDecodeError
 import logging
 from os.path import basename
 import requests
-from requests.exceptions import HTTPError
+from requests.exceptions import HTTPError, ConnectionError
 import sys
 import traceback
 from deriva.core import __version__ as VERSION, BaseCLI, HatracStore, HatracHashMismatch, get_credential, urlquote, \
@@ -19,13 +19,13 @@ class DerivaHatracCLI (BaseCLI):
         BaseCLI.__init__(self, description, epilog, VERSION)
 
         # initialized after argument parsing
+        self.host = None
         self.resource = None
         self.store = None
 
         # parent arg parser
         self.parser.add_argument("--token", default=None, metavar="<auth-token>", help="Authorization bearer token.")
-        self.remove_options(['--host', '--config-file', '--credential-file'])
-        self.parser.add_argument('host', metavar='<host>', help="Fully qualified host name.")
+        self.remove_options(['--config-file', '--credential-file'])
         subparsers = self.parser.add_subparsers(title='sub-commands')
 
         # list parser
@@ -97,8 +97,9 @@ class DerivaHatracCLI (BaseCLI):
     def _post_parser_init(self, args):
         """Shared initialization for all sub-commands.
         """
+        self.host = args.host if args.host else 'localhost'
         self.resource = urlquote(args.resource, '/')
-        self.store = HatracStore('https', args.host, DerivaHatracCLI._get_credential(args.host, args.token))
+        self.store = HatracStore('https', args.host, DerivaHatracCLI._get_credential(self.host, args.token))
 
     def list(self, args):
         """Implements the list sub-command.
@@ -286,6 +287,8 @@ class DerivaHatracCLI (BaseCLI):
                 return 1
             self._post_parser_init(args)
             return args.func(args)
+        except ConnectionError:
+            print('A Connection error occurred')
         except HTTPError as e:
             if e.response.status_code == requests.codes.unauthorized:
                 print('Authentication required')
