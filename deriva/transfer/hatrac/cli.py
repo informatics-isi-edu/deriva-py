@@ -7,7 +7,17 @@ import sys
 import traceback
 from deriva.core import __version__ as VERSION, BaseCLI, HatracStore, HatracHashMismatch, get_credential, urlquote, \
     format_exception
-from deriva.core.utils import mime_utils as mu
+from deriva.core.utils import eprint, mime_utils as mu
+
+
+class DerivaHatracCLIException (Exception):
+    """Base exception class for DerivaHatracCli.
+    """
+    def __init__(self, message, cause):
+        """Initializes the exception.
+        """
+        super(DerivaHatracCLIException, self).__init__(message)
+        self.cause = cause
 
 
 class DerivaHatracCLI (BaseCLI):
@@ -16,9 +26,10 @@ class DerivaHatracCLI (BaseCLI):
     def __init__(self, description, epilog):
         """Initializes the CLI.
         """
-        BaseCLI.__init__(self, description, epilog, VERSION)
+        super(DerivaHatracCLI, self).__init__(description, epilog, VERSION)
 
         # initialized after argument parsing
+        self.args = None
         self.host = None
         self.resource = None
         self.store = None
@@ -90,13 +101,19 @@ class DerivaHatracCLI (BaseCLI):
     @staticmethod
     def _get_credential(host_name, token=None):
         if token:
-            return {"cookie": "webauthn=%s" % token}
+            return {"cookie": "webauthn={t}".format(t=token)}
         else:
             return get_credential(host_name)
+
+    def _resource_error_message(self, message):
+        """Error message print function.
+        """
+        eprint('{r}: {m}'.format(r=self.args.resource, m=message))
 
     def _post_parser_init(self, args):
         """Shared initialization for all sub-commands.
         """
+        self.args = args
         self.host = args.host if args.host else 'localhost'
         self.resource = urlquote(args.resource, '/')
         self.store = HatracStore('https', args.host, DerivaHatracCLI._get_credential(self.host, args.token))
@@ -110,7 +127,7 @@ class DerivaHatracCLI (BaseCLI):
                 print(name)
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                print('%s: No such object or namespace' % self.resource)
+                self._resource_error_message('No such object or namespace')
                 logging.debug(format_exception(e))
                 return 1
             elif e.response.status_code == requests.codes.conflict:
@@ -118,8 +135,9 @@ class DerivaHatracCLI (BaseCLI):
                 logging.debug(format_exception(e))
             else:
                 raise e
-        except JSONDecodeError:
-            print('%s: Not a namespace' % self.resource)
+        except JSONDecodeError as jde:
+            self._resource_error_message('Not a namespace')
+            logging.error(format_exception(jde))
         return 0
 
     def mkdir(self, args):
@@ -129,11 +147,11 @@ class DerivaHatracCLI (BaseCLI):
             self.store.create_namespace(self.resource, parents=args.parents)
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                print("Parent namespace not found (use '--parents' to create parent namespace)")
+                self._resource_error_message("Parent namespace not found (use '--parents' to create parent namespace)")
                 logging.debug(format_exception(e))
                 return 1
             elif e.response.status_code == requests.codes.conflict:
-                print("%s: Namespace exists or the parent path is not a namespace" % self.resource)
+                self._resource_error_message("Namespace exists or the parent path is not a namespace")
                 logging.debug(format_exception(e))
                 return 1
             else:
@@ -147,11 +165,11 @@ class DerivaHatracCLI (BaseCLI):
             self.store.delete_namespace(self.resource)
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                print('%s: No such object or namespace' % self.resource)
+                self._resource_error_message('No such object or namespace')
                 logging.debug(format_exception(e))
                 return 1
             elif e.response.status_code == requests.codes.conflict:
-                print("%s: Namespace not empty" % self.resource)
+                self._resource_error_message("Namespace not empty")
                 logging.debug(format_exception(e))
                 return 1
             else:
@@ -162,7 +180,7 @@ class DerivaHatracCLI (BaseCLI):
         """Implements the getacl sub-command.
         """
         if args.role and not args.access:
-            print('Must use --access option with --role option')
+            eprint('Must use --access option with --role option')
             return 1
 
         try:
@@ -174,10 +192,10 @@ class DerivaHatracCLI (BaseCLI):
             return 0
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                print('%s: No such object or namespace or ACL entry' % args.resource)
+                self._resource_error_message('No such object or namespace or ACL entry')
                 logging.debug(format_exception(e))
             elif e.response.status_code == requests.codes.bad_request:
-                print('%s: Invalid ACL name %s' % (args.resource, args.access))
+                self._resource_error_message('Invalid ACL name %s' % args.access)
                 logging.debug(format_exception(e))
             else:
                 raise e
@@ -187,7 +205,7 @@ class DerivaHatracCLI (BaseCLI):
         """Implements the setacl sub-command.
         """
         if args.add and len(args.roles) > 1:
-            print("Option '--add' is only valid for a single role")
+            eprint("Option '--add' is only valid for a single role")
             return 1
 
         try:
@@ -195,10 +213,10 @@ class DerivaHatracCLI (BaseCLI):
             return 0
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                print('%s: No such object or namespace' % args.resource)
+                self._resource_error_message('No such object or namespace')
                 logging.debug(format_exception(e))
             elif e.response.status_code == requests.codes.bad_request:
-                print('%s: Resource cannot be updated as requested' % args.resource)
+                self._resource_error_message('Resource cannot be updated as requested')
                 logging.debug(format_exception(e))
             else:
                 raise e
@@ -212,10 +230,10 @@ class DerivaHatracCLI (BaseCLI):
             return 0
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                print('%s: No such object or namespace or ACL entry' % args.resource)
+                self._resource_error_message('No such object or namespace or ACL entry')
                 logging.debug(format_exception(e))
             elif e.response.status_code == requests.codes.bad_request:
-                print('%s: Resource cannot be updated as requested' % args.resource)
+                self._resource_error_message('Resource cannot be updated as requested')
                 logging.debug(format_exception(e))
             else:
                 raise e
@@ -236,7 +254,7 @@ class DerivaHatracCLI (BaseCLI):
             return 0
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                print('%s: No such object' % args.resource)
+                self._resource_error_message('No such object')
                 logging.debug(format_exception(e))
             else:
                 raise e
@@ -252,12 +270,11 @@ class DerivaHatracCLI (BaseCLI):
             return 0
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                print('%s: Parent path does not exit' % args.resource)
+                self._resource_error_message('Parent path does not exit')
                 logging.debug(format_exception(e))
             elif e.response.status_code == requests.codes.conflict:
                 # this just means the object may have once existed
-                print('%s: Cannot create object (parent path is not a namespace or object name is in use)' %
-                      args.resource)
+                self._resource_error_message('Cannot create object (parent path is not a namespace or object name is in use)')
                 logging.debug(format_exception(e))
             else:
                 raise e
@@ -271,7 +288,7 @@ class DerivaHatracCLI (BaseCLI):
             return 0
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                print('%s: No such object' % args.resource)
+                self._resource_error_message('No such object')
                 logging.debug(format_exception(e))
             else:
                 raise e
@@ -288,20 +305,20 @@ class DerivaHatracCLI (BaseCLI):
             self._post_parser_init(args)
             return args.func(args)
         except ConnectionError:
-            print('A Connection error occurred')
+            self._resource_error_message('A Connection error occurred')
         except HTTPError as e:
             if e.response.status_code == requests.codes.unauthorized:
-                print('Authentication required')
+                self._resource_error_message('Authentication required')
                 logging.debug(format_exception(e))
             elif e.response.status_code == requests.codes.forbidden:
-                print('Permission denied')
+                self._resource_error_message('Permission denied')
                 logging.debug(format_exception(e))
             else:
-                print(format_exception(e))
+                self._resource_error_message(format_exception(e))
         except HatracHashMismatch as e:
-            print('Checksum verification failed: %s' % format_exception(e))
+            self._resource_error_message('Checksum verification failed: %s' % format_exception(e))
         except RuntimeError as e:
-            print(format_exception(e))
+            self._resource_error_message(format_exception(e))
         except Exception:
             traceback.print_exc()
         return 1
