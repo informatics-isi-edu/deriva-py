@@ -1,5 +1,6 @@
 from json.decoder import JSONDecodeError
 import logging
+import os
 from os.path import basename
 import requests
 from requests.exceptions import HTTPError, ConnectionError
@@ -228,8 +229,8 @@ class DerivaHatracCLI (BaseCLI):
             if args.outfile and args.outfile == '-':
                 r = self.store.get_obj(self.resource)
                 logging.debug('Content encoding: %s' % r.apparent_encoding)
-                assert r.text, 'content cannot be read as text'
-                sys.stdout.write(r.text)
+                assert r.content, 'content cannot be read as bytes'  # never expected from the requests API
+                os.write(sys.stdout.fileno(), r.content)
             else:
                 outfilename = args.outfile if args.outfile else basename(self.resource)
                 self.store.get_obj(self.resource, destfilename=outfilename)
@@ -250,7 +251,8 @@ class DerivaHatracCLI (BaseCLI):
             if e.response.status_code == requests.codes.not_found:
                 raise ResourceException('Parent path does not exit', e)
             elif e.response.status_code == requests.codes.conflict:
-                raise ResourceException('Cannot create object (parent path is not a namespace or object name is in use)', e)
+                raise ResourceException(
+                    'Cannot create object (parent path is not a namespace or object name is in use)', e)
             else:
                 raise e
 
