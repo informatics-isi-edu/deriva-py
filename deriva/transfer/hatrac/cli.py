@@ -6,8 +6,8 @@ import requests
 from requests.exceptions import HTTPError, ConnectionError
 import sys
 import traceback
-from deriva.core import __version__ as VERSION, BaseCLI, HatracStore, HatracHashMismatch, get_credential, urlquote, \
-    format_exception
+from deriva.core import __version__ as VERSION, BaseCLI, DerivaPathError, HatracStore, HatracHashMismatch, \
+    get_credential, urlquote, format_exception
 from deriva.core.utils import eprint, mime_utils as mu
 
 
@@ -249,7 +249,7 @@ class DerivaHatracCLI (BaseCLI):
             print(loc)
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                raise ResourceException('Parent path does not exit', e)
+                raise ResourceException('Parent path does not exist', e)
             elif e.response.status_code == requests.codes.conflict:
                 raise ResourceException(
                     'Cannot create object (parent path is not a namespace or object name is in use)', e)
@@ -301,7 +301,7 @@ class DerivaHatracCLI (BaseCLI):
         except HatracHashMismatch as e:
             eprint(_resource_error_message('Checksum verification failed'))
             logging.debug(format_exception(e))
-        except RuntimeError as e:
+        except (DerivaPathError, RuntimeError) as e:
             eprint('Unexpected runtime error occurred')
             logging.debug(format_exception(e))
         except:
