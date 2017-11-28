@@ -20,11 +20,11 @@ The APIs include:
 - low-level ERMrest interface (see `ErmrestCatalog`)
 - low-level Hatrac interface (see `HatracStore`)
 - higher-level ERMrest catalog configuration (see `CatalogConfig`)
-- higher-level ERMrest "data path" (see [Data Path documentation and tutorials](./docs/README.md))
+- higher-level ERMrest "data path" (see [documentation and tutorials](./docs/README.md))
 
 ## CLIs
 
 The CLIs include:
 - `deriva-upload-cli`: a command-line data upload and metadata update utility
-- `deriva-hatrac-cli`: a command-line hatrac client
-- `cli/acl_config.py`: a command-line ERMrest ACL configuration utility (see [ACL config documentation](./cli/doc/acl_config.md))
+- `deriva-hatrac-cli`: a command-line hatrac client (see [documentation](./cli/doc/deriva-hatrac-cli.md))
+- `cli/acl_config.py`: a command-line ERMrest ACL configuration utility (see [documentation](./cli/doc/acl_config.md))
