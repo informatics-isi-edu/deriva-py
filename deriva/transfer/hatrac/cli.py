@@ -13,10 +13,28 @@ from deriva.core.utils import eprint, mime_utils as mu
 class DerivaHatracCLIException (Exception):
     """Base exception class for DerivaHatracCli.
     """
-    def __init__(self, message, cause):
+    def __init__(self, message):
         """Initializes the exception.
         """
         super(DerivaHatracCLIException, self).__init__(message)
+
+
+class UsageException (DerivaHatracCLIException):
+    """Usage exception.
+    """
+    def __init__(self, message):
+        """Initializes the exception.
+        """
+        super(UsageException, self).__init__(message)
+
+
+class ResourceException (DerivaHatracCLIException):
+    """Remote resource exception.
+    """
+    def __init__(self, message, cause):
+        """Initializes the exception.
+        """
+        super(ResourceException, self).__init__(message)
         self.cause = cause
 
 
@@ -37,7 +55,7 @@ class DerivaHatracCLI (BaseCLI):
         # parent arg parser
         self.parser.add_argument("--token", default=None, metavar="<auth-token>", help="Authorization bearer token.")
         self.remove_options(['--config-file', '--credential-file'])
-        subparsers = self.parser.add_subparsers(title='sub-commands')
+        subparsers = self.parser.add_subparsers(title='sub-commands', dest='subcmd')
 
         # list parser
         ls_parser = subparsers.add_parser('list', aliases=['ls'], help="list the elements of a namespace")
@@ -105,15 +123,9 @@ class DerivaHatracCLI (BaseCLI):
         else:
             return get_credential(host_name)
 
-    def _resource_error_message(self, message):
-        """Error message print function.
-        """
-        eprint('{r}: {m}'.format(r=self.args.resource, m=message))
-
     def _post_parser_init(self, args):
         """Shared initialization for all sub-commands.
         """
-        self.args = args
         self.host = args.host if args.host else 'localhost'
         self.resource = urlquote(args.resource, '/')
         self.store = HatracStore('https', args.host, DerivaHatracCLI._get_credential(self.host, args.token))
@@ -127,18 +139,12 @@ class DerivaHatracCLI (BaseCLI):
                 print(name)
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                self._resource_error_message('No such object or namespace')
-                logging.debug(format_exception(e))
-                return 1
-            elif e.response.status_code == requests.codes.conflict:
-                # this just means the namespace has no contents - ok
-                logging.debug(format_exception(e))
-            else:
+                raise ResourceException('No such object or namespace', e)
+            elif e.response.status_code != requests.codes.conflict:
+                # 'conflict' just means the namespace has no contents - ok
                 raise e
         except JSONDecodeError as jde:
-            self._resource_error_message('Not a namespace')
-            logging.error(format_exception(jde))
-        return 0
+            raise ResourceException('Not a namespace', jde)
 
     def mkdir(self, args):
         """Implements the mkdir sub-command.
@@ -147,16 +153,11 @@ class DerivaHatracCLI (BaseCLI):
             self.store.create_namespace(self.resource, parents=args.parents)
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                self._resource_error_message("Parent namespace not found (use '--parents' to create parent namespace)")
-                logging.debug(format_exception(e))
-                return 1
+                raise ResourceException("Parent namespace not found (use '--parents' to create parent namespace)", e)
             elif e.response.status_code == requests.codes.conflict:
-                self._resource_error_message("Namespace exists or the parent path is not a namespace")
-                logging.debug(format_exception(e))
-                return 1
+                raise ResourceException("Namespace exists or the parent path is not a namespace", e)
             else:
                 raise e
-        return 0
 
     def rmdir(self, args):
         """Implements the mkdir sub-command.
@@ -165,23 +166,17 @@ class DerivaHatracCLI (BaseCLI):
             self.store.delete_namespace(self.resource)
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                self._resource_error_message('No such object or namespace')
-                logging.debug(format_exception(e))
-                return 1
+                raise ResourceException('No such object or namespace', e)
             elif e.response.status_code == requests.codes.conflict:
-                self._resource_error_message("Namespace not empty")
-                logging.debug(format_exception(e))
-                return 1
+                raise ResourceException("Namespace not empty", e)
             else:
                 raise e
-        return 0
 
     def getacl(self, args):
         """Implements the getacl sub-command.
         """
         if args.role and not args.access:
-            eprint('Must use --access option with --role option')
-            return 1
+            raise UsageException("Must use '--access' option with '--role' option")
 
         try:
             acls = self.store.get_acl(self.resource, args.access, args.role)
@@ -189,55 +184,42 @@ class DerivaHatracCLI (BaseCLI):
                 print("%s:" % access)
                 for role in acls.get(access, []):
                     print("  %s" % role)
-            return 0
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                self._resource_error_message('No such object or namespace or ACL entry')
-                logging.debug(format_exception(e))
+                raise ResourceException('No such object or namespace or ACL entry', e)
             elif e.response.status_code == requests.codes.bad_request:
-                self._resource_error_message('Invalid ACL name %s' % args.access)
-                logging.debug(format_exception(e))
+                raise ResourceException('Invalid ACL name %s' % args.access, e)
             else:
                 raise e
-            return 1
 
     def setacl(self, args):
         """Implements the setacl sub-command.
         """
         if args.add and len(args.roles) > 1:
-            eprint("Option '--add' is only valid for a single role")
-            return 1
+            raise UsageException("Option '--add' is only valid for a single role")
 
         try:
             self.store.set_acl(self.resource, args.access, args.roles, args.add)
-            return 0
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                self._resource_error_message('No such object or namespace')
-                logging.debug(format_exception(e))
+                raise ResourceException('No such object or namespace', e)
             elif e.response.status_code == requests.codes.bad_request:
-                self._resource_error_message('Resource cannot be updated as requested')
-                logging.debug(format_exception(e))
+                raise ResourceException('Resource cannot be updated as requested', e)
             else:
                 raise e
-            return 1
 
     def delacl(self, args):
         """Implements the getacl sub-command.
         """
         try:
             self.store.del_acl(self.resource, args.access, args.role)
-            return 0
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                self._resource_error_message('No such object or namespace or ACL entry')
-                logging.debug(format_exception(e))
+                raise ResourceException('No such object or namespace or ACL entry', e)
             elif e.response.status_code == requests.codes.bad_request:
-                self._resource_error_message('Resource cannot be updated as requested')
-                logging.debug(format_exception(e))
+                raise ResourceException('Resource cannot be updated as requested', e)
             else:
                 raise e
-            return 1
 
     def getobj(self, args):
         """Implements the getobj sub-command.
@@ -251,14 +233,11 @@ class DerivaHatracCLI (BaseCLI):
             else:
                 outfilename = args.outfile if args.outfile else basename(self.resource)
                 self.store.get_obj(self.resource, destfilename=outfilename)
-            return 0
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                self._resource_error_message('No such object')
-                logging.debug(format_exception(e))
+                raise ResourceException('No such object', e)
             else:
                 raise e
-            return 1
 
     def putobj(self, args):
         """Implements the putobj sub-command.
@@ -267,65 +246,70 @@ class DerivaHatracCLI (BaseCLI):
             content_type = args.content_type if args.content_type else mu.guess_content_type(args.infile)
             loc = self.store.put_obj(self.resource, args.infile, headers={"Content-Type": content_type})
             print(loc)
-            return 0
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                self._resource_error_message('Parent path does not exit')
-                logging.debug(format_exception(e))
+                raise ResourceException('Parent path does not exit', e)
             elif e.response.status_code == requests.codes.conflict:
-                # this just means the object may have once existed
-                self._resource_error_message('Cannot create object (parent path is not a namespace or object name is in use)')
-                logging.debug(format_exception(e))
+                raise ResourceException('Cannot create object (parent path is not a namespace or object name is in use)', e)
             else:
                 raise e
-            return 1
 
     def delobj(self, args):
         """Implements the delobj sub-command.
         """
         try:
             self.store.del_obj(self.resource)
-            return 0
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                self._resource_error_message('No such object')
-                logging.debug(format_exception(e))
+                raise ResourceException('No such object', e)
             else:
                 raise e
-            return 1
 
     def main(self):
         """Main routine of the CLI.
         """
         args = self.parse_cli()
+
+        def _resource_error_message(msg):
+            return "{prog} {subcmd}: {resource}: {msg}".format(
+                prog=self.parser.prog, subcmd=args.subcmd, resource=args.resource, msg=msg)
+
         try:
             if not hasattr(args, 'func'):
                 self.parser.print_usage()
                 return 1
+
             self._post_parser_init(args)
-            return args.func(args)
-        except ConnectionError:
-            self._resource_error_message('A Connection error occurred')
+            args.func(args)
+            return 0
+        except UsageException as e:
+            eprint("{prog} {subcmd}: {msg}".format(prog=self.parser.prog, subcmd=args.subcmd, msg=e))
+        except ConnectionError as e:
+            eprint("{prog}: Connection error occurred".format(prog=self.parser.prog))
         except HTTPError as e:
             if e.response.status_code == requests.codes.unauthorized:
-                self._resource_error_message('Authentication required')
-                logging.debug(format_exception(e))
+                msg = 'Authentication required'
             elif e.response.status_code == requests.codes.forbidden:
-                self._resource_error_message('Permission denied')
-                logging.debug(format_exception(e))
+                msg = 'Permission denied'
             else:
-                self._resource_error_message(format_exception(e))
+                msg = e
+            eprint(_resource_error_message(msg))
+        except ResourceException as e:
+            eprint(_resource_error_message(e))
         except HatracHashMismatch as e:
-            self._resource_error_message('Checksum verification failed: %s' % format_exception(e))
+            eprint(_resource_error_message('Checksum verification failed'))
+            logging.debug(format_exception(e))
         except RuntimeError as e:
-            self._resource_error_message(format_exception(e))
-        except Exception:
+            eprint('Unexpected runtime error occurred')
+            logging.debug(format_exception(e))
+        except:
+            eprint('Unexpected error occurred')
             traceback.print_exc()
         return 1
 
 
 def main():
-    DESC = "Deriva Hatrac Command-Line Interface"
+    DESC = "DERIVA HATRAC Command-Line Interface"
     INFO = "For more information see: https://github.com/informatics-isi-edu/deriva-py"
     return DerivaHatracCLI(DESC, INFO).main()
 
