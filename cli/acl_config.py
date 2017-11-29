@@ -491,16 +491,18 @@ class AclCLI(ConfigBaseCLI):
 if __name__ == '__main__':
     cli = AclCLI()
     args = cli.parse_cli()
-    host = args.host
-    if host == None:
-        host = 'localhost'
-    credentials = ConfigUtil.get_credentials(host, open(args.credential_file, 'r'))
-    acl_config = AclConfig(host, args.catalog, args.config_file, credentials, schema_name=args.schema, table_name=args.table, verbose=args.verbose or args.debug)
-    if not args.dryrun:
-        acl_config.save_groups()                
-    if not args.groups_only:
-        acl_config.set_acls()
-        if not args.dryrun:
-            acl_config.apply_acls()
+    table_name = cli.get_table_arg(args)
+    schema_names = cli.get_schema_arg_list(args)
+    credentials = ConfigUtil.get_credentials(args.host, open(args.credential_file, 'r'))
+    save_groups = not args.dryrun
+    for schema in schema_names:
+        acl_config = AclConfig(args.host, args.catalog, args.config_file, credentials, schema_name=schema, table_name=table_name, verbose=args.verbose or args.debug)
+        if save_groups:
+            acl_config.save_groups()
+            save_groups = False
+        if not args.groups_only:
+            acl_config.set_acls()
+            if not args.dryrun:
+                acl_config.apply_acls()
 
 

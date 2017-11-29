@@ -5,6 +5,7 @@ from urllib import quote
 import json
 import re
 from deriva.core import ErmrestCatalog, AttrDict, get_credential, BaseCLI
+import argparse
 
 class ConfigUtil:
     @classmethod
@@ -28,7 +29,9 @@ class ConfigUtil:
             return table
     @classmethod        
     def get_credentials(cls, server, credential_file):
-        if credential_file != None:
+        if isinstance(credential_file, str) or isinstance(credential_file, unicode):
+            credential_file = open(credential_file, 'r')
+        if isinstance(credential_file, file):
             return json.load(credential_file)
         elif server != None:
             return get_credential(server)
@@ -353,8 +356,39 @@ class BaseSpecList:
 class ConfigBaseCLI(BaseCLI):
     def __init__(self, description, epilog, version):
         BaseCLI.__init__(self, description, epilog, version)
-        self.parser.add_argument('-s', '--schema', help="schema name", default=None)
-        self.parser.add_argument('-t', '--table', help="table name", default=None)
+        parent_parser = self.parser
+        self.parser = argparse.ArgumentParser(conflict_handler = 'resolve', parents=[parent_parser])
+        self.parser.add_argument('--host', metavar='<fqhn>', help="Fully qualified host name to connect to.", required=True)
+        self.parser.add_argument('--config-file', metavar='<file>', help="Path to a configuration file.", required=True)
+        self.parser.add_argument('-s', '--schema', help="schema name", default=None, action='append')
+        self.parser.add_argument('-t', '--table', help="table name", default=None, action='append')
         self.parser.add_argument('-n', '--dryrun', help="dryrun", action="store_true")
         self.parser.add_argument('-v', '--verbose', help="verbose", action="store_true")        
         self.parser.add_argument('catalog', help="catalog number", type=int)
+        self.parser.set_defaults(host='localhost')
+    @classmethod                
+    def check_schema_table_args(cls, args):
+        # Allowed combinations:
+        # - multiple schemas, no tables
+        # - 1 schema, 1 table
+        # - no schemas, no tables
+        if args.table != None:
+            if len(args.table) > 1:
+                raise ValueError("More than one table specified")
+            if args.schema == None or len(args.schema) != 1:
+                raise ValueError("Table specified without exactly one schema")
+    @classmethod                            
+    def get_schema_arg_list(cls, args):
+        cls.check_schema_table_args(args)
+        if args.schema == None:
+            return [None]
+        else:
+            return args.schema
+    @classmethod                            
+    def get_table_arg(cls, args):
+        cls.check_schema_table_args(args)        
+        if args.table == None:
+            return None
+        else:
+            return args.table[0]
+        

@@ -230,20 +230,11 @@ class AttrConfig:
 if __name__ == '__main__':
     cli = ConfigBaseCLI("annotation config tool", None, version=MY_VERSION)
     args = cli.parse_cli()
-    if args.table != None and len(args.schema) != 1:
-        print("Table specified without exactly one schema\n")
-        sys.exit(1)
-    if args.schema == None:
-        args.schema = [None]
-    if args.config_file == None:
-        print("No config file specified")
-        sys.exit(1)
-    host = args.host
-    if host == None:
-        host = 'localhost'
-    credentials = ConfigUtil.get_credentials(host, open(args.credential_file, 'r'))
-    for schema in args.schema:
-        attr_config = AttrConfig(host, args.catalog, args.config_file, credentials, args.verbose or args.debug, schema, args.table)
+    table_name = cli.get_table_arg(args)
+    schema_names = cli.get_schema_arg_list(args)
+    credentials = ConfigUtil.get_credentials(args.host, args.credential_file)        
+    for schema in schema_names:
+        attr_config = AttrConfig(args.host, args.catalog, args.config_file, credentials, args.verbose or args.debug, schema, table_name)
         attr_config.set_attributes()
         if not args.dryrun:
             attr_config.apply_annotations()
