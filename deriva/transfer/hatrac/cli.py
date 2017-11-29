@@ -272,9 +272,9 @@ class DerivaHatracCLI (BaseCLI):
         """
         args = self.parse_cli()
 
-        def _resource_error_message(msg):
+        def _resource_error_message(emsg):
             return "{prog} {subcmd}: {resource}: {msg}".format(
-                prog=self.parser.prog, subcmd=args.subcmd, resource=args.resource, msg=msg)
+                prog=self.parser.prog, subcmd=args.subcmd, resource=args.resource, msg=emsg)
 
         try:
             if not hasattr(args, 'func'):
@@ -288,6 +288,8 @@ class DerivaHatracCLI (BaseCLI):
             eprint("{prog} {subcmd}: {msg}".format(prog=self.parser.prog, subcmd=args.subcmd, msg=e))
         except ConnectionError as e:
             eprint("{prog}: Connection error occurred".format(prog=self.parser.prog))
+        except DerivaPathError as e:
+            eprint(e)
         except HTTPError as e:
             if e.response.status_code == requests.codes.unauthorized:
                 msg = 'Authentication required'
@@ -295,15 +297,17 @@ class DerivaHatracCLI (BaseCLI):
                 msg = 'Permission denied'
             else:
                 msg = e
+            logging.debug(format_exception(e))
             eprint(_resource_error_message(msg))
         except ResourceException as e:
+            logging.debug(format_exception(e.cause))
             eprint(_resource_error_message(e))
         except HatracHashMismatch as e:
+            logging.debug(format_exception(e))
             eprint(_resource_error_message('Checksum verification failed'))
+        except RuntimeError as e:
             logging.debug(format_exception(e))
-        except (DerivaPathError, RuntimeError) as e:
             eprint('Unexpected runtime error occurred')
-            logging.debug(format_exception(e))
         except:
             eprint('Unexpected error occurred')
             traceback.print_exc()
