@@ -2,7 +2,7 @@ import os
 import datetime
 import requests
 import logging
-from . import format_exception, NotModified, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE
+from . import format_exception, NotModified, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, urlquote
 from .deriva_binding import DerivaBinding
 from .utils import hash_utils as hu, mime_utils as mu
 
@@ -179,6 +179,14 @@ class HatracStore(DerivaBinding):
         if loc.startswith(self._server_uri):
             loc = loc[len(self._server_uri):]
         return loc
+
+    def del_obj(self, path):
+        """Delete an object.
+        """
+        self.check_path(path)
+        resp = self.delete(path)
+        resp.raise_for_status()
+        logging.debug('Deleted object "%s%s".' % (self._server_uri, path))
 
     def put_loc(self,
                 path,
@@ -367,7 +375,7 @@ class HatracStore(DerivaBinding):
         headers = {'Content-Type': 'application/x-hatrac-namespace', 'Accept': 'application/json'}
         resp = self.put(url, headers=headers)
         resp.raise_for_status()
-        logging.info('Created namespace "%s%s".' % (self._server_uri, namespace_path))
+        logging.debug('Created namespace "%s%s".' % (self._server_uri, namespace_path))
 
     def delete_namespace(self, namespace_path):
         """Delete a namespace.
@@ -376,7 +384,59 @@ class HatracStore(DerivaBinding):
         headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
         resp = self.delete(namespace_path, headers=headers)
         resp.raise_for_status()
-        logging.info('Deleted namespace "%s%s".' % (self._server_uri, namespace_path))
+        logging.debug('Deleted namespace "%s%s".' % (self._server_uri, namespace_path))
+
+    def get_acl(self, resource_name, access=None, role=None):
+        """Get the object or namespace ACL resource.
+        """
+        headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
+        url = resource_name + ';acl'
+        if access:
+            url += '/' + urlquote(access)
+        if role:
+            url += '/' + urlquote(role)
+        resp = self.get(url, headers)
+        if resp.status_code == requests.codes.ok:
+            if role:
+                return {access: [role]}
+            elif access:
+                return {access: resp.json()}
+            else:
+                return resp.json()
+        if resp.status_code == requests.codes.not_found:
+            return None
+        resp.raise_for_status()
+
+    def set_acl(self, resource_name, access, roles, add_role=False):
+        """Set the object or namespace ACL resource.
+
+        if 'add_role' is True, the operation will add a single role to the ACL, else it will attempt to replace
+        all of the ACL's roles. This option is only valid when a list of one role is given.
+        """
+        assert not add_role or len(roles) == 1, "Cannot 'add' more than one role at a time"
+        headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
+        url = "%(resource_name)s;acl/%(access)s" % {'resource_name': resource_name, 'access': urlquote(access)}
+        roles_obj = None
+        if add_role:
+            url += '/' + urlquote(roles[0])
+        else:
+            roles_obj = roles
+        resp = self.put(url, json=roles_obj, headers=headers)
+        if resp.status_code == requests.codes.no_content:
+            return None
+        resp.raise_for_status()
+
+    def del_acl(self, resource_name, access, role=None):
+        """Delete the object or namespace ACL resource.
+        """
+        headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
+        url = "%(resource_name)s;acl/%(access)s" % {'resource_name': resource_name, 'access': urlquote(access)}
+        if role:
+            url += '/' + urlquote(role)
+        resp = self.delete(url, headers)
+        if resp.status_code == requests.codes.no_content:
+            return None
+        resp.raise_for_status()
 
     @staticmethod
     def get_transfer_summary(total_bytes, elapsed_time):

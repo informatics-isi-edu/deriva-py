@@ -194,7 +194,7 @@ def resource_path(relative_path, default=os.path.abspath(".")):
 
 from deriva.core import datapath
 from deriva.core.base_cli import BaseCLI
-from deriva.core.deriva_binding import DerivaBinding
+from deriva.core.deriva_binding import DerivaBinding, DerivaPathError
 from deriva.core.ermrest_catalog import ErmrestCatalog
 from deriva.core.ermrest_config import AttrDict, CatalogConfig
 from deriva.core.polling_ermrest_catalog import PollingErmrestCatalog
