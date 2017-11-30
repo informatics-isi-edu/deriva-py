@@ -18,6 +18,7 @@ if sys.version_info > (3,):
 else:
     from urllib import quote as _urlquote
 
+
 def urlquote(s, safe=''):
     """Quote all reserved characters according to RFC3986 unless told otherwise.
 
@@ -29,6 +30,7 @@ def urlquote(s, safe=''):
 
     """
     return _urlquote(s, safe=safe)
+
 
 DEFAULT_HEADERS = {}
 
@@ -180,6 +182,8 @@ def read_credential(credential_file=DEFAULT_CREDENTIAL_FILE, create_default=Fals
 
 
 def get_credential(host, credential_file=DEFAULT_CREDENTIAL_FILE):
+    if credential_file is None:
+        credential_file = DEFAULT_CREDENTIAL_FILE
     credentials = read_credential(credential_file)
     return credentials.get(host)
 
