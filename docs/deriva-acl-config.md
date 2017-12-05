@@ -96,7 +96,7 @@ entries, where the _name_ is a name you can refer to later, to assign these ACLs
 ```
 In this example, the `unrestricted_read` ACL grants read access to everyone and restricts create and write access to the `isrd-systems` group; the `isrd_read` ACL is the same,except that it grants read access only to the `isrd-all` set of groups. Note that this stanza only defines the set of permissions and who they're associated with; by itself, it doesn't apply these ACLs to any object in the catalog.
 
-##### The acl_definitions stanza #####
+##### The acl_bindings stanza #####
 This is where you define dynamic ACLs for later use. The syntax is a list of
 
 name: value
