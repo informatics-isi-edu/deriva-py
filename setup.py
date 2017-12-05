@@ -54,7 +54,7 @@ setup(
     install_requires=[
         'requests',
         'pika',
-        'portalocker'
+        'portalocker>=1.1.0'
     ],
     license='Apache 2.0',
     classifiers=[
