@@ -175,7 +175,7 @@ def read_credential(credential_file=DEFAULT_CREDENTIAL_FILE, create_default=Fals
             credential = default
 
     if not credential:
-        with Lock(credential_file, 'r', timeout=60, flags=LOCK_SH, truncate = None) as cf:
+        with Lock(credential_file, 'r', timeout=60, flags=LOCK_EX, truncate = None) as cf:
             credential = cf.read()
 
     return json.loads(credential, object_pairs_hook=OrderedDict)
