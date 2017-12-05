@@ -1,7 +1,7 @@
-### Using acl_config.py to configure ACLs ###
-The `acl_config.py` script reads a configuration file and uses it to set ACLs for an ermrest catalog (or for a schema or table within that catalog). Usage is:
+### Using deriva-acl-config to configure ACLs ###
+The `deriva-acl-config` utility reads a configuration file and uses it to set ACLs for an ermrest catalog (or for a schema or table within that catalog). Usage is:
 
-`python acl_config.py` [`-g`|`--groups-only`] [`-n`|`--dryrun`] [`-v`|`--verbose`] [`-s`|`--schema` schema] [`-t`|`--table` table] [`--host host`] [`--config-file` config_file] [`--credential-file` credential_file] catalog
+`deriva-acl-config` [`-g`|`--groups-only`] [`-n`|`--dryrun`] [`-v`|`--verbose`] [`-s`|`--schema` schema] [`-t`|`--table` table] [`--host host`] [`--config-file` config_file] [`--credential-file` credential_file] catalog
 
 where the required arguments are:
 
@@ -96,7 +96,7 @@ entries, where the _name_ is a name you can refer to later, to assign these ACLs
 ```
 In this example, the `unrestricted_read` ACL grants read access to everyone and restricts create and write access to the `isrd-systems` group; the `isrd_read` ACL is the same,except that it grants read access only to the `isrd-all` set of groups. Note that this stanza only defines the set of permissions and who they're associated with; by itself, it doesn't apply these ACLs to any object in the catalog.
 
-##### The acl_definitions stanza #####
+##### The acl_bindings stanza #####
 This is where you define dynamic ACLs for later use. The syntax is a list of
 
 name: value
@@ -110,7 +110,7 @@ pairs, where the _name_ is a name you can refer to later, and the _value_ is a d
 	    "projection_type" : "acl"
 	}
 ```
-This defines an ACL binding called `a_binding`. The syntac of the binding itself is the same as defined in the ermrest ACL docs, with one exception: to specify an outbound foreign key, you can either use ermrest-standard `outbound` syntax and use the constraint name, or you can use `outbound_col` and specify the name of a column on which a foreign key is defined. For example, if you apply the binding `a_binding` to this table:
+This defines an ACL binding called `a_binding`. The syntax of the binding itself is the same as defined in the ermrest ACL docs, with one exception: to specify an outbound foreign key, you can either use ermrest-standard `outbound` syntax and use the constraint name, or you can use `outbound_col` and specify the name of a column on which a foreign key is defined. For example, if you apply the binding `a_binding` to this table:
 ```
      Column     | Type | Modifiers 
 ----------------+------+-----------

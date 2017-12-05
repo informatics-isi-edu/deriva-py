@@ -28,7 +28,10 @@ setup(
     entry_points={
         'console_scripts': [
             'deriva-upload-cli = deriva.transfer.upload.__main__:main',
-            'deriva-hatrac-cli = deriva.transfer.hatrac.cli:main'
+            'deriva-hatrac-cli = deriva.transfer.hatrac.cli:main',
+            'deriva-acl-config = deriva.config.acl_config:main',
+            'deriva-annotation-config = deriva.config.annotation_config:main',
+            'deriva-annotation-dump = deriva.config.dump_catalog_annotations:main'
         ]
     },
     requires=[
@@ -46,9 +49,9 @@ setup(
         'scandir',
         'requests',
         'pika',
-        'portalocker'],
+        'portalocker',
+        'setuptools'],
     install_requires=[
-        'setuptools',
         'requests',
         'pika',
         'portalocker'

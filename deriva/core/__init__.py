@@ -9,7 +9,7 @@ import logging
 import requests
 from collections import OrderedDict
 from distutils.util import strtobool
-from portalocker import Lock, LOCK_EX, LOCK_SH
+from pkg_resources import parse_version, get_distribution, DistributionNotFound
 
 __version__ = "0.3.1"
 
@@ -17,6 +17,7 @@ if sys.version_info > (3,):
     from urllib.parse import quote as _urlquote
 else:
     from urllib import quote as _urlquote
+
 
 def urlquote(s, safe=''):
     """Quote all reserved characters according to RFC3986 unless told otherwise.
@@ -29,6 +30,7 @@ def urlquote(s, safe=''):
 
     """
     return _urlquote(s, safe=safe)
+
 
 DEFAULT_HEADERS = {}
 
@@ -144,6 +146,24 @@ def read_config(config_file=DEFAULT_CONFIG_FILE, create_default=False, default=D
     return json.loads(config, object_pairs_hook=OrderedDict)
 
 
+PORTALOCKER = None
+try:
+    PORTALOCKER = get_distribution("portalocker")
+    from portalocker import Lock, LOCK_EX, LOCK_SH
+except DistributionNotFound:
+    pass
+
+
+def lock_file(file, mode, exclusive=True):
+    if PORTALOCKER:
+        if parse_version(PORTALOCKER.version) > parse_version("0.6.1"):
+            return Lock(file, mode, timeout=60, flags=LOCK_EX if exclusive else LOCK_SH)
+        else:
+            return Lock(file, mode, timeout=60, flags=LOCK_EX if exclusive else LOCK_SH, truncate=None)
+    else:
+        return io.open(file, mode)
+
+
 def write_credential(credential_file=DEFAULT_CREDENTIAL_FILE, credential=DEFAULT_CREDENTIAL):
     credential_dir = os.path.dirname(credential_file)
     if not os.path.isdir(credential_dir):
@@ -152,7 +172,7 @@ def write_credential(credential_file=DEFAULT_CREDENTIAL_FILE, credential=DEFAULT
         except OSError as error:
             if error.errno != errno.EEXIST:
                 raise
-    with Lock(credential_file, 'w', timeout=60, flags=LOCK_EX) as cf:
+    with lock_file(credential_file, mode='w', exclusive=True) as cf:
         os.chmod(credential_file, 0o600)
         cf.write(json.dumps(credential, indent=2))
         cf.flush()
@@ -173,13 +193,15 @@ def read_credential(credential_file=DEFAULT_CREDENTIAL_FILE, create_default=Fals
             credential = default
 
     if not credential:
-        with Lock(credential_file, 'r', timeout=60, flags=LOCK_EX) as cf:
+        with lock_file(credential_file, mode='r', exclusive=True) as cf:
             credential = cf.read()
 
     return json.loads(credential, object_pairs_hook=OrderedDict)
 
 
 def get_credential(host, credential_file=DEFAULT_CREDENTIAL_FILE):
+    if credential_file is None:
+        credential_file = DEFAULT_CREDENTIAL_FILE
     credentials = read_credential(credential_file)
     return credentials.get(host)
 
@@ -191,6 +213,7 @@ def resource_path(relative_path, default=os.path.abspath(".")):
     if default is None:
         return relative_path
     return os.path.join(default, relative_path)
+
 
 from deriva.core import datapath
 from deriva.core.base_cli import BaseCLI
