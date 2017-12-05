@@ -29,7 +29,7 @@ class ACLSpec(BaseSpec):
             raise ValueError("no_acl must be True or False (or not present)")
         if self.get("acl") is not None and self.get("no_acl"):
             raise ValueError("can't specify an acl and no_acl=True in the same spec")
-        if self.get("acl") is None and not self.get("no_acl"):
+        if self.get("acl") is None and self.get("no_acl") == False:
             raise ValueError("if no_acl=False, an acl must be specified")
 
 
