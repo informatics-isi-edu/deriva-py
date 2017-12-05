@@ -1,5 +1,5 @@
 import re
-from deriva.core import ErmrestCatalog, AttrDict, BaseCLI
+from deriva.core import BaseCLI
 import platform
 
 class ConfigUtil:
@@ -135,7 +135,8 @@ class BaseSpec(dict):
 
 
 class BaseSpecList:
-    def __init__(self, type, dictlist=[], strict=True):
+    def __init__(self, type, dictlist=None, strict=True):
+        dictlist = dictlist if dictlist else []
         self.type = type
         self.specs = []
         self.add_list(dictlist)

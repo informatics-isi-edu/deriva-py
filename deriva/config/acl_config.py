@@ -1,13 +1,11 @@
 import sys
 import json
 import re
-from deriva.core import ErmrestCatalog, AttrDict, ermrest_config, CatalogConfig, get_credential
-from deriva.core.ermrest_config import CatalogSchema, CatalogTable, CatalogColumn, CatalogForeignKey
+from deriva.core import ErmrestCatalog, AttrDict, ermrest_config, get_credential, __version__ as VERSION
+from deriva.core.ermrest_config import CatalogColumn, CatalogForeignKey
 from deriva.config.base_config import BaseSpec, BaseSpecList, ConfigUtil, ConfigBaseCLI
 from requests.exceptions import HTTPError
 from uuid import UUID
-
-MY_VERSION = 0.99
 
 
 class NoForeignKeyError(ValueError):
@@ -15,7 +13,7 @@ class NoForeignKeyError(ValueError):
 
 
 class ACLSpecList(BaseSpecList):
-    def __init__(self, dictlist=[]):
+    def __init__(self, dictlist=None):
         BaseSpecList.__init__(self, ACLSpec, dictlist)
 
 
@@ -397,6 +395,11 @@ class AclConfig:
     def apply_acls(self):
         self.toplevel_config.apply(self.catalog, self.saved_toplevel_config)
 
+    def dumps(self):
+        """Dump a serialized (string) representation of the config.
+        """
+        return json.dumps(self.toplevel_config.prejson(), indent=2)
+
 
 class Table(AttrDict):
     ERMREST_DEFAULT_COLS = ["RID", "RCB", "RMB", "RCT", "RMT"]
@@ -504,7 +507,7 @@ class Table(AttrDict):
 
 class AclCLI(ConfigBaseCLI):
     def __init__(self):
-        ConfigBaseCLI.__init__(self, "ACL configuration tool", None, version=MY_VERSION)
+        ConfigBaseCLI.__init__(self, "ACL configuration tool", None, version=VERSION)
         self.parser.add_argument('-g', '--groups-only', help="create group table only", action="store_true")
 
 
@@ -525,6 +528,8 @@ def main():
             acl_config.set_acls()
             if not args.dryrun:
                 acl_config.apply_acls()
+        if args.dryrun:
+            print(acl_config.dumps())
 
 
 if __name__ == '__main__':
