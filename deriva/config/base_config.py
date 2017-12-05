@@ -1,7 +1,6 @@
 import re
-from deriva.core import ErmrestCatalog, AttrDict, get_credential, BaseCLI
-import argparse
-
+from deriva.core import ErmrestCatalog, AttrDict, BaseCLI
+import platform
 
 class ConfigUtil:
     @classmethod
@@ -23,13 +22,6 @@ class ConfigUtil:
             if table is None:
                 raise (ValueError("no table named {t} in schema {s}".format(s=schema_name, t=table_name)))
             return table
-
-    @classmethod
-    def get_credentials(cls, server, credential_file):
-        if not server:
-            server = 'localhost'
-        return get_credential(server, credential_file)
-
 
 class BaseSpec(dict):
     ATTRIBUTE_TYPES = ["schema", "table", "column", "foreign_key"]
@@ -132,16 +124,10 @@ class BaseSpec(dict):
                                                                                            exact=exact, key=key)
 
     def table_entry_matches(self, schema_name, table_name, exact=False, key=None):
-        if str(self.get('schema')) == 'Vocabulary' and self.get('column') == 'alternate_dbxrefs' and not exact:
-            sem = self.schema_entry_matches(schema_name, exact=exact, key=key)
         return self.schema_entry_matches(schema_name, exact=exact, key=key) and self.matches("table", table_name,
                                                                                              exact=exact, key=key)
 
     def column_entry_matches(self, schema_name, table_name, column_name, exact=False, key=None):
-        if table_name == 'Anatomy_terms' and schema_name == 'Vocabulary' and column_name == 'alternate_dbxrefs' \
-                and not exact:
-            if str(self.get('schema')) == 'Vocabulary' and self.get('column') == 'alternate_dbxrefs':
-                tem = self.table_entry_matches(schema_name, table_name, exact=exact, key=key)
         return self.table_entry_matches(schema_name, table_name, exact=exact, key=key) and self.matches('column',
                                                                                                         column_name,
                                                                                                         exact=exact,
@@ -418,17 +404,14 @@ class BaseSpecList:
 class ConfigBaseCLI(BaseCLI):
     def __init__(self, description, epilog, version):
         BaseCLI.__init__(self, description, epilog, version)
-        parent_parser = self.parser
-        self.parser = argparse.ArgumentParser(conflict_handler='resolve', parents=[parent_parser])
-        self.parser.add_argument('--host', metavar='<fqhn>', help="Fully qualified host name to connect to.",
-                                 required=True)
+        self.remove_options(['--config-file'])
         self.parser.add_argument('--config-file', metavar='<file>', help="Path to a configuration file.", required=True)
         self.parser.add_argument('-s', '--schema', help="schema name", default=None, action='append')
         self.parser.add_argument('-t', '--table', help="table name", default=None, action='append')
         self.parser.add_argument('-n', '--dryrun', help="dryrun", action="store_true")
         self.parser.add_argument('-v', '--verbose', help="verbose", action="store_true")
         self.parser.add_argument('catalog', help="catalog number", type=int)
-        self.parser.set_defaults(host='localhost')
+        self.parser.set_defaults(host=platform.uname()[1])
 
     @classmethod
     def check_schema_table_args(cls, args):

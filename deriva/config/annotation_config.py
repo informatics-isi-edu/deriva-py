@@ -1,7 +1,7 @@
 import sys
 import json
 import re
-from deriva.core import ErmrestCatalog, AttrDict, ermrest_config
+from deriva.core import ErmrestCatalog, AttrDict, ermrest_config, get_credential
 from deriva.config.base_config import BaseSpec, BaseSpecList, ConfigUtil, ConfigBaseCLI
 
 if sys.version_info > (3,):
@@ -242,7 +242,7 @@ def main():
     args = cli.parse_cli()
     table_name = cli.get_table_arg(args)
     schema_names = cli.get_schema_arg_list(args)
-    credentials = ConfigUtil.get_credentials(args.host, args.credential_file)
+    credentials = get_credential(args.host, args.credential_file)
     for schema in schema_names:
         attr_config = AttrConfig(args.host, args.catalog, args.config_file, credentials, args.verbose or args.debug,
                                  schema, table_name)

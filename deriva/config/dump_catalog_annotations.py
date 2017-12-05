@@ -1,7 +1,7 @@
 import sys
 import json
 import re
-from deriva.core import ErmrestCatalog, AttrDict
+from deriva.core import ErmrestCatalog, AttrDict, get_credential
 from deriva.config.base_config import BaseSpec, BaseSpecList, ConfigUtil, ConfigBaseCLI
 from deriva.config.annotation_config import AttrSpec, AttrSpecList
 
@@ -201,7 +201,7 @@ def main():
         print("No host specified")
         return 1
     config = json.load(open(args.config_file))
-    credentials = ConfigUtil.get_credentials(args.host, args.credential_file)
+    credentials = get_credential(args.host, args.credential_file)
     annotations = Annotations(args.host, args.catalog, credentials, config)
     if args.l:
         for t in annotations.types_list():

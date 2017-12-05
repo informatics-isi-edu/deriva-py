@@ -1,7 +1,7 @@
 import sys
 import json
 import re
-from deriva.core import ErmrestCatalog, AttrDict, ermrest_config, CatalogConfig
+from deriva.core import ErmrestCatalog, AttrDict, ermrest_config, CatalogConfig, get_credential
 from deriva.core.ermrest_config import CatalogSchema, CatalogTable, CatalogColumn, CatalogForeignKey
 from deriva.config.base_config import BaseSpec, BaseSpecList, ConfigUtil, ConfigBaseCLI
 from requests.exceptions import HTTPError
@@ -513,7 +513,7 @@ def main():
     args = cli.parse_cli()
     table_name = cli.get_table_arg(args)
     schema_names = cli.get_schema_arg_list(args)
-    credentials = ConfigUtil.get_credentials(args.host, args.credential_file)
+    credentials = get_credential(args.host, args.credential_file)
     save_groups = not args.dryrun
     for schema in schema_names:
         acl_config = AclConfig(args.host, args.catalog, args.config_file, credentials, schema_name=schema,
