@@ -31,10 +31,10 @@ class BaseSpec(dict):
         self.speclist = speclist
         self.spectype = spectype
         self.node_types = ["schema", "table", "column", "foreign_key", "foreign_key_schema"]
+        self.set_keys()        
         if not validate_node_types_only:
             self.validate()
         # self.validate_node_types() # FIXME: this causes an error for catalog annotations which do not have any of attributes listed in self.node_types
-        self.set_keys()
 
     def get_pattern(self, base):
         return self.get(self.make_pat_name(base))
