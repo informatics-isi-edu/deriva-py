@@ -25,6 +25,6 @@ The APIs include:
 ## CLIs
 
 The CLIs include:
-- `deriva-acl-config`: a command-line ERMrest ACL configuration utility (see [documentation](docs/acl_config.md))
+- `deriva-acl-config`: a command-line ERMrest ACL configuration utility (see [documentation](docs/deriva-acl-config.md))
 - `deriva-hatrac-cli`: a command-line hatrac client (see [documentation](docs/deriva-hatrac-cli.md))
 - `deriva-upload-cli`: a command-line data upload and metadata update utility
