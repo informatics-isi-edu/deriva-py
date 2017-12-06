@@ -1,4 +1,3 @@
-from json.decoder import JSONDecodeError
 import logging
 import os
 from os.path import basename
@@ -9,6 +8,13 @@ import traceback
 from deriva.core import __version__ as VERSION, BaseCLI, DerivaPathError, HatracStore, HatracHashMismatch, \
     get_credential, urlquote, format_exception
 from deriva.core.utils import eprint, mime_utils as mu
+
+_JSONDecodeError = ValueError
+try:
+    from json.decoder import JSONDecodeError
+    _JSONDecodeError = JSONDecodeError
+except ImportError:
+    logging.debug('Could not import JSONDecodeError; falling back to ValueError')
 
 
 class DerivaHatracCLIException (Exception):
@@ -59,7 +65,7 @@ class DerivaHatracCLI (BaseCLI):
         subparsers = self.parser.add_subparsers(title='sub-commands', dest='subcmd')
 
         # list parser
-        ls_parser = subparsers.add_parser('list', aliases=['ls'], help="list the elements of a namespace")
+        ls_parser = subparsers.add_parser('ls', help="list the elements of a namespace")
         ls_parser.add_argument("resource", metavar="<path>", type=str, help="namespace path")
         ls_parser.set_defaults(func=self.list)
 
@@ -100,20 +106,20 @@ class DerivaHatracCLI (BaseCLI):
         delacl_parser.set_defaults(func=self.delacl)
 
         # getobj parser
-        getobj_parser = subparsers.add_parser('getobj', aliases=['get'], help="get object")
+        getobj_parser = subparsers.add_parser('get', help="get object")
         getobj_parser.add_argument("resource", metavar="<path>", type=str, help="object path")
         getobj_parser.add_argument('outfile', metavar="<outfile>", nargs='?', type=str, help="output filename or -")
         getobj_parser.set_defaults(func=self.getobj)
 
         # putobj parser
-        putobj_parser = subparsers.add_parser('putobj', aliases=['put'], help="put object")
+        putobj_parser = subparsers.add_parser('put', help="put object")
         putobj_parser.add_argument('infile', metavar="<infile>", type=str, help="input filename")
         putobj_parser.add_argument("resource", metavar="<path>", type=str, help="object path")
         putobj_parser.add_argument("--content-type", metavar="<type>", type=str, help="HTTP Content-Type header value")
         putobj_parser.set_defaults(func=self.putobj)
 
         # delobj parser
-        delobj_parser = subparsers.add_parser('delobj', aliases=['del', 'rm'], help="delete object")
+        delobj_parser = subparsers.add_parser('del', help="delete object")
         delobj_parser.add_argument("resource", metavar="<path>", type=str, help="object path")
         delobj_parser.set_defaults(func=self.delobj)
 
@@ -144,7 +150,7 @@ class DerivaHatracCLI (BaseCLI):
             elif e.response.status_code != requests.codes.conflict:
                 # 'conflict' just means the namespace has no contents - ok
                 raise e
-        except JSONDecodeError as jde:
+        except _JSONDecodeError as jde:
             raise ResourceException('Not a namespace', jde)
 
     def mkdir(self, args):
