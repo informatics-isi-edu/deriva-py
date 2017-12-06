@@ -9,13 +9,6 @@ from deriva.core import __version__ as VERSION, BaseCLI, DerivaPathError, Hatrac
     get_credential, urlquote, format_exception
 from deriva.core.utils import eprint, mime_utils as mu
 
-_JSONDecodeError = ValueError
-try:
-    from json.decoder import JSONDecodeError
-    _JSONDecodeError = JSONDecodeError
-except ImportError:
-    logging.debug('Could not import JSONDecodeError; falling back to ValueError')
-
 
 class DerivaHatracCLIException (Exception):
     """Base exception class for DerivaHatracCli.
@@ -150,8 +143,8 @@ class DerivaHatracCLI (BaseCLI):
             elif e.response.status_code != requests.codes.conflict:
                 # 'conflict' just means the namespace has no contents - ok
                 raise e
-        except _JSONDecodeError as jde:
-            raise ResourceException('Not a namespace', jde)
+        except ValueError as e:
+            raise ResourceException('Not a namespace', e)
 
     def mkdir(self, args):
         """Implements the mkdir sub-command.
