@@ -11,7 +11,7 @@ from collections import OrderedDict
 from distutils.util import strtobool
 from pkg_resources import parse_version, get_distribution, DistributionNotFound
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"
 
 if sys.version_info > (3,):
     from urllib.parse import quote as _urlquote
