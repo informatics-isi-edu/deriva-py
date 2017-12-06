@@ -4,12 +4,15 @@ import base64
 import logging
 
 
-def compute_hashes(fd, hashes=frozenset(['md5'])):
+def compute_hashes(obj, hashes=frozenset(['md5'])):
     """
-       Digests data read from file-like input fd.
+       Digests input data read from file-like object fd or passed directly as bytes-like object.
        Compute hashes for multiple algorithms. Default is MD5.
        Returns a tuple of a hex-encoded digest string and a base64-encoded value suitable for an HTTP header.
     """
+    if not (hasattr(obj, 'read') or isinstance(obj, bytes)):
+        raise ValueError("Cannot compute hash for given input: a file-like object or bytes-like object is required")
+
     hashers = dict()
     for alg in hashes:
         try:
@@ -18,7 +21,11 @@ def compute_hashes(fd, hashes=frozenset(['md5'])):
             logging.warning("Unable to validate file contents using unknown hash algorithm: %s", alg)
 
     while True:
-        block = fd.read(1024 ** 2)
+        if hasattr(obj, 'read'):
+            block = obj.read(1024 ** 2)
+        else:
+            block = obj
+            obj = None
         if not block:
             break
         for i in hashers.values():

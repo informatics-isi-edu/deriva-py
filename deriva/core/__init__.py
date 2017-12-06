@@ -34,7 +34,7 @@ def urlquote(s, safe=''):
 
 DEFAULT_HEADERS = {}
 
-DEFAULT_CHUNK_SIZE = 2048 ** 2
+DEFAULT_CHUNK_SIZE = 2400 ** 2  # == 5760000 which is above the minimum 5MB chunk size for AWS S3 multipart uploads
 
 
 class NotModified (ValueError):
