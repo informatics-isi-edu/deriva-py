@@ -33,12 +33,82 @@ class Schema (_ec.CatalogSchema):
         })
         return d
 
+    def create_table(self, catalog, table_def):
+        """Add a new table to this schema in the remote database based on table_def.
+
+           Returns a new Table instance based on the server-supplied
+           representation of the newly created table.
+
+           The returned Table is also added to self.tables.
+        """
+        tname = table_def['table_name']
+        if tname in self.tables:
+            raise ValueError('Table %s already exists.' % tname)
+        r = catalog.post(
+            '%s/table' % self.uri_path,
+            json=table_def,
+        )
+        r.raise_for_status()
+        newtable = Table(self.name, tname, r.json())
+        self.tables[tname] = newtable
+        return newtable
+
 class Table (_ec.CatalogTable):
     """Named table.
     """
     def __init__(self, sname, tname, table_doc, **kwargs):
         super(Table, self).__init__(sname, tname, table_doc, **_kwargs(**kwargs))
         self.comment = table_doc.get('comment')
+
+    @classmethod
+    def system_column_defs(cls, custom=[]):
+        """Build standard system column definitions, merging optional custom definitions."""
+        return [
+            Column.define(cname, builtin_types[ctype], nullok)
+            for cname, ctype, nullok in [
+                    ('RID', 'ermrest_rid', False),
+                    ('RCT', 'ermrest_rct', False),
+                    ('RMT', 'ermrest_rmt', False),
+                    ('RCB', 'ermrest_rcb', True),
+                    ('RMB', 'ermrest_rmb', True),
+            ]
+            if cname not in { c['name']: c for c in custom }
+        ] + custom
+
+    @classmethod
+    def system_key_defs(cls, custom=[]):
+        """Build standard system key definitions, merging optional custom definitions."""
+        def ktup(k):
+            return tuple(k['unique_columns'])
+        return [
+            kdef for kdef in [
+                Key.define(['RID'])
+            ]
+            if ktup(kdef) not in { ktup(kdef): kdef for kdef in custom }
+        ] + custom
+
+    @classmethod
+    def define(cls, tname, column_defs=[], key_defs=[], fkey_defs=[], comment=None, acls={}, acl_bindings={}, annotations={}, provide_system=True):
+        """Build a table definition.
+
+           If provide_system == True (default) then standard sytem
+           column and key definitions are injected.
+
+        """
+        if provide_system:
+            column_defs = cls.system_column_defs(column_defs)
+            key_defs = cls.system_key_defs(key_defs)
+
+        return {
+            'table_name': tname,
+            'column_definitions': column_defs,
+            'keys': key_defs,
+            'foreign_keys': fkey_defs,
+            'comment': comment,
+            'acls': acls,
+            'acl_bindings': acl_bindings,
+            'annotations': annotations,
+        }
 
     def prejson(self, prune=True):
         d = super(Table, self).prejson(prune)
@@ -47,77 +117,54 @@ class Table (_ec.CatalogTable):
         })
         return d
 
-    @classmethod
-    def skeleton_table(cls, sname, tname, **kwargs):
-        """Generate a table with 5 standard system columns and constraints.
-
-           This returns a client-side table definition. It DOES NOT
-           modify the remote database.
-        """
-        return kwargs.get('table_class', cls)(
-            sname,
-            tname,
-            {
-                'column_definitions': [
-                    Column(
-                        sname,
-                        tname,
-                        {
-                            'name': cname,
-                            'type': builtin_types[ctype].prejson(),
-                            'nullok': nok,
-                        }
-                    ).prejson()
-                    for cname, ctype, nok in [
-                            ('RID', 'ermrest_rid', False),
-                            ('RCT', 'ermrest_rct', False),
-                            ('RMT', 'ermrest_rmt', False),
-                            ('RCB', 'ermrest_rcb', True),
-                            ('RMB', 'ermrest_rmb', True),
-                    ]
-                ],
-                'keys': [
-                    Key(
-                        sname,
-                        tname,
-                        {
-                            'names': [[sname, '%s_RID_key' % tname]],
-                            'unique_columns': ['RID'],
-                        }
-                    ).prejson()
-                ],
-            },
-            **kwargs
-        )
-
-    def create_column(self, catalog, cname, ctype, nullok=True, default=None, comment=None, acls={}, acl_bindings={}, annotations={}):
-        """Create a new column in this table and return its representation.
-
-           This method modifies the table definition in the remote catalog.
-        """
-        if cname in self.column_definitions.elements:
-            raise ValueError('Column %s already exists.' % cname)
-        if not isinstance(ctype, Type):
-            raise TypeError('Ctype %s should be an instance of Type.' % ctype)
-        if not isinstance(nullok, bool):
-            raise TypeError('Nullok %s should be an instance of bool.' % nullok)
+    def _create_table_part(self, catalog, subapi, registerfunc, constructor, doc):
         r = catalog.post(
-            '%s/column' % self.uri_path,
-            json={
-                'name': cname,
-                'type': ctype.prejson(),
-                'nullok': nullok,
-                'default': default,
-                'comment': comment,
-                'acls': acls,
-                'acl_bindings': acl_bindings,
-                'annotations': annotations,
-            }
+            '%s/%s' % (self.uri_path, subapi),
+            json=doc,
         )
         r.raise_for_status()
-        newcol = Column(self.sname, self.name, r.json())
-        self.column_definitions.append(newcol)
-        return newcol
+        return registerfunc(constructor(self.sname, self.name, r.json()))
+
+    def create_column(self, catalog, column_def):
+        """Add a new column to this table in the remote database based on column_def.
+
+           Returns a new Column instance based on the server-supplied
+           representation of the new column, and adds it to
+           self.column_definitions too.
+        """
+        cname = column_def['name']
+        if cname in self.column_definitions.elements:
+            raise ValueError('Column %s already exists.' % cname)
+        def add_column(col):
+            self.column_definitions.append(col)
+            return col
+        return self._create_table_part(catalog, 'column', add_column, column_def)
+
+    def create_key(self, catalog, key_def):
+        """Add a new key to this table in the remote database based on key_def.
+
+           Returns a new Key instance based on the server-supplied
+           representation of the new key, and adds it to self.keys
+           too.
+
+        """
+        def add_key(key):
+            self.keys.append(key)
+            return key
+        return self._create_table_part(catalog, 'key', add_key, key_def)
+
+    def create_fkey(self, catalog, fkey_def):
+        """Add a new foreign key to this table in the remote database based on fkey_def.
+
+           Returns a new ForeignKey instance based on the
+           server-supplied representation of the new foreign key, and
+           adds it to self.fkeys too.
+
+        """
+        def add_fkey(fkey):
+            self.fkeys.append(fkey)
+            return fkey
+        return self._create_table_part(catalog, 'foreignkey', add_fkey, fkey_def)
 
 class Column (_ec.CatalogColumn):
     """Named column.
@@ -128,6 +175,24 @@ class Column (_ec.CatalogColumn):
         self.nullok = bool(column_doc.get('nullok', True))
         self.default = column_doc.get('default')
         self.comment = column_doc.get('comment')
+
+    @classmethod
+    def define(cls, cname, ctype, nullok=True, default=None, comment=None, acls={}, acl_bindings={}, annotations={}):
+        """Build a column definition."""
+        if not isinstance(ctype, Type):
+            raise TypeError('Ctype %s should be an instance of Type.' % ctype)
+        if not isinstance(nullok, bool):
+            raise TypeError('Nullok %s should be an instance of bool.' % nullok)
+        return {
+            'name': cname,
+            'type': ctype.prejson(),
+            'nullok': nullok,
+            'default': default,
+            'comment': comment,
+            'acls': acls,
+            'acl_bindings': acl_bindings,
+            'annotations': annotations,
+        }
 
     def prejson(self, prune=True):
         d = super(Column, self).prejson(prune)
@@ -146,6 +211,18 @@ class Key (_ec.CatalogKey):
         super(Key, self).__init__(sname, tname, key_doc, **_kwargs(**kwargs))
         self.comment = key_doc.get('comment')
 
+    @classmethod
+    def define(cls, colnames, constraint_names=[], comment=None, annotations={}):
+        """Build a key definition."""
+        if not isinstance(colnames, list):
+            raise TypeError('Colnames should be a list.')
+        return {
+            'unique_columns': list(colnames),
+            'names': constraint_names,
+            'comment': comment,
+            'annotations': annotations,
+        }
+
     def prejson(self, prune=True):
         d = super(Key, self).prejson(prune)
         d.update({
@@ -159,6 +236,31 @@ class ForeignKey (_ec.CatalogForeignKey):
     def __init__(self, sname, tname, fkey_doc, **kwargs):
         super(ForeignKey, self).__init__(sname, tname, fkey_doc, **_kwargs(**kwargs))
         self.comment = fkey_doc.get('comment')
+
+    @classmethod
+    def define(cls, fk_colnames, pk_sname, pk_tname, pk_colnames, on_update='NO ACTION', on_delete='NO ACTION', constraint_names=[], comment=None, acls={}, acl_bindings={}, annotations={}):
+        if len(fk_colnames) != len(pk_colnames):
+            raise ValueError('The fk_colnames and pk_colnames lists must have the same length.')
+        return {
+            'foreign_key_columns': [
+                {
+                    'column_name': fk_colname
+                }
+                for fk_colname in fk_colnames
+            ],
+            'referenced_columns': [
+                {
+                    'schema_name': pk_sname,
+                    'table_name': pk_tname,
+                    'column_name': pk_colname,
+                }
+                for pk_colname in pk_colnames
+            ],
+            'on_update': on_update,
+            'on_delete': on_delete,
+            'names': constraint_names,
+            'comment': comment,
+        }
 
     def prejson(self, prune=True):
         d = super(ForeignKey, self).prejson(prune)
