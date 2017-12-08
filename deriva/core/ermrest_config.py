@@ -308,6 +308,28 @@ class KeyedList (list):
         else:
             return self.elements[idx]
 
+    def __delitem__(self, idx):
+        """Delete element by key or by list index or slice."""
+        if isinstance(idx, int):
+            victim = list.__getitem__(self, idx)
+            list.__delitem__(self, idx)
+            del self.elements[victim.name]
+        elif isinstance(idx, slice):
+            victims = [list.__getitem__(self, idx)]
+            list.__delslice__(self, idx)
+            for victim in victims:
+                del self.elements[victim.name]
+        else:
+            victim = self.elements[idx]
+            list.__delitem__(self, self.index(victim))
+            del self.elements[victim.name]
+
+    def append(self, e):
+        """Append element to list and record its key."""
+        if e.name in self.elements:
+            raise ValueError('Element name %s already exists.' % e.name)
+        list.append(self, e)
+        self.elements[e.name] = e
 
 class MultiKeyedList (list):
     """Multi-keyed list."""
