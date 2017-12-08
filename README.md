@@ -11,8 +11,7 @@ the GIT commit number.
 At this time, we recommend installing from source, which can be accomplished with the `pip` utility.
 
 ```
-$ git clone https://github.com/informatics-isi-edu/deriva-py.git
-$ pip install deriva-py/
+$ pip install --upgrade git+https://github.com/informatics-isi-edu/deriva-py.git
 ```
 
 ## APIs
