@@ -165,7 +165,7 @@ class AclConfig:
         schema = self.catalog.getCatalogSchema()['schemas'].get(schema_name)
         if schema is None:
             self.catalog.post("/schema/{s}".format(s=schema_name))
-        return self.catalog.getCatalogSchema()['schemas'].get(schema_name)
+        return self.catalog.getCatalogSchema(force=True)['schemas'].get(schema_name)
 
     def create_table(self, schema_name, table_name, table_spec, comment=None):
         if table_spec is None:
@@ -179,7 +179,7 @@ class AclConfig:
         if table_spec.get('kind') is None:
             table_spec['kind'] = 'table'
         self.catalog.post("/schema/{s}/table".format(s=schema_name), json=table_spec)
-        schema = self.catalog.getCatalogSchema()['schemas'].get(schema_name)
+        schema = self.catalog.getCatalogSchema(force=True)['schemas'].get(schema_name)
         return schema['tables'].get(table_name)
 
     def create_or_validate_group_table(self):
@@ -422,7 +422,6 @@ class Table(AttrDict):
         return self.base_entity_url
 
     def upsertRows(self, catalog, rows):
-        retval = None
         try:
             self.insertRows(catalog, rows)
         except HTTPError as err:

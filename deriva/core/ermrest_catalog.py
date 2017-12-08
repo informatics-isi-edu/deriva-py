@@ -40,8 +40,12 @@ class ErmrestCatalog(DerivaBinding):
     def applyCatalogConfig(self, config):
         return config.apply(self)
 
-    def getCatalogSchema(self):
-        if self.catalog_schema:
+    def getCatalogSchema(self, force=False):
+        """Gets the catalog schema.
+        This function caches the schema and returns it on subsequent calls.
+        :param force: set True to ignore cached schema (default:False).
+        """
+        if self.catalog_schema and not force:
             return self.catalog_schema
 
         path = '/schema'
