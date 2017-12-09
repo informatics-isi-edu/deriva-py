@@ -14,7 +14,6 @@ class ErmrestCatalog(DerivaBinding):
 
        Additional utility methods provided for accessing catalog metadata.
     """
-    catalog_schema = None
     table_schemas = dict()
 
     def __init__(self, scheme, server, catalog_id, credentials=None, caching=True, session_config=None):
@@ -40,20 +39,11 @@ class ErmrestCatalog(DerivaBinding):
     def applyCatalogConfig(self, config):
         return config.apply(self)
 
-    def getCatalogSchema(self, force=False):
-        """Gets the catalog schema.
-        This function caches the schema and returns it on subsequent calls.
-        :param force: set True to ignore cached schema (default:False).
-        """
-        if self.catalog_schema and not force:
-            return self.catalog_schema
-
+    def getCatalogSchema(self):
         path = '/schema'
         r = self.get(path)
         resp = r.json()
-        self.catalog_schema = resp
         r.raise_for_status()
-
         return resp
 
     def getPathBuilder(self):
@@ -63,7 +53,7 @@ class ErmrestCatalog(DerivaBinding):
     def getTableSchema(self, fq_table_name):
         # first try to get from cache(s)
         s, t = self.splitQualifiedCatalogName(fq_table_name)
-        cat = self.catalog_schema
+        cat = self.getCatalogSchema()
         schema = cat['schemas'][s]['tables'][t] if cat else None
         if schema:
             return schema
