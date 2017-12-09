@@ -105,6 +105,8 @@ class AclConfig:
                 new_binding[k] = []
                 for proj in binding.get(k):
                     new_binding[k].append(self.expand_projection(proj, table_node, is_first_binding))
+            elif k == "scope_acl":
+                new_binding[k] = self.get_group(binding.get(k))
             else:
                 new_binding[k] = binding[k]
         return new_binding
