@@ -531,6 +531,7 @@ def main():
                     acl_config.apply_acls()
                 except HTTPError as e:
                     print(format_exception(e))
+                    raise
         if args.dryrun:
             print(acl_config.dumps())
 
