@@ -1,7 +1,8 @@
 import sys
 import json
 import re
-from deriva.core import ErmrestCatalog, AttrDict, ermrest_config, get_credential, __version__ as VERSION
+from deriva.core import ErmrestCatalog, AttrDict, ermrest_config, get_credential, __version__ as VERSION, \
+    format_exception
 from deriva.core.ermrest_config import CatalogColumn, CatalogForeignKey
 from deriva.config.base_config import BaseSpec, BaseSpecList, ConfigUtil, ConfigBaseCLI
 from requests.exceptions import HTTPError
@@ -526,7 +527,10 @@ def main():
         if not args.groups_only:
             acl_config.set_acls()
             if not args.dryrun:
-                acl_config.apply_acls()
+                try:
+                    acl_config.apply_acls()
+                except HTTPError as e:
+                    print(format_exception(e))
         if args.dryrun:
             print(acl_config.dumps())
 
