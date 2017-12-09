@@ -105,6 +105,8 @@ class AclConfig:
                 new_binding[k] = []
                 for proj in binding.get(k):
                     new_binding[k].append(self.expand_projection(proj, table_node, is_first_binding))
+            elif k == "scope_acl":
+                new_binding[k] = self.get_group(binding.get(k))
             else:
                 new_binding[k] = binding[k]
         return new_binding
@@ -531,6 +533,7 @@ def main():
                     acl_config.apply_acls()
                 except HTTPError as e:
                     print(format_exception(e))
+                    raise e
         if args.dryrun:
             print(acl_config.dumps())
 
