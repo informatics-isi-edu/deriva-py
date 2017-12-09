@@ -105,12 +105,13 @@ pairs, where the _name_ is a name you can refer to later, and the _value_ is a d
 ```
     "acl_bindings" : {
 	"a_binding" : {
+	    "scope_acl": "isrd-staff",
 	    "types" : ["select"],
 	    "projection" : [{"outbound_col" : "allowed_groups"}, "groups"],
 	    "projection_type" : "acl"
 	}
 ```
-This defines an ACL binding called `a_binding`. The syntax of the binding itself is the same as defined in the ermrest ACL docs, with one exception: to specify an outbound foreign key, you can either use ermrest-standard `outbound` syntax and use the constraint name, or you can use `outbound_col` and specify the name of a column on which a foreign key is defined. For example, if you apply the binding `a_binding` to this table:
+This defines an ACL binding called `a_binding`. The syntax of the binding itself is the same as defined in the ermrest ACL docs, with one exception: to specify an outbound foreign key, you can either use ermrest-standard `outbound` syntax and use the constraint name, or you can use `outbound_col` and specify the name of a column on which a foreign key is defined. In will also fill in the `scope_acl` from the group lists. For example, if you apply the binding `a_binding` to this table:
 ```
      Column     | Type | Modifiers 
 ----------------+------+-----------
@@ -122,6 +123,7 @@ Foreign-key constraints:
 then the actual ermrest dynamic ACL will be:
 ```
         "a_binding" : {
+            "scope_acl": ["https://auth.globus.org/176baec4-ed26-11e5-8e88-22000ab4b42b"],
             "types" : ["select"],
             "projection" : [{"outbound" : "mytable_allowed_groups_fkey"}, "groups"],
             "projection_type" : "acl"
