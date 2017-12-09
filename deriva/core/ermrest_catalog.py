@@ -42,9 +42,8 @@ class ErmrestCatalog(DerivaBinding):
     def getCatalogSchema(self):
         path = '/schema'
         r = self.get(path)
-        resp = r.json()
         r.raise_for_status()
-        return resp
+        return r.json()
 
     def getPathBuilder(self):
         """Returns the 'path builder' interface for this catalog."""
