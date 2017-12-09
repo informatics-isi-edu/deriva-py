@@ -111,7 +111,7 @@ pairs, where the _name_ is a name you can refer to later, and the _value_ is a d
 	    "projection_type" : "acl"
 	}
 ```
-This defines an ACL binding called `a_binding`. The syntax of the binding itself is the same as defined in the ermrest ACL docs, with one exception: to specify an outbound foreign key, you can either use ermrest-standard `outbound` syntax and use the constraint name, or you can use `outbound_col` and specify the name of a column on which a foreign key is defined. In will also fill in the `scope_acl` from the group lists. For example, if you apply the binding `a_binding` to this table:
+This defines an ACL binding called `a_binding`. The syntax of the binding itself is the same as defined in the ermrest ACL docs, with one exception: to specify an outbound foreign key, you can either use ermrest-standard `outbound` syntax and use the constraint name, or you can use `outbound_col` and specify the name of a column on which a foreign key is defined. It will also populate the `scope_acl` based on the referenced group list. For example, if you apply the binding `a_binding` to this table:
 ```
      Column     | Type | Modifiers 
 ----------------+------+-----------
