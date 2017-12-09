@@ -523,17 +523,19 @@ def main():
     for schema in schema_names:
         acl_config = AclConfig(args.host, args.catalog, args.config_file, credentials, schema_name=schema,
                                table_name=table_name, verbose=args.verbose or args.debug)
-        if save_groups:
-            acl_config.save_groups()
-            save_groups = False
-        if not args.groups_only:
-            acl_config.set_acls()
-            if not args.dryrun:
-                try:
+
+        try:
+            if save_groups:
+                acl_config.save_groups()
+                save_groups = False
+            if not args.groups_only:
+                acl_config.set_acls()
+                if not args.dryrun:
                     acl_config.apply_acls()
-                except HTTPError as e:
-                    print(format_exception(e))
-                    raise e
+        except HTTPError as e:
+            print(format_exception(e))
+            raise
+
         if args.dryrun:
             print(acl_config.dumps())
 
