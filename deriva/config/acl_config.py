@@ -114,9 +114,13 @@ class AclConfig:
     def expand_projection(self, proj, table_node, is_first_binding):
         if isinstance(proj, dict):
             new_proj = dict()
+            is_first_outbound = True                # rob
             for k in proj.keys():
                 if k == "outbound_col":
-                    if not is_first_binding:
+                    if is_first_outbound:           # rob
+                        is_first_outbound = False   # rob
+                    else:                           # rob
+                    # if not is_first_binding:      # rob
                         raise NotImplementedError(
                             "don't know how to expand 'outbound_col' on anything but the first entry in a projection; "
                             "use 'outbound' instead")
@@ -129,6 +133,7 @@ class AclConfig:
                         return None
                 else:
                     new_proj[k] = proj[k]
+                    is_first_outbound = False       # rob
             return new_proj
         else:
             return proj
