@@ -138,7 +138,7 @@ class Table (_ec.CatalogTable):
         def add_column(col):
             self.column_definitions.append(col)
             return col
-        return self._create_table_part(catalog, 'column', add_column, column_def)
+        return self._create_table_part(catalog, 'column', add_column, Column, column_def)
 
     def create_key(self, catalog, key_def):
         """Add a new key to this table in the remote database based on key_def.
@@ -151,7 +151,7 @@ class Table (_ec.CatalogTable):
         def add_key(key):
             self.keys.append(key)
             return key
-        return self._create_table_part(catalog, 'key', add_key, key_def)
+        return self._create_table_part(catalog, 'key', add_key, Key, key_def)
 
     def create_fkey(self, catalog, fkey_def):
         """Add a new foreign key to this table in the remote database based on fkey_def.
@@ -164,7 +164,7 @@ class Table (_ec.CatalogTable):
         def add_fkey(fkey):
             self.fkeys.append(fkey)
             return fkey
-        return self._create_table_part(catalog, 'foreignkey', add_fkey, fkey_def)
+        return self._create_table_part(catalog, 'foreignkey', add_fkey, ForeignKey, fkey_def)
 
 class Column (_ec.CatalogColumn):
     """Named column.
