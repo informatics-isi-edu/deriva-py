@@ -205,7 +205,7 @@ where _list_of_bindings_ is a list of ACL bindings defined in the acl_bindings s
 
 ##### The column_acls stanza #####
 This is where ACLs for columns are set. The syntax is a list of entries of the form:
-{schema_descriptor, table_descriptor, column_descriptor, [acl_descriptor], [acl_bindings_descriptor]}
+{schema_descriptor, table_descriptor, column_descriptor, [acl_descriptor], [acl_bindings_descriptor] [invalidate_bindings_descriptor]}
 The schema, table, acl, and acl_bindings descriptors have the same form as above.
 The column_descriptor is either:
 
@@ -220,13 +220,19 @@ Regular expression matching is used:
 * Otherwise, if exactly one entry is found with `schema`, `table`, and `column` matches is found, that ACL is used
 * If multiple regular-expression matches are found and no exact match is found, an exception is thrown.
 
+The i`nvalidate_bindings` descriptor has the form:
+
+`"invalidate_bindings"`: [list_of_bindings]
+
+where _list_of_bindings_ is a list of bindng names to invalidate (i.e., ACL bindings that were defined on the column's table but that should not be applied to the column).
+
 ##### The foreign_key_acls stanza #####
 
 This is where ACLs for foreign keys are set. The syntax is a list of entries of the form:
 
-{schema_descriptor, table_descriptor, fkey_schema_descriptor, fkey_name_descriptor, [acl_descriptor], [acl_bindings_descriptor]}
+{schema_descriptor, table_descriptor, fkey_schema_descriptor, fkey_name_descriptor, [acl_descriptor], [acl_bindings_descriptor], [invalidate_bindings_descriptor]}
 
-The schema, table, acl, and acl_bindings descriptors have the same form as above.
+The schema, table, acl, acl_bindings, and invalidate_bindings descriptors have the same form as above.
 The fkey_schema_descriptor is either:
 
 `"foreign_key_schema":` foreign_key_schema_name
