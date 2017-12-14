@@ -20,7 +20,7 @@ class ACLSpecList(BaseSpecList):
 
 class ACLSpec(BaseSpec):
     def __init__(self, specdict):
-        BaseSpec.__init__(self, specdict, ["acl", "no_acl", "acl_bindings"], "acl")
+        BaseSpec.__init__(self, specdict, ["acl", "no_acl", "acl_bindings", "invalidate_bindings"], "acl")
 
     def validate(self):
         BaseSpec.validate(self)
@@ -55,6 +55,7 @@ class AclConfig:
         self.acl_definitions = self.config.get("acl_definitions")
         self.expand_acl_definitions()
         self.acl_bindings = self.config.get("acl_bindings")
+        self.invalidate_bindings = self.config.get("invalidate_bindings")
         self.server = server
         self.catalog_id = catalog_id
 
@@ -147,11 +148,19 @@ class AclConfig:
         raise NoForeignKeyError("can't find foreign key for column %I.%I(%I)", table_node.sname, table_node.name,
                                 col_name)
 
-    def set_node_acl_bindings(self, node, table_node, binding_list):
+    def set_node_acl_bindings(self, node, table_node, binding_list, invalidate_list):
         node.acl_bindings.clear()
         if binding_list is not None:
             for binding_name in binding_list:
                 self.add_node_acl_binding(node, table_node, binding_name)
+        if invalidate_list is not None:
+            for binding_name in invalidate_list:
+                if binding_list and binding_name in binding_list:
+                    raise ValueError("Binding {b} appears in both acl_bindings and invalidate_bindings for table {s}.{t} node {n}".format(
+                        b=binding_name,s=table_node.sname, t=table_node.name, n=node.name))
+                node.acl_bindings[binding_name] = False
+            
+                
 
     def save_groups(self):
         glt = self.create_or_validate_group_table()
@@ -329,7 +338,7 @@ class AclConfig:
         table.acl_bindings.clear()
         if spec is not None:
             self.set_node_acl(table, spec)
-            self.set_node_acl_bindings(table, table, spec.get("acl_bindings"))
+            self.set_node_acl_bindings(table, table, spec.get("acl_bindings"), spec.get("invalidate_bindings"))
         if self.verbose:
             print(
                 "set table {s}.{t} acls to {a}, bindings to {b}".format(s=table.sname, t=table.name, a=str(table.acls),
@@ -345,7 +354,7 @@ class AclConfig:
         column.acl_bindings.clear()
         if spec is not None:
             self.set_node_acl(column, spec)
-            self.set_node_acl_bindings(column, table, spec.get("acl_bindings"))
+            self.set_node_acl_bindings(column, table, spec.get("acl_bindings"), spec.get("invalidate_bindings"))
         if self.verbose:
             print("set column {s}.{t}.{c} acls to {a}, bindings to {b}".format(s=column.sname, t=column.tname,
                                                                                c=column.name, a=str(column.acls),
