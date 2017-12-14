@@ -77,12 +77,12 @@ class AclConfig:
         for k in acl.keys():
             node.acls[k] = acl[k]
 
-    def add_node_acl_binding(self, node, table_node, binding_name, is_first_binding):
+    def add_node_acl_binding(self, node, table_node, binding_name):
         if not binding_name in self.acl_bindings:
             raise ValueError("no acl binding called '{name}'".format(name=binding_name))
         binding = self.acl_bindings.get(binding_name)
         try:
-            node.acl_bindings[binding_name] = self.expand_acl_binding(binding, table_node, is_first_binding)
+            node.acl_bindings[binding_name] = self.expand_acl_binding(binding, table_node)
         except NoForeignKeyError as e:
             detail = ''
             if isinstance(node, CatalogColumn):
@@ -96,7 +96,7 @@ class AclConfig:
                                                                            t=table_node.name))
             raise e
 
-    def expand_acl_binding(self, binding, table_node, is_first_binding):
+    def expand_acl_binding(self, binding, table_node):
         if not isinstance(binding, dict):
             return binding
         new_binding = dict()
@@ -104,23 +104,22 @@ class AclConfig:
             if k == "projection":
                 new_binding[k] = []
                 for proj in binding.get(k):
-                    new_binding[k].append(self.expand_projection(proj, table_node, is_first_binding))
+                    new_binding[k].append(self.expand_projection(proj, table_node))
             elif k == "scope_acl":
                 new_binding[k] = self.get_group(binding.get(k))
             else:
                 new_binding[k] = binding[k]
         return new_binding
 
-    def expand_projection(self, proj, table_node, is_first_binding):
+    def expand_projection(self, proj, table_node):
         if isinstance(proj, dict):
             new_proj = dict()
-            is_first_outbound = True                # rob
+            is_first_outbound = True
             for k in proj.keys():
                 if k == "outbound_col":
-                    if is_first_outbound:           # rob
-                        is_first_outbound = False   # rob
-                    else:                           # rob
-                    # if not is_first_binding:      # rob
+                    if is_first_outbound:
+                        is_first_outbound = False
+                    else:
                         raise NotImplementedError(
                             "don't know how to expand 'outbound_col' on anything but the first entry in a projection; "
                             "use 'outbound' instead")
@@ -133,7 +132,7 @@ class AclConfig:
                         return None
                 else:
                     new_proj[k] = proj[k]
-                    is_first_outbound = False       # rob
+                    is_first_outbound = False
             return new_proj
         else:
             return proj
@@ -151,10 +150,8 @@ class AclConfig:
     def set_node_acl_bindings(self, node, table_node, binding_list):
         node.acl_bindings.clear()
         if binding_list is not None:
-            is_first = True
             for binding_name in binding_list:
-                self.add_node_acl_binding(node, table_node, binding_name, is_first)
-                is_first = False
+                self.add_node_acl_binding(node, table_node, binding_name)
 
     def save_groups(self):
         glt = self.create_or_validate_group_table()
