@@ -105,12 +105,13 @@ pairs, where the _name_ is a name you can refer to later, and the _value_ is a d
 ```
     "acl_bindings" : {
 	"a_binding" : {
+	    "scope_acl": "isrd-staff",
 	    "types" : ["select"],
 	    "projection" : [{"outbound_col" : "allowed_groups"}, "groups"],
 	    "projection_type" : "acl"
 	}
 ```
-This defines an ACL binding called `a_binding`. The syntax of the binding itself is the same as defined in the ermrest ACL docs, with one exception: to specify an outbound foreign key, you can either use ermrest-standard `outbound` syntax and use the constraint name, or you can use `outbound_col` and specify the name of a column on which a foreign key is defined. For example, if you apply the binding `a_binding` to this table:
+This defines an ACL binding called `a_binding`. The syntax of the binding itself is the same as defined in the ermrest ACL docs, with one exception: to specify an outbound foreign key, you can either use ermrest-standard `outbound` syntax and use the constraint name, or you can use `outbound_col` and specify the name of a column on which a foreign key is defined. It will also populate the `scope_acl` based on the referenced group list. For example, if you apply the binding `a_binding` to this table:
 ```
      Column     | Type | Modifiers 
 ----------------+------+-----------
@@ -122,6 +123,7 @@ Foreign-key constraints:
 then the actual ermrest dynamic ACL will be:
 ```
         "a_binding" : {
+            "scope_acl": ["https://auth.globus.org/176baec4-ed26-11e5-8e88-22000ab4b42b"],
             "types" : ["select"],
             "projection" : [{"outbound" : "mytable_allowed_groups_fkey"}, "groups"],
             "projection_type" : "acl"
@@ -203,7 +205,7 @@ where _list_of_bindings_ is a list of ACL bindings defined in the acl_bindings s
 
 ##### The column_acls stanza #####
 This is where ACLs for columns are set. The syntax is a list of entries of the form:
-{schema_descriptor, table_descriptor, column_descriptor, [acl_descriptor], [acl_bindings_descriptor]}
+{schema_descriptor, table_descriptor, column_descriptor, [acl_descriptor], [acl_bindings_descriptor] [invalidate_bindings_descriptor]}
 The schema, table, acl, and acl_bindings descriptors have the same form as above.
 The column_descriptor is either:
 
@@ -218,13 +220,19 @@ Regular expression matching is used:
 * Otherwise, if exactly one entry is found with `schema`, `table`, and `column` matches is found, that ACL is used
 * If multiple regular-expression matches are found and no exact match is found, an exception is thrown.
 
+The i`nvalidate_bindings` descriptor has the form:
+
+`"invalidate_bindings"`: [list_of_bindings]
+
+where _list_of_bindings_ is a list of bindng names to invalidate (i.e., ACL bindings that were defined on the column's table but that should not be applied to the column).
+
 ##### The foreign_key_acls stanza #####
 
 This is where ACLs for foreign keys are set. The syntax is a list of entries of the form:
 
-{schema_descriptor, table_descriptor, fkey_schema_descriptor, fkey_name_descriptor, [acl_descriptor], [acl_bindings_descriptor]}
+{schema_descriptor, table_descriptor, fkey_schema_descriptor, fkey_name_descriptor, [acl_descriptor], [acl_bindings_descriptor], [invalidate_bindings_descriptor]}
 
-The schema, table, acl, and acl_bindings descriptors have the same form as above.
+The schema, table, acl, acl_bindings, and invalidate_bindings descriptors have the same form as above.
 The fkey_schema_descriptor is either:
 
 `"foreign_key_schema":` foreign_key_schema_name

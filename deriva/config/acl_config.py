@@ -1,7 +1,8 @@
 import sys
 import json
 import re
-from deriva.core import ErmrestCatalog, AttrDict, ermrest_config, get_credential, __version__ as VERSION
+from deriva.core import ErmrestCatalog, AttrDict, ermrest_config, get_credential, __version__ as VERSION, \
+    format_exception
 from deriva.core.ermrest_config import CatalogColumn, CatalogForeignKey
 from deriva.config.base_config import BaseSpec, BaseSpecList, ConfigUtil, ConfigBaseCLI
 from requests.exceptions import HTTPError
@@ -19,7 +20,7 @@ class ACLSpecList(BaseSpecList):
 
 class ACLSpec(BaseSpec):
     def __init__(self, specdict):
-        BaseSpec.__init__(self, specdict, ["acl", "no_acl", "acl_bindings"], "acl")
+        BaseSpec.__init__(self, specdict, ["acl", "no_acl", "acl_bindings", "invalidate_bindings"], "acl")
 
     def validate(self):
         BaseSpec.validate(self)
@@ -54,6 +55,7 @@ class AclConfig:
         self.acl_definitions = self.config.get("acl_definitions")
         self.expand_acl_definitions()
         self.acl_bindings = self.config.get("acl_bindings")
+        self.invalidate_bindings = self.config.get("invalidate_bindings")
         self.server = server
         self.catalog_id = catalog_id
 
@@ -76,12 +78,12 @@ class AclConfig:
         for k in acl.keys():
             node.acls[k] = acl[k]
 
-    def add_node_acl_binding(self, node, table_node, binding_name, is_first_binding):
+    def add_node_acl_binding(self, node, table_node, binding_name):
         if not binding_name in self.acl_bindings:
             raise ValueError("no acl binding called '{name}'".format(name=binding_name))
         binding = self.acl_bindings.get(binding_name)
         try:
-            node.acl_bindings[binding_name] = self.expand_acl_binding(binding, table_node, is_first_binding)
+            node.acl_bindings[binding_name] = self.expand_acl_binding(binding, table_node)
         except NoForeignKeyError as e:
             detail = ''
             if isinstance(node, CatalogColumn):
@@ -95,7 +97,7 @@ class AclConfig:
                                                                            t=table_node.name))
             raise e
 
-    def expand_acl_binding(self, binding, table_node, is_first_binding):
+    def expand_acl_binding(self, binding, table_node):
         if not isinstance(binding, dict):
             return binding
         new_binding = dict()
@@ -103,17 +105,22 @@ class AclConfig:
             if k == "projection":
                 new_binding[k] = []
                 for proj in binding.get(k):
-                    new_binding[k].append(self.expand_projection(proj, table_node, is_first_binding))
+                    new_binding[k].append(self.expand_projection(proj, table_node))
+            elif k == "scope_acl":
+                new_binding[k] = self.get_group(binding.get(k))
             else:
                 new_binding[k] = binding[k]
         return new_binding
 
-    def expand_projection(self, proj, table_node, is_first_binding):
+    def expand_projection(self, proj, table_node):
         if isinstance(proj, dict):
             new_proj = dict()
+            is_first_outbound = True
             for k in proj.keys():
                 if k == "outbound_col":
-                    if not is_first_binding:
+                    if is_first_outbound:
+                        is_first_outbound = False
+                    else:
                         raise NotImplementedError(
                             "don't know how to expand 'outbound_col' on anything but the first entry in a projection; "
                             "use 'outbound' instead")
@@ -126,6 +133,7 @@ class AclConfig:
                         return None
                 else:
                     new_proj[k] = proj[k]
+                    is_first_outbound = False
             return new_proj
         else:
             return proj
@@ -140,13 +148,19 @@ class AclConfig:
         raise NoForeignKeyError("can't find foreign key for column %I.%I(%I)", table_node.sname, table_node.name,
                                 col_name)
 
-    def set_node_acl_bindings(self, node, table_node, binding_list):
+    def set_node_acl_bindings(self, node, table_node, binding_list, invalidate_list):
         node.acl_bindings.clear()
         if binding_list is not None:
-            is_first = True
             for binding_name in binding_list:
-                self.add_node_acl_binding(node, table_node, binding_name, is_first)
-                is_first = False
+                self.add_node_acl_binding(node, table_node, binding_name)
+        if invalidate_list is not None:
+            for binding_name in invalidate_list:
+                if binding_list and binding_name in binding_list:
+                    raise ValueError("Binding {b} appears in both acl_bindings and invalidate_bindings for table {s}.{t} node {n}".format(
+                        b=binding_name,s=table_node.sname, t=table_node.name, n=node.name))
+                node.acl_bindings[binding_name] = False
+            
+                
 
     def save_groups(self):
         glt = self.create_or_validate_group_table()
@@ -324,7 +338,7 @@ class AclConfig:
         table.acl_bindings.clear()
         if spec is not None:
             self.set_node_acl(table, spec)
-            self.set_node_acl_bindings(table, table, spec.get("acl_bindings"))
+            self.set_node_acl_bindings(table, table, spec.get("acl_bindings"), spec.get("invalidate_bindings"))
         if self.verbose:
             print(
                 "set table {s}.{t} acls to {a}, bindings to {b}".format(s=table.sname, t=table.name, a=str(table.acls),
@@ -340,7 +354,7 @@ class AclConfig:
         column.acl_bindings.clear()
         if spec is not None:
             self.set_node_acl(column, spec)
-            self.set_node_acl_bindings(column, table, spec.get("acl_bindings"))
+            self.set_node_acl_bindings(column, table, spec.get("acl_bindings"), spec.get("invalidate_bindings"))
         if self.verbose:
             print("set column {s}.{t}.{c} acls to {a}, bindings to {b}".format(s=column.sname, t=column.tname,
                                                                                c=column.name, a=str(column.acls),
@@ -422,7 +436,6 @@ class Table(AttrDict):
         return self.base_entity_url
 
     def upsertRows(self, catalog, rows):
-        retval = None
         try:
             self.insertRows(catalog, rows)
         except HTTPError as err:
@@ -521,13 +534,19 @@ def main():
     for schema in schema_names:
         acl_config = AclConfig(args.host, args.catalog, args.config_file, credentials, schema_name=schema,
                                table_name=table_name, verbose=args.verbose or args.debug)
-        if save_groups:
-            acl_config.save_groups()
-            save_groups = False
-        if not args.groups_only:
-            acl_config.set_acls()
-            if not args.dryrun:
-                acl_config.apply_acls()
+
+        try:
+            if save_groups:
+                acl_config.save_groups()
+                save_groups = False
+            if not args.groups_only:
+                acl_config.set_acls()
+                if not args.dryrun:
+                    acl_config.apply_acls()
+        except HTTPError as e:
+            print(format_exception(e))
+            raise
+
         if args.dryrun:
             print(acl_config.dumps())
 
