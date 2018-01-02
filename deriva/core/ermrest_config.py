@@ -1,3 +1,4 @@
+
 from . import urlquote
 
 
@@ -204,11 +205,11 @@ class CatalogConfig (NodeConfigAcl):
        annotations: catalog-level annotations
        schemas: all schemas in catalog, by name
     """
-    def __init__(self, model_doc):
+    def __init__(self, model_doc, **kwargs):
         NodeConfigAcl.__init__(self, "/schema", model_doc)
         self.update_uri_path = ""
         self.schemas = {
-            sname: CatalogSchema(sname, sdoc)
+            sname: kwargs.get('schema_class', CatalogSchema)(sname, sdoc, **kwargs)
             for sname, sdoc in model_doc.get('schemas', {}).items()
         }
 
@@ -258,7 +259,7 @@ class CatalogSchema (NodeConfigAcl):
        Convenience access for common annotations:
          self.display: access mutable tag.display object
     """
-    def __init__(self, sname, schema_doc):
+    def __init__(self, sname, schema_doc, **kwargs):
         NodeConfigAcl.__init__(
             self,
             "/schema/%s" % urlquote(sname),
@@ -266,7 +267,7 @@ class CatalogSchema (NodeConfigAcl):
         )
         self.name = sname
         self.tables = {
-            tname: CatalogTable(sname, tname, tdoc)
+            tname: kwargs.get('table_class', CatalogTable)(sname, tname, tdoc, **kwargs)
             for tname, tdoc in schema_doc.get('tables', {}).items()
         }
 
@@ -307,6 +308,28 @@ class KeyedList (list):
         else:
             return self.elements[idx]
 
+    def __delitem__(self, idx):
+        """Delete element by key or by list index or slice."""
+        if isinstance(idx, int):
+            victim = list.__getitem__(self, idx)
+            list.__delitem__(self, idx)
+            del self.elements[victim.name]
+        elif isinstance(idx, slice):
+            victims = [list.__getitem__(self, idx)]
+            list.__delslice__(self, idx)
+            for victim in victims:
+                del self.elements[victim.name]
+        else:
+            victim = self.elements[idx]
+            list.__delitem__(self, self.index(victim))
+            del self.elements[victim.name]
+
+    def append(self, e):
+        """Append element to list and record its key."""
+        if e.name in self.elements:
+            raise ValueError('Element name %s already exists.' % e.name)
+        list.append(self, e)
+        self.elements[e.name] = e
 
 class MultiKeyedList (list):
     """Multi-keyed list."""
@@ -344,7 +367,7 @@ class CatalogTable (NodeConfigAclBinding):
          self.visible_foreign_keys: tag.visible_foreign_keys object
     """
 
-    def __init__(self, sname, tname, table_doc):
+    def __init__(self, sname, tname, table_doc, **kwargs):
         NodeConfigAclBinding.__init__(
             self,
             "/schema/%s/table/%s" % (urlquote(sname), urlquote(tname)),
@@ -353,15 +376,15 @@ class CatalogTable (NodeConfigAclBinding):
         self.sname = sname
         self.name = tname
         self.column_definitions = KeyedList([
-            CatalogColumn(sname, tname, cdoc)
+            kwargs.get('column_class', CatalogColumn)(sname, tname, cdoc, **kwargs)
             for cdoc in table_doc.get('column_definitions', [])
         ])
         self.keys = MultiKeyedList([
-            CatalogKey(sname, tname, kdoc)
+            kwargs.get('key_class', CatalogKey)(sname, tname, kdoc, **kwargs)
             for kdoc in table_doc.get('keys', [])
         ])
         self.foreign_keys = MultiKeyedList([
-            CatalogForeignKey(sname, tname, fkdoc)
+            kwargs.get('foreign_key_class', CatalogForeignKey)(sname, tname, fkdoc, **kwargs)
             for fkdoc in table_doc.get('foreign_keys', [])
         ])
 
@@ -430,7 +453,7 @@ class CatalogColumn (NodeConfigAclBinding):
          self.immutable: treat tag.immutable as a boolean
     """
 
-    def __init__(self, sname, tname, column_doc):
+    def __init__(self, sname, tname, column_doc, **kwargs):
         cname = column_doc['name']
         NodeConfigAclBinding.__init__(
             self,
@@ -462,7 +485,7 @@ class CatalogKey (NodeConfig):
        annotations: column-level annotations
        names: name(s) of key constraint
     """
-    def __init__(self, sname, tname, key_doc):
+    def __init__(self, sname, tname, key_doc, **kwargs):
         NodeConfig.__init__(
             self,
             '/schema/%s/table/%s/key/%s' % (
@@ -492,7 +515,7 @@ class CatalogForeignKey (NodeConfigAclBinding):
        acls: foreign key-level acls
        annotations: foreign key-level annotations
     """
-    def __init__(self, sname, tname, fkey_doc):
+    def __init__(self, sname, tname, fkey_doc, **kwargs):
         refcols = fkey_doc['referenced_columns']
         NodeConfigAclBinding.__init__(
             self,
