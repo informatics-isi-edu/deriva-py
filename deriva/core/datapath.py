@@ -458,23 +458,21 @@ class Table (object):
     def insert(self, entities, defaults=None, add_system_defaults=True):
         """Inserts entities into the table.
         :param entities: an iterable collection of entities (i.e., rows) to be inserted into the table.
-        :param defaults: optional, set of columns to be assigned the default expression value.
+        :param defaults: optional, set of column names to be assigned the default expression value.
         :param add_system_defaults: flag to add system columns to the set of default columns.
-        :return newly created entity set.
+        :return newly created entities.
         """
+        defaults_enc = {urlquote(cname) for cname in defaults} if defaults else set()
         if add_system_defaults:
-            syscols = {'RID', 'RCT', 'RMT', 'RCB', 'RMT'}
-            defaults = set(defaults) | syscols if defaults else syscols
+            defaults_enc |= {'RID', 'RCT', 'RMT', 'RCB', 'RMT'}
 
-        base_path = '/entity/' + self.fqname
-        insert_path = base_path if not defaults or len(defaults) == 0 else "{base}?defaults={cols}".format(
-            base=base_path,
-            cols=','.join(defaults)
-        )
-        logger.debug("Inserting entities to path: {path}".format(path=insert_path))
+        path = '/entity/' + self.fqname
+        if defaults_enc:
+            path += "?defaults={cols}".format(cols=','.join(defaults_enc))
+        logger.debug("Inserting entities to path: {path}".format(path=path))
 
         try:
-            resp = self._catalog.post(insert_path, json=entities, headers={'Content-Type': 'application/json'})
+            resp = self._catalog.post(path, json=entities, headers={'Content-Type': 'application/json'})
             return resp.json()
         except HTTPError as e:
             logger.error(e.response.text)
