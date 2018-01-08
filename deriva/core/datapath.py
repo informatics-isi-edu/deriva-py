@@ -455,6 +455,37 @@ class Table (object):
     def entities(self, *attributes, **renamed_attributes):
         return self.path._entities(attributes, renamed_attributes)
 
+    def insert(self, entities, defaults=None, add_system_defaults=True):
+        """Inserts entities into the table.
+        :param entities: an iterable collection of entities (i.e., rows) to be inserted into the table.
+        :param defaults: optional, set of columns to be assigned the default expression value.
+        :param add_system_defaults: flag to add system columns to the set of default columns.
+        :return newly created entity set.
+        """
+        if add_system_defaults:
+            syscols = {'RID', 'RCT', 'RMT', 'RCB', 'RMT'}
+            defaults = set(defaults) | syscols if defaults else syscols
+
+        base_path = '/entity/' + self.fqname
+        insert_path = base_path if not defaults or len(defaults) == 0 else "{base}?defaults={cols}".format(
+            base=base_path,
+            cols=','.join(defaults)
+        )
+        logger.debug("Inserting entities to path: {path}".format(path=insert_path))
+
+        try:
+            resp = self._catalog.post(insert_path, json=entities, headers={'Content-Type': 'application/json'})
+            return resp.json()
+        except HTTPError as e:
+            logger.error(e.response.text)
+            if 400 <= e.response.status_code < 500:
+                # Reformat exception within the client errors range
+                msg = '\n'.join(e.response.text.splitlines()[1:]) + '\n' + str(e)
+                raise DataPathException(msg, e)
+            else:
+                # For all others, throw original exception
+                raise e
+
 
 class TableAlias (Table):
     """Represents a table alias.
