@@ -484,6 +484,33 @@ class Table (object):
                 # For all others, throw original exception
                 raise e
 
+    def update(self, entities, defaults=None, add_system_defaults=True):
+        """Update entities of a table.
+        :param entities: an iterable collection of entities (i.e., rows) to be updated in the table.
+        :return updated entities.
+        """
+        # defaults_enc = {urlquote(cname) for cname in defaults} if defaults else set()
+        # if add_system_defaults:
+        #     defaults_enc |= {'RID', 'RCT', 'RMT', 'RCB', 'RMT'}
+
+        path = '/entity/' + self.fqname
+        # if defaults_enc:
+        #     path += "?defaults={cols}".format(cols=','.join(defaults_enc))
+        # logger.debug("Inserting entities to path: {path}".format(path=path))
+
+        try:
+            resp = self._catalog.put(path, json=entities, headers={'Content-Type': 'application/json'})
+            return resp.json()
+        except HTTPError as e:
+            logger.error(e.response.text)
+            if 400 <= e.response.status_code < 500:
+                # Reformat exception within the client errors range
+                msg = '\n'.join(e.response.text.splitlines()[1:]) + '\n' + str(e)
+                raise DataPathException(msg, e)
+            else:
+                # For all others, throw original exception
+                raise e
+
 
 class TableAlias (Table):
     """Represents a table alias.
