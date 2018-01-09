@@ -488,9 +488,11 @@ class Table (object):
             path += "?defaults={cols}".format(cols=','.join(defaults_enc))
         logger.debug("Inserting entities to path: {path}".format(path=path))
 
+        # JSONEncoder does not handle general iterable objects, so we have to make sure its an acceptable collection
+        entities = entities if isinstance(entities, (list, tuple)) else list(entities)
         try:
             resp = self._catalog.post(path, json=entities, headers={'Content-Type': 'application/json'})
-            return resp.json()
+            return EntitySet(self.path.uri, lambda ignore: resp.json())
         except HTTPError as e:
             logger.error(e.response.text)
             if 400 <= e.response.status_code < 500:
@@ -503,11 +505,13 @@ class Table (object):
         :param entities: an iterable collection of entities (i.e., rows) to be updated in the table.
         :return updated entities.
         """
+        # JSONEncoder does not handle general iterable objects, so we have to make sure its an acceptable collection
+        entities = entities if isinstance(entities, (list, tuple)) else list(entities)
         try:
             resp = self._catalog.put('/entity/' + self.fqname,
                                      json=entities,
                                      headers={'Content-Type': 'application/json'})
-            return resp.json()
+            return EntitySet(self.path.uri, lambda ignore: resp.json())
         except HTTPError as e:
             logger.error(e.response.text)
             if 400 <= e.response.status_code < 500:
