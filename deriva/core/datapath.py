@@ -210,6 +210,20 @@ class DataPath (object):
         if _isidentifier(table_name):
             self._identifiers.append(table_name)
 
+    def delete(self):
+        """Deletes the entity set referenced by the data path.
+        """
+        try:
+            path = str(self._path_expression)
+            logger.debug("Deleting: {p}".format(p=path))
+            self._root.catalog.delete(path)
+        except HTTPError as e:
+            logger.error(e.response.text)
+            if 400 <= e.response.status_code < 500:
+                raise DataPathException(_http_error_message(e), e)
+            else:
+                raise e
+
     def filter(self, filter_expression):
         """Filters the path based on the specified formula.
         :param filter_expression: should be a valid Predicate object
