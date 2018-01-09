@@ -31,18 +31,10 @@ def _isidentifier(a):
         return re.match("[_A-Za-z][_a-zA-Z0-9]*$", a) is not None
 
 
-def _http_error_handler(e):
-    """A common http error handler function.
-    :param e: an `HTTPError` exception.
+def _http_error_message(e):
+    """Returns a formatted error message from the raw HTTPError.
     """
-    logger.error(e.response.text)
-    if 400 <= e.response.status_code < 500:
-        # Reformat exception within the client errors range
-        msg = '\n'.join(e.response.text.splitlines()[1:]) + '\n' + str(e)
-        raise DataPathException(msg, e)
-    else:
-        # For all others, throw original exception
-        raise e
+    return '\n'.join(e.response.text.splitlines()[1:]) + '\n' + str(e)
 
 
 class DataPathException (Exception):
@@ -309,11 +301,8 @@ class DataPath (object):
             except HTTPError as e:
                 logger.error(e.response.text)
                 if 400 <= e.response.status_code < 500:
-                    # Reformat exception within the client errors range
-                    msg = '\n'.join(e.response.text.splitlines()[1:]) + '\n' + str(e)
-                    raise DataPathException(msg, e)
+                    raise DataPathException(_http_error_message(e), e)
                 else:
-                    # For all others, throw original exception
                     raise e
 
         return EntitySet(self._base_uri + base_path, fetcher)
@@ -489,7 +478,11 @@ class Table (object):
             resp = self._catalog.post(path, json=entities, headers={'Content-Type': 'application/json'})
             return resp.json()
         except HTTPError as e:
-            _http_error_handler(e)
+            logger.error(e.response.text)
+            if 400 <= e.response.status_code < 500:
+                raise DataPathException(_http_error_message(e), e)
+            else:
+                raise e
 
     def update(self, entities, defaults=None, add_system_defaults=True):
         """Update entities of a table.
@@ -502,7 +495,11 @@ class Table (object):
                                      headers={'Content-Type': 'application/json'})
             return resp.json()
         except HTTPError as e:
-            _http_error_handler(e)
+            logger.error(e.response.text)
+            if 400 <= e.response.status_code < 500:
+                raise DataPathException(_http_error_message(e), e)
+            else:
+                raise e
 
 
 class TableAlias (Table):
