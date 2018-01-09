@@ -22,13 +22,27 @@ def from_catalog(catalog):
 def _isidentifier(a):
     """Tests if string is a valid python identifier.
     This function is intended for internal usage within this module.
-    :param a a string
+    :param a: a string
     """
     assert isinstance(a, str)
     if hasattr(a, 'isidentifier'):
         return a.isidentifier()
     else:
         return re.match("[_A-Za-z][_a-zA-Z0-9]*$", a) is not None
+
+
+def _http_error_handler(e):
+    """A common http error handler function.
+    :param e: an `HTTPError` exception.
+    """
+    logger.error(e.response.text)
+    if 400 <= e.response.status_code < 500:
+        # Reformat exception within the client errors range
+        msg = '\n'.join(e.response.text.splitlines()[1:]) + '\n' + str(e)
+        raise DataPathException(msg, e)
+    else:
+        # For all others, throw original exception
+        raise e
 
 
 class DataPathException (Exception):
@@ -475,41 +489,20 @@ class Table (object):
             resp = self._catalog.post(path, json=entities, headers={'Content-Type': 'application/json'})
             return resp.json()
         except HTTPError as e:
-            logger.error(e.response.text)
-            if 400 <= e.response.status_code < 500:
-                # Reformat exception within the client errors range
-                msg = '\n'.join(e.response.text.splitlines()[1:]) + '\n' + str(e)
-                raise DataPathException(msg, e)
-            else:
-                # For all others, throw original exception
-                raise e
+            _http_error_handler(e)
 
     def update(self, entities, defaults=None, add_system_defaults=True):
         """Update entities of a table.
         :param entities: an iterable collection of entities (i.e., rows) to be updated in the table.
         :return updated entities.
         """
-        # defaults_enc = {urlquote(cname) for cname in defaults} if defaults else set()
-        # if add_system_defaults:
-        #     defaults_enc |= {'RID', 'RCT', 'RMT', 'RCB', 'RMT'}
-
-        path = '/entity/' + self.fqname
-        # if defaults_enc:
-        #     path += "?defaults={cols}".format(cols=','.join(defaults_enc))
-        # logger.debug("Inserting entities to path: {path}".format(path=path))
-
         try:
-            resp = self._catalog.put(path, json=entities, headers={'Content-Type': 'application/json'})
+            resp = self._catalog.put('/entity/' + self.fqname,
+                                     json=entities,
+                                     headers={'Content-Type': 'application/json'})
             return resp.json()
         except HTTPError as e:
-            logger.error(e.response.text)
-            if 400 <= e.response.status_code < 500:
-                # Reformat exception within the client errors range
-                msg = '\n'.join(e.response.text.splitlines()[1:]) + '\n' + str(e)
-                raise DataPathException(msg, e)
-            else:
-                # For all others, throw original exception
-                raise e
+            _http_error_handler(e)
 
 
 class TableAlias (Table):
