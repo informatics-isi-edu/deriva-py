@@ -2,7 +2,7 @@ import sys
 import json
 import re
 from deriva.core import ErmrestCatalog, AttrDict, ermrest_config, get_credential, __version__ as VERSION, \
-    format_exception
+    format_exception, urlquote
 from deriva.core.ermrest_config import CatalogColumn, CatalogForeignKey
 from deriva.config.base_config import BaseSpec, BaseSpecList, ConfigUtil, ConfigBaseCLI
 from requests.exceptions import HTTPError
@@ -472,7 +472,7 @@ class Table(AttrDict):
         if key is None:
             raise ValueError("can't find appropriate key")
         for k in key.get('unique_columns'):
-            filters.append("{k}={v}".format(k=k, v=row[k]))
+            filters.append("{k}={v}".format(k=urlquote(k), v=urlquote(row[k])))
         return filters
 
     def getRow(self, catalog, row, filters):
