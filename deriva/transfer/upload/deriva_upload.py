@@ -9,7 +9,7 @@ import tempfile
 import logging
 from collections import OrderedDict, namedtuple
 from deriva.core import ErmrestCatalog, CatalogConfig, HatracStore, HatracJobAborted, HatracJobPaused, \
-    format_exception, urlquote, get_credential, read_config, copy_config, resource_path, stob
+    format_exception, urlquote, get_credential, read_config, write_config, copy_config, resource_path, stob
 from deriva.core.utils import hash_utils as hu, mime_utils as mu, version_utils as vu
 
 try:
@@ -36,6 +36,19 @@ class Enum(tuple):
 
 UploadState = Enum(["Success", "Failed", "Pending", "Running", "Paused", "Aborted", "Cancelled"])
 FileUploadState = namedtuple("FileUploadState", ["State", "Status"])
+
+DefaultConfig = {
+  "version_compatibility": [">=0.2.0", "<1.0.0"],
+  "version_update_url": "https://github.com/informatics-isi-edu/deriva-py/releases",
+  "asset_mappings": [
+    {
+      "asset_type": "data",
+      "default_columns": ["RID", "RCB", "RMB", "RCT", "RMT"],
+      "file_pattern": "^((?!/assets/).)*/records/(?P<schema>.+?)/(?P<table>.+?)[.]",
+      "ext_pattern": "^.*[.](?P<file_ext>json|csv)$"
+    }
+  ]
+}
 
 
 class DerivaUpload(object):
@@ -109,24 +122,28 @@ class DerivaUpload(object):
         # transfer state initialization
         self.loadTransferState()
 
-        # configuration initialization - this is a bit noodley...
+        """
+         Configuration initialization - this is a bit complex because we allow for:
+             1. Run-time overriding of the config file location.
+             2. Sub-classes of this class to bundle their own default configuration files in an arbitrary location.
+             3. The updating of already deployed configuration files if bundled internal defaults are newer.             
+        """
         config_file = self.override_config_file if self.override_config_file else None
         # 1. If we don't already have a valid (i.e., overridden) path to a config file...
         if not (config_file and os.path.isfile(config_file)):
-            # 2. Get the currently deployed config file path
+            # 2. Get the currently deployed config file path, which could possibly be overridden by subclass
             config_file = self.getDeployedConfigFilePath()
             # 3. If the deployed default path is not valid, OR, it is valid AND is older than the bundled default
             if (not(config_file and os.path.isfile(config_file))
                     or self.isFileNewer(self.getDefaultConfigFilePath(), self.getDeployedConfigFilePath())):
-                # 4. If for some reason there is no internal default config,
-                #    this is a programming error and we cannot continue
-                if not os.path.isfile(self.getDefaultConfigFilePath()):
-                    logging.warning(
-                        "A configuration file was not specified and a suitable internal default does not exist.")
-                    return
-                # 5. copy the bundled internal default config to the deployment-specific config path
-                copy_config(self.getDefaultConfigFilePath(), config_file)
-        # 6. Finally, read the configuration file into a config object
+                # 4. If we can locate a bundled default config file,
+                if os.path.isfile(self.getDefaultConfigFilePath()):
+                    # 4.1 Copy the bundled default config file to the deployment-specific config path
+                    copy_config(self.getDefaultConfigFilePath(), config_file)
+                else:
+                    # 4.2 Otherwise, fallback to writing a failsafe default based on internal hardcoded settings
+                    write_config(config_file, DefaultConfig)
+        # 5. Finally, read the resolved configuration file into a config object
         self._update_internal_config(read_config(config_file))
 
     def _update_internal_config(self, config):
