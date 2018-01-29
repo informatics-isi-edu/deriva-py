@@ -167,7 +167,7 @@ class Table (_ec.CatalogTable):
 
         """
         def add_fkey(fkey):
-            self.fkeys.append(fkey)
+            self.foreign_keys.append(fkey)
             return fkey
         return self._create_table_part(catalog, 'foreignkey', add_fkey, ForeignKey, fkey_def)
 
