@@ -123,7 +123,12 @@ class Table (_ec.CatalogTable):
             json=doc,
         )
         r.raise_for_status()
-        return registerfunc(constructor(self.sname, self.name, r.json()))
+        created = r.json()
+        if isinstance(created, list):
+            # handle fkey case where POST returns a list
+            assert len(created) == 1
+            created = created[0]
+        return registerfunc(constructor(self.sname, self.name, created))
 
     def create_column(self, catalog, column_def):
         """Add a new column to this table in the remote database based on column_def.
