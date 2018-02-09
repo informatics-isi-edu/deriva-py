@@ -1,4 +1,4 @@
-# `deriva-hatrac-cli`
+# deriva-hatrac-cli
 
 The `deriva-hatrac-cli` is a command-line utility for interacting with the DERIVA 
 HATRAC object store.
