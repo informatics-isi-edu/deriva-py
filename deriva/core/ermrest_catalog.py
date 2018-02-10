@@ -1,9 +1,11 @@
 import logging
+import datetime
 
-from . import urlquote, datapath
+from . import urlquote, datapath, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, Megabyte, get_transfer_summary
 from .deriva_binding import DerivaBinding
 from .ermrest_config import CatalogConfig
 from . import ermrest_model
+
 
 class ErmrestCatalog(DerivaBinding):
     """Persistent handle for an ERMrest catalog.
@@ -36,7 +38,7 @@ class ErmrestCatalog(DerivaBinding):
     def getCatalogConfig(self):
         return CatalogConfig.fromcatalog(self)
 
-    def get_catalog_model(self):
+    def getCatalogModel(self):
         return ermrest_model.Model.fromcatalog(self)
 
     def applyCatalogConfig(self, config):
@@ -105,3 +107,38 @@ class ErmrestCatalog(DerivaBinding):
             return None
         return entity[0], entity[1]
 
+    def getAsFile(self, path, destfilename, headers=DEFAULT_HEADERS, callback=None):
+        """
+           Retrieve catalog data streamed to destination file.
+           Caller is responsible to clean up file even on error, when the file may or may not be exist.
+
+        """
+        self.check_path(path)
+
+        headers = headers.copy()
+
+        destfile = open(destfilename, 'w+b')
+
+        try:
+            r = self._session.get(self._server_uri + path, headers=headers, stream=True)
+            r.raise_for_status()
+
+            total = 0
+            start = datetime.datetime.now()
+            logging.debug("Transferring file %s to %s" % (self._server_uri + path, destfilename))
+            for buf in r.iter_content(chunk_size=DEFAULT_CHUNK_SIZE):
+                destfile.write(buf)
+                total += len(buf)
+                if callback:
+                    if not callback(progress="Downloading: %.2f MB transferred" % (float(total) / float(Megabyte))):
+                        destfile.close()
+                        return None
+            elapsed = datetime.datetime.now() - start
+            summary = get_transfer_summary(total, elapsed)
+            logging.info("File [%s] transfer successful. %s" % (destfilename, summary))
+            if callback:
+                callback(summary=summary, file_path=destfilename)
+
+            return r
+        finally:
+            destfile.close()

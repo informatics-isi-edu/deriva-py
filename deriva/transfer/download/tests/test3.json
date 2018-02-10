@@ -1,0 +1,26 @@
+{
+  "bag": {
+    "bag_name": "facebase-test-bag",
+    "bag_archiver": "zip",
+    "bag_metadata": {
+      "Source-Organization": "USC Information Sciences Institute, Informatics Systems Research Division"
+    }
+  },
+  "catalog":
+  {
+    "queries":
+    [
+      {
+        "query_path": "/attribute/D:=isa:dataset/accession=%(accession)s/E:=isa:experiment/assay_type=1/ST:=vocabulary:strandedness/$E/biosample:=isa:biosample/SP:=vocabulary:species/$E/R:=isa:replicate/FQ:=isa:raw_sequencing_data/file_type=5/PAIR:=vocabulary:paired_end_or_single_read/$FQ/DIR:=vocabulary:raw_sequencing_data_direction/$FQ/dataset:=D:accession,replicate:=R:RID,species:=SP:term,paired:=PAIR:term,stranded:=ST:term,direction:=DIR:term",
+        "output_path": "sequence_info",
+        "output_name": "%(accession)s",
+        "output_format": "csv"
+      },
+      {
+        "query_path": "/attribute/D:=isa:dataset/accession=%(accession)s/E:=isa:experiment/assay_type=1/ST:=vocabulary:strandedness/$E/biosample:=isa:biosample/SP:=vocabulary:species/$E/R:=isa:replicate/FQ:=isa:raw_sequencing_data/file_type=5/PAIR:=vocabulary:paired_end_or_single_read/$FQ/DIR:=vocabulary:raw_sequencing_data_direction/$FQ/dataset:=D:accession,replicate:=R:RID,url:=FQ:url,md5:=FQ:md5,length:=FQ:byte_count",
+        "output_path": "sequence_data/%(dataset)s/%(replicate)s",
+        "output_format": "fetch"
+      }
+    ]
+  }
+}

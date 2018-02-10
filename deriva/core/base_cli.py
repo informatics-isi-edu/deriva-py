@@ -43,3 +43,19 @@ class BaseCLI(object):
         init_logging(level=logging.ERROR if args.quiet else (logging.DEBUG if args.debug else logging.INFO))
 
         return args
+
+
+class KeyValuePairArgs(argparse.Action):
+    def __init__(self, option_strings, dest, nargs=None, **kwargs):
+        self._nargs = nargs
+        super(KeyValuePairArgs, self).__init__(option_strings, dest, nargs=nargs, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        kwargs = dict()
+        for kv in values:
+            arg = kv.split("=", 1)
+            if len(arg) < 2:
+                raise ValueError(
+                    "Invalid key-value argument %s: Key-Value pairs must be given in the form <key=value>." % arg)
+            kwargs[arg[0]] = arg[1]
+            setattr(namespace, self.dest, kwargs)

@@ -19,7 +19,7 @@ class DerivaUploadCLI(BaseCLI):
         self.remove_options(['--host'])
         self.parser.add_argument('--no-cfg-update', action="store_true", help="Do not update local config from server.")
         self.parser.add_argument("--catalog", default=1, metavar="<1>", help="Catalog number. Default: 1")
-        self.parser.add_argument("--token", default=1, metavar="<auth-token>", help="Authorization bearer token.")
+        self.parser.add_argument("--token", metavar="<auth-token>", help="Authorization bearer token.")
         self.parser.add_argument('host', metavar='<host>', help="Fully qualified host name.")
         self.parser.add_argument("path", metavar="<dir>", help="Path to an input directory.")
         self.uploader = uploader

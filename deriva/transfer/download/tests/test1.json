@@ -1,0 +1,35 @@
+{
+  "bag": {
+    "bag_name": "pnc-test-bag",
+    "bag_archiver": "zip",
+    "bag_metadata": {
+      "Source-Organization": "USC Information Sciences Institute, Informatics Systems Research Division"
+    }
+  },
+  "catalog":
+  {
+    "queries":
+    [
+      {
+        "query_path": "/entity/A:=pnc:subject/A1:=snp_v/snp_id=rs6265/$A/B:=pnc:metrics_v",
+        "output_path": "metrics",
+        "output_format": "csv",
+        "output_processor": "deriva.transfer.download.processors.CSVDownloadProcessor"
+      },
+      {
+        "query_path": "/entity/A:=pnc:subject/A1:=snp_v/snp_id=rs6265",
+        "output_path": "genotypes",
+        "output_format": "csv"
+      },
+      {
+        "query_path": "/entity/A:=pnc:subject/A1:=snp_v/snp_id=rs6265/$A/B:=pnc:subject_phenotypes_v",
+        "output_path": "phenotypes",
+        "output_format": "csv"
+      },
+      {
+        "query_path": "/attribute/A:=pnc:subject/A1:=snp_v/snp_id=rs6265/$A/B:=pnc:image_files/filename::ciregexp::0mm.mgh/url:=B:uri,length:=B:bytes,filename:=B:filepath,sha256:=B:sha256sum",
+        "output_format": "fetch"
+      }
+    ]
+  }
+}

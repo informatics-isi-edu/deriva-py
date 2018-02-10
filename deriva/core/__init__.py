@@ -11,12 +11,14 @@ from collections import OrderedDict
 from distutils.util import strtobool
 from pkg_resources import parse_version, get_distribution, DistributionNotFound
 
-__version__ = "0.4.1"
+__version__ = "0.4.2"
 
 if sys.version_info > (3,):
     from urllib.parse import quote as _urlquote
+    from urllib.parse import urlsplit
 else:
     from urllib import quote as _urlquote
+    from urlparse import urlsplit
 
 
 def urlquote(s, safe=''):
@@ -35,6 +37,9 @@ def urlquote(s, safe=''):
 DEFAULT_HEADERS = {}
 
 DEFAULT_CHUNK_SIZE = 2400 ** 2  # == 5760000 which is above the minimum 5MB chunk size for AWS S3 multipart uploads
+
+Kilobyte = 1024
+Megabyte = 1024 ** 2
 
 
 class NotModified (ValueError):
@@ -215,8 +220,19 @@ def resource_path(relative_path, default=os.path.abspath(".")):
     return os.path.join(default, relative_path)
 
 
+def get_transfer_summary(total_bytes, elapsed_time):
+    total_secs = elapsed_time.total_seconds()
+    transferred = \
+        float(total_bytes) / float(Kilobyte) if total_bytes < Megabyte else float(total_bytes) / float(Megabyte)
+    throughput = str(" at %.2f MB/second" % (transferred / total_secs)) if (total_secs >= 1) else ""
+    elapsed = str("Elapsed time: %s." % elapsed_time) if (total_secs > 0) else ""
+    summary = "%.2f %s transferred%s. %s" % \
+              (transferred, "KB" if total_bytes < Megabyte else "MB", throughput, elapsed)
+    return summary
+
+
 from deriva.core import datapath
-from deriva.core.base_cli import BaseCLI
+from deriva.core.base_cli import BaseCLI, KeyValuePairArgs
 from deriva.core.deriva_binding import DerivaBinding, DerivaPathError
 from deriva.core.ermrest_catalog import ErmrestCatalog
 from deriva.core.ermrest_config import AttrDict, CatalogConfig

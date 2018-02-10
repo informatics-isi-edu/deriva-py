@@ -37,6 +37,9 @@ class DerivaBinding (object):
         self._caching = caching
         self._cache = {}
 
+    def get_server_uri(self):
+        return self._server_uri
+
     def _get_new_session(self, session_config):
         self._session = requests.session()
         retries = Retry(connect=session_config['retry_connect'],
@@ -101,6 +104,11 @@ class DerivaBinding (object):
 
     def get_authn_session(self):
         r = self._session.get(self._base_server_uri + "/authn/session")
+        r.raise_for_status()
+        return r
+
+    def post_authn_session(self, credentials):
+        r = self._session.post(self._base_server_uri + "/authn/session", data=credentials)
         r.raise_for_status()
         return r
 

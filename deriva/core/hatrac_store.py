@@ -2,12 +2,10 @@ import os
 import datetime
 import requests
 import logging
-from . import format_exception, NotModified, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, urlquote
+from . import format_exception, NotModified, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, urlquote, Megabyte, \
+    get_transfer_summary
 from .deriva_binding import DerivaBinding
 from .utils import hash_utils as hu, mime_utils as mu
-
-Kilobyte = 1024
-Megabyte = 1024 ** 2
 
 
 class HatracHashMismatch (ValueError):
@@ -102,7 +100,7 @@ class HatracStore(DerivaBinding):
                             os.remove(destfilename)
                             return None
                 elapsed = datetime.datetime.now() - start
-                summary = self.get_transfer_summary(total, elapsed)
+                summary = get_transfer_summary(total, elapsed)
                 logging.info("File [%s] transfer successful. %s" % (destfilename, summary))
                 if callback:
                     callback(summary=summary, file_path=destfilename)
@@ -282,7 +280,7 @@ class HatracStore(DerivaBinding):
                         elif ret == -1:
                             raise HatracJobPaused("Upload in-progress paused by user.")
                 elapsed = datetime.datetime.now() - start
-                summary = self.get_transfer_summary(total, elapsed)
+                summary = get_transfer_summary(total, elapsed)
                 logging.info("File [%s] upload successful. %s" % (file_path, summary))
                 if callback:
                     callback(summary=summary, file_path=file_path)
@@ -438,13 +436,3 @@ class HatracStore(DerivaBinding):
             return None
         resp.raise_for_status()
 
-    @staticmethod
-    def get_transfer_summary(total_bytes, elapsed_time):
-        total_secs = elapsed_time.total_seconds()
-        transferred = \
-            float(total_bytes) / float(Kilobyte) if total_bytes < Megabyte else float(total_bytes) / float(Megabyte)
-        throughput = str(" at %.2f MB/second" % (transferred / total_secs)) if (total_secs > 0) else ""
-        elapsed = str("Elapsed time: %s." % elapsed_time) if (total_secs > 0) else ""
-        summary = "%.2f %s transferred%s. %s" % \
-                  (transferred, "KB" if total_bytes < Megabyte else "MB", throughput, elapsed)
-        return summary
