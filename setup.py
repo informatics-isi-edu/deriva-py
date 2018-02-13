@@ -58,6 +58,11 @@ setup(
         'portalocker',
         'bdbag>=1.1.5'
     ],
+    extras_require={
+        ':python_version <= "2.7"': [
+            'scandir',
+        ],
+    },
     license='Apache 2.0',
     classifiers=[
         'Intended Audience :: Science/Research',
