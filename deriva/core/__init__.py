@@ -13,12 +13,15 @@ from pkg_resources import parse_version, get_distribution, DistributionNotFound
 
 __version__ = "0.4.2"
 
-if sys.version_info > (3,):
-    from urllib.parse import quote as _urlquote
-    from urllib.parse import urlsplit
+IS_PY2 = (sys.version_info[0] == 2)
+IS_PY3 = (sys.version_info[0] == 3)
+
+if IS_PY3:
+    from urllib.parse import quote as _urlquote, unquote as urlunquote
+    from urllib.parse import urlsplit, urlunsplit
 else:
-    from urllib import quote as _urlquote
-    from urlparse import urlsplit
+    from urllib import quote as _urlquote, unquote as urlunquote
+    from urlparse import urlsplit, urlunsplit
 
 
 def urlquote(s, safe=''):

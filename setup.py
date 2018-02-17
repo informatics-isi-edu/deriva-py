@@ -28,6 +28,7 @@ setup(
     entry_points={
         'console_scripts': [
             'deriva-upload-cli = deriva.transfer.upload.__main__:main',
+            'deriva-download-cli = deriva.transfer.download.__main__:main',
             'deriva-hatrac-cli = deriva.core.hatrac_cli:main',
             'deriva-acl-config = deriva.config.acl_config:main',
             'deriva-annotation-config = deriva.config.annotation_config:main',

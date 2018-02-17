@@ -8,8 +8,8 @@ import shutil
 import tempfile
 import logging
 from collections import OrderedDict, namedtuple
-from deriva.core import ErmrestCatalog, CatalogConfig, HatracStore, HatracJobAborted, HatracJobPaused, \
-    format_exception, urlquote, get_credential, read_config, write_config, copy_config, resource_path, stob
+from deriva.core import ErmrestCatalog, CatalogConfig, HatracStore, HatracJobAborted, HatracJobPaused, urlquote, stob, \
+    format_exception, get_credential, read_config, write_config, copy_config, resource_path, __version__ as VERSION
 from deriva.core.utils import hash_utils as hu, mime_utils as mu, version_utils as vu
 
 try:
@@ -837,3 +837,26 @@ class DerivaUpload(object):
             return "%d%% complete" % (
                 round(((float(transfer_state["completed"]) / float(transfer_state["total"])) % 100) * 100))
         return None
+
+
+class GenericUploader(DerivaUpload):
+
+    def __init__(self, config_file=None, credential_file=None, server=None):
+        DerivaUpload.__init__(self, config_file, credential_file, server)
+
+    @classmethod
+    def getVersion(cls):
+        return VERSION
+
+    @classmethod
+    def getConfigPath(cls):
+        return "~/.deriva/upload/"
+
+    @classmethod
+    def getServers(cls):
+        return read_config(os.path.join(
+            cls.getDeployedConfigPath(), cls.DefaultServerListFileName), create_default=True, default=[])
+
+    @classmethod
+    def setServers(cls, servers):
+        return write_config(os.path.join(cls.getDeployedConfigPath(), cls.DefaultServerListFileName), servers)

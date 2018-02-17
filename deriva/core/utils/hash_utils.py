@@ -1,6 +1,7 @@
 import os
 import hashlib
 import base64
+import binascii
 import logging
 
 
@@ -60,3 +61,10 @@ def compute_file_hashes(file_path, hashes=frozenset(['md5'])):
         logging.warning("Error while calculating digest(s) for file %s: %s" % (file_path, str(e)))
         raise
 
+
+def decodeBase64toHex(base64str):
+    result = binascii.hexlify(base64.standard_b64decode(base64str))
+    if isinstance(result, bytes):
+        result = result.decode('ascii')
+
+    return result

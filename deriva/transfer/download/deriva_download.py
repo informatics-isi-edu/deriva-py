@@ -3,8 +3,7 @@ import time
 import uuid
 import logging
 from bdbag import bdbag_api as bdb, bdbag_ro as ro, BAG_PROFILE_TAG, BDBAG_RO_PROFILE_ID
-from deriva.core import ErmrestCatalog, CatalogConfig, HatracStore, format_exception, urlquote, urlsplit, \
-    get_credential, read_config, stob
+from deriva.core import ErmrestCatalog, CatalogConfig, HatracStore, format_exception, get_credential, read_config, stob
 from deriva.transfer.download.processors import findProcessor
 
 

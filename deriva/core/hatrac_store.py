@@ -77,11 +77,9 @@ class HatracStore(DerivaBinding):
         if destfilename is not None:
             destfile = open(destfilename, 'w+b')
             stream = True
-            md5 = None
         else:
             destfile = None
             stream = False
-            md5 = None
 
         try:
             r = self._session.get(self._server_uri + path, headers=headers, stream=stream)
@@ -99,6 +97,7 @@ class HatracStore(DerivaBinding):
                             destfile.close()
                             os.remove(destfilename)
                             return None
+                destfile.flush()
                 elapsed = datetime.datetime.now() - start
                 summary = get_transfer_summary(total, elapsed)
                 logging.info("File [%s] transfer successful. %s" % (destfilename, summary))
@@ -120,9 +119,7 @@ class HatracStore(DerivaBinding):
                     if fmd5 != rmd5:
                         raise HatracHashMismatch('Content-MD5 %s != computed MD5 %s' % (rmd5, fmd5))
 
-                return None
-            else:
-                return r
+            return r
         finally:
             if destfile is not None:
                 destfile.close()
@@ -200,11 +197,13 @@ class HatracStore(DerivaBinding):
                 allow_versioning=True,
                 callback=None):
         """
-
         :param path:
         :param file_path:
         :param headers:
         :param md5:
+        :param sha256:
+        :param content_type:
+        :param content_disposition:
         :param chunked:
         :param chunk_size:
         :param create_parents:
