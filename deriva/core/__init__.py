@@ -75,10 +75,35 @@ def frozendict(d):
     return frozenset(set(items))
 
 
+def add_logging_level(levelName, levelNum, methodName=None):
+    if not methodName:
+        methodName = levelName.lower()
+
+    if hasattr(logging, levelName):
+        raise AttributeError('{} already defined in logging module'.format(levelName))
+    if hasattr(logging, methodName):
+        raise AttributeError('{} already defined in logging module'.format(methodName))
+    if hasattr(logging.getLoggerClass(), methodName):
+        raise AttributeError('{} already defined in logger class'.format(methodName))
+
+    def logForLevel(self, message, *args, **kwargs):
+        if self.isEnabledFor(levelNum):
+            self._log(levelNum, message, args, **kwargs)
+
+    def logToRoot(message, *args, **kwargs):
+        logging.log(levelNum, message, *args, **kwargs)
+
+    logging.addLevelName(levelNum, levelName)
+    setattr(logging, levelName, levelNum)
+    setattr(logging.getLoggerClass(), methodName, logForLevel)
+    setattr(logging, methodName, logToRoot)
+
+
 def init_logging(level=logging.INFO,
                  log_format="%(asctime)s - %(levelname)s - %(message)s",
                  file_path=None,
                  captureWarnings=True):
+    add_logging_level("TRACE", logging.DEBUG-5)
     logging.captureWarnings(captureWarnings)
     # this will suppress potentially numerous INFO-level "Resetting dropped connection" messages from requests
     logging.getLogger("requests.packages.urllib3.connectionpool").setLevel(logging.WARNING)

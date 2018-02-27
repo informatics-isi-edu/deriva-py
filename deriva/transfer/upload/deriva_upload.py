@@ -7,6 +7,7 @@ import json
 import shutil
 import tempfile
 import logging
+import platform
 from collections import OrderedDict, namedtuple
 from deriva.core import ErmrestCatalog, CatalogConfig, HatracStore, HatracJobAborted, HatracJobPaused, urlquote, stob, \
     format_exception, get_credential, read_config, write_config, copy_config, resource_path, __version__ as VERSION
@@ -87,7 +88,9 @@ class DerivaUpload(object):
         self.cleanupTransferState()
 
     def initialize(self, cleanup=False):
-        logging.info("Initializing uploader...")
+        info = "%s v%s [Python %s, %s]" % (
+            self.__class__.__name__, VERSION, platform.python_version(), platform.platform())
+        logging.info("Initializing uploader: %s" % info)
 
         # cleanup invalidates the current configuration and credentials in addition to clearing internal state
         if cleanup:
@@ -295,10 +298,10 @@ class DerivaUpload(object):
 
     @staticmethod
     def pruneDict(src, dst, stringify=True):
-        # return {k: src[k] for k in src.keys() & dst}
         dst = dst.copy()
         for k in dst.keys():
-            dst[k] = str(src.get(k)) if stringify else src.get(k)
+            value = src.get(k)
+            dst[k] = str(value) if (stringify and value is not None) else value
         return dst
 
     def getCurrentConfigFilePath(self):
@@ -512,6 +515,7 @@ class DerivaUpload(object):
                                create_parents=stob(hatrac_options.get("create_parents", True)),
                                allow_versioning=stob(hatrac_options.get("allow_versioning", True)),
                                callback=callback)
+        logging.debug("Hatrac upload successful. Result object URL: %s" % versioned_url)
         if stob(hatrac_options.get("versioned_urls", True)):
             self.metadata["URI"] = versioned_url
         self.metadata["URI.urlencoded"] = urlquote(self.metadata["URI"], '')
@@ -749,14 +753,15 @@ class DerivaUpload(object):
                 'n%d' % i: new_row[keys[i]]
                 for i in range(len(keys))
             })
-            return self.catalog.put(
-                '/attributegroup/%s/%s;%s' % (
+            update_uri = '/attributegroup/%s/%s;%s' % (
                     catalog_table,
                     ','.join(["o%d:=%s" % (i, urlquote(keys[i])) for i in range(len(keys))]),
                     ','.join(["n%d:=%s" % (i, urlquote(keys[i])) for i in range(len(keys))])
-                ),
-                json=[combined_row]
-            ).json()
+            )
+            if logging.getLogger().isEnabledFor(logging.DEBUG):
+                logging.debug(
+                    "Attempting catalog record update [%s] with data values: %s" % (update_uri, [combined_row]))
+            return self.catalog.put(update_uri, json=[combined_row]).json()
         except:
             (etype, value, traceback) = sys.exc_info()
             raise CatalogUpdateError(format_exception(value))

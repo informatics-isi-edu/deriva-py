@@ -2,8 +2,10 @@ import os
 import time
 import uuid
 import logging
+import platform
 from bdbag import bdbag_api as bdb, bdbag_ro as ro, BAG_PROFILE_TAG, BDBAG_RO_PROFILE_ID
-from deriva.core import ErmrestCatalog, CatalogConfig, HatracStore, format_exception, get_credential, read_config, stob
+from deriva.core import ErmrestCatalog, HatracStore, format_exception, get_credential, read_config, stob, \
+    __version__ as VERSION
 from deriva.transfer.download.processors import findProcessor
 
 
@@ -22,7 +24,10 @@ class DerivaDownload(object):
         self.metadata = dict()
         self.sessions = dict()
 
-        logging.info("Initializing download")
+        info = "%s v%s [Python %s, %s]" % (
+            self.__class__.__name__, VERSION, platform.python_version(), platform.platform())
+        logging.info("Initializing downloader: %s" % info)
+
         if not self.server:
             raise RuntimeError("Server not specified!")
 
