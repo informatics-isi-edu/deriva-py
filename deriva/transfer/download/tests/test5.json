@@ -16,7 +16,7 @@
       },
       {
         "query_path": "/attribute/Zebrafish:Image Region/Status=\"processed\"/url:=Segments Filtered URL,*@sort(RID::desc::)",
-        "output_path": "Source Image - %(Source Image)s",
+        "output_path": "Source Image - {Source Image}",
         "output_format": "download"
       }
     ]

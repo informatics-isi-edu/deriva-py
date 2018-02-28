@@ -95,7 +95,7 @@ class DerivaDownload(object):
         if create_bag:
             bag_name = bag_config.get('bag_name', ''.join(["deriva_bag", '_', time.strftime("%Y-%m-%d_%H.%M.%S")]))
             bag_path = os.path.abspath(os.path.join(self.output_dir, bag_name))
-            bag_archiver = bag_config.get('bag_archiver', "zip")
+            bag_archiver = bag_config.get('bag_archiver')
             bag_metadata = bag_config.get('bag_metadata', {"Internal-Sender-Identifier":
                                                            "deriva@%s" % self.server_url})
             bag_ro = create_bag and stob(bag_config.get('bag_ro', "True"))
@@ -141,13 +141,15 @@ class DerivaDownload(object):
             try:
                 if ro_manifest:
                     ro.write_bag_ro_manifest(ro_manifest, bag_path)
+                if not os.path.isfile(remote_file_manifest):
+                    remote_file_manifest = None
                 bdb.make_bag(bag_path, remote_file_manifest=remote_file_manifest, update=True)
             except Exception as e:
                 logging.fatal("Exception while updating bag manifests: %s", format_exception(e))
                 bdb.cleanup_bag(bag_path)
                 raise e
             finally:
-                if remote_file_manifest and os.path.exists(remote_file_manifest):
+                if remote_file_manifest and os.path.isfile(remote_file_manifest):
                     os.remove(remote_file_manifest)
 
             logging.info('Created bag: %s' % bag_path)

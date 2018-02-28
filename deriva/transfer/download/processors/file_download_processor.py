@@ -50,7 +50,6 @@ class FileDownloadProcessor(BaseDownloadProcessor):
 
     def downloadFiles(self, input_manifest):
         logging.info("Retrieving file(s)...")
-        subdir = self.sub_path
         try:
             with open(input_manifest, "r") as in_file:
                 for line in in_file:
@@ -61,10 +60,10 @@ class FileDownloadProcessor(BaseDownloadProcessor):
                             "Missing required attribute \"url\" in download manifest entry %s" % json.dumps(entry))
                     store = self.getHatracStore(url)
                     filename = entry.get('filename')
+                    envvars = self.envars.copy()
+                    envvars.update(entry)
+                    subdir = self.sub_path.format(**envvars)
                     if not filename:
-                        envvars = self.envars.copy()
-                        envvars.update(entry)
-                        subdir = self.sub_path % envvars
                         if store:
                             head = store.head(url, headers=self.HEADERS)
                             content_disposition = head.headers.get("Content-Disposition") if head.ok else None

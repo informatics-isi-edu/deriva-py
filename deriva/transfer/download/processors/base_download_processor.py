@@ -22,7 +22,7 @@ class BaseDownloadProcessor(object):
         self.store = kwargs["store"]
         self.query = kwargs["query"]
         if self.envars:
-            self.query = self.query % self.envars
+            self.query = self.query.format(**self.envars)
         self.base_path = kwargs["base_path"]
         self.store_base = kwargs.get("store_base", "/hatrac/")
         self.is_bag = kwargs.get("bag", False)
@@ -143,7 +143,7 @@ class BaseDownloadProcessor(object):
         if not os.path.splitext(sub_path)[1][1:]:
             relpath += ext
         if isinstance(envars, dict):
-            relpath = relpath % envars
+            relpath = relpath.format(**envars)
 
         abspath = os.path.abspath(
             os.path.join(base_path, 'data' if is_bag else '', relpath))

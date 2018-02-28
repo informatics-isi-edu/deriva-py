@@ -39,7 +39,6 @@ class BagFetchDownloadProcessor(BaseDownloadProcessor):
 
     def createManifestEntry(self, entry):
         manifest_entry = dict()
-        sub_path = self.sub_path
         url = entry.get("url")
         if not url:
             raise RuntimeError("Missing required attribute \"url\" in download manifest entry %s" % json.dumps(entry))
@@ -70,11 +69,11 @@ class BagFetchDownloadProcessor(BaseDownloadProcessor):
             raise RuntimeError("Could not determine Content-Length for %s" % url)
         if not (md5 or sha256):
             raise RuntimeError("Could not locate an MD5 or SHA256 hash for %s" % url)
-        # if a local relative path/filename are not provided, try to construct one using content_disposition, if avail
+        envvars = self.envars.copy()
+        envvars.update(entry)
+        subdir = self.sub_path.format(**envvars)
+        # if a local filename is not provided, try to construct one using content_disposition, if available
         if not filename:
-            envvars = self.envars.copy()
-            envvars.update(entry)
-            subdir = sub_path % envvars
             filename = os.path.basename(url).split(":")[0] if not content_disposition else \
                 parse_content_disposition(content_disposition)
             output_path = ''.join([subdir, "/", filename]) if subdir else filename
