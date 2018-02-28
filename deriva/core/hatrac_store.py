@@ -2,12 +2,10 @@ import os
 import datetime
 import requests
 import logging
-from . import format_exception, NotModified, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, urlquote
+from . import format_exception, NotModified, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, urlquote, Megabyte, \
+    get_transfer_summary
 from .deriva_binding import DerivaBinding
 from .utils import hash_utils as hu, mime_utils as mu
-
-Kilobyte = 1024
-Megabyte = 1024 ** 2
 
 
 class HatracHashMismatch (ValueError):
@@ -79,11 +77,9 @@ class HatracStore(DerivaBinding):
         if destfilename is not None:
             destfile = open(destfilename, 'w+b')
             stream = True
-            md5 = None
         else:
             destfile = None
             stream = False
-            md5 = None
 
         try:
             r = self._session.get(self._server_uri + path, headers=headers, stream=stream)
@@ -101,8 +97,9 @@ class HatracStore(DerivaBinding):
                             destfile.close()
                             os.remove(destfilename)
                             return None
+                destfile.flush()
                 elapsed = datetime.datetime.now() - start
-                summary = self.get_transfer_summary(total, elapsed)
+                summary = get_transfer_summary(total, elapsed)
                 logging.info("File [%s] transfer successful. %s" % (destfilename, summary))
                 if callback:
                     callback(summary=summary, file_path=destfilename)
@@ -122,9 +119,7 @@ class HatracStore(DerivaBinding):
                     if fmd5 != rmd5:
                         raise HatracHashMismatch('Content-MD5 %s != computed MD5 %s' % (rmd5, fmd5))
 
-                return None
-            else:
-                return r
+            return r
         finally:
             if destfile is not None:
                 destfile.close()
@@ -202,11 +197,13 @@ class HatracStore(DerivaBinding):
                 allow_versioning=True,
                 callback=None):
         """
-
         :param path:
         :param file_path:
         :param headers:
         :param md5:
+        :param sha256:
+        :param content_type:
+        :param content_disposition:
         :param chunked:
         :param chunk_size:
         :param create_parents:
@@ -282,7 +279,7 @@ class HatracStore(DerivaBinding):
                         elif ret == -1:
                             raise HatracJobPaused("Upload in-progress paused by user.")
                 elapsed = datetime.datetime.now() - start
-                summary = self.get_transfer_summary(total, elapsed)
+                summary = get_transfer_summary(total, elapsed)
                 logging.info("File [%s] upload successful. %s" % (file_path, summary))
                 if callback:
                     callback(summary=summary, file_path=file_path)
@@ -438,13 +435,3 @@ class HatracStore(DerivaBinding):
             return None
         resp.raise_for_status()
 
-    @staticmethod
-    def get_transfer_summary(total_bytes, elapsed_time):
-        total_secs = elapsed_time.total_seconds()
-        transferred = \
-            float(total_bytes) / float(Kilobyte) if total_bytes < Megabyte else float(total_bytes) / float(Megabyte)
-        throughput = str(" at %.2f MB/second" % (transferred / total_secs)) if (total_secs > 0) else ""
-        elapsed = str("Elapsed time: %s." % elapsed_time) if (total_secs > 0) else ""
-        summary = "%.2f %s transferred%s. %s" % \
-                  (transferred, "KB" if total_bytes < Megabyte else "MB", throughput, elapsed)
-        return summary

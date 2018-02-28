@@ -11,12 +11,17 @@ from collections import OrderedDict
 from distutils.util import strtobool
 from pkg_resources import parse_version, get_distribution, DistributionNotFound
 
-__version__ = "0.4.1"
+__version__ = "0.4.2"
 
-if sys.version_info > (3,):
-    from urllib.parse import quote as _urlquote
+IS_PY2 = (sys.version_info[0] == 2)
+IS_PY3 = (sys.version_info[0] == 3)
+
+if IS_PY3:
+    from urllib.parse import quote as _urlquote, unquote as urlunquote
+    from urllib.parse import urlsplit, urlunsplit
 else:
-    from urllib import quote as _urlquote
+    from urllib import quote as _urlquote, unquote as urlunquote
+    from urlparse import urlsplit, urlunsplit
 
 
 def urlquote(s, safe=''):
@@ -35,6 +40,9 @@ def urlquote(s, safe=''):
 DEFAULT_HEADERS = {}
 
 DEFAULT_CHUNK_SIZE = 2400 ** 2  # == 5760000 which is above the minimum 5MB chunk size for AWS S3 multipart uploads
+
+Kilobyte = 1024
+Megabyte = 1024 ** 2
 
 
 class NotModified (ValueError):
@@ -67,10 +75,35 @@ def frozendict(d):
     return frozenset(set(items))
 
 
+def add_logging_level(levelName, levelNum, methodName=None):
+    if not methodName:
+        methodName = levelName.lower()
+
+    if hasattr(logging, levelName):
+        raise AttributeError('{} already defined in logging module'.format(levelName))
+    if hasattr(logging, methodName):
+        raise AttributeError('{} already defined in logging module'.format(methodName))
+    if hasattr(logging.getLoggerClass(), methodName):
+        raise AttributeError('{} already defined in logger class'.format(methodName))
+
+    def logForLevel(self, message, *args, **kwargs):
+        if self.isEnabledFor(levelNum):
+            self._log(levelNum, message, args, **kwargs)
+
+    def logToRoot(message, *args, **kwargs):
+        logging.log(levelNum, message, *args, **kwargs)
+
+    logging.addLevelName(levelNum, levelName)
+    setattr(logging, levelName, levelNum)
+    setattr(logging.getLoggerClass(), methodName, logForLevel)
+    setattr(logging, methodName, logToRoot)
+
+
 def init_logging(level=logging.INFO,
                  log_format="%(asctime)s - %(levelname)s - %(message)s",
                  file_path=None,
                  captureWarnings=True):
+    add_logging_level("TRACE", logging.DEBUG-5)
     logging.captureWarnings(captureWarnings)
     # this will suppress potentially numerous INFO-level "Resetting dropped connection" messages from requests
     logging.getLogger("requests.packages.urllib3.connectionpool").setLevel(logging.WARNING)
@@ -215,8 +248,19 @@ def resource_path(relative_path, default=os.path.abspath(".")):
     return os.path.join(default, relative_path)
 
 
+def get_transfer_summary(total_bytes, elapsed_time):
+    total_secs = elapsed_time.total_seconds()
+    transferred = \
+        float(total_bytes) / float(Kilobyte) if total_bytes < Megabyte else float(total_bytes) / float(Megabyte)
+    throughput = str(" at %.2f MB/second" % (transferred / total_secs)) if (total_secs >= 1) else ""
+    elapsed = str("Elapsed time: %s." % elapsed_time) if (total_secs > 0) else ""
+    summary = "%.2f %s transferred%s. %s" % \
+              (transferred, "KB" if total_bytes < Megabyte else "MB", throughput, elapsed)
+    return summary
+
+
 from deriva.core import datapath
-from deriva.core.base_cli import BaseCLI
+from deriva.core.base_cli import BaseCLI, KeyValuePairArgs
 from deriva.core.deriva_binding import DerivaBinding, DerivaPathError
 from deriva.core.ermrest_catalog import ErmrestCatalog
 from deriva.core.ermrest_config import AttrDict, CatalogConfig

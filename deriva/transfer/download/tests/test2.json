@@ -1,0 +1,29 @@
+{
+  "bag":
+  {
+    "bag_name": "abide-test-bag",
+    "bag_archiver":"zip",
+    "bag_metadata":
+    {
+      "Source-Organization": "USC Information Sciences Institute, Informatics Systems Research Division",
+      "Contact-Name": "Mike D'Arcy",
+      "External-Description": "The ABIDE data set in abridged bag format.",
+      "Internal-Sender-Identifier": "USC-ISI-IRSD"
+    }
+  },
+  "catalog":
+  {
+    "queries":
+    [
+      {
+        "query_path": "/entity/A:=abide:subject",
+        "output_name": "subject",
+        "output_format": "csv"
+      },
+      {
+        "query_path": "/attribute/A:=abide:subject_denorm/$A/B:=abide:image_files/url:=B:uri,length:=B:bytes,filename:=B:filepath,sha256:=B:sha256sum",
+        "output_format": "fetch"
+      }
+    ]
+  }
+}

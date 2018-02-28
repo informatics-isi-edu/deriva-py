@@ -2,7 +2,7 @@ import os
 import sys
 import traceback
 from deriva.transfer import DerivaUpload
-from deriva.core import BaseCLI
+from deriva.core import BaseCLI, write_config
 
 if sys.version_info > (3,):
     from urllib.parse import urlparse
@@ -19,7 +19,7 @@ class DerivaUploadCLI(BaseCLI):
         self.remove_options(['--host'])
         self.parser.add_argument('--no-cfg-update', action="store_true", help="Do not update local config from server.")
         self.parser.add_argument("--catalog", default=1, metavar="<1>", help="Catalog number. Default: 1")
-        self.parser.add_argument("--token", default=1, metavar="<auth-token>", help="Authorization bearer token.")
+        self.parser.add_argument("--token", metavar="<auth-token>", help="Authorization bearer token.")
         self.parser.add_argument('host', metavar='<host>', help="Fully qualified host name.")
         self.parser.add_argument("path", metavar="<dir>", help="Path to an input directory.")
         self.uploader = uploader
@@ -53,7 +53,12 @@ class DerivaUploadCLI(BaseCLI):
             auth_token = {"cookie": "webauthn=%s" % token}
             deriva_uploader.setCredentials(auth_token)
         if not config_file and not no_update:
-            deriva_uploader.getUpdatedConfig()
+            config = deriva_uploader.getUpdatedConfig()
+            if config:
+                write_config(deriva_uploader.getDeployedConfigFilePath(), config)
+        if not deriva_uploader.isVersionCompatible():
+            raise RuntimeError("Version incompatibility detected", "Current version: [%s], required version(s): %s." % (
+                deriva_uploader.getVersion(), deriva_uploader.getVersionCompatibility()))
         deriva_uploader.scanDirectory(data_path, False)
         deriva_uploader.uploadFiles(file_callback=deriva_uploader.defaultFileCallback)
         deriva_uploader.cleanup()
@@ -62,9 +67,9 @@ class DerivaUploadCLI(BaseCLI):
         sys.stderr.write("\n")
         args = self.parse_cli()
         if args.path is None:
-            print("\nError: Input directory not specified.\n")
+            sys.stderr.write("\nError: Input directory not specified.\n")
             self.parser.print_usage()
-            return 1
+            return 2
 
         try:
             DerivaUploadCLI.upload(self.uploader,
@@ -75,7 +80,8 @@ class DerivaUploadCLI(BaseCLI):
                                    args.config_file,
                                    args.credential_file,
                                    args.no_cfg_update)
-        except RuntimeError:
+        except RuntimeError as e:
+            sys.stderr.write(str(e))
             return 1
         except:
             traceback.print_exc()

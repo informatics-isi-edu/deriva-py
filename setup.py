@@ -28,7 +28,8 @@ setup(
     entry_points={
         'console_scripts': [
             'deriva-upload-cli = deriva.transfer.upload.__main__:main',
-            'deriva-hatrac-cli = deriva.transfer.hatrac.cli:main',
+            'deriva-download-cli = deriva.transfer.download.__main__:main',
+            'deriva-hatrac-cli = deriva.core.hatrac_cli:main',
             'deriva-acl-config = deriva.config.acl_config:main',
             'deriva-annotation-config = deriva.config.annotation_config:main',
             'deriva-annotation-dump = deriva.config.dump_catalog_annotations:main'
@@ -53,8 +54,10 @@ setup(
         'setuptools'],
     install_requires=[
         'requests',
+        'certifi',
         'pika',
-        'portalocker'
+        'portalocker',
+        'bdbag>=1.2.0'
     ],
     extras_require={
         ':python_version <= "2.7"': [
