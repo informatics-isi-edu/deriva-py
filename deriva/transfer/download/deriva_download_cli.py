@@ -2,13 +2,8 @@ import os
 import sys
 import traceback
 import argparse
-from deriva.transfer import DerivaDownload
-from deriva.core import BaseCLI, KeyValuePairArgs, __version__
-
-if sys.version_info > (3,):
-    from urllib.parse import urlparse
-else:
-    from urlparse import urlparse
+from deriva.transfer import GenericDownloader
+from deriva.core import BaseCLI, KeyValuePairArgs, urlparse, __version__
 
 
 class DerivaDownloadCLI(BaseCLI):
@@ -47,11 +42,11 @@ class DerivaDownloadCLI(BaseCLI):
             server["protocol"] = "https"
             server["host"] = hostname
 
-        downloader = DerivaDownload(server,
-                                    output_dir=output_path,
-                                    kwargs=kwargs,
-                                    config_file=config_file,
-                                    credential_file=credential_file)
+        downloader = GenericDownloader(server,
+                                       output_dir=output_path,
+                                       kwargs=kwargs,
+                                       config_file=config_file,
+                                       credential_file=credential_file)
         if token:
             auth_token = {"cookie": "webauthn=%s" % token}
             downloader.setCredentials(auth_token)

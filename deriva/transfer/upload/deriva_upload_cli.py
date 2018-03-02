@@ -2,12 +2,7 @@ import os
 import sys
 import traceback
 from deriva.transfer import DerivaUpload
-from deriva.core import BaseCLI, write_config
-
-if sys.version_info > (3,):
-    from urllib.parse import urlparse
-else:
-    from urlparse import urlparse
+from deriva.core import BaseCLI, write_config, urlparse
 
 
 class DerivaUploadCLI(BaseCLI):

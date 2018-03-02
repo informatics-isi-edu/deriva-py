@@ -39,7 +39,7 @@ UploadState = Enum(["Success", "Failed", "Pending", "Running", "Paused", "Aborte
 FileUploadState = namedtuple("FileUploadState", ["State", "Status"])
 
 DefaultConfig = {
-  "version_compatibility": [">=0.2.0", "<1.0.0"],
+  "version_compatibility": [">=%s" % VERSION],
   "version_update_url": "https://github.com/informatics-isi-edu/deriva-py/releases",
   "asset_mappings": [
     {
@@ -59,23 +59,23 @@ class DerivaUpload(object):
 
     This class is not intended to be instantiated directly, but rather extended by a deployment specific implementation.
     """
-    server = None
-    server_url = None
-    catalog = None
-    store = None
-    config = None
-    credentials = None
-    asset_mappings = None
-    transfer_state = dict()
-    transfer_state_fp = None
-    cancelled = False
-    metadata = dict()
 
     DefaultConfigFileName = "config.json"
     DefaultServerListFileName = "servers.json"
     DefaultTransferStateFileName = "transfers.json"
 
     def __init__(self, config_file=None, credential_file=None, server=None):
+        self.server_url = None
+        self.catalog = None
+        self.store = None
+        self.config = None
+        self.credentials = None
+        self.asset_mappings = None
+        self.transfer_state = dict()
+        self.transfer_state_fp = None
+        self.cancelled = False
+        self.metadata = dict()
+
         self.file_list = OrderedDict()
         self.file_status = OrderedDict()
         self.skipped_files = set()
@@ -272,7 +272,11 @@ class DerivaUpload(object):
         return '%s:%s' % (urlquote(schema_name), urlquote(table_name))
 
     @staticmethod
-    def processTemplates(src, dst, allowNone=False):
+    def interpolateDict(src, dst, allowNone=False):
+        if not (isinstance(src, dict) and isinstance(dst, dict)):
+            raise ValueError("Invalid input parameter type(s): (src = %s, dst = %s), expected (dict, dict)" % (
+                type(src).__name__, type(dst).__name__))
+
         dst = dst.copy()
         # prune None values from the src, we don't want those to be replaced with the string 'None' in the dest
         empty = [k for k, v in src.items() if v is None]
@@ -281,11 +285,11 @@ class DerivaUpload(object):
         # perform the string replacement for the values in the destination dict
         for k, v in dst.items():
             try:
-                value = v % src
+                value = v.format(**src)
             except KeyError:
                 value = v
                 if value:
-                    if value.startswith('%('):
+                    if value.startswith('{') and value.endswith('}'):
                         value = None
             dst.update({k: value})
         # remove all None valued entries in the dest, if disallowed
@@ -518,7 +522,9 @@ class DerivaUpload(object):
         logging.debug("Hatrac upload successful. Result object URL: %s" % versioned_url)
         if stob(hatrac_options.get("versioned_urls", True)):
             self.metadata["URI"] = versioned_url
-        self.metadata["URI.urlencoded"] = urlquote(self.metadata["URI"], '')
+        else:
+            self.metadata["URI"] = versioned_url.rsplit(":")[0]
+        self.metadata["URI_urlencoded"] = urlquote(self.metadata["URI"], '')
 
         # 3. Check for an existing record and create a new one if necessary
         if not record:
@@ -526,7 +532,7 @@ class DerivaUpload(object):
 
         # 4. Update an existing record, if necessary
         column_map = asset_mapping.get("column_map", {})
-        updated_record = self.processTemplates(self.metadata, column_map)
+        updated_record = self.interpolateDict(self.metadata, column_map)
         if updated_record != record:
             logging.info("Updating catalog for file [%s]" % self.getFileDisplayName(file_path))
             self._catalogRecordUpdate(self.metadata['target_table'], record, updated_record)
@@ -564,7 +570,7 @@ class DerivaUpload(object):
         column_map = asset_mapping.get("column_map", {})
         rqt = asset_mapping['record_query_template']
         try:
-            path = rqt % self.metadata
+            path = rqt.format(**self.metadata)
         except KeyError as e:
             raise ConfigurationError("Record query template substitution error: %s" % format_exception(e))
         result = self.catalog.get(path).json()
@@ -572,18 +578,18 @@ class DerivaUpload(object):
             self.metadata.update(result[0])
             return self.pruneDict(result[0], column_map)
         else:
-            row = self.processTemplates(self.metadata, column_map)
+            row = self.interpolateDict(self.metadata, column_map)
             result = self._catalogRecordCreate(self.metadata['target_table'], row)
             if result:
                 self.metadata.update(result[0])
-            return self.processTemplates(self.metadata, column_map, allowNone=True)
+            return self.interpolateDict(self.metadata, column_map, allowNone=True)
 
     def _urlEncodeMetadata(self):
         urlencoded = dict()
         for k, v in self.metadata.items():
-            if k.endswith(".urlencoded"):
+            if k.endswith("_urlencoded"):
                 continue
-            urlencoded[k + ".urlencoded"] = urlquote(str(v))
+            urlencoded[k + "_urlencoded"] = urlquote(str(v), "/")
         self.metadata.update(urlencoded)
 
     def _initFileMetadata(self, file_path, asset_mapping, match_groupdict):
@@ -613,7 +619,7 @@ class DerivaUpload(object):
 
         for uri in asset_mapping.get("metadata_query_templates", []):
             try:
-                path = uri % self.metadata
+                path = uri.format(**self.metadata)
             except KeyError as e:
                 raise RuntimeError("Metadata query template substitution error: %s" % format_exception(e))
             result = self.catalog.get(path).json()
@@ -626,7 +632,7 @@ class DerivaUpload(object):
 
         for k, v in asset_mapping.get("column_value_templates", {}).items():
             try:
-                self.metadata[k] = v % self.metadata
+                self.metadata[k] = v.format(**self.metadata)
             except KeyError as e:
                 logging.warning("Column value template substitution error: %s" % format_exception(e))
                 continue
@@ -643,11 +649,11 @@ class DerivaUpload(object):
         try:
             hatrac_templates = asset_mapping["hatrac_templates"]
             # URI is required
-            self.metadata["URI"] = hatrac_templates["hatrac_uri"] % self.metadata
+            self.metadata["URI"] = hatrac_templates["hatrac_uri"].format(**self.metadata)
             # overridden content-disposition is optional
             content_disposition = hatrac_templates.get("content-disposition")
             self.metadata["content-disposition"] = \
-                None if not content_disposition else content_disposition % self.metadata
+                None if not content_disposition else content_disposition.format(**self.metadata)
             self._urlEncodeMetadata()
         except KeyError as e:
             raise ConfigurationError("Hatrac template substitution error: %s" % format_exception(e))
@@ -794,47 +800,56 @@ class DerivaUpload(object):
     def loadTransferState(self):
         transfer_state_file_path = self.getDeployedTransferStateFilePath()
         transfer_state_dir = os.path.dirname(transfer_state_file_path)
-        if not os.path.isdir(transfer_state_dir):
-            try:
-                os.makedirs(transfer_state_dir)
-            except OSError as error:
-                if error.errno != errno.EEXIST:
-                    raise
-
-        if not os.path.isfile(transfer_state_file_path):
-            with open(transfer_state_file_path, "w") as tsfp:
-                json.dump(self.transfer_state, tsfp)
-
-        self.transfer_state_fp = \
-            open(transfer_state_file_path, 'r+')
         try:
+            if not os.path.isdir(transfer_state_dir):
+                try:
+                    os.makedirs(transfer_state_dir)
+                except OSError as error:
+                    if error.errno != errno.EEXIST:
+                        raise
+
+            if not os.path.isfile(transfer_state_file_path):
+                with open(transfer_state_file_path, "w") as tsfp:
+                    json.dump(self.transfer_state, tsfp)
+
+            self.transfer_state_fp = \
+                open(transfer_state_file_path, 'r+')
             self.transfer_state = json.load(self.transfer_state_fp, object_pairs_hook=OrderedDict)
         except Exception as e:
-            logging.debug("Unable to read transfer state: %s" % format_exception(e))
+            logging.warning("Unable to read transfer state file, transfer checkpointing will not be available. "
+                            "Error: %s" % format_exception(e))
 
     def getTransferState(self, file_path):
         return self.transfer_state.get(file_path)
 
     def setTransferState(self, file_path, transfer_state):
         self.transfer_state[file_path] = transfer_state
-        self.transfer_state_fp.seek(0, 0)
-        self.transfer_state_fp.truncate()
-        json.dump(self.transfer_state, self.transfer_state_fp, indent=2)
-        self.transfer_state_fp.flush()
+        self.writeTransferState()
 
     def delTransferState(self, file_path):
-        transfer_state = self.transfer_state.get(file_path)
+        transfer_state = self.getTransferState(file_path)
         if transfer_state:
             del self.transfer_state[file_path]
-        self.transfer_state_fp.seek(0, 0)
-        self.transfer_state_fp.truncate()
-        json.dump(self.transfer_state, self.transfer_state_fp, indent=2)
-        self.transfer_state_fp.flush()
+        self.writeTransferState()
+
+    def writeTransferState(self):
+        if not self.transfer_state_fp:
+            return
+        try:
+            self.transfer_state_fp.seek(0, 0)
+            self.transfer_state_fp.truncate()
+            json.dump(self.transfer_state, self.transfer_state_fp, indent=2)
+            self.transfer_state_fp.flush()
+        except Exception as e:
+            logging.warning("Unable to write transfer state file: %s" % format_exception(e))
 
     def cleanupTransferState(self):
         if self.transfer_state_fp and not self.transfer_state_fp.closed:
-            self.transfer_state_fp.flush()
-            self.transfer_state_fp.close()
+            try:
+                self.transfer_state_fp.flush()
+                self.transfer_state_fp.close()
+            except Exception as e:
+                logging.warning("Unable to flush/close transfer state file: %s" % format_exception(e))
 
     def getTransferStateStatus(self, file_path):
         transfer_state = self.getTransferState(file_path)

@@ -11,17 +11,17 @@ from collections import OrderedDict
 from distutils.util import strtobool
 from pkg_resources import parse_version, get_distribution, DistributionNotFound
 
-__version__ = "0.4.2"
+__version__ = "0.4.3"
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
 
 if IS_PY3:
     from urllib.parse import quote as _urlquote, unquote as urlunquote
-    from urllib.parse import urlsplit, urlunsplit
+    from urllib.parse import urlparse, urlsplit, urlunsplit
 else:
     from urllib import quote as _urlquote, unquote as urlunquote
-    from urlparse import urlsplit, urlunsplit
+    from urlparse import urlparse, urlsplit, urlunsplit
 
 
 def urlquote(s, safe=''):
@@ -259,7 +259,6 @@ def get_transfer_summary(total_bytes, elapsed_time):
     return summary
 
 
-from deriva.core import datapath
 from deriva.core.base_cli import BaseCLI, KeyValuePairArgs
 from deriva.core.deriva_binding import DerivaBinding, DerivaPathError
 from deriva.core.ermrest_catalog import ErmrestCatalog

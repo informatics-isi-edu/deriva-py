@@ -76,7 +76,7 @@ class DerivaDownload(object):
             logging.info("Validating credentials")
             try:
                 attributes = self.catalog.get_authn_session().json()
-                identity = attributes.get("client", {})
+                identity = attributes["client"]
             except Exception as e:
                 raise RuntimeError("Unable to validate credentials: %s" % format_exception(e))
 
@@ -164,3 +164,9 @@ class DerivaDownload(object):
                     raise e
             else:
                 return bag_path
+
+
+class GenericDownloader(DerivaDownload):
+
+    def __init__(self, server, output_dir=None, kwargs=None, config_file=None, credential_file=None):
+        DerivaDownload.__init__(self, server, output_dir, kwargs, config_file, credential_file)

@@ -1,15 +1,8 @@
 import io
 import re
-import sys
-
-from . import get_credential, urlquote
+from . import get_credential, urlquote, urlsplit, urlunsplit
 from .ermrest_catalog import ErmrestCatalog
 from .utils.hash_utils import compute_hashes
-
-if sys.version_info > (3,):
-    from urllib.parse import urlsplit, urlunsplit
-else:
-    from urlparse import urlsplit, urlunsplit
 
 
 class VersionedCatalogError(Exception):
