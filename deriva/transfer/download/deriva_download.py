@@ -25,7 +25,7 @@ class DerivaDownload(object):
         self.sessions = dict()
 
         info = "%s v%s [Python %s, %s]" % (
-            self.__class__.__name__, VERSION, platform.python_version(), platform.platform())
+            self.__class__.__name__, VERSION, platform.python_version(), platform.platform(aliased=True))
         logging.info("Initializing downloader: %s" % info)
 
         if not self.server:
