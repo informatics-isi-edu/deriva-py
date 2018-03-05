@@ -591,10 +591,7 @@ class DerivaUpload(object):
         for k, v in self.metadata.items():
             if k.endswith("_urlencoded"):
                 continue
-            if k.endswith("_base64"):
-                urlencoded[k + "_urlencoded"] = urlquote(str(v), '/+=')
-            else:
-                urlencoded[k + "_urlencoded"] = urlquote(str(v), safe_overrides.get(k, ""))
+            urlencoded[k + "_urlencoded"] = urlquote(str(v), safe_overrides.get(k, ""))
         self.metadata.update(urlencoded)
 
     def _initFileMetadata(self, file_path, asset_mapping, match_groupdict):
