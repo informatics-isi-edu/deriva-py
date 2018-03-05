@@ -489,8 +489,8 @@ class DerivaUpload(object):
         """
         logging.info("Processing file: [%s]" % file_path)
 
-        if asset_mapping.get("asset_type", "file") == "data":
-            self._uploadData(file_path, asset_mapping, match_groupdict)
+        if asset_mapping.get("asset_type", "file") == "table":
+            self._uploadTable(file_path, asset_mapping, match_groupdict)
         else:
             self._uploadAsset(file_path, asset_mapping, match_groupdict, callback)
 
@@ -508,7 +508,7 @@ class DerivaUpload(object):
         # 3. Perform the Hatrac upload
         self._getFileHatracMetadata(asset_mapping)
         hatrac_options = asset_mapping.get("hatrac_options", {})
-        versioned_url = \
+        versioned_uri = \
             self._hatracUpload(self.metadata["URI"],
                                file_path,
                                md5=self.metadata.get("md5_base64"),
@@ -519,12 +519,12 @@ class DerivaUpload(object):
                                create_parents=stob(hatrac_options.get("create_parents", True)),
                                allow_versioning=stob(hatrac_options.get("allow_versioning", True)),
                                callback=callback)
-        logging.debug("Hatrac upload successful. Result object URL: %s" % versioned_url)
-        if stob(hatrac_options.get("versioned_urls", True)):
-            self.metadata["URI"] = versioned_url
+        logging.debug("Hatrac upload successful. Result object URI: %s" % versioned_uri)
+        if stob(hatrac_options.get("versioned_uris", True)):
+            self.metadata["URI"] = versioned_uri
         else:
-            self.metadata["URI"] = versioned_url.rsplit(":")[0]
-        self.metadata["URI_urlencoded"] = urlquote(self.metadata["URI"], '')
+            self.metadata["URI"] = versioned_uri.rsplit(":")[0]
+        self.metadata["URI_urlencoded"] = urlquote(self.metadata["URI"])
 
         # 3. Check for an existing record and create a new one if necessary
         if not record:
@@ -537,7 +537,7 @@ class DerivaUpload(object):
             logging.info("Updating catalog for file [%s]" % self.getFileDisplayName(file_path))
             self._catalogRecordUpdate(self.metadata['target_table'], record, updated_record)
 
-    def _uploadData(self, file_path, asset_mapping, match_groupdict, callback=None):
+    def _uploadTable(self, file_path, asset_mapping, match_groupdict, callback=None):
         if self.cancelled:
             return None
 
@@ -584,12 +584,17 @@ class DerivaUpload(object):
                 self.metadata.update(result[0])
             return self.interpolateDict(self.metadata, column_map, allowNone=True)
 
-    def _urlEncodeMetadata(self):
+    def _urlEncodeMetadata(self, safe_overrides=None):
         urlencoded = dict()
+        if not safe_overrides:
+            safe_overrides = dict()
         for k, v in self.metadata.items():
             if k.endswith("_urlencoded"):
                 continue
-            urlencoded[k + "_urlencoded"] = urlquote(str(v), "/")
+            if k.endswith("_base64"):
+                urlencoded[k + "_urlencoded"] = urlquote(str(v), '/+=')
+            else:
+                urlencoded[k + "_urlencoded"] = urlquote(str(v), safe_overrides.get(k, ""))
         self.metadata.update(urlencoded)
 
     def _initFileMetadata(self, file_path, asset_mapping, match_groupdict):
@@ -600,7 +605,7 @@ class DerivaUpload(object):
         self.metadata["file_name"] = self.getFileDisplayName(file_path)
         self.metadata["file_size"] = self.getFileSize(file_path)
 
-        self._urlEncodeMetadata()
+        self._urlEncodeMetadata(asset_mapping.get("url_encoding_safe_overrides"))
 
     def _queryFileMetadata(self, file_path, asset_mapping, match_groupdict):
         """
@@ -614,7 +619,7 @@ class DerivaUpload(object):
         hashes = self.getFileHashes(file_path, asset_mapping.get('checksum_types', ['md5', 'sha256']))
         for alg, checksum in hashes.items():
             alg = alg.lower()
-            self.metadata[alg] = urlquote(checksum[0])
+            self.metadata[alg] = checksum[0]
             self.metadata[alg + "_base64"] = checksum[1]
 
         for uri in asset_mapping.get("metadata_query_templates", []):
@@ -625,6 +630,7 @@ class DerivaUpload(object):
             result = self.catalog.get(path).json()
             if result:
                 self.metadata.update(result[0])
+                self._urlEncodeMetadata(asset_mapping.get("url_encoding_safe_overrides"))
             else:
                 raise RuntimeError("Metadata query did not return any results: %s" % path)
 
@@ -636,8 +642,7 @@ class DerivaUpload(object):
             except KeyError as e:
                 logging.warning("Column value template substitution error: %s" % format_exception(e))
                 continue
-
-        self._urlEncodeMetadata()
+        self._urlEncodeMetadata(asset_mapping.get("url_encoding_safe_overrides"))
 
     def _getFileExtensionMetadata(self, ext):
         ext_map = self.config.get("file_ext_mappings", {})
@@ -654,7 +659,7 @@ class DerivaUpload(object):
             content_disposition = hatrac_templates.get("content-disposition")
             self.metadata["content-disposition"] = \
                 None if not content_disposition else content_disposition.format(**self.metadata)
-            self._urlEncodeMetadata()
+            self._urlEncodeMetadata(asset_mapping.get("url_encoding_safe_overrides"))
         except KeyError as e:
             raise ConfigurationError("Hatrac template substitution error: %s" % format_exception(e))
 
