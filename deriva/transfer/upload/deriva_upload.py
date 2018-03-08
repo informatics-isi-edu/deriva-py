@@ -730,7 +730,10 @@ class DerivaUpload(object):
             default_param = ('?defaults=%s' % ','.join(default_columns)) if len(default_columns) > 0 else ''
             # for default in default_columns:
             #    row[default] = None
-            return self.catalog.post('/entity/%s%s' % (catalog_table, default_param), json=[row]).json()
+            create_uri = '/entity/%s%s' % (catalog_table, default_param)
+            logging.debug(
+                "Attempting catalog record create [%s] with data: %s" % (create_uri, json.dumps(row)))
+            return self.catalog.post(create_uri, json=[row]).json()
         except:
             (etype, value, traceback) = sys.exc_info()
             raise CatalogCreateError(format_exception(value))
@@ -766,9 +769,8 @@ class DerivaUpload(object):
                     ','.join(["o%d:=%s" % (i, urlquote(keys[i])) for i in range(len(keys))]),
                     ','.join(["n%d:=%s" % (i, urlquote(keys[i])) for i in range(len(keys))])
             )
-            if logging.getLogger().isEnabledFor(logging.DEBUG):
-                logging.debug(
-                    "Attempting catalog record update [%s] with data values: %s" % (update_uri, [combined_row]))
+            logging.debug(
+                "Attempting catalog record update [%s] with data: %s" % (update_uri, json.dumps(combined_row)))
             return self.catalog.put(update_uri, json=[combined_row]).json()
         except:
             (etype, value, traceback) = sys.exc_info()
