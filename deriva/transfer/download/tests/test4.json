@@ -2,12 +2,12 @@
   "catalog": {
     "queries": [
       {
-        "query_path": "/attribute/D:=isa:dataset/accession={accession}/E:=isa:experiment/experiment_type:=isa:experiment_type/term=RNA%20expression%20%28RNA-seq%29/$E/STRAND:=vocabulary:strandedness/$E/R:=isa:replicate/SAMPLE:=isa:biosample/SPEC:=vocabulary:species/$R/SEQ:=isa:sequencing_data/PAIRED:=vocabulary:paired_end_or_single_read/$SEQ/DIR:=vocabulary:sequencing_data_direction/$SEQ/file_format:=vocabulary:file_format/term=FastQ/$SEQ/dataset:=D:accession,experiment:=E:RID,biosample:=SAMPLE:RID,replicate:=R:RID,bioreplicate_num:=R:bioreplicate_number,technical_replicate_num:=R:technical_replicate_number,species:=SPEC:term,paired:=PAIRED:term,stranded:=STRAND:term,direction:=DIR:term,file:=SEQ:RID,filename:=SEQ:filename,url:=SEQ:url",
+        "query_path": "/attribute/D:=isa:dataset/accession={accession}/E:=isa:experiment/experiment_type:=isa:experiment_type/term=RNA%20expression%20%28RNA-seq%29/$E/STRAND:=vocabulary:strandedness/$E/R:=isa:replicate/SAMPLE:=isa:biosample/SPEC:=vocabulary:species/$R/SEQ:=isa:sequencing_data/PAIRED:=vocabulary:paired_end_or_single_read/$SEQ/file_format:=vocabulary:file_format/term=FastQ/$SEQ/dataset:=D:accession,experiment:=E:RID,biosample:=SAMPLE:RID,replicate:=R:RID,bioreplicate_num:=R:bioreplicate_number,techreplicate_num:=R:technical_replicate_number,species:=SPEC:term,paired:=PAIRED:term,stranded:=STRAND:term,read:=SEQ:read,file:=SEQ:RID,filename:=SEQ:filename,url:=SEQ:url",
         "output_path": "{accession}/{accession}-RNA-Seq",
         "output_format": "csv"
       },
       {
-        "query_path": "/attribute/D:=isa:dataset/accession={accession}/E:=isa:experiment/experiment_type:=isa:experiment_type/term=RNA expression %28RNA-seq%29/$E/STRAND:=vocabulary:strandedness/$E/R:=isa:replicate/SAMPLE:=isa:biosample/SPEC:=vocabulary:species/$R/SEQ:=isa:sequencing_data/PAIRED:=vocabulary:paired_end_or_single_read/$SEQ/DIR:=vocabulary:sequencing_data_direction/$SEQ/file_format:=vocabulary:file_format/term=FastQ/$SEQ/dataset:=D:accession,experiment:=E:RID,biosample:=SAMPLE:RID,technical_replicate_num:=R:technical_replicate_number,file:=SEQ:RID,filename:=SEQ:filename,size:=SEQ:byte_count,md5:=SEQ:md5,url:=SEQ:url",
+        "query_path": "/attribute/D:=isa:dataset/accession={accession}/E:=isa:experiment/experiment_type:=isa:experiment_type/term=RNA%20expression%20%28RNA-seq%29/$E/STRAND:=vocabulary:strandedness/$E/R:=isa:replicate/SAMPLE:=isa:biosample/SPEC:=vocabulary:species/$R/SEQ:=isa:sequencing_data/PAIRED:=vocabulary:paired_end_or_single_read/$SEQ/file_format:=vocabulary:file_format/term=FastQ/$SEQ/dataset:=D:RID,experiment:=E:RID,biosample:=SAMPLE:RID,file:=SEQ:RID,filename:=SEQ:filename,size:=SEQ:byte_count,md5:=SEQ:md5,url:=SEQ:url",
         "output_path": "{dataset}/{experiment}/{biosample}/{technical_replicate_num}/seq",
         "output_format": "download"
       }
