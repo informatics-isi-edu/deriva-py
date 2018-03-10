@@ -371,11 +371,11 @@ class DerivaUpload(object):
 
     def validateFile(self, root, path, name):
         file_path = os.path.normpath(os.path.join(path, name))
-        asset_mapping, groupdict = self.getAssetMapping(file_path)
+        asset_group, asset_mapping, groupdict = self.getAssetMapping(file_path)
         if not asset_mapping:
             return None
 
-        return {file_path: (asset_mapping, groupdict)}
+        return asset_group, asset_mapping, groupdict, file_path
 
     def scanDirectory(self, root, abort_on_invalid_input=False):
         """
@@ -389,6 +389,7 @@ class DerivaUpload(object):
             raise ValueError("Invalid directory specified: [%s]" % root)
 
         logging.info("Scanning files in directory [%s]..." % root)
+        file_list = OrderedDict()
         for path, dirs, files in walk(root):
             for file_name in files:
                 file_path = os.path.normpath(os.path.join(path, file_name))
@@ -399,20 +400,32 @@ class DerivaUpload(object):
                     if abort_on_invalid_input:
                         raise ValueError("Invalid input detected, aborting.")
                 else:
-                    logging.info("Including file: [%s]." % file_path)
-                    self.file_list.update(file_entry)
-                    status = self.getTransferStateStatus(file_path)
-                    if status:
-                        self.file_status[file_path] = FileUploadState(UploadState.Paused, status)._asdict()
-                    else:
-                        self.file_status[file_path] = FileUploadState(UploadState.Pending, "Pending")._asdict()
+                    asset_group = file_entry[0]
+                    group_list = file_list.get(asset_group, [])
+                    group_list.append(file_entry)
+                    file_list[asset_group] = group_list
+
+        # make sure that file entries in both self.file_list and self.file_status are ordered by the declared order of
+        # the asset_mapping for the file
+        for group in sorted(file_list.keys()):
+            self.file_list[group] = file_list[group]
+            for file_entry in file_list[group]:
+                file_path = file_entry[3]
+                logging.info("Including file: [%s]." % file_path)
+                status = self.getTransferStateStatus(file_path)
+                if status:
+                    self.file_status[file_path] = FileUploadState(UploadState.Paused, status)._asdict()
+                else:
+                    self.file_status[file_path] = FileUploadState(UploadState.Pending, "Pending")._asdict()
 
     def getAssetMapping(self, file_path):
         """
         :param file_path:
         :return:
         """
+        asset_group = -1
         for asset_type in self.asset_mappings:
+            asset_group += 1
             groupdict = dict()
             dir_pattern = asset_type.get('dir_pattern', '')
             ext_pattern = asset_type.get('ext_pattern', '')
@@ -434,34 +447,36 @@ class DerivaUpload(object):
                     continue
                 groupdict.update(match.groupdict())
 
-            return asset_type, groupdict
+            return asset_group, asset_type, groupdict
 
-        return None, None
+        return None, None, None
 
     def uploadFiles(self, status_callback=None, file_callback=None):
-        for file_path, (asset_mapping, groupdict) in self.file_list.items():
-            if self.cancelled:
-                self.file_status[file_path] = FileUploadState(UploadState.Cancelled, "Cancelled by user")._asdict()
-                continue
-            try:
-                self.file_status[file_path] = FileUploadState(UploadState.Running, "In-progress")._asdict()
+        for group, assets in self.file_list.items():
+            for asset_group_num, asset_mapping, groupdict, file_path in assets:
+                if self.cancelled:
+                    self.file_status[file_path] = FileUploadState(UploadState.Cancelled, "Cancelled by user")._asdict()
+                    continue
+                try:
+                    self.file_status[file_path] = FileUploadState(UploadState.Running, "In-progress")._asdict()
+                    if status_callback:
+                        status_callback()
+                    self.uploadFile(file_path, asset_mapping, groupdict, file_callback)
+                    self.file_status[file_path] = FileUploadState(UploadState.Success, "Complete")._asdict()
+                except HatracJobPaused:
+                    status = self.getTransferStateStatus(file_path)
+                    if status:
+                        self.file_status[file_path] = FileUploadState(
+                            UploadState.Paused, "Paused: %s" % status)._asdict()
+                    continue
+                except HatracJobAborted:
+                    self.file_status[file_path] = FileUploadState(UploadState.Aborted, "Aborted by user")._asdict()
+                except:
+                    (etype, value, traceback) = sys.exc_info()
+                    self.file_status[file_path] = FileUploadState(UploadState.Failed, format_exception(value))._asdict()
+                self.delTransferState(file_path)
                 if status_callback:
                     status_callback()
-                self.uploadFile(file_path, asset_mapping, groupdict, file_callback)
-                self.file_status[file_path] = FileUploadState(UploadState.Success, "Complete")._asdict()
-            except HatracJobPaused:
-                status = self.getTransferStateStatus(file_path)
-                if status:
-                    self.file_status[file_path] = FileUploadState(UploadState.Paused, "Paused: %s" % status)._asdict()
-                continue
-            except HatracJobAborted:
-                self.file_status[file_path] = FileUploadState(UploadState.Aborted, "Aborted by user")._asdict()
-            except:
-                (etype, value, traceback) = sys.exc_info()
-                self.file_status[file_path] = FileUploadState(UploadState.Failed, format_exception(value))._asdict()
-            self.delTransferState(file_path)
-            if status_callback:
-                status_callback()
 
         failed_uploads = dict()
         for key, value in self.file_status.items():
