@@ -21,6 +21,7 @@ class DerivaDownload(object):
         self.store = None
         self.config = None
         self.cancelled = False
+        self.credentials = dict()
         self.metadata = dict()
         self.sessions = dict()
 
