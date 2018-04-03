@@ -41,7 +41,8 @@ class DerivaDownload(object):
         session_config = self.server.get('session')
 
         # credential initialization
-        self.credentials = get_credential(host, credential_file)
+        if credential_file:
+            self.credentials = get_credential(host, credential_file)
 
         # catalog and file store initialization
         if self.catalog:
