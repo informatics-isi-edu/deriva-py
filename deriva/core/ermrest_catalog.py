@@ -7,6 +7,10 @@ from .ermrest_config import CatalogConfig
 from . import ermrest_model
 
 
+class ErmrestCatalogMutationError(Exception):
+    pass
+
+
 class ErmrestCatalog(DerivaBinding):
     """Persistent handle for an ERMrest catalog.
 
@@ -178,3 +182,9 @@ class ErmrestSnapshot(ErmrestCatalog):
             snaptime
         )
 
+    def _pre_mutate(self, path, headers, guard_response=None):
+        """Override and disable mutation operations.
+
+        When called by the super-class, this method raises an exception.
+        """
+        raise ErmrestCatalogMutationError('Catalog snapshot is immutable')
