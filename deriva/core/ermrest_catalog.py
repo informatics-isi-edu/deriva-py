@@ -41,8 +41,8 @@ class ErmrestCatalog(DerivaBinding):
         self._scheme, self._server, self._catalog_id, self._credentials, self._caching, self._session_config = \
             scheme, server, catalog_id, credentials, caching, session_config
 
-    def fix(self):
-        """Fixes (as in "fixity") a handle to this catalog's latest snapshot.
+    def latest_snapshot(self):
+        """Gets a handle to this catalog's latest snapshot.
         """
         r = self.get('/')
         r.raise_for_status()
