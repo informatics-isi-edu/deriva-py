@@ -7,6 +7,10 @@ from .ermrest_config import CatalogConfig
 from . import ermrest_model
 
 
+class ErmrestCatalogMutationError(Exception):
+    pass
+
+
 class ErmrestCatalog(DerivaBinding):
     """Persistent handle for an ERMrest catalog.
 
@@ -29,11 +33,21 @@ class ErmrestCatalog(DerivaBinding):
              caching: whether to retain a GET response cache
 
         """
-        DerivaBinding.__init__(self, scheme, server, credentials, caching, session_config)
+        super(ErmrestCatalog, self).__init__(scheme, server, credentials, caching, session_config)
         self._server_uri = "%s/ermrest/catalog/%s" % (
             self._server_uri,
             catalog_id
         )
+        self._scheme, self._server, self._catalog_id, self._credentials, self._caching, self._session_config = \
+            scheme, server, catalog_id, credentials, caching, session_config
+
+    def latest_snapshot(self):
+        """Gets a handle to this catalog's latest snapshot.
+        """
+        r = self.get('/')
+        r.raise_for_status()
+        return ErmrestSnapshot(self._scheme, self._server, self._catalog_id, r.json()['snaptime'],
+                               self._credentials, self._caching, self._session_config)
 
     def getCatalogConfig(self):
         return CatalogConfig.fromcatalog(self)
@@ -142,3 +156,35 @@ class ErmrestCatalog(DerivaBinding):
             return r
         finally:
             destfile.close()
+
+
+class ErmrestSnapshot(ErmrestCatalog):
+    """Persistent handle for an ERMrest catalog snapshot.
+
+    Inherits from ErmrestCatalog and provides the same interfaces,
+    except that the interfaces are now bound to a fixed snapshot
+    of the catalog.
+    """
+    def __init__(self, scheme, server, catalog_id, snaptime, credentials=None, caching=True, session_config=None):
+        """Create ERMrest catalog snapshot binding.
+
+           Arguments:
+             scheme: 'http' or 'https'
+             server: server FQDN string
+             catalog_id: e.g., '1'
+             snaptime: e.g., '2PM-DGYP-56Z4'
+             credentials: credential secrets, e.g. cookie
+             caching: whether to retain a GET response cache
+        """
+        super(ErmrestSnapshot, self).__init__(scheme, server, catalog_id, credentials, caching, session_config)
+        self._server_uri = "%s@%s" % (
+            self._server_uri,
+            snaptime
+        )
+
+    def _pre_mutate(self, path, headers, guard_response=None):
+        """Override and disable mutation operations.
+
+        When called by the super-class, this method raises an exception.
+        """
+        raise ErmrestCatalogMutationError('Catalog snapshot is immutable')
