@@ -59,6 +59,7 @@ class Table (_ec.CatalogTable):
     def __init__(self, sname, tname, table_doc, **kwargs):
         super(Table, self).__init__(sname, tname, table_doc, **_kwargs(**kwargs))
         self.comment = table_doc.get('comment')
+        self.kind = table_doc.get('kind')
 
     @classmethod
     def system_column_defs(cls, custom=[]):
