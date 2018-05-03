@@ -81,8 +81,8 @@ executed in declared order, that individually describe _what_ data to retrieve, 
 the result data should be placed in the target filesystem.
 
 The `env` object is an OPTIONAL element which, if present, is expected to be a dictionary of key-value pairs that are available to use as
-substitution variables for various parameters in the `queries` of configuration file.  The variable subsitution is performed using the keyword
-subsitution syntax of Python [`str.format`](https://docs.python.org/2/library/stdtypes.html#str.format).  NOTE: when specifying arbitrary
+interpolation variables for various keywords in the `queries` section of the configuration file.  The string substitution is performed using the keyword
+interpolation syntax of Python [`str.format`](https://docs.python.org/2/library/stdtypes.html#str.format).  NOTE: when specifying arbitrary
 key-value pairs on the command-line, such pairs will OVERRIDE any matching keys found in the `env` element of the configuration file.
 
 The `bag` object is an OPTIONAL element which, if present, declares that the aggregate output from all configuration stanzas listed in the
@@ -154,7 +154,7 @@ Parameters:
 | Parent Object | Parameter | Description|Interpolatable
 | --- | --- | --- | --- |
 |root|*catalog*|This is the parent object for all catalog related parameters.|No
-|*catalog*|*queries*|This is an array of objects representing a list of `ERMRest` queries and the logical outputs of these queries. The logical outputs of each query are then in turn processed by an *output format processor*, which can either be one of a set of processors, or an external class conforming to a specified interface.|No
+|*catalog*|*queries*|This is an array of objects representing a list of `ERMRest` queries and the logical outputs of these queries. The logical outputs of each query are then in turn processed by an *output format processor*, which can either be one of a set of default processors, or an external class conforming to a specified interface.|No
 |*queries*|*query_path*|This is string representing the actual `ERMRest` query path to be used in the HTTP(S) GET request. It SHOULD already be percent-encoded per [RFC 3986](https://tools.ietf.org/html/rfc3986#section-2.1) if it contains any characters outside of the unreserved set.|Yes
 |*queries*|*output_path*|This is a POSIX-compliant path fragment indicating the target location of the retrieved data relative to the specified base download directory.|Yes
 |*queries*|*output_format*|This is a string value used to select from one of the built-in output processor formats. Valid values are `csv`, `json`, `json-stream`, `download`, or `fetch`.|No
@@ -249,13 +249,13 @@ Example output:
 <a name="download"></a>
 ### `download`
 This `output_format` processor performs multiple actions. First, it issues a `json-stream` catalog query against the specified `query_path`,
-in order to generate a _file download manifest_ file named `download-manifest.json`. This manifest is simply a set of rows which MUST contain at least one field, `url`, MAY contain a field named "filename",
+in order to generate a _file download manifest_ file named `download-manifest.json`. This manifest is simply a set of rows which MUST contain at least one field named `url`, and MAY contain a field named `filename`,
 and MAY contain other abritrary fields. If the `filename` field is present, it will be appended to the final (calculated) `output_path`, otherwise the application will perform a _HEAD_ HTTP request against
-the `url` for the `Content-Disposition` of the referenced file asset. If this query fails to determine the filename, the application falls back to using the final name component of the `url` field after the last `/` character.
+the `url` for the `Content-Disposition` of the referenced file asset. If this query fails to determine the filename, the application falls back to using the final string component of the `url` field after the last `/` character.
 
 If other fields are present, they are available for variable substitution in other parameters that support interpolation, e.g., `output_path`.
 
-After the manifest is generated, the application attempts to download the files referenced in each `url` field to the local filesystem, storing them at the base relative path specified by `output_path`.
+After the _file download manifest_ is generated, the application attempts to download the files referenced in each `url` field to the local filesystem, storing them at the base relative path specified by `output_path`.
 
 For example, the following configuration stanza:
 ```json
@@ -287,8 +287,8 @@ After the `output_path` template string is interpolated with the values of the e
 
 <a name="fetch"></a>
 ### `fetch`
-This `output_format` processor performs multiple actions. First, it issues a `json-stream` catalog query against the specified `query_path`, in order to generate a _file download manifest_.
-This manifest is simply a set of rows which MUST contain at least one field, `url`, and SHOULD contain two additional fields: `length`,
+This `output_format` processor performs multiple actions. First, it issues a `json-stream` catalog query against the specified `query_path`, in order to generate a  _file download manifest_.
+This manifest is simply a set of rows which MUST contain at least one field named `url`, and SHOULD contain two additional fields: `length`,
 which is the size of the referenced file in bytes, and (at least) one of the following _checksum_ fields; `md5`, `sha1`, `sha256`, `sha512`. If the _length_ and appropriate _checksum_ fields are missing,
 an attempt will be made to dynamically determine these fields from the remote `url` by issuing a _HEAD_ HTTP request and parsing the result headers for the missing information.
 If the required values cannot be determined this way, it is an error condition and the transfer will abort.
