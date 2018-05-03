@@ -1,7 +1,7 @@
 # deriva-download-cli
 
 The `deriva-download-cli` is a command-line utility for orchestrating the bulk export of tabular data 
-(stored in ERMRest) and download of asset data (stored in Hatrac, or other HTTP-supported object store).
+(stored in ERMRest) and download of asset data (stored in Hatrac, or other supported HTTP-accessible object store).
 It supports the transfer of data directly to local filesystems, or packaging results into the
 [`bagit`](https://en.wikipedia.org/wiki/BagIt) container format.  The program is driven by the combined
 usage of command-line arguments and a JSON-based configuration ("spec") file, which contains the processing
