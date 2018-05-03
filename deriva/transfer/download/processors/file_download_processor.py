@@ -3,9 +3,10 @@ import json
 import uuid
 import datetime
 import logging
+import requests
 import certifi
 from bdbag import bdbag_ro as ro
-from deriva.core import urlsplit, get_transfer_summary, DEFAULT_CHUNK_SIZE
+from deriva.core import urlsplit, format_exception, get_transfer_summary, DEFAULT_CHUNK_SIZE
 from deriva.core.utils.mime_utils import parse_content_disposition
 from deriva.transfer.download.processors import BaseDownloadProcessor
 
@@ -19,7 +20,10 @@ class FileDownloadProcessor(BaseDownloadProcessor):
 
     def process(self):
         super(FileDownloadProcessor, self).process()
-        self.downloadFiles(self.output_abspath)
+        try:
+            self.downloadFiles(self.output_abspath)
+        except requests.HTTPError as e:
+            raise RuntimeError("Unable to download file(s): %s" % format_exception(e))
 
     def getExternalFile(self, url, output_path, headers=None):
         host = urlsplit(url).netloc

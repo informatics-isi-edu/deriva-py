@@ -2,6 +2,7 @@
   "bag": {
     "bag_name": "pnc-test-bag",
     "bag_archiver": "zip",
+    "bag_algorithms":["sha256"],
     "bag_metadata": {
       "Source-Organization": "USC Information Sciences Institute, Informatics Systems Research Division"
     }
@@ -14,7 +15,7 @@
         "query_path": "/entity/A:=pnc:subject/A1:=snp_v/snp_id=rs6265/$A/B:=pnc:metrics_v",
         "output_path": "metrics",
         "output_format": "csv",
-        "output_processor": "deriva.transfer.download.processors.CSVDownloadProcessor"
+        "output_format_processor": "deriva.transfer.download.processors.CSVDownloadProcessor"
       },
       {
         "query_path": "/entity/A:=pnc:subject/A1:=snp_v/snp_id=rs6265",

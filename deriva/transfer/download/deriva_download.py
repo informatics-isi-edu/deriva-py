@@ -15,6 +15,7 @@ class DerivaDownload(object):
     """
     def __init__(self, server, output_dir=None, kwargs=None, config_file=None, credential_file=None):
         self.server = server
+        self.hostname = None
         self.output_dir = output_dir if output_dir else "."
         self.envars = kwargs if kwargs else dict()
         self.catalog = None
@@ -33,25 +34,27 @@ class DerivaDownload(object):
             raise RuntimeError("Server not specified!")
 
         # server variable initialization
-        host = self.server.get('host', '')
-        if not host:
+        self.hostname = self.server.get('host', '')
+        if not self.hostname:
             raise RuntimeError("Host not specified!")
         protocol = self.server.get('protocol', 'https')
-        self.server_url = protocol + "://" + host
+        self.server_url = protocol + "://" + self.hostname
         catalog_id = self.server.get("catalog_id", "1")
         session_config = self.server.get('session')
 
         # credential initialization
         if credential_file:
-            self.credentials = get_credential(host, credential_file)
+            self.credentials = get_credential(self.hostname, credential_file)
 
         # catalog and file store initialization
         if self.catalog:
             del self.catalog
-        self.catalog = ErmrestCatalog(protocol, host, catalog_id, self.credentials, session_config=session_config)
+        self.catalog = ErmrestCatalog(
+            protocol, self.hostname, catalog_id, self.credentials, session_config=session_config)
         if self.store:
             del self.store
-        self.store = HatracStore(protocol, host, self.credentials, session_config=session_config)
+        self.store = HatracStore(
+            protocol, self.hostname, self.credentials, session_config=session_config)
 
         # process config file
         if config_file and os.path.isfile(config_file):
@@ -61,10 +64,9 @@ class DerivaDownload(object):
         self.config = config
 
     def setCredentials(self, credentials):
-        host = self.server['host']
+        self.catalog.set_credentials(credentials, self.hostname)
+        self.store.set_credentials(credentials, self.hostname)
         self.credentials = credentials
-        self.catalog.set_credentials(self.credentials, host)
-        self.store.set_credentials(self.credentials, host)
 
     def download(self, identity=None):
 
@@ -77,6 +79,8 @@ class DerivaDownload(object):
         if not identity:
             logging.info("Validating credentials")
             try:
+                if not self.credentials:
+                    self.setCredentials(get_credential(self.hostname))
                 attributes = self.catalog.get_authn_session().json()
                 identity = attributes["client"]
             except Exception as e:
@@ -89,21 +93,24 @@ class DerivaDownload(object):
             ''.join([os.path.join(self.output_dir, 'remote-file-manifest_'), str(uuid.uuid4()), ".json"]))
 
         catalog_config = self.config['catalog']
+        self.envars.update(self.config.get('env', dict()))
 
         bag_path = None
         bag_archiver = None
+        bag_algorithms = None
         bag_config = self.config.get('bag')
         create_bag = True if bag_config else False
         if create_bag:
             bag_name = bag_config.get('bag_name', ''.join(["deriva_bag", '_', time.strftime("%Y-%m-%d_%H.%M.%S")]))
             bag_path = os.path.abspath(os.path.join(self.output_dir, bag_name))
             bag_archiver = bag_config.get('bag_archiver')
+            bag_algorithms = bag_config.get('bag_algorithms', ['sha256'])
             bag_metadata = bag_config.get('bag_metadata', {"Internal-Sender-Identifier":
                                                            "deriva@%s" % self.server_url})
             bag_ro = create_bag and stob(bag_config.get('bag_ro', "True"))
             if create_bag:
                 bdb.ensure_bag_path_exists(bag_path)
-                bag = bdb.make_bag(bag_path, algs=['sha256'], metadata=bag_metadata)
+                bag = bdb.make_bag(bag_path, algs=bag_algorithms, metadata=bag_metadata)
                 if bag_ro:
                     ro_author_name = identity.get('full_name', identity.get('display_name', identity.get('id', None)))
                     ro_author_orcid = bag.info.get("Contact-Orcid")
@@ -114,7 +121,7 @@ class DerivaDownload(object):
         for query in catalog_config['queries']:
             query_path = query['query_path']
             output_format = query['output_format']
-            output_processor = query.get("output_processor")
+            output_processor = query.get("output_format_processor")
             format_args = query.get('output_format_params', None)
             output_path = query.get('output_path', '')
 
@@ -142,14 +149,14 @@ class DerivaDownload(object):
         if create_bag:
             try:
                 if ro_manifest:
-                    ro.write_bag_ro_manifest(ro_manifest, bag_path)
+                    ro.write_bag_ro_metadata(ro_manifest, bag_path)
                 if not os.path.isfile(remote_file_manifest):
                     remote_file_manifest = None
-                bdb.make_bag(bag_path, remote_file_manifest=remote_file_manifest, update=True)
+                bdb.make_bag(bag_path, algs=bag_algorithms, remote_file_manifest=remote_file_manifest, update=True)
             except Exception as e:
                 logging.fatal("Exception while updating bag manifests: %s", format_exception(e))
                 bdb.cleanup_bag(bag_path)
-                raise e
+                raise
             finally:
                 if remote_file_manifest and os.path.isfile(remote_file_manifest):
                     os.remove(remote_file_manifest)
@@ -163,7 +170,7 @@ class DerivaDownload(object):
                     return archive
                 except Exception as e:
                     logging.error("Exception while creating data bag archive:", format_exception(e))
-                    raise e
+                    raise
             else:
                 return bag_path
 

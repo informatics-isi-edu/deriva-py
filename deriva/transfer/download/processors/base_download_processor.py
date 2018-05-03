@@ -5,7 +5,7 @@ import certifi
 import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
-from deriva.core import urlsplit, DEFAULT_SESSION_CONFIG
+from deriva.core import urlsplit, format_exception, DEFAULT_SESSION_CONFIG
 from bdbag import bdbag_ro as ro
 
 
@@ -55,9 +55,10 @@ class BaseDownloadProcessor(object):
     def catalogQuery(self, headers=HEADERS):
         output_dir = os.path.dirname(self.output_abspath)
         self.makeDirs(output_dir)
-        r = self.catalog.getAsFile(self.query, self.output_abspath, headers=headers)
-
-        return r
+        try:
+            return self.catalog.getAsFile(self.query, self.output_abspath, headers=headers)
+        except requests.HTTPError as e:
+            raise RuntimeError("Unable to execute catalog query: %s" % format_exception(e))
 
     def headForHeaders(self, url, raise_for_status=False):
         store = self.getHatracStore(url)

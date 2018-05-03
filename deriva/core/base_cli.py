@@ -40,7 +40,7 @@ class BaseCLI(object):
 
     def parse_cli(self):
         args = self.parser.parse_args()
-        init_logging(level=logging.ERROR if args.quiet else (logging.DEBUG if args.debug else logging.INFO))
+        init_logging(level=logging.CRITICAL if args.quiet else (logging.DEBUG if args.debug else logging.INFO))
 
         return args
 

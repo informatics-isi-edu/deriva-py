@@ -1,7 +1,9 @@
 import os
 import json
 import logging
+import requests
 from bdbag import bdbag_ro as ro
+from deriva.core import format_exception
 from deriva.core.utils.hash_utils import decodeBase64toHex
 from deriva.core.utils.mime_utils import parse_content_disposition
 from deriva.transfer.download.processors import BaseDownloadProcessor
@@ -52,7 +54,10 @@ class BagFetchDownloadProcessor(BaseDownloadProcessor):
         # if any required fields are missing from the query result, attempt to get them from the remote server by
         # issuing a HEAD request against the supplied URL
         if not (length and (md5 or sha256)):
-            headers = self.headForHeaders(url, raise_for_status=True)
+            try:
+                headers = self.headForHeaders(url, raise_for_status=True)
+            except requests.HTTPError as e:
+                raise RuntimeError("Exception during HEAD request: %s" % format_exception(e))
             length = headers.get("Content-Length")
             content_type = headers.get("Content-Type")
             content_disposition = headers.get("Content-Disposition")
@@ -76,9 +81,7 @@ class BagFetchDownloadProcessor(BaseDownloadProcessor):
         if not filename:
             filename = os.path.basename(url).split(":")[0] if not content_disposition else \
                 parse_content_disposition(content_disposition)
-            output_path = ''.join([subdir, "/", filename]) if subdir else filename
-        else:
-            output_path = filename
+        output_path = ''.join([subdir, "/", filename]) if subdir else filename
 
         manifest_entry['url'] = self.getExternalUrl(url)
         manifest_entry['length'] = int(length)

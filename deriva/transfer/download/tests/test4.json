@@ -8,8 +8,8 @@
       },
       {
         "query_path": "/attribute/D:=isa:dataset/accession={accession}/E:=isa:experiment/experiment_type:=isa:experiment_type/term=RNA%20expression%20%28RNA-seq%29/$E/STRAND:=vocabulary:strandedness/$E/R:=isa:replicate/SAMPLE:=isa:biosample/SPEC:=vocabulary:species/$R/SEQ:=isa:sequencing_data/PAIRED:=vocabulary:paired_end_or_single_read/$SEQ/file_format:=vocabulary:file_format/term=FastQ/$SEQ/dataset:=D:RID,experiment:=E:RID,biosample:=SAMPLE:RID,file:=SEQ:RID,filename:=SEQ:filename,size:=SEQ:byte_count,md5:=SEQ:md5,url:=SEQ:url",
-        "output_path": "{dataset}/{experiment}/{biosample}/{technical_replicate_num}/seq",
-        "output_format": "download"
+        "output_path": "{dataset}/{experiment}/{biosample}/seq",
+        "output_format": "fetch"
       }
     ]
   }
