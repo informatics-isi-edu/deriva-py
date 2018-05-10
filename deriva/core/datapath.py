@@ -9,11 +9,6 @@ try:
 except ImportError:
     _DataFrame = None
 
-try:
-    from collections.abc import Mapping as _MappingBaseClass
-except ImportError:
-    _MappingBaseClass = object
-
 logger = logging.getLogger(__name__)
 
 
@@ -64,40 +59,6 @@ class DataPathException (Exception):
 
     def __str__(self):
         return self.message
-
-
-class _LazyDict (_MappingBaseClass):
-    """A lazy dictionary object that acts like a Mapping object.
-    This class is intended for internal usage within this module.
-    """
-    def __init__(self, new_elem_fn, keys=list()):
-        """Initializes the lazy dict.
-        :param new_elem_fn: a function that takes an 'item' key and returns a new element
-        :param keys: the list of keys expected to be valid
-        """
-        self._new_elem_fn = new_elem_fn
-        self._keys = set(keys)
-        self._storage = {}
-
-    def __getitem__(self, item):
-        # Uses the 'new_elem_fn' function to create a new element when the item
-        # is not already in the storage dictionary.
-        if item not in self._storage:
-            self._storage[item] = self._new_elem_fn(item)
-            self._keys.update([item])
-        return self._storage[item]
-
-    def __iter__(self):
-        return iter(self._keys)
-
-    def __len__(self):
-        return len(self._keys)
-
-    def _ipython_key_completions_(self):
-        return self.keys()
-
-    def keys(self):
-        return list(self._keys)
 
 
 class Catalog (object):
