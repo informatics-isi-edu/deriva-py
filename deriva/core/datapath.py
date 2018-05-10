@@ -5,6 +5,11 @@ import re
 from requests import HTTPError
 
 try:
+    from pandas import DataFrame as _DataFrame
+except ImportError:
+    _DataFrame = None
+
+try:
     from collections.abc import Mapping as _MappingBaseClass
 except ImportError:
     _MappingBaseClass = object
@@ -338,9 +343,11 @@ class EntitySet (object):
     @property
     def dataframe(self):
         """Pandas DataFrame representation of this path."""
-        if self._dataframe is None:
-            from pandas import DataFrame
-            self._dataframe = DataFrame(self._results)
+        if not self._dataframe:
+            if _DataFrame:
+                self._dataframe = _DataFrame(self._results)
+            else:
+                logger.debug("'pandas' package not installed")
         return self._dataframe
 
     def __len__(self):
