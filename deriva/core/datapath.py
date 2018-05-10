@@ -453,7 +453,7 @@ class Table (object):
             else:
                 raise e
 
-    def update(self, entities, defaults=None, add_system_defaults=True):
+    def update(self, entities):
         """Update entities of a table.
         :param entities: an iterable collection of entities (i.e., rows) to be updated in the table.
         :return: updated entities.
