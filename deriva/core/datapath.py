@@ -584,33 +584,35 @@ class Column (object):
         assert 'table' in kwargs
         assert isinstance(kwargs['table'], Table)
         self._table = kwargs['table']
-        self._name = column_doc['name']
+        self.sname = sname
+        self.tname = tname
+        self.name = column_doc['name']
         self._doc = column_doc
 
     def __repr__(self):
         return "Column name: '%s'\tType: %s\tComment: '%s'" % \
-               (self._name, self._doc['type']['typename'], self._doc['comment'])
+               (self.name, self._doc['type']['typename'], self._doc['comment'])
 
     @property
-    def name(self):
+    def uname(self):
         """the url encoded name"""
-        return urlquote(self._name)
+        return urlquote(self.name)
 
     @property
     def fqname(self):
         """the url encoded fully qualified name"""
-        return "%s:%s" % (self._table.fqname, self.name)
+        return "%s:%s" % (self._table.fqname, self.uname)
 
     @property
     def instancename(self):
         table_instancename = self._table.instancename
         if len(table_instancename) > 0:
-            return "%s:%s" % (table_instancename, self.name)
+            return "%s:%s" % (table_instancename, self.uname)
         else:
-            return self.name
+            return self.uname
 
     def __str__(self):
-        return self._name
+        return self.name
 
     def __eq__(self, other):
         if other is None:
@@ -641,7 +643,6 @@ class Column (object):
     def ts(self, other):
         assert isinstance(other, str), "This comparison only supports string literals."
         return FilterPredicate(self, "::ts::", other)
-
 
 
 class PathOperator (object):
