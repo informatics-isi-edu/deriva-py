@@ -379,26 +379,24 @@ class Table (object):
         self.name = tname
         self._table_doc = table_doc
 
-        self.columns = {}
-        self._identifiers = dir(Table) + ['columns']
-        for cdoc in table_doc.get('column_definitions', {}):
-            column_name = cdoc['name']
-            self.columns[column_name] = kwargs.get('column_class', Column)(sname, tname, cdoc, **_kwargs(table=self, **kwargs))
-            if _isidentifier(column_name):
-                self._identifiers.append(column_name)
+        kwargs.update(table=self)
+        self.column_definitions = {
+            cdoc['name']: kwargs.get('column_class', Column)(sname, tname, cdoc, **kwargs)
+            for cdoc in table_doc.get('column_definitions', [])
+        }
 
     def __dir__(self):
-        return self._identifiers
+        return list(super(Table, self).__dir__()) + [key for key in self.column_definitions if _isidentifier(key)]
 
     def __getattr__(self, a):
-        return self.columns[a]
+        return self.column_definitions[a]
 
     def __repr__(self):
         s = "Table name: '%s'\nList of columns:\n" % self.name
-        if len(self.columns) == 0:
+        if len(self.column_definitions) == 0:
             s += "none"
         else:
-            s += "\n".join("  %s" % repr(col) for col in self.columns.values())
+            s += "\n".join("  %s" % repr(col) for col in self.column_definitions.values())
         return s
 
     @property
