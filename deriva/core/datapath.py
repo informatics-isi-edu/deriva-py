@@ -119,7 +119,7 @@ class DataPath (object):
         self._path_expression = Root(root)
         self._root = root
         self._base_uri = root.catalog._server_uri
-        self.table_instances = dict()  # map of alias_name => TableAlias object
+        self._table_instances = dict()  # map of alias_name => TableAlias object
         self._context = None
         self._identifiers = []
         self._bind_table_instance(root)
@@ -128,7 +128,7 @@ class DataPath (object):
         return list(super(DataPath, self).__dir__()) + self._identifiers
 
     def __getattr__(self, a):
-        return self.table_instances[a]
+        return self._table_instances[a]
 
     @property
     def context(self):
@@ -137,7 +137,7 @@ class DataPath (object):
     @context.setter
     def context(self, value):
         assert isinstance(value, TableAlias)
-        assert value.name in self.table_instances
+        assert value.name in self._table_instances
         if self._context != value:
             self._path_expression = ResetContext(self._path_expression, value)
             self._context = value
@@ -152,7 +152,7 @@ class DataPath (object):
         :return: string representation of the path uri
         """
         assert isinstance(context, TableAlias)
-        assert context.name in self.table_instances
+        assert context.name in self._table_instances
         if self._context != context:
             return self._base_uri + str(ResetContext(self._path_expression, context))
         else:
@@ -163,7 +163,7 @@ class DataPath (object):
         """
         assert isinstance(alias, TableAlias)
         alias.path = self
-        self.table_instances[alias.name] = self._context = alias
+        self._table_instances[alias.name] = self._context = alias
         if _isidentifier(alias.name):
             self._identifiers.append(alias.name)
 
@@ -208,7 +208,7 @@ class DataPath (object):
 
         if isinstance(right, TableAlias):
             # Validate that alias has not been used
-            if right.name in self.table_instances:
+            if right.name in self._table_instances:
                 raise Exception("Table instance is already linked. "
                                 "Consider aliasing it if you want to link another instance of the base table.")
         else:
@@ -216,7 +216,7 @@ class DataPath (object):
             table_name = right.name
             alias_name = table_name
             counter = 1
-            while alias_name in self.table_instances:
+            while alias_name in self._table_instances:
                 counter += 1
                 alias_name = table_name + str(counter)
             right = right.alias(alias_name)
@@ -347,6 +347,7 @@ class Table (object):
         self.sname = sname
         self.name = tname
         self._table_doc = table_doc
+        self._kwargs = kwargs
 
         kwargs.update(table=self)
         self.column_definitions = {
@@ -476,15 +477,15 @@ class Table (object):
 class TableAlias (Table):
     """Represents a table alias.
     """
-    def __init__(self, table, alias):
+    def __init__(self, base_table, alias_name):
         """Initializes the table alias.
-        :param table: the base table to be given an alias name
-        :param alias: the alias name
+        :param base_table: the base table to be given an alias name
+        :param alias_name: the alias name
         """
-        assert isinstance(table, Table)
-        super(TableAlias, self).__init__(table.sname, table.name, table._table_doc, **_kwargs(catalog=table.catalog))
-        self.base_table = table
-        self.name = alias
+        assert isinstance(base_table, Table)
+        super(TableAlias, self).__init__(base_table.sname, base_table.name, base_table._table_doc, **base_table._kwargs)
+        self._base_table = base_table
+        self.name = alias_name
         self._parent = None
 
     @property
@@ -495,7 +496,7 @@ class TableAlias (Table):
     @property
     def fqname(self):
         """the url encoded fully qualified name"""
-        return self.base_table.fqname
+        return self._base_table.fqname
 
     @property
     def instancename(self):
@@ -503,7 +504,7 @@ class TableAlias (Table):
 
     @property
     def fromname(self):
-        return "%s:=%s" % (self.uname, self.base_table.fqname)
+        return "%s:=%s" % (self.uname, self._base_table.fqname)
 
     @property
     def path(self):
