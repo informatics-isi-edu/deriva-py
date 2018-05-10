@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 def _kwargs(**kwargs):
-    """Helper for extending ermrest_model with sub-types for the whole model tree."""
+    """Helper for extending datapath with sub-types for the whole model tree."""
     kwargs2 = {
         'schema_class': Schema,
         'table_class': Table,
@@ -24,8 +24,9 @@ def _kwargs(**kwargs):
 
 
 def from_catalog(catalog):
-    """Creates a Catalog object from a derivapy ERMrest catalog.
-    :param catalog: an ERMrest catalog object
+    """Creates a datapath.Catalog object from an ErmrestCatalog object.
+    :param catalog: an ErmrestCatalog object
+    :return: a datapath.Catalog object
     """
     return Catalog(catalog.getCatalogSchema(), **_kwargs(catalog=catalog))
 
@@ -183,7 +184,7 @@ class DataPath (object):
     def filter(self, filter_expression):
         """Filters the path based on the specified formula.
         :param filter_expression: should be a valid Predicate object
-        :returns self
+        :return: self
         """
         assert isinstance(filter_expression, Predicate)
         self._path_expression = Filter(self._path_expression, filter_expression)
@@ -196,7 +197,7 @@ class DataPath (object):
         :param on: an equality comparison between keys and foreign keys
         :param join_type: the join type of this link which may be 'left', 'right', 'full' outer joins or '' for inner
         join link by default.
-        :returns self
+        :return: self
         """
         assert isinstance(right, Table)
         assert on is None or isinstance(on, FilterPredicate)
@@ -239,7 +240,7 @@ class DataPath (object):
         entities of the type of the path's context.
         :param attributes: a list of Columns.
         :param renamed_attributes: a list of renamed Columns.
-        :returns an entity set
+        :return: an entity set
         """
         return self._entities(attributes, renamed_attributes)
 
@@ -248,7 +249,7 @@ class DataPath (object):
         :param attributes: a list of Columns.
         :param renamed_attributes: a list of renamed Columns.
         :param context: optional context for the entities.
-        :returns an entity set
+        :return: an entity set
         """
         assert context is None or isinstance(context, TableAlias)
         catalog = self._root.catalog
@@ -323,7 +324,7 @@ class EntitySet (object):
     def fetch(self, limit=None):
         """Fetches the entities from the catalog.
         :param limit: maximum number of entities to fetch from the catalog.
-        :returns self
+        :return: self
         """
         limit = int(limit) if limit else None
         self._results_doc = self._fetcher_fn(limit)
@@ -455,7 +456,7 @@ class Table (object):
     def update(self, entities, defaults=None, add_system_defaults=True):
         """Update entities of a table.
         :param entities: an iterable collection of entities (i.e., rows) to be updated in the table.
-        :return updated entities.
+        :return: updated entities.
         """
         # JSONEncoder does not handle general iterable objects, so we have to make sure its an acceptable collection
         entities = entities if isinstance(entities, (list, tuple)) else list(entities)
@@ -545,7 +546,7 @@ class Column (object):
         """Creates a Column object.
         :param sname: schema name
         :param tname: table name
-        :param doc: column definition document
+        :param column_doc: column definition document
         :param kwargs: kwargs must include `table` a Table instance
         """
         super(Column, self).__init__()
