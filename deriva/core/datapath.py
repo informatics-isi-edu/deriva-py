@@ -557,11 +557,12 @@ class Column (object):
         self.sname = sname
         self.tname = tname
         self.name = column_doc['name']
-        self._doc = column_doc
+        self.type = column_doc['type']
+        self.comment = column_doc['comment']
 
     def __repr__(self):
         return "Column name: '%s'\tType: %s\tComment: '%s'" % \
-               (self.name, self._doc['type']['typename'], self._doc['comment'])
+               (self.name, self.type['typename'], self.comment)
 
     @property
     def uname(self):
