@@ -5,18 +5,30 @@ import re
 from requests import HTTPError
 
 try:
-    from collections.abc import Mapping as _MappingBaseClass
+    from pandas import DataFrame as _DataFrame
 except ImportError:
-    _MappingBaseClass = object
+    _DataFrame = None
 
 logger = logging.getLogger(__name__)
 
 
+def _kwargs(**kwargs):
+    """Helper for extending datapath with sub-types for the whole model tree."""
+    kwargs2 = {
+        'schema_class': Schema,
+        'table_class': Table,
+        'column_class': Column
+    }
+    kwargs2.update(kwargs)
+    return kwargs2
+
+
 def from_catalog(catalog):
-    """Creates a PathBuilder object from a derivapy ERMrest catalog.
-    :param catalog: an ERMrest catalog object
+    """Creates a datapath.Catalog object from an ErmrestCatalog object.
+    :param catalog: an ErmrestCatalog object
+    :return: a datapath.Catalog object
     """
-    return PathBuilder(catalog, catalog.getCatalogSchema())
+    return Catalog(catalog.getCatalogSchema(), **_kwargs(catalog=catalog))
 
 
 def _isidentifier(a):
@@ -50,108 +62,54 @@ class DataPathException (Exception):
         return self.message
 
 
-class _LazyDict (_MappingBaseClass):
-    """A lazy dictionary object that acts like a Mapping object.
-    This class is intended for internal usage within this module.
+class Catalog (object):
+    """Handle to a Catalog.
     """
-    def __init__(self, new_elem_fn, keys=list()):
-        """Initializes the lazy dict.
-        :param new_elem_fn: a function that takes an 'item' key and returns a new element
-        :param keys: the list of keys expected to be valid
+    def __init__(self, model_doc, **kwargs):
+        """Creates the Catalog.
+        :param model_doc: the schema document for the catalog
         """
-        self._new_elem_fn = new_elem_fn
-        self._keys = set(keys)
-        self._storage = {}
-
-    def __getitem__(self, item):
-        # Uses the 'new_elem_fn' function to create a new element when the item
-        # is not already in the storage dictionary.
-        if item not in self._storage:
-            self._storage[item] = self._new_elem_fn(item)
-            self._keys.update([item])
-        return self._storage[item]
-
-    def __iter__(self):
-        return iter(self._keys)
-
-    def __len__(self):
-        return len(self._keys)
-
-    def _ipython_key_completions_(self):
-        return self.keys()
-
-    def keys(self):
-        return list(self._keys)
-
-
-class PathBuilder (object):
-    """PathBuilder is the main container object and beginning interface for this module.
-    """
-    def __init__(self, catalog, doc):
-        """Initializes the PathBuilder.
-        :param catalog: an ermrest catalog instance
-        :param doc: the schema document for the catalog
-        """
-        schemas_doc = doc.get('schemas', {})
-        keys = schemas_doc.keys()
-        self.schemas = _LazyDict(lambda a: Schema(catalog, a, schemas_doc[a]), keys)
-        self._identifiers = dir(PathBuilder) + ['schemas'] + [
-            key for key in keys if _isidentifier(key)
-        ]
+        super(Catalog, self).__init__()
+        self.schemas = {
+            sname: kwargs.get('schema_class', Schema)(sname, sdoc, **kwargs)
+            for sname, sdoc in model_doc.get('schemas', {}).items()
+        }
 
     def __dir__(self):
-        return self._identifiers
+        return list(super(Catalog, self).__dir__()) + [key for key in self.schemas if _isidentifier(key)]
 
     def __getattr__(self, a):
         return self.schemas[a]
 
 
 class Schema (object):
-    """Represents a schema.
+    """Represents a Schema.
     """
-    def __init__(self, catalog, name, doc):
-        """Initializes the Schema.
-        :param catalog: the catalog instance
-        :param name: the schema's name
-        :param doc: the schema document
+    def __init__(self, sname, schema_doc, **kwargs):
+        """Creates the Schema.
+        :param sname: the schema's name
+        :param schema_doc: the schema document
         """
-        self._catalog = catalog
-        self._name = name
-        tables_doc = doc.get('tables', {})
-        self.table_names = tables_doc.keys()
-        self.tables = _LazyDict(lambda a: Table(catalog, self._name, a, tables_doc[a].get('column_definitions', {})),
-                                self.table_names)
-        self._identifiers = dir(Schema) + ['tables'] + [
-            table_name for table_name in self.table_names if _isidentifier(table_name)
-        ]
+        super(Schema, self).__init__()
+        self.name = sname
+        self.tables = {
+            tname: kwargs.get('table_class', Table)(sname, tname, tdoc, **kwargs)
+            for tname, tdoc in schema_doc.get('tables', {}).items()
+        }
 
     def __dir__(self):
-        return self._identifiers
+        return list(super(Schema, self).__dir__()) + [key for key in self.tables if _isidentifier(key)]
 
     def __getattr__(self, a):
         return self.tables[a]
 
     def __repr__(self):
-        s = "Schema name: '%s'\nList of tables:\n" % self._name
+        s = "Schema name: '%s'\nList of tables:\n" % self.name
         if len(self.table_names) == 0:
             s += "none"
         else:
             s += "\n".join("  '%s'" % tname for tname in self.table_names)
         return s
-
-    @property
-    def catalog(self):
-        return self._catalog
-
-    @property
-    def name(self):
-        """the url encoded name"""
-        return urlquote(self._name)
-
-    @property
-    def fqname(self):
-        """the url encoded fully qualified name"""
-        return self.name
 
 
 class DataPath (object):
@@ -161,16 +119,16 @@ class DataPath (object):
         self._path_expression = Root(root)
         self._root = root
         self._base_uri = root.catalog._server_uri
-        self.table_instances = dict()  # map of alias_name => TableAlias object
+        self._table_instances = dict()  # map of alias_name => TableAlias object
         self._context = None
-        self._identifiers = dir(DataPath) + ['table_instances']
+        self._identifiers = []
         self._bind_table_instance(root)
 
     def __dir__(self):
-        return self._identifiers
+        return list(super(DataPath, self).__dir__()) + self._identifiers
 
     def __getattr__(self, a):
-        return self.table_instances[a]
+        return self._table_instances[a]
 
     @property
     def context(self):
@@ -179,7 +137,7 @@ class DataPath (object):
     @context.setter
     def context(self, value):
         assert isinstance(value, TableAlias)
-        assert value.name in self.table_instances
+        assert value.name in self._table_instances
         if self._context != value:
             self._path_expression = ResetContext(self._path_expression, value)
             self._context = value
@@ -194,21 +152,20 @@ class DataPath (object):
         :return: string representation of the path uri
         """
         assert isinstance(context, TableAlias)
-        assert context.name in self.table_instances
+        assert context.name in self._table_instances
         if self._context != context:
             return self._base_uri + str(ResetContext(self._path_expression, context))
         else:
             return self.uri
 
-    def _bind_table_instance(self, table):
-        """Binds a new table into this path.
+    def _bind_table_instance(self, alias):
+        """Binds a new table instance into this path.
         """
-        assert isinstance(table, TableAlias)
-        table_name = table.name
-        table.path = self
-        self.table_instances[table_name] = self._context = table
-        if _isidentifier(table_name):
-            self._identifiers.append(table_name)
+        assert isinstance(alias, TableAlias)
+        alias.path = self
+        self._table_instances[alias.name] = self._context = alias
+        if _isidentifier(alias.name):
+            self._identifiers.append(alias.name)
 
     def delete(self):
         """Deletes the entity set referenced by the data path.
@@ -227,7 +184,7 @@ class DataPath (object):
     def filter(self, filter_expression):
         """Filters the path based on the specified formula.
         :param filter_expression: should be a valid Predicate object
-        :returns self
+        :return: self
         """
         assert isinstance(filter_expression, Predicate)
         self._path_expression = Filter(self._path_expression, filter_expression)
@@ -240,7 +197,7 @@ class DataPath (object):
         :param on: an equality comparison between keys and foreign keys
         :param join_type: the join type of this link which may be 'left', 'right', 'full' outer joins or '' for inner
         join link by default.
-        :returns self
+        :return: self
         """
         assert isinstance(right, Table)
         assert on is None or isinstance(on, FilterPredicate)
@@ -251,18 +208,18 @@ class DataPath (object):
 
         if isinstance(right, TableAlias):
             # Validate that alias has not been used
-            if right.name in self.table_instances:
+            if right.name in self._table_instances:
                 raise Exception("Table instance is already linked. "
                                 "Consider aliasing it if you want to link another instance of the base table.")
         else:
             # Generate an unused alias name for the table
             table_name = right.name
-            alias = table_name
+            alias_name = table_name
             counter = 1
-            while alias in self.table_instances:
+            while alias_name in self._table_instances:
                 counter += 1
-                alias = table_name + str(counter)
-            right = right.alias(alias)
+                alias_name = table_name + str(counter)
+            right = right.alias(alias_name)
 
         if on is None:
             on = right
@@ -283,7 +240,7 @@ class DataPath (object):
         entities of the type of the path's context.
         :param attributes: a list of Columns.
         :param renamed_attributes: a list of renamed Columns.
-        :returns an entity set
+        :return: an entity set
         """
         return self._entities(attributes, renamed_attributes)
 
@@ -292,7 +249,7 @@ class DataPath (object):
         :param attributes: a list of Columns.
         :param renamed_attributes: a list of renamed Columns.
         :param context: optional context for the entities.
-        :returns an entity set
+        :return: an entity set
         """
         assert context is None or isinstance(context, TableAlias)
         catalog = self._root.catalog
@@ -348,9 +305,11 @@ class EntitySet (object):
     @property
     def dataframe(self):
         """Pandas DataFrame representation of this path."""
-        if self._dataframe is None:
-            from pandas import DataFrame
-            self._dataframe = DataFrame(self._results)
+        if not self._dataframe:
+            if _DataFrame:
+                self._dataframe = _DataFrame(self._results)
+            else:
+                logger.debug("'pandas' package not installed")
         return self._dataframe
 
     def __len__(self):
@@ -365,7 +324,7 @@ class EntitySet (object):
     def fetch(self, limit=None):
         """Fetches the entities from the catalog.
         :param limit: maximum number of entities to fetch from the catalog.
-        :returns self
+        :return: self
         """
         limit = int(limit) if limit else None
         self._results_doc = self._fetcher_fn(limit)
@@ -375,55 +334,50 @@ class EntitySet (object):
 
 
 class Table (object):
-    """Represents a table.
+    """Represents a Table.
     """
-    def __init__(self, catalog, schema_name, table_name, columns_doc):
-        """Initializes the table.
-        :param catalog: the catalog object
-        :param schema_name: name of the schema
-        :param table_name: name of the table
-        :param columns_doc: deserialized json columns document from the table definition
+    def __init__(self, sname, tname, table_doc, **kwargs):
+        """Creates a Table object.
+        :param sname: name of the schema
+        :param tname: name of the table
+        :param table_doc: deserialized json document of the table definition
+        :param kwargs: must include `catalog`
         """
-        self._catalog = catalog
-        self._schema_name = schema_name
-        self._name = table_name
-        self._doc = columns_doc
+        self.catalog = kwargs['catalog']
+        self.sname = sname
+        self.name = tname
+        self._table_doc = table_doc
+        self._kwargs = kwargs
 
-        self.columns = {}
-        self._identifiers = dir(Table) + ['columns']
-        for cdoc in self._doc:
-            column_name = cdoc['name']
-            self.columns[column_name] = Column(self, column_name, cdoc)
-            if _isidentifier(column_name):
-                self._identifiers.append(column_name)
+        kwargs.update(table=self)
+        self.column_definitions = {
+            cdoc['name']: kwargs.get('column_class', Column)(sname, tname, cdoc, **kwargs)
+            for cdoc in table_doc.get('column_definitions', [])
+        }
 
     def __dir__(self):
-        return self._identifiers
+        return list(super(Table, self).__dir__()) + [key for key in self.column_definitions if _isidentifier(key)]
 
     def __getattr__(self, a):
-        return self.columns[a]
+        return self.column_definitions[a]
 
     def __repr__(self):
-        s = "Table name: '%s'\nList of columns:\n" % self._name
-        if len(self.columns) == 0:
+        s = "Table name: '%s'\nList of columns:\n" % self.name
+        if len(self.column_definitions) == 0:
             s += "none"
         else:
-            s += "\n".join("  %s" % repr(col) for col in self.columns.values())
+            s += "\n".join("  %s" % repr(col) for col in self.column_definitions.values())
         return s
 
     @property
-    def catalog(self):
-        return self._catalog
-
-    @property
-    def name(self):
+    def uname(self):
         """the url encoded name"""
-        return urlquote(self._name)
+        return urlquote(self.name)
 
     @property
     def fqname(self):
         """the url encoded fully qualified name"""
-        return "%s:%s" % (self._schema_name, self.name)
+        return "%s:%s" % (urlquote(self.sname), self.uname)
 
     @property
     def instancename(self):
@@ -491,7 +445,7 @@ class Table (object):
         # JSONEncoder does not handle general iterable objects, so we have to make sure its an acceptable collection
         entities = entities if isinstance(entities, (list, tuple)) else list(entities)
         try:
-            resp = self._catalog.post(path, json=entities, headers={'Content-Type': 'application/json'})
+            resp = self.catalog.post(path, json=entities, headers={'Content-Type': 'application/json'})
             return EntitySet(self.path.uri, lambda ignore: resp.json())
         except HTTPError as e:
             logger.error(e.response.text)
@@ -500,15 +454,15 @@ class Table (object):
             else:
                 raise e
 
-    def update(self, entities, defaults=None, add_system_defaults=True):
+    def update(self, entities):
         """Update entities of a table.
         :param entities: an iterable collection of entities (i.e., rows) to be updated in the table.
-        :return updated entities.
+        :return: updated entities.
         """
         # JSONEncoder does not handle general iterable objects, so we have to make sure its an acceptable collection
         entities = entities if isinstance(entities, (list, tuple)) else list(entities)
         try:
-            resp = self._catalog.put('/entity/' + self.fqname,
+            resp = self.catalog.put('/entity/' + self.fqname,
                                      json=entities,
                                      headers={'Content-Type': 'application/json'})
             return EntitySet(self.path.uri, lambda ignore: resp.json())
@@ -523,34 +477,34 @@ class Table (object):
 class TableAlias (Table):
     """Represents a table alias.
     """
-    def __init__(self, table, alias):
+    def __init__(self, base_table, alias_name):
         """Initializes the table alias.
-        :param table: the base table to be given an alias name
-        :param alias: the alias name
+        :param base_table: the base table to be given an alias name
+        :param alias_name: the alias name
         """
-        assert isinstance(table, Table)
-        super(TableAlias, self).__init__(table._catalog, table._schema_name, table._name, table._doc)
-        self._table = table
-        self._alias = alias
+        assert isinstance(base_table, Table)
+        super(TableAlias, self).__init__(base_table.sname, base_table.name, base_table._table_doc, **base_table._kwargs)
+        self._base_table = base_table
+        self.name = alias_name
         self._parent = None
 
     @property
-    def name(self):
+    def uname(self):
         """the url encoded name"""
-        return urlquote(self._alias)
+        return urlquote(self.name)
 
     @property
     def fqname(self):
         """the url encoded fully qualified name"""
-        return self._table.fqname
+        return self._base_table.fqname
 
     @property
     def instancename(self):
-        return self.name
+        return self.uname
 
     @property
     def fromname(self):
-        return "%s:=%s" % (self.name, self._table.fqname)
+        return "%s:=%s" % (self.uname, self._base_table.fqname)
 
     @property
     def path(self):
@@ -589,41 +543,47 @@ class TableAlias (Table):
 class Column (object):
     """Represents a column in a table.
     """
-    def __init__(self, table, name, doc):
-        """Initializes a column.
-        :param table: the table to which this column belongs
-        :param name: the name of the column
-        :param doc: the column definition document
+    def __init__(self, sname, tname, column_doc, **kwargs):
+        """Creates a Column object.
+        :param sname: schema name
+        :param tname: table name
+        :param column_doc: column definition document
+        :param kwargs: kwargs must include `table` a Table instance
         """
-        assert isinstance(table, Table)
-        self._table = table
-        self._name = name
-        self._doc = doc
+        super(Column, self).__init__()
+        assert 'table' in kwargs
+        assert isinstance(kwargs['table'], Table)
+        self._table = kwargs['table']
+        self.sname = sname
+        self.tname = tname
+        self.name = column_doc['name']
+        self.type = column_doc['type']
+        self.comment = column_doc['comment']
 
     def __repr__(self):
         return "Column name: '%s'\tType: %s\tComment: '%s'" % \
-               (self._name, self._doc['type']['typename'], self._doc['comment'])
+               (self.name, self.type['typename'], self.comment)
 
     @property
-    def name(self):
+    def uname(self):
         """the url encoded name"""
-        return urlquote(self._name)
+        return urlquote(self.name)
 
     @property
     def fqname(self):
         """the url encoded fully qualified name"""
-        return "%s:%s" % (self._table.fqname, self.name)
+        return "%s:%s" % (self._table.fqname, self.uname)
 
     @property
     def instancename(self):
         table_instancename = self._table.instancename
         if len(table_instancename) > 0:
-            return "%s:%s" % (table_instancename, self.name)
+            return "%s:%s" % (table_instancename, self.uname)
         else:
-            return self.name
+            return self.uname
 
     def __str__(self):
-        return self._name
+        return self.name
 
     def __eq__(self, other):
         if other is None:
@@ -654,7 +614,6 @@ class Column (object):
     def ts(self, other):
         assert isinstance(other, str), "This comparison only supports string literals."
         return FilterPredicate(self, "::ts::", other)
-
 
 
 class PathOperator (object):
@@ -704,7 +663,7 @@ class ResetContext (PathOperator):
     @property
     def _path(self):
         assert isinstance(self._r, PathOperator)
-        return "%s/$%s" % (self._r._path, self._alias.name)
+        return "%s/$%s" % (self._r._path, self._alias.uname)
 
 
 class Filter(PathOperator):
@@ -764,7 +723,7 @@ class Link (PathOperator):
     @property
     def _path(self):
         assert isinstance(self._r, PathOperator)
-        assign = '' if self._as is None else "%s:=" % self._as.name
+        assign = '' if self._as is None else "%s:=" % self._as.uname
         cond = self._on.fqname if isinstance(self._on, Table) else str(self._on)
         return "%s/%s%s%s" % (self._r._path, assign, self._join_type, cond)
 
