@@ -116,51 +116,33 @@ class Catalog (object):
 
 
 class Schema (object):
-    """Represents a schema.
+    """Represents a Schema.
     """
     def __init__(self, sname, schema_doc, **kwargs):
-        """Initializes the Schema.
+        """Creates the Schema.
         :param sname: the schema's name
         :param schema_doc: the schema document
-        :param kwargs: must include `catalog`
         """
         super(Schema, self).__init__()
-        self._catalog = kwargs['catalog']
-        self._name = sname
-        tables_doc = schema_doc.get('tables', {})
-        self.table_names = tables_doc.keys()
-        self.tables = _LazyDict(lambda tname: kwargs.get('table_class', Table)(self._name, tname, tables_doc[tname], **kwargs), self.table_names)
-        self._identifiers = dir(Schema) + ['tables'] + [
-            table_name for table_name in self.table_names if _isidentifier(table_name)
-        ]
+        self.name = sname
+        self.tables = {
+            tname: kwargs.get('table_class', Table)(sname, tname, tdoc, **kwargs)
+            for tname, tdoc in schema_doc.get('tables', {}).items()
+        }
 
     def __dir__(self):
-        return self._identifiers
+        return list(super(Schema, self).__dir__()) + [key for key in self.tables if _isidentifier(key)]
 
     def __getattr__(self, a):
         return self.tables[a]
 
     def __repr__(self):
-        s = "Schema name: '%s'\nList of tables:\n" % self._name
+        s = "Schema name: '%s'\nList of tables:\n" % self.name
         if len(self.table_names) == 0:
             s += "none"
         else:
             s += "\n".join("  '%s'" % tname for tname in self.table_names)
         return s
-
-    @property
-    def catalog(self):
-        return self._catalog
-
-    @property
-    def name(self):
-        """the url encoded name"""
-        return urlquote(self._name)
-
-    @property
-    def fqname(self):
-        """the url encoded fully qualified name"""
-        return self.name
 
 
 class DataPath (object):
