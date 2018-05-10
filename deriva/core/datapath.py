@@ -3,7 +3,6 @@ from datetime import date
 import logging
 import re
 from requests import HTTPError
-from . import ermrest_model as _em
 
 try:
     from collections.abc import Mapping as _MappingBaseClass
@@ -18,19 +17,17 @@ def _kwargs(**kwargs):
     kwargs2 = {
         'schema_class': Schema,
         'table_class': Table,
-        'column_class': Column,
-        'key_class': _em.Key,
-        'foreign_key_class': _em.ForeignKey,
+        'column_class': Column
     }
     kwargs2.update(kwargs)
     return kwargs2
 
 
 def from_catalog(catalog):
-    """Creates a PathBuilder object from a derivapy ERMrest catalog.
+    """Creates a Catalog object from a derivapy ERMrest catalog.
     :param catalog: an ERMrest catalog object
     """
-    return PathBuilder(catalog.getCatalogSchema(), **_kwargs(catalog=catalog))
+    return Catalog(catalog.getCatalogSchema(), **_kwargs(catalog=catalog))
 
 
 def _isidentifier(a):
@@ -98,19 +95,19 @@ class _LazyDict (_MappingBaseClass):
         return list(self._keys)
 
 
-class PathBuilder (object):
-    """PathBuilder is the main container object and beginning interface for this module.
+class Catalog (object):
+    """Handle to a Catalog.
     """
     def __init__(self, model_doc, **kwargs):
-        """Creates the PathBuilder.
+        """Creates the Catalog.
         :param model_doc: the schema document for the catalog
         :param kwargs: must include `catalog`
         """
-        super(PathBuilder, self).__init__()
+        super(Catalog, self).__init__()
         schemas_doc = model_doc.get('schemas', {})
         keys = schemas_doc.keys()
-        self.schemas = _LazyDict(lambda sname: kwargs['schema_class'](sname, schemas_doc[sname], **_kwargs(**kwargs)), keys)
-        self._identifiers = dir(PathBuilder) + ['schemas'] + [
+        self.schemas = _LazyDict(lambda sname: kwargs.get('schema_class', Schema)(sname, schemas_doc[sname], **kwargs), keys)
+        self._identifiers = dir(Catalog) + ['schemas'] + [
             key for key in keys if _isidentifier(key)
         ]
 
@@ -135,7 +132,7 @@ class Schema (object):
         self._name = sname
         tables_doc = schema_doc.get('tables', {})
         self.table_names = tables_doc.keys()
-        self.tables = _LazyDict(lambda tname: kwargs['table_class'](self._name, tname, tables_doc[tname], **_kwargs(**kwargs)), self.table_names)
+        self.tables = _LazyDict(lambda tname: kwargs.get('table_class', Table)(self._name, tname, tables_doc[tname], **kwargs), self.table_names)
         self._identifiers = dir(Schema) + ['tables'] + [
             table_name for table_name in self.table_names if _isidentifier(table_name)
         ]
@@ -408,7 +405,7 @@ class Table (object):
         self._identifiers = dir(Table) + ['columns']
         for cdoc in table_doc.get('column_definitions', {}):
             column_name = cdoc['name']
-            self.columns[column_name] = kwargs['column_class'](sname, tname, cdoc, **_kwargs(table=self, **kwargs))
+            self.columns[column_name] = kwargs.get('column_class', Column)(sname, tname, cdoc, **_kwargs(table=self, **kwargs))
             if _isidentifier(column_name):
                 self._identifiers.append(column_name)
 
