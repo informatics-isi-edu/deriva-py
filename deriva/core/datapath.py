@@ -154,11 +154,11 @@ class DataPath (object):
         self._base_uri = root.catalog._server_uri
         self.table_instances = dict()  # map of alias_name => TableAlias object
         self._context = None
-        self._identifiers = dir(DataPath) + ['table_instances']
+        self._identifiers = []
         self._bind_table_instance(root)
 
     def __dir__(self):
-        return self._identifiers
+        return list(super(DataPath, self).__dir__()) + self._identifiers
 
     def __getattr__(self, a):
         return self.table_instances[a]
@@ -376,7 +376,7 @@ class Table (object):
         :param kwargs: must include `catalog`
         """
         self._catalog = kwargs['catalog']
-        self._schema_name = sname
+        self.sname = sname
         self._name = tname
         self._table_doc = table_doc
 
@@ -414,7 +414,7 @@ class Table (object):
     @property
     def fqname(self):
         """the url encoded fully qualified name"""
-        return "%s:%s" % (self._schema_name, self.name)
+        return "%s:%s" % (urlquote(self.sname), self.name)
 
     @property
     def instancename(self):
@@ -520,7 +520,7 @@ class TableAlias (Table):
         :param alias: the alias name
         """
         assert isinstance(table, Table)
-        super(TableAlias, self).__init__(table._schema_name, table._name, table._table_doc, **_kwargs(catalog=table._catalog))
+        super(TableAlias, self).__init__(table.sname, table._name, table._table_doc, **_kwargs(catalog=table._catalog))
         self._table = table
         self._alias = alias
         self._parent = None
