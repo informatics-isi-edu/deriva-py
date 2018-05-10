@@ -101,18 +101,15 @@ class Catalog (object):
     def __init__(self, model_doc, **kwargs):
         """Creates the Catalog.
         :param model_doc: the schema document for the catalog
-        :param kwargs: must include `catalog`
         """
         super(Catalog, self).__init__()
-        schemas_doc = model_doc.get('schemas', {})
-        keys = schemas_doc.keys()
-        self.schemas = _LazyDict(lambda sname: kwargs.get('schema_class', Schema)(sname, schemas_doc[sname], **kwargs), keys)
-        self._identifiers = dir(Catalog) + ['schemas'] + [
-            key for key in keys if _isidentifier(key)
-        ]
+        self.schemas = {
+            sname: kwargs.get('schema_class', Schema)(sname, sdoc, **kwargs)
+            for sname, sdoc in model_doc.get('schemas', {}).items()
+        }
 
     def __dir__(self):
-        return self._identifiers
+        return list(super(Catalog, self).__dir__()) + [key for key in self.schemas if _isidentifier(key)]
 
     def __getattr__(self, a):
         return self.schemas[a]
