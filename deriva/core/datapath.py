@@ -191,15 +191,14 @@ class DataPath (object):
         else:
             return self.uri
 
-    def _bind_table_instance(self, table):
-        """Binds a new table into this path.
+    def _bind_table_instance(self, alias):
+        """Binds a new table instance into this path.
         """
-        assert isinstance(table, TableAlias)
-        table_name = table.name
-        table.path = self
-        self.table_instances[table_name] = self._context = table
-        if _isidentifier(table_name):
-            self._identifiers.append(table_name)
+        assert isinstance(alias, TableAlias)
+        alias.path = self
+        self.table_instances[alias.name] = self._context = alias
+        if _isidentifier(alias.name):
+            self._identifiers.append(alias.name)
 
     def delete(self):
         """Deletes the entity set referenced by the data path.
@@ -248,12 +247,12 @@ class DataPath (object):
         else:
             # Generate an unused alias name for the table
             table_name = right.name
-            alias = table_name
+            alias_name = table_name
             counter = 1
-            while alias in self.table_instances:
+            while alias_name in self.table_instances:
                 counter += 1
-                alias = table_name + str(counter)
-            right = right.alias(alias)
+                alias_name = table_name + str(counter)
+            right = right.alias(alias_name)
 
         if on is None:
             on = right
@@ -375,9 +374,9 @@ class Table (object):
         :param table_doc: deserialized json document of the table definition
         :param kwargs: must include `catalog`
         """
-        self._catalog = kwargs['catalog']
+        self.catalog = kwargs['catalog']
         self.sname = sname
-        self._name = tname
+        self.name = tname
         self._table_doc = table_doc
 
         self.columns = {}
@@ -395,7 +394,7 @@ class Table (object):
         return self.columns[a]
 
     def __repr__(self):
-        s = "Table name: '%s'\nList of columns:\n" % self._name
+        s = "Table name: '%s'\nList of columns:\n" % self.name
         if len(self.columns) == 0:
             s += "none"
         else:
@@ -403,18 +402,14 @@ class Table (object):
         return s
 
     @property
-    def catalog(self):
-        return self._catalog
-
-    @property
-    def name(self):
+    def uname(self):
         """the url encoded name"""
-        return urlquote(self._name)
+        return urlquote(self.name)
 
     @property
     def fqname(self):
         """the url encoded fully qualified name"""
-        return "%s:%s" % (urlquote(self.sname), self.name)
+        return "%s:%s" % (urlquote(self.sname), self.uname)
 
     @property
     def instancename(self):
@@ -482,7 +477,7 @@ class Table (object):
         # JSONEncoder does not handle general iterable objects, so we have to make sure its an acceptable collection
         entities = entities if isinstance(entities, (list, tuple)) else list(entities)
         try:
-            resp = self._catalog.post(path, json=entities, headers={'Content-Type': 'application/json'})
+            resp = self.catalog.post(path, json=entities, headers={'Content-Type': 'application/json'})
             return EntitySet(self.path.uri, lambda ignore: resp.json())
         except HTTPError as e:
             logger.error(e.response.text)
@@ -499,7 +494,7 @@ class Table (object):
         # JSONEncoder does not handle general iterable objects, so we have to make sure its an acceptable collection
         entities = entities if isinstance(entities, (list, tuple)) else list(entities)
         try:
-            resp = self._catalog.put('/entity/' + self.fqname,
+            resp = self.catalog.put('/entity/' + self.fqname,
                                      json=entities,
                                      headers={'Content-Type': 'application/json'})
             return EntitySet(self.path.uri, lambda ignore: resp.json())
@@ -520,28 +515,28 @@ class TableAlias (Table):
         :param alias: the alias name
         """
         assert isinstance(table, Table)
-        super(TableAlias, self).__init__(table.sname, table._name, table._table_doc, **_kwargs(catalog=table._catalog))
-        self._table = table
-        self._alias = alias
+        super(TableAlias, self).__init__(table.sname, table.name, table._table_doc, **_kwargs(catalog=table.catalog))
+        self.base_table = table
+        self.name = alias
         self._parent = None
 
     @property
-    def name(self):
+    def uname(self):
         """the url encoded name"""
-        return urlquote(self._alias)
+        return urlquote(self.name)
 
     @property
     def fqname(self):
         """the url encoded fully qualified name"""
-        return self._table.fqname
+        return self.base_table.fqname
 
     @property
     def instancename(self):
-        return self.name
+        return self.uname
 
     @property
     def fromname(self):
-        return "%s:=%s" % (self.name, self._table.fqname)
+        return "%s:=%s" % (self.uname, self.base_table.fqname)
 
     @property
     def path(self):
@@ -698,7 +693,7 @@ class ResetContext (PathOperator):
     @property
     def _path(self):
         assert isinstance(self._r, PathOperator)
-        return "%s/$%s" % (self._r._path, self._alias.name)
+        return "%s/$%s" % (self._r._path, self._alias.uname)
 
 
 class Filter(PathOperator):
@@ -758,7 +753,7 @@ class Link (PathOperator):
     @property
     def _path(self):
         assert isinstance(self._r, PathOperator)
-        assign = '' if self._as is None else "%s:=" % self._as.name
+        assign = '' if self._as is None else "%s:=" % self._as.uname
         cond = self._on.fqname if isinstance(self._on, Table) else str(self._on)
         return "%s/%s%s%s" % (self._r._path, assign, self._join_type, cond)
 
