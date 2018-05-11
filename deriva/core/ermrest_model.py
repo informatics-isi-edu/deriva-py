@@ -341,6 +341,7 @@ builtin_types = _ec.AttrDict(
                 'int2', 'int4', 'int8',
                 'text',
                 'timestamptz', 'timestamp',
+                'boolean'
         }
     }
 )
