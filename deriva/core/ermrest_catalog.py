@@ -181,6 +181,12 @@ class ErmrestSnapshot(ErmrestCatalog):
             self._server_uri,
             snaptime
         )
+        self._snaptime = snaptime
+
+    @property
+    def snaptime(self):
+        """The snaptime for this catalog snapshot instance."""
+        return self._snaptime
 
     def _pre_mutate(self, path, headers, guard_response=None):
         """Override and disable mutation operations.
