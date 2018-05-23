@@ -434,16 +434,19 @@ class DerivaUpload(object):
             if dir_pattern:
                 match = re.search(dir_pattern, path)
                 if not match:
+                    logging.debug("The dir_pattern \"%s\" failed to match the input path [%s]" % (dir_pattern, path))
                     continue
                 groupdict.update(match.groupdict())
             if ext_pattern:
                 match = re.search(ext_pattern, path, re.IGNORECASE)
                 if not match:
+                    logging.debug("The ext_pattern \"%s\" failed to match the input path [%s]" % (ext_pattern, path))
                     continue
                 groupdict.update(match.groupdict())
             if file_pattern:
                 match = re.search(file_pattern, path)
                 if not match:
+                    logging.debug("The file_pattern \"%s\" failed to match the input path [%s]" % (file_pattern, path))
                     continue
                 groupdict.update(match.groupdict())
 
