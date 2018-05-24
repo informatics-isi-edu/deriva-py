@@ -348,6 +348,21 @@ class MultiKeyedList (list):
         else:
             return list.__getitem__(self, idx)
 
+    def __delitem__(self, idx):
+        """Delete element by key or by list index."""
+        item = self[idx]
+        list.__delitem__(self, self.index(item))
+        for name in item.names:
+            del self.elements[name]
+
+    def append(self, e):
+        """Append element to list and record its keys."""
+        for name in e.names:
+            if name in self.elements:
+                raise ValueError('Element name %s already exists.' % e.name)
+        list.append(self, e)
+        for name in e.names:
+            self.elements[name] = e
 
 class CatalogTable (NodeConfigAclBinding):
     """Table-level configuration management.

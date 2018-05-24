@@ -242,6 +242,8 @@ class ForeignKey (_ec.CatalogForeignKey):
     def __init__(self, sname, tname, fkey_doc, **kwargs):
         super(ForeignKey, self).__init__(sname, tname, fkey_doc, **_kwargs(**kwargs))
         self.comment = fkey_doc.get('comment')
+        self.on_delete = fkey_doc.get('on_delete')
+        self.on_update = fkey_doc.get('on_update')
 
     @classmethod
     def define(cls, fk_colnames, pk_sname, pk_tname, pk_colnames, on_update='NO ACTION', on_delete='NO ACTION', constraint_names=[], comment=None, acls={}, acl_bindings={}, annotations={}):
@@ -272,8 +274,26 @@ class ForeignKey (_ec.CatalogForeignKey):
         d = super(ForeignKey, self).prejson(prune)
         d.update({
             'comment': self.comment,
+            'on_delete': self.on_delete,
+            'on_update': self.on_update,
         })
         return d
+
+    def delete(self, catalog, table=None):
+        """Remove this foreign key from the remote database.
+
+        Also remove this foreign key from the local table object (if provided).
+
+        :param catalog: an ErmrestCatalog object
+        :param table: a Table object or None
+
+        """
+        if table is not None:
+            if self.names[0] not in table.foreign_keys.elements:
+                raise ValueError('Foreign key %s does not appear to belong to table %s.' % (self, table))
+        catalog.delete(self.update_uri_path).raise_for_status()
+        if table is not None:
+            del table.foreign_keys[self.names[0]]
 
 def make_type(type_doc, **kwargs):
     """Create instance of Type, DomainType, or ArrayType as appropriate for type_doc."""
