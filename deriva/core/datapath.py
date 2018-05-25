@@ -454,17 +454,40 @@ class Table (object):
             else:
                 raise e
 
-    def update(self, entities):
+    def update(self, entities, correlation={'RID'}, targets=None):
         """Update entities of a table.
+
+        For more information see the ERMrest protocol for the `attributegroup` interface. By default, this method will
+        correlate the input data (rows) based on the `RID` column of the table. By default, the method will use all
+        column names found in the first row of the `entities` input, which are not found in the `correlation` set, as
+        the targets if `targets` is not set.
+
         :param entities: an iterable collection of entities (i.e., rows) to be updated in the table.
-        :return: updated entities.
+        :param correlation: an iterable collection of column names used to correlate input set to the set of rows to be
+        updated in the catalog. E.g., `('col name')` or `(mytable.mycolumn)` will work if you pass a Column object.
+        :param targets: an iterable collection of column names used as the targets of the update operation.
+        :return: EntitySet of updated entities as returned by the corresponding ERMrest interface.
         """
         # JSONEncoder does not handle general iterable objects, so we have to make sure its an acceptable collection
         entities = entities if isinstance(entities, (list, tuple)) else list(entities)
         try:
-            resp = self.catalog.put('/entity/' + self.fqname,
-                                     json=entities,
-                                     headers={'Content-Type': 'application/json'})
+            path = ''
+            if correlation:
+                correlation_cnames = [str(col) for col in correlation]
+                if targets:
+                    target_cnames = [str(col) for col in targets]
+                else:
+                    target_cnames = [str(col) for col in entities[0].keys() if str(col) not in correlation_cnames]
+
+                path = '/attributegroup/{table}/{correlation};{targets}'.format(
+                    table=self.fqname,
+                    correlation=','.join([urlquote(cname) for cname in correlation_cnames]),
+                    targets=','.join([urlquote(cname) for cname in target_cnames])
+                )
+            else:
+                path = '/entity/' + self.fqname
+
+            resp = self.catalog.put(path, json=entities, headers={'Content-Type': 'application/json'})
             return EntitySet(self.path.uri, lambda ignore: resp.json())
         except HTTPError as e:
             logger.error(e.response.text)
