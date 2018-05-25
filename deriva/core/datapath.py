@@ -10,6 +10,10 @@ except ImportError:
     _DataFrame = None
 
 logger = logging.getLogger(__name__)
+"""Logger for this module"""
+
+_system_defaults = {'RID', 'RCT', 'RMT', 'RCB', 'RMT', 'RMB'}
+"""Set of system default column names"""
 
 
 def _kwargs(**kwargs):
@@ -435,7 +439,7 @@ class Table (object):
         """
         defaults_enc = {urlquote(cname) for cname in defaults} if defaults else set()
         if add_system_defaults:
-            defaults_enc |= {'RID', 'RCT', 'RMT', 'RCB', 'RMT'}
+            defaults_enc |= _system_defaults
 
         path = '/entity/' + self.fqname
         if defaults_enc:
@@ -459,8 +463,8 @@ class Table (object):
 
         For more information see the ERMrest protocol for the `attributegroup` interface. By default, this method will
         correlate the input data (entities) based on the `RID` column of the table. By default, the method will use all
-        column names found in the first row of the `entities` input, which are not found in the `correlation` set, as
-        the targets if `targets` is not set.
+        column names found in the first row of the `entities` input, which are not found in the `correlation` set and
+        not defined as 'system columns' by ERMrest, as the targets if `targets` is not set.
 
         :param entities: an iterable collection of entities (i.e., rows) to be updated in the table.
         :param correlation: an iterable collection of column names used to correlate input set to the set of rows to be
@@ -472,11 +476,12 @@ class Table (object):
         entities = entities if isinstance(entities, (list, tuple)) else list(entities)
 
         # Form the correlation keys and the targets
-        correlation_cnames = [urlquote(str(c)) for c in correlation]
+        correlation_cnames = {urlquote(str(c)) for c in correlation}
         if targets:
-            target_cnames = [urlquote(str(t)) for t in targets]
+            target_cnames = {urlquote(str(t)) for t in targets}
         else:
-            target_cnames = [urlquote(str(t)) for t in entities[0].keys() if urlquote(str(t)) not in correlation_cnames]
+            exclusions = correlation_cnames | _system_defaults
+            target_cnames = {urlquote(str(t)) for t in entities[0].keys() if urlquote(str(t)) not in exclusions}
 
         # Form the path
         path = '/attributegroup/{table}/{correlation};{targets}'.format(
