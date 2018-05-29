@@ -40,7 +40,6 @@ def _isidentifier(a):
     This function is intended for internal usage within this module.
     :param a: a string
     """
-    assert isinstance(a, str)
     if hasattr(a, 'isidentifier'):
         return a.isidentifier()
     else:
