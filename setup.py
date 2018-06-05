@@ -57,7 +57,7 @@ setup(
         'certifi',
         'pika',
         'portalocker',
-        'bdbag>=1.2.0'
+        'bdbag>=1.3.0'
     ],
     extras_require={
         ':python_version <= "2.7"': [
