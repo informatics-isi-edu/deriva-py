@@ -50,26 +50,23 @@ access layer.
 
 ### Features
 
-When a feature below is "unchecked" below, it is anticipated but not
-yet implemented.
-
-- [x] Obtain an object hierarchy mirroring the model of a catalog or catalog snapshot.
-- [x] Discover names of schemas, tables, and columns as well as definitions where applicable.
-- [x] Discover names and definitions of key and foreign key constraints.
-- [x] Discover annotations on catalog and model elements.
-- [x] Discover policies on catalog and model elements (if sufficiently privileged).
+- Obtain an object hierarchy mirroring the model of a catalog or catalog snapshot.
+- Discover names of schemas, tables, and columns as well as definitions where applicable.
+- Discover names and definitions of key and foreign key constraints.
+- Discover annotations on catalog and model elements.
+- Discover policies on catalog and model elements (if sufficiently privileged).
 - Create model elements
-   - [ ] Create new schemas.
-   - [x] Create new tables.
-   - [x] Create new columns on existing tables.
-   - [x] Create new key constraints over existing columns.
-   - [x] Create new foreign key constraints over existing columns and key constraints.
+   - Create new schemas.
+   - Create new tables.
+   - Create new columns on existing tables.
+   - Create new key constraints over existing columns.
+   - Create new foreign key constraints over existing columns and key constraints.
 - Delete model elements
-   - [ ] Drop schemas.
-   - [ ] Drop tables.
-   - [ ] Drop columns.
-   - [ ] Drop key constraints.
-   - [x] Drop foreign key constraints.
+   - Drop schemas.
+   - Drop tables.
+   - Drop columns.
+   - Drop key constraints.
+   - Drop foreign key constraints.
 
 ### Limitations
 
@@ -179,21 +176,29 @@ existing table.
 
 The same pattern can be used to add a key or foreign key to an
 existing table via `table.create_key(catalog, key_def)` or
-`table.create_fkey(catalog, fkey_def)`, respectively.
+`table.create_fkey(catalog, fkey_def)`, respectively. Similarly, a
+schema can be added to a model with `model.create_schema(catalog,
+schema_def)`.
 
-#### Remove a Foreign Key from a Table
+#### Remove a Column from a Table
 
-To delete a foreign key, you invoke the `delete()` method on the
-foreign key object itself:
+To delete a column, you invoke the `delete()` method on the
+column object itself:
 
     table = model_root.table(schema_name, table_name)
-	fkey = table.foreign_keys[ (schema_name, constraint_name) ]
-	fkey.delete(catalog, table=table)
+	column = table.column_definitions[column_name]
+	column.delete(catalog, table=table)
 
 The optional `table` argument allows the method to prune the stale
-foreign key object from the table object to reflect the change made on
+object from the table object to reflect the change made on
 the server. If this is omitted, the server change will be made but the
 local table object will fall out of synchronization.
+
+The same pattern can be used to remove a key or foreign key from a
+table via `key.delete(catalog, table)` or `foreign_key.delete(catalog,
+table)`, respectively. Similarly, a schema or table can be removed
+with `schema.delete(catalog, model)` or `table.delete(catalog,
+schema)`, respectively.
 
 ## deriva.core.ermrest_catalog
 

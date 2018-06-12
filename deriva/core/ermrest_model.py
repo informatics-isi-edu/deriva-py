@@ -19,12 +19,44 @@ class Model (_ec.CatalogConfig):
     def __init__(self, model_doc, **kwargs):
         super(Model, self).__init__(model_doc, **_kwargs(**kwargs))
 
+    def create_schema(self, catalog, schema_def):
+        """Add a new schema to this model in the remote database based on schema_def.
+
+           Returns a new Schema instance based on the server-supplied
+           representation of the newly created schema.
+
+           The returned Schema is also added to self.schemas.
+        """
+        sname = schema_def['schema_name']
+        if sname in self.schemas:
+            raise ValueError('Schema %s already exists.' % sname)
+        r = catalog.post(
+            self.uri_path,
+            json=[schema_def],
+        )
+        r.raise_for_status()
+        d = r.json()
+        assert len(d) == 1
+        newschema = Schema(sname, d[0])
+        self.schemas[sname] = newschema
+        return newschema
+
 class Schema (_ec.CatalogSchema):
     """Named schema.
     """
     def __init__(self, sname, schema_doc, **kwargs):
         super(Schema, self).__init__(sname, schema_doc, **_kwargs(**kwargs))
         self.comment = schema_doc.get('comment')
+
+    @classmethod
+    def define(cls, sname, comment=None, acls={}, annotations={}):
+        """Build a schema definition.
+        """
+        return {
+            "schema_name": sname,
+            "acls": acls,
+            "annotations": annotations,
+        }
 
     def prejson(self, prune=True):
         d = super(Schema, self).prejson(prune)
@@ -52,6 +84,22 @@ class Schema (_ec.CatalogSchema):
         newtable = Table(self.name, tname, r.json())
         self.tables[tname] = newtable
         return newtable
+
+    def delete(self, catalog, model=None):
+        """Remove this schema from the remote database.
+
+        Also remove this schema from the local model object (if provided).
+
+        :param catalog: an ErmrestCatalog object
+        :param schema: a Schema object or None
+
+        """
+        if model is not None:
+            if self.name not in model.schemas:
+                raise ValueError('Schema %s does not appear to belong to model.' % (self,))
+        catalog.delete(self.update_uri_path).raise_for_status()
+        if model is not None:
+            del model.schemas[self.name]
 
 class Table (_ec.CatalogTable):
     """Named table.
@@ -172,6 +220,22 @@ class Table (_ec.CatalogTable):
             return fkey
         return self._create_table_part(catalog, 'foreignkey', add_fkey, ForeignKey, fkey_def)
 
+    def delete(self, catalog, schema=None):
+        """Remove this table from the remote database.
+
+        Also remove this table from the local schema object (if provided).
+
+        :param catalog: an ErmrestCatalog object
+        :param schema: a Schema object or None
+
+        """
+        if schema is not None:
+            if self.name not in schema.tables:
+                raise ValueError('Table %s does not appear to belong to schema %s.' % (self, schema))
+        catalog.delete(self.update_uri_path).raise_for_status()
+        if schema is not None:
+            del schema.tables[self.name]
+
 class Column (_ec.CatalogColumn):
     """Named column.
     """
@@ -210,6 +274,22 @@ class Column (_ec.CatalogColumn):
         })
         return d
         
+    def delete(self, catalog, table=None):
+        """Remove this column from the remote database.
+
+        Also remove this column from the local table object (if provided).
+
+        :param catalog: an ErmrestCatalog object
+        :param table: a Table object or None
+
+        """
+        if table is not None:
+            if self.name not in table.column_definitions.elements:
+                raise ValueError('Column %s does not appear to belong to table %s.' % (self, table))
+        catalog.delete(self.update_uri_path).raise_for_status()
+        if table is not None:
+            del table.column_definitions[self.name]
+
 class Key (_ec.CatalogKey):
     """Named key.
     """
@@ -235,6 +315,22 @@ class Key (_ec.CatalogKey):
             'comment': self.comment,
         })
         return d
+
+    def delete(self, catalog, table=None):
+        """Remove this key from the remote database.
+
+        Also remove this key from the local table object (if provided).
+
+        :param catalog: an ErmrestCatalog object
+        :param table: a Table object or None
+
+        """
+        if table is not None:
+            if self.names[0] not in table.keys.elements:
+                raise ValueError('Key %s does not appear to belong to table %s.' % (self, table))
+        catalog.delete(self.update_uri_path).raise_for_status()
+        if table is not None:
+            del table.keys[self.names[0]]
 
 class ForeignKey (_ec.CatalogForeignKey):
     """Named foreign key.
