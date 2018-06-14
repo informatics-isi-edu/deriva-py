@@ -156,6 +156,28 @@ By default, `create_table(...)` will add system columns to the table
 definition, so the caller does not need to reconstruct these standard elements
 of the column definitions nor the `RID` key definition.
 
+#### Add a Vocabulary Term Table
+
+A vocabulary term table is often useful to track a controlled
+vocabulary used as a domain table for foreign key values used in
+science data columns.  A simple vocabulary term table can be
+created with a helper function:
+
+    schema = model_root.schemas[schema_name]
+    new_vocab_table = schema.create_table(
+      Table.define_vocabulary(
+        "My Vocabulary",
+        "MYPROJECT:{RID}",
+		"https://server.example.org/id/{RID}"
+      )
+    )
+
+The `Table.define_vocabular()` method is a convenience wrapper around
+`Table.define()` to automatically generate core vocabulary table
+structures. It accepts other table definition parameters which a
+sophisticated caller can use to override or extend these core
+structures.
+
 #### Add Column to Table
 
 To create a new column, you build a column definition document and

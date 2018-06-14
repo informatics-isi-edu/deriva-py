@@ -1,5 +1,6 @@
 
 from . import ermrest_config as _ec
+import re
 
 def _kwargs(**kwargs):
     """Helper for extending ermrest_config with sub-types for the whole model tree."""
@@ -140,8 +141,15 @@ class Table (_ec.CatalogTable):
     def define(cls, tname, column_defs=[], key_defs=[], fkey_defs=[], comment=None, acls={}, acl_bindings={}, annotations={}, provide_system=True):
         """Build a table definition.
 
-           If provide_system == True (default) then standard sytem
-           column and key definitions are injected.
+        :param tname: the name of the newly defined table
+        :param column_defs: a list of Column.define() results for extra or overridden column definitions
+        :param key_defs: a list of Key.define() results for extra or overridden key constraint definitions
+        :param fkey_defs: a list of ForeignKey.define() results for foreign key definitions
+        :param comment: a comment string for the table
+        :param acls: a dictionary of ACLs for specific access modes
+        :param acl_bindings: a dictionary of dynamic ACL bindings
+        :param annotations: a dictionary of annotations
+        :param provide_system: whether to inject standard system column definitions when missing from column_defs
 
         """
         if provide_system:
@@ -158,6 +166,103 @@ class Table (_ec.CatalogTable):
             'acl_bindings': acl_bindings,
             'annotations': annotations,
         }
+
+    @classmethod
+    def define_vocabulary(cls, tname, curie_template, uri_template='/id/{RID}', column_defs=[], key_defs=[], fkey_defs=[], comment=None, acls={}, acl_bindings={}, annotations={}, provide_system=True):
+        """Build a vocabulary table definition.
+
+        :param tname: the name of the newly defined table
+        :param curie_template: the RID-based template for the CURIE of locally-defined terms, e.g. 'MYPROJECT:{RID}'
+        :param uri_template: the RID-based template for the URI of locally-defined terms, e.g. 'https://server.example.org/id/{RID}'
+        :param column_defs: a list of Column.define() results for extra or overridden column definitions
+        :param key_defs: a list of Key.define() results for extra or overridden key constraint definitions
+        :param fkey_defs: a list of ForeignKey.define() results for foreign key definitions
+        :param comment: a comment string for the table
+        :param acls: a dictionary of ACLs for specific access modes
+        :param acl_bindings: a dictionary of dynamic ACL bindings
+        :param annotations: a dictionary of annotations
+        :param provide_system: whether to inject standard system column definitions when missing from column_defs
+
+        These core vocabulary columns are generated automatically if
+        absent from the input column_defs.
+
+        - id: ermrest_curie, unique not null, default curie template "%s:{RID}" % curie_prefix
+        - uri: ermrest_uri, unique not null, default URI template "/id/{RID}"
+        - name: text, unique not null
+        - description: markdown, not null
+        - synonyms: text[]
+
+        However, caller-supplied definitions override the default.
+
+        """
+        if not re.match("^[A-Za-z][-_A-Za-z0-9]*:[{]RID[}]$", curie_template):
+            raise ValueError("The curie_template '%s' is invalid." % curie_template)
+
+        if not re.match("^[-_.~?%#=&!*()@:;/+$A-Za-z0-9]+[{]RID[}][-_.~?%#=&!*()@:;/+$A-Za-z0-9]*$", uri_template):
+            raise ValueError("The uri_template '%s' is invalid." % uri_template)
+
+        def add_vocab_columns(custom):
+            return [
+                col_def
+                for col_def in [
+                        Column.define(
+                            'id',
+                            builtin_types['ermrest_curie'],
+                            nullok=False,
+                            default=curie_template,
+                            comment='The preferred Compact URI (CURIE) for this term.'
+                        ),
+                        Column.define(
+                            'uri',
+                            builtin_types['ermrest_uri'],
+                            nullok=False,
+                            default=uri_template,
+                            comment='The preferred URI for this term.'
+                        ),
+                        Column.define(
+                            'name',
+                            builtin_types['text'],
+                            nullok=False,
+                            comment='The preferred human-readable name for this term.'
+                        ),
+                        Column.define(
+                            'description',
+                            builtin_types['markdown'],
+                            nullok=False,
+                            comment='A longer human-readable description of this term.'
+                        ),
+                        Column.define(
+                            'synonyms',
+                            builtin_types['text[]'],
+                            comment='Alternate human-readable names for this term.'
+                        ),
+                ]
+                if col_def['name'] not in { c['name']: c for c in custom }
+            ] + custom
+
+        def add_vocab_keys(custom):
+            def ktup(k):
+                return tuple(k['unique_columns'])
+            return [
+                key_def
+                for key_def in [
+                        Key.define(['id']),
+                        Key.define(['uri']),
+                ]
+                if ktup(key_def) not in { ktup(kdef): kdef for kdef in custom }
+            ] + custom
+
+        return cls.define(
+            tname,
+            add_vocab_columns(column_defs),
+            add_vocab_keys(key_defs),
+            fkey_defs,
+            comment if comment is not None else 'A set of controlled vocabular terms.',
+            acls,
+            acl_bindings,
+            annotations,
+            provide_system
+        )
 
     def prejson(self, prune=True):
         d = super(Table, self).prejson(prune)
@@ -487,6 +592,8 @@ builtin_types.update(
                 'ermrest_rct': 'timestamptz',
                 'ermrest_rmt': 'timestamptz',
                 'markdown': 'text',
+                'ermrest_curie': 'text',
+                'ermrest_uri': 'text',
         }.items()
     }
 )
