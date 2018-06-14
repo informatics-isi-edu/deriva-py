@@ -18,7 +18,8 @@ class BagFetchDownloadProcessor(BaseDownloadProcessor):
 
     def process(self):
         super(BagFetchDownloadProcessor, self).process()
-        self.createRemoteFileManifest()
+        rfm_relpath = self.createRemoteFileManifest()
+        return [self.output_relpath] if not self.is_bag else []
 
     def createRemoteFileManifest(self):
         logging.info("Creating remote file manifest")
@@ -38,6 +39,7 @@ class BagFetchDownloadProcessor(BaseDownloadProcessor):
                                              folder=os.path.dirname(entry["filename"]),
                                              filename=os.path.basename(entry["filename"])))
         os.remove(input_manifest)
+        return os.path.relpath(remote_file_manifest, self.base_path)
 
     def createManifestEntry(self, entry):
         manifest_entry = dict()

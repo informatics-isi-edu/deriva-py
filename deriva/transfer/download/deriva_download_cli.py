@@ -3,7 +3,7 @@ import sys
 import traceback
 import argparse
 from deriva.transfer import GenericDownloader
-from deriva.core import BaseCLI, KeyValuePairArgs, urlparse, __version__
+from deriva.core import BaseCLI, KeyValuePairArgs, format_credential, urlparse, __version__
 
 
 class DerivaDownloadCLI(BaseCLI):
@@ -12,7 +12,6 @@ class DerivaDownloadCLI(BaseCLI):
         BaseCLI.__init__(self, description, epilog, __version__)
         self.remove_options(['--host', '--config-file'])
         self.parser.add_argument("--catalog", default=1, metavar="<1>", help="Catalog number. Default: 1")
-        self.parser.add_argument("--token", metavar="<auth-token>", help="Authorization bearer token.")
         self.parser.add_argument('host', default='localhost', metavar='<host>', help="Fully qualified host name.")
         self.parser.add_argument('config', metavar='<config file>', help="Path to a configuration file.")
         self.parser.add_argument("path", metavar="<output dir>", help="Path to an output directory.")
@@ -49,9 +48,9 @@ class DerivaDownloadCLI(BaseCLI):
                                        config_file=config_file,
                                        credential_file=credential_file)
         if token:
-            auth_token = {"cookie": "webauthn=%s" % token}
-            downloader.setCredentials(auth_token)
-        downloader.download()
+            downloader.setCredentials(format_credential(token))
+
+        return downloader.download()
 
     def main(self):
         try:
@@ -63,13 +62,14 @@ class DerivaDownloadCLI(BaseCLI):
             sys.stderr.write("\n")
 
         try:
-            DerivaDownloadCLI.download(os.path.abspath(args.path),
-                                       args.host,
-                                       args.catalog,
-                                       args.token,
-                                       args.kwargs,
-                                       args.config,
-                                       args.credential_file)
+            downloaded = DerivaDownloadCLI.download(os.path.abspath(args.path),
+                                                    args.host,
+                                                    args.catalog,
+                                                    args.token,
+                                                    args.kwargs,
+                                                    args.config,
+                                                    args.credential_file)
+            sys.stdout.write("\n%s" % '\n'.join(downloaded))
         except RuntimeError as e:
             sys.stderr.write(("\n" if not args.quiet else "") + str(e))
             return 1

@@ -1,6 +1,7 @@
 import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
+from requests.packages.urllib3.exceptions import MaxRetryError
 from multiprocessing import Queue
 from . import ConcurrentUpdate, NotModified, DEFAULT_HEADERS, DEFAULT_SESSION_CONFIG
 
@@ -101,6 +102,8 @@ class DerivaBinding (object):
         if credentials and ('cookie' in credentials):
             cname, cval = credentials['cookie'].split('=', 1)
             self._session.cookies.set(cname, cval, domain=server, path='/')
+        elif credentials and ('username' in credentials and 'password' in credentials):
+            self.post_authn_session(credentials)
 
     def get_authn_session(self):
         r = self._session.get(self._base_server_uri + "/authn/session")

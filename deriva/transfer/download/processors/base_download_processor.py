@@ -51,6 +51,7 @@ class BaseDownloadProcessor(object):
                                  retrieved_on=ro.make_retrieved_on(),
                                  retrieved_by=ro.make_retrieved_by(self.ro_author_name, orcid=self.ro_author_orcid),
                                  bundled_as=ro.make_bundled_as(uri="urn:uuid:%s" % str(uuid.uuid4())))
+        return [self.output_relpath]
 
     def catalogQuery(self, headers=HEADERS):
         output_dir = os.path.dirname(self.output_abspath)
