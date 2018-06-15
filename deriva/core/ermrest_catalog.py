@@ -135,7 +135,7 @@ class ErmrestCatalog(DerivaBinding):
 
         try:
             r = self._session.get(self._server_uri + path, headers=headers, stream=True)
-            r.raise_for_status()
+            self._response_raise_for_status(r)
 
             total = 0
             start = datetime.datetime.now()

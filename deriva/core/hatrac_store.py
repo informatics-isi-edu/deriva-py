@@ -83,7 +83,7 @@ class HatracStore(DerivaBinding):
 
         try:
             r = self._session.get(self._server_uri + path, headers=headers, stream=stream)
-            r.raise_for_status()
+            self._response_raise_for_status(r)
 
             if destfilename is not None:
                 total = 0
@@ -169,7 +169,7 @@ class HatracStore(DerivaBinding):
         headers['Content-SHA256'] = sha256
 
         r = self._session.put(self._server_uri + path, data=f, headers=headers)
-        r.raise_for_status()
+        self._response_raise_for_status(r)
         loc = r.text.strip() or r.url
         if loc.startswith(self._server_uri):
             loc = loc[len(self._server_uri):]

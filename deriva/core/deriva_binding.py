@@ -9,6 +9,25 @@ class DerivaPathError (ValueError):
     pass
 
 
+def _response_raise_for_status(self):
+    """Raises requests.HTTPError if status code indicates an error.
+
+    This unbound method can be monkey-patched onto a requests.Response
+    instance or manually invoked on one.
+
+    """
+    if 400 <= self.status_code < 600:
+        raise requests.HTTPError(
+            u'%s %s Error: %s for url: %s details: %s' % (
+                self.status_code,
+                'Client' if self.status_code < 500 else 'Server',
+                self.reason,
+                self.url,
+                self.content,
+            ),
+            response=self
+        )
+
 class DerivaBinding (object):
     """This is a base-class for implementation purposes. Not useful for clients."""
 
@@ -36,6 +55,8 @@ class DerivaBinding (object):
 
         self._caching = caching
         self._cache = {}
+
+        self._response_raise_for_status = _response_raise_for_status
 
     def get_server_uri(self):
         return self._server_uri
@@ -86,14 +107,16 @@ class DerivaBinding (object):
             else:
                 return p or r
 
-        r.raise_for_status()
-        return r        
+        _response_raise_for_status(r)
+        setattr(r, 'raise_for_status', _response_raise_for_status.__get__(r))
+        return r
 
     @staticmethod
     def _raise_for_status_412(r):
         if r.status_code == 412:
             raise ConcurrentUpdate(r)
-        r.raise_for_status()
+        _response_raise_for_status(r)
+        setattr(r, 'raise_for_status', _response_raise_for_status.__get__(r))
         return r
 
     def set_credentials(self, credentials, server):
@@ -104,12 +127,12 @@ class DerivaBinding (object):
 
     def get_authn_session(self):
         r = self._session.get(self._base_server_uri + "/authn/session")
-        r.raise_for_status()
+        _response_raise_for_status(r)
         return r
 
     def post_authn_session(self, credentials):
         r = self._session.post(self._base_server_uri + "/authn/session", data=credentials)
-        r.raise_for_status()
+        _response_raise_for_status(r)
         return r
 
     def head(self, path, headers=DEFAULT_HEADERS, raise_not_modified=False):
