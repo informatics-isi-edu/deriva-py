@@ -142,7 +142,7 @@ definition:
       "My New Table",
       column_defs,
       key_defs=key_defs,
-      foreign_keys=fkey_defs,
+      fkey_defs=fkey_defs,
       comment="My new entity type.",
       acls={},
       acl_bindings={},
