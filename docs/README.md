@@ -141,7 +141,7 @@ definition:
     table_def = em.Table.define(
       "My New Table",
       column_defs,
-      keys=key_defs,
+      key_defs=key_defs,
       foreign_keys=fkey_defs,
       comment="My new entity type.",
       acls={},
