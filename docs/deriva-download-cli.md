@@ -157,7 +157,7 @@ Parameters:
 |*catalog*|*queries*|This is an array of objects representing a list of `ERMRest` queries and the logical outputs of these queries. The logical outputs of each query are then in turn processed by an *output format processor*, which can either be one of a set of default processors, or an external class conforming to a specified interface.|No
 |*queries*|*query_path*|This is string representing the actual `ERMRest` query path to be used in the HTTP(S) GET request. It SHOULD already be percent-encoded per [RFC 3986](https://tools.ietf.org/html/rfc3986#section-2.1) if it contains any characters outside of the unreserved set.|Yes
 |*queries*|*output_path*|This is a POSIX-compliant path fragment indicating the target location of the retrieved data relative to the specified base download directory.|Yes
-|*queries*|*output_format*|This is a string value used to select from one of the built-in output processor formats. Valid values are `csv`, `json`, `json-stream`, `download`, or `fetch`.|No
+|*queries*|*output_format*|This is a string value used to select from one of the built-in output processor formats. Valid values are `env`, `csv`, `json`, `json-stream`, `download`, or `fetch`.|No
 |*queries*|*output_format_params*|A JSON object of arbitrary complexity containing format-specific processing instructions that will be passed to the `output_format_processor` instance to be used. This is a context-specific parameter, i.e., this parameter MAY be required for a given `output_format_processor`, otherwise it can be omitted.|No
 |*queries*|*output_format_processor*|A fully qualified Python class name declaring an external processor class instance to use. If this parameter is present, it OVERRIDES the value (if specified) in `output_format`. This class MUST be derived from the base class `deriva.transfer.download.processors.BaseDownloadProcessor`. For example, `"output_processor": "deriva.transfer.download.processors.CSVDownloadProcessor"`.|No
 
@@ -203,6 +203,7 @@ The following `output_format` tag values are supported by default:
 
 | Tag | Type | Description|
 | --- | --- | --- |
+|[`env`](#env)|Metadata|Populates the context metadata ("environment") with values returned by the query.
 |[`csv`](#csv)|CSV|CSV format with column header row
 |[`json`](#json)|JSON|JSON Array of row objects.
 |[`json-stream`](#jsons)|"Streaming" JSON|Newline-delimited, multi-object JSON.
@@ -213,6 +214,11 @@ The following `output_format` tag values are supported by default:
 Each _output format processor_ is designed for a specific task, and the task types may vary for a given data export task.
 Some _output formats_ are designed to handle the export of tabular data from the catalog, while others are meant to handle the export of file assets that are referenced by tables in the catalog.
 Other _output formats_ may be implemented that could perform a combination of these tasks, implement a new format, or perform some kind of data transformation.
+
+<a name="env"></a>
+### `env`
+This `output_format` processor performs a catalog query in JSON mode and stores the key-value pairs of the _first_ row of data returned into the metadata context or "working environment" for the download.
+These key-value pairs can then be used as interpolation variables in subsequent stages of processing.
 
 <a name="csv"></a>
 ### `csv`
