@@ -44,8 +44,7 @@ class DerivaUploadCLI(BaseCLI):
 
         deriva_uploader = uploader(config_file, credential_file, server)
         if token:
-            auth_token = {"cookie": "webauthn=%s" % token}
-            deriva_uploader.setCredentials(auth_token)
+            deriva_uploader.setCredentials(format_credential(token))
         if not config_file and not no_update:
             config = deriva_uploader.getUpdatedConfig()
             if config:
