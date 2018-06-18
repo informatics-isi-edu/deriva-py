@@ -16,7 +16,7 @@ class BaseDownloadProcessor(object):
 
     def __init__(self, envars=None, **kwargs):
         self.args = kwargs
-        self.envars = envars if envars else dict()
+        self.envars = envars if (envars is not None) else dict()
         self.catalog = kwargs["catalog"]
         self.store = kwargs["store"]
         self.query = kwargs["query"]
@@ -52,11 +52,15 @@ class BaseDownloadProcessor(object):
                                  bundled_as=ro.make_bundled_as())
         return [self.output_relpath]
 
-    def catalogQuery(self, headers=HEADERS):
-        output_dir = os.path.dirname(self.output_abspath)
-        self.makeDirs(output_dir)
+    def catalogQuery(self, headers=HEADERS, as_file=True):
+        if as_file:
+            output_dir = os.path.dirname(self.output_abspath)
+            self.makeDirs(output_dir)
         try:
-            return self.catalog.getAsFile(self.query, self.output_abspath, headers=headers)
+            if as_file:
+                return self.catalog.getAsFile(self.query, self.output_abspath, headers=headers)
+            else:
+                return self.catalog.get(self.query, headers=headers).json()
         except requests.HTTPError as e:
             raise RuntimeError("Unable to execute catalog query: %s" % format_exception(e))
 
@@ -186,3 +190,16 @@ class JSONStreamDownloadProcessor(BaseDownloadProcessor):
         self.content_type = "application/x-json-stream"
         self.output_relpath, self.output_abspath = self.createPaths(
             self.base_path, self.sub_path, ext=self.ext, is_bag=self.is_bag, envars=envars)
+
+
+class JSONEnvUpdateProcessor(BaseDownloadProcessor):
+    def __init__(self, envars=None, **kwargs):
+        super(JSONEnvUpdateProcessor, self).__init__(envars, **kwargs)
+
+    def process(self):
+        headers = self.HEADERS
+        headers.update({'accept': "application/json"})
+        resp = self.catalogQuery(headers, as_file=False)
+        if resp[0]:
+            self.envars.update(resp[0])
+        return []
