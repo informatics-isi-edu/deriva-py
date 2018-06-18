@@ -1,6 +1,5 @@
 import os
 import errno
-import uuid
 import certifi
 import requests
 from requests.adapters import HTTPAdapter
@@ -50,7 +49,7 @@ class BaseDownloadProcessor(object):
                                  media_type=self.content_type,
                                  retrieved_on=ro.make_retrieved_on(),
                                  retrieved_by=ro.make_retrieved_by(self.ro_author_name, orcid=self.ro_author_orcid),
-                                 bundled_as=ro.make_bundled_as(uri="urn:uuid:%s" % str(uuid.uuid4())))
+                                 bundled_as=ro.make_bundled_as())
         return [self.output_relpath]
 
     def catalogQuery(self, headers=HEADERS):
