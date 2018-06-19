@@ -164,7 +164,7 @@ science data columns.  A simple vocabulary term table can be
 created with a helper function:
 
     schema = model_root.schemas[schema_name]
-    new_vocab_table = schema.create_table(
+    new_vocab_table = schema.create_table(catalog,
       Table.define_vocabulary(
         "My Vocabulary",
         "MYPROJECT:{RID}",
