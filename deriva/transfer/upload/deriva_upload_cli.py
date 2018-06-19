@@ -14,7 +14,6 @@ class DerivaUploadCLI(BaseCLI):
         self.remove_options(['--host'])
         self.parser.add_argument('--no-cfg-update', action="store_true", help="Do not update local config from server.")
         self.parser.add_argument("--catalog", default=1, metavar="<1>", help="Catalog number. Default: 1")
-        self.parser.add_argument("--token", metavar="<auth-token>", help="Authorization bearer token.")
         self.parser.add_argument('host', metavar='<host>', help="Fully qualified host name.")
         self.parser.add_argument("path", metavar="<dir>", help="Path to an input directory.")
         self.uploader = uploader
@@ -45,8 +44,7 @@ class DerivaUploadCLI(BaseCLI):
 
         deriva_uploader = uploader(config_file, credential_file, server)
         if token:
-            auth_token = {"cookie": "webauthn=%s" % token}
-            deriva_uploader.setCredentials(auth_token)
+            deriva_uploader.setCredentials(format_credential(token))
         if not config_file and not no_update:
             config = deriva_uploader.getUpdatedConfig()
             if config:

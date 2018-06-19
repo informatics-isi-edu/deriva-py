@@ -226,7 +226,7 @@ def read_credential(credential_file=DEFAULT_CREDENTIAL_FILE, create_default=Fals
             credential = default
 
     if not credential:
-        with lock_file(credential_file, mode='r', exclusive=True) as cf:
+        with lock_file(credential_file, mode='r') as cf:
             credential = cf.read()
 
     return json.loads(credential, object_pairs_hook=OrderedDict)
@@ -237,6 +237,15 @@ def get_credential(host, credential_file=DEFAULT_CREDENTIAL_FILE):
         credential_file = DEFAULT_CREDENTIAL_FILE
     credentials = read_credential(credential_file)
     return credentials.get(host)
+
+
+def format_credential(token=None, username=None, password=None):
+    if token:
+        return {"cookie": "webauthn=%s" % token}
+    elif username and password:
+        return {"username": username, "password": password}
+    raise ValueError(
+        "Missing required argument(s): an authentication token or a username and password must be provided.")
 
 
 def resource_path(relative_path, default=os.path.abspath(".")):

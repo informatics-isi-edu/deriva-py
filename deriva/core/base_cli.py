@@ -31,6 +31,9 @@ class BaseCLI(object):
         self.parser.add_argument(
             '--credential-file', metavar='<file>', help="Optional path to a credential file.")
 
+        self.parser.add_argument(
+            "--token", metavar="<auth-token>", help="Authorization bearer token.")
+
     def remove_options(self, options):
         for option in options:
             for action in self.parser._actions:

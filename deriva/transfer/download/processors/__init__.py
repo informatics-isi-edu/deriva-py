@@ -1,11 +1,12 @@
 from pydoc import locate
 from deriva.transfer.download.processors.base_download_processor import BaseDownloadProcessor, CSVDownloadProcessor, \
-    JSONDownloadProcessor, JSONStreamDownloadProcessor
+    JSONEnvUpdateProcessor, JSONDownloadProcessor, JSONStreamDownloadProcessor
 from deriva.transfer.download.processors.bag_fetch_download_processor import BagFetchDownloadProcessor
 from deriva.transfer.download.processors.file_download_processor import FileDownloadProcessor
 
 DEFAULT_DOWNLOAD_PROCESSORS = {
     "csv": CSVDownloadProcessor,
+    "env": JSONEnvUpdateProcessor,
     "json": JSONDownloadProcessor,
     "json-stream": JSONStreamDownloadProcessor,
     "download": FileDownloadProcessor,

@@ -1,6 +1,5 @@
 import os
 import json
-import uuid
 import datetime
 import logging
 import requests
@@ -56,6 +55,7 @@ class FileDownloadProcessor(BaseDownloadProcessor):
         logging.info("Retrieving file(s)...")
         try:
             with open(input_manifest, "r") as in_file:
+                file_list = list()
                 for line in in_file:
                     entry = json.loads(line)
                     url = entry.get('url')
@@ -103,6 +103,8 @@ class FileDownloadProcessor(BaseDownloadProcessor):
                                              retrieved_on=ro.make_retrieved_on(),
                                              retrieved_by=ro.make_retrieved_by(
                                                  self.ro_author_name, orcid=self.ro_author_orcid),
-                                             bundled_as=ro.make_bundled_as(uri="urn:uuid:%s" % str(uuid.uuid4())))
+                                             bundled_as=ro.make_bundled_as())
+                    file_list.append(output_path)
+                return file_list
         finally:
             os.remove(input_manifest)

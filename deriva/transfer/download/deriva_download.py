@@ -13,16 +13,17 @@ class DerivaDownload(object):
     """
 
     """
-    def __init__(self, server, output_dir=None, kwargs=None, config_file=None, credential_file=None):
+    def __init__(self, server,
+                 output_dir=None, kwargs=None, config=None, config_file=None, credentials=None, credential_file=None):
         self.server = server
         self.hostname = None
         self.output_dir = output_dir if output_dir else "."
         self.envars = kwargs if kwargs else dict()
         self.catalog = None
         self.store = None
-        self.config = None
+        self.config = config
         self.cancelled = False
-        self.credentials = dict()
+        self.credentials = credentials if credentials else dict()
         self.metadata = dict()
         self.sessions = dict()
 
@@ -112,11 +113,15 @@ class DerivaDownload(object):
                 bdb.ensure_bag_path_exists(bag_path)
                 bag = bdb.make_bag(bag_path, algs=bag_algorithms, metadata=bag_metadata)
                 if bag_ro:
-                    ro_author_name = identity.get('full_name', identity.get('display_name', identity.get('id', None)))
+                    ro_author_name = bag.info.get("Contact-Name",
+                                                  identity.get('full_name',
+                                                               identity.get('display_name',
+                                                                            identity.get('id', None))))
                     ro_author_orcid = bag.info.get("Contact-Orcid")
                     ro_manifest = ro.init_ro_manifest(author_name=ro_author_name, author_orcid=ro_author_orcid)
                     bag_metadata.update({BAG_PROFILE_TAG: BDBAG_RO_PROFILE_ID})
 
+        file_list = list()
         base_path = bag_path if bag_path else self.output_dir
         for query in catalog_config['queries']:
             query_path = query['query_path']
@@ -139,7 +144,7 @@ class DerivaDownload(object):
                                                ro_manifest=ro_manifest,
                                                ro_author_name=ro_author_name,
                                                ro_author_orcid=ro_author_orcid)
-                processor.process()
+                file_list.extend(processor.process())
             except Exception as e:
                 logging.error(format_exception(e))
                 if create_bag:
@@ -167,15 +172,17 @@ class DerivaDownload(object):
                 try:
                     archive = bdb.archive_bag(bag_path, bag_archiver.lower())
                     bdb.cleanup_bag(bag_path)
-                    return archive
+                    return [archive]
                 except Exception as e:
                     logging.error("Exception while creating data bag archive:", format_exception(e))
                     raise
             else:
-                return bag_path
+                return [bag_path]
+
+        return file_list
 
 
 class GenericDownloader(DerivaDownload):
 
-    def __init__(self, server, output_dir=None, kwargs=None, config_file=None, credential_file=None):
-        DerivaDownload.__init__(self, server, output_dir, kwargs, config_file, credential_file)
+    def __init__(self, server, **kwargs):
+        DerivaDownload.__init__(self, server, **kwargs)

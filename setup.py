@@ -56,8 +56,8 @@ setup(
         'requests',
         'certifi',
         'pika',
-        'portalocker',
-        'bdbag>=1.3.0'
+        'portalocker>=1.2.1',
+        'bdbag>=1.4.1'
     ],
     extras_require={
         ':python_version <= "2.7"': [
