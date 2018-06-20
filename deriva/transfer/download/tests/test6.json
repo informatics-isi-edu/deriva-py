@@ -1,0 +1,27 @@
+{
+  "bag": {
+    "bag_name": "eeg-test-bag",
+    "bag_archiver": "zip",
+    "bag_algorithms":["sha256"],
+    "bag_metadata": {
+      "Source-Organization": "USC Information Sciences Institute, Informatics Systems Research Division"
+    }
+  },
+  "catalog":
+  {
+    "host": "https://eeg-dev.isrd.isi.edu",
+    "catalog_id": "1",
+    "queries":
+    [
+      {
+        "query_path": "/entity/EEG:Oscillation/Experiment=CAMKII&Run=1",
+        "output_path": "CAMKII/Oscillation - Run 1",
+        "output_format": "csv"
+      },
+      {
+        "query_path": "/attribute/A:=Study:Experiment/Name=CAMKII/$A/B:=EEG:Files/url:=B:URI,length:=B:File_Size,filename:=B:File_Name,sha256:=B:SHA256",
+        "output_format": "fetch"
+      }
+    ]
+  }
+}

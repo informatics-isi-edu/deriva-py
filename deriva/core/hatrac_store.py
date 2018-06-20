@@ -4,7 +4,7 @@ import requests
 import logging
 from . import format_exception, NotModified, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, urlquote, Megabyte, \
     get_transfer_summary
-from .deriva_binding import DerivaBinding
+from .deriva_binding import DerivaBinding, MaxRetryError
 from .utils import hash_utils as hu, mime_utils as mu
 
 
@@ -17,6 +17,10 @@ class HatracJobAborted (Exception):
 
 
 class HatracJobPaused (Exception):
+    pass
+
+
+class HatracJobTimeout (Exception):
     pass
 
 
@@ -124,7 +128,7 @@ class HatracStore(DerivaBinding):
             if destfile is not None:
                 destfile.close()
 
-    def put_obj(self, path, data, headers=DEFAULT_HEADERS, md5=None, sha256=None):
+    def put_obj(self, path, data, headers=DEFAULT_HEADERS, md5=None, sha256=None, parents=True):
         """Idempotent upload of object, returning object location URI.
 
            Arguments:
@@ -133,6 +137,7 @@ class HatracStore(DerivaBinding):
               headers: additional headers
               md5: a base64 encoded md5 digest may be provided in order to skip the automatic hash computation
               sha256: a base64 encoded sha256 digest may be provided in order to skip the automatic hash computation
+              parents: automatically create parent namespace(s) if missing
            Automatically computes and sends Content-MD5 if no digests provided.
 
            If an object-version already exists under the same name
@@ -157,7 +162,8 @@ class HatracStore(DerivaBinding):
         try:
             r = self.head(path)
             if r.status_code == 200 and \
-                    (md5 and r.headers.get('Content-MD5') == md5 or sha256 and r.headers.get('Content-SHA256') == sha256):
+                    (md5 and r.headers.get('Content-MD5') == md5 or
+                     sha256 and r.headers.get('Content-SHA256') == sha256):
                 # object already has same content so skip upload
                 f.close()
                 return r.headers.get('Content-Location')
@@ -168,7 +174,10 @@ class HatracStore(DerivaBinding):
         headers['Content-MD5'] = md5
         headers['Content-SHA256'] = sha256
 
-        r = self._session.put(self._server_uri + path, data=f, headers=headers)
+        url = self._server_uri + path
+        url = '%s%s' % (url.rstrip("/") if url.endswith("/") else url,
+                        "" if not parents else "?parents=%s" % str(parents).lower())
+        r = self._session.put(url, data=f, headers=headers)
         self._response_raise_for_status(r)
         loc = r.text.strip() or r.url
         if loc.startswith(self._server_uri):
@@ -233,12 +242,15 @@ class HatracStore(DerivaBinding):
                 logging.debug("HEAD request failed: %s" % format_exception(e))
             pass
 
-        job_id = self.create_upload_job(path, file_path, md5, sha256,
-                                        content_type=content_type,
-                                        content_disposition=content_disposition,
-                                        create_parents=create_parents)
-        self.put_obj_chunked(path, file_path, job_id, chunk_size, callback)
-        return self.finalize_upload_job(path, job_id)
+        try:
+            job_id = self.create_upload_job(path, file_path, md5, sha256,
+                                            content_type=content_type,
+                                            content_disposition=content_disposition,
+                                            create_parents=create_parents)
+            self.put_obj_chunked(path, file_path, job_id, chunk_size, callback)
+            return self.finalize_upload_job(path, job_id)
+        except (requests.Timeout, MaxRetryError) as e:
+            raise HatracJobTimeout(e)
 
     def put_obj_chunked(self, path, file_path, job_id, chunk_size=DEFAULT_CHUNK_SIZE, callback=None, start_chunk=0):
         self.check_path(path)

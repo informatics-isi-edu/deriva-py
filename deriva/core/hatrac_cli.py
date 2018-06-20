@@ -53,7 +53,6 @@ class DerivaHatracCLI (BaseCLI):
         self.store = None
 
         # parent arg parser
-        self.parser.add_argument("--token", default=None, metavar="<auth-token>", help="Authorization bearer token.")
         self.remove_options(['--config-file', '--credential-file'])
         subparsers = self.parser.add_subparsers(title='sub-commands', dest='subcmd')
 
@@ -109,6 +108,8 @@ class DerivaHatracCLI (BaseCLI):
         putobj_parser.add_argument('infile', metavar="<infile>", type=str, help="input filename")
         putobj_parser.add_argument("resource", metavar="<path>", type=str, help="object path")
         putobj_parser.add_argument("--content-type", metavar="<type>", type=str, help="HTTP Content-Type header value")
+        putobj_parser.add_argument("--parents", action="store_true",
+                                   help="Create intermediate parent namespaces as required")
         putobj_parser.set_defaults(func=self.putobj)
 
         # delobj parser
@@ -244,11 +245,12 @@ class DerivaHatracCLI (BaseCLI):
         """
         try:
             content_type = args.content_type if args.content_type else mu.guess_content_type(args.infile)
-            loc = self.store.put_obj(self.resource, args.infile, headers={"Content-Type": content_type})
+            loc = self.store.put_obj(
+                self.resource, args.infile, headers={"Content-Type": content_type}, parents=args.parents)
             print(loc)
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
-                raise ResourceException('Parent path does not exist', e)
+                raise ResourceException("Parent namespace not found (use '--parents' to create parent namespace)", e)
             elif e.response.status_code == requests.codes.conflict:
                 raise ResourceException(
                     'Cannot create object (parent path is not a namespace or object name is in use)', e)

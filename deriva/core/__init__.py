@@ -11,7 +11,7 @@ from collections import OrderedDict
 from distutils.util import strtobool
 from pkg_resources import parse_version, get_distribution, DistributionNotFound
 
-__version__ = "0.4.9"
+__version__ = "0.5.0"
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
@@ -274,4 +274,5 @@ from deriva.core.deriva_server import DerivaServer
 from deriva.core.ermrest_catalog import ErmrestCatalog, ErmrestSnapshot, ErmrestCatalogMutationError
 from deriva.core.ermrest_config import AttrDict, CatalogConfig
 from deriva.core.polling_ermrest_catalog import PollingErmrestCatalog
-from deriva.core.hatrac_store import HatracStore, HatracHashMismatch, HatracJobPaused, HatracJobAborted
+from deriva.core.hatrac_store import HatracStore, HatracHashMismatch, HatracJobPaused, HatracJobAborted, \
+    HatracJobTimeout

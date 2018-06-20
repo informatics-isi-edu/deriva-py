@@ -1,3 +1,4 @@
+import inspect
 import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
@@ -28,6 +29,7 @@ def _response_raise_for_status(self):
             ),
             response=self
         )
+
 
 class DerivaBinding (object):
     """This is a base-class for implementation purposes. Not useful for clients."""
@@ -64,10 +66,19 @@ class DerivaBinding (object):
 
     def _get_new_session(self, session_config):
         self._session = requests.session()
-        retries = Retry(connect=session_config['retry_connect'],
-                        read=session_config['retry_read'],
-                        backoff_factor=session_config['retry_backoff_factor'],
-                        status_forcelist=session_config['retry_status_forcelist'])
+        inspect_retry = inspect.getargspec(Retry.__init__)
+        if "raise_on_status" in inspect_retry.args:
+            retries = Retry(connect=session_config['retry_connect'],
+                            read=session_config['retry_read'],
+                            backoff_factor=session_config['retry_backoff_factor'],
+                            status_forcelist=session_config['retry_status_forcelist'],
+                            raise_on_status=True)
+        else:
+            # this is in case installed urllib3 is < 1.15 and raise_on_status is unavailable
+            retries = Retry(connect=session_config['retry_connect'],
+                            read=session_config['retry_read'],
+                            backoff_factor=session_config['retry_backoff_factor'],
+                            status_forcelist=session_config['retry_status_forcelist'])
 
         self._session.mount(self._server_uri + '/',
                             HTTPAdapter(max_retries=retries))

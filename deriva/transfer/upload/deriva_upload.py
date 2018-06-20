@@ -9,8 +9,9 @@ import tempfile
 import logging
 import platform
 from collections import OrderedDict, namedtuple
-from deriva.core import ErmrestCatalog, CatalogConfig, HatracStore, HatracJobAborted, HatracJobPaused, urlquote, stob, \
-    format_exception, get_credential, read_config, write_config, copy_config, resource_path, __version__ as VERSION
+from deriva.core import ErmrestCatalog, CatalogConfig, HatracStore, HatracJobAborted, HatracJobPaused, \
+    HatracJobTimeout, urlquote, stob, format_exception, get_credential, read_config, write_config, copy_config, \
+    resource_path, __version__ as VERSION
 from deriva.core.utils import hash_utils as hu, mime_utils as mu, version_utils as vu
 
 try:
@@ -35,8 +36,10 @@ class Enum(tuple):
     __getattr__ = tuple.index
 
 
-UploadState = Enum(["Success", "Failed", "Pending", "Running", "Paused", "Aborted", "Cancelled"])
+UploadState = Enum(["Success", "Failed", "Pending", "Running", "Paused", "Aborted", "Cancelled", "Timeout"])
 FileUploadState = namedtuple("FileUploadState", ["State", "Status"])
+UploadMetadataReservedKeyNames = ["URI", "file_name", "file_ext", "file_size", "content-disposition", "md5", "sha256",
+                                  "md5_base64", "sha256_base64", "schema", "table", "target_table"]
 
 DefaultConfig = {
   "version_compatibility": [">=%s" % VERSION],
@@ -57,7 +60,7 @@ class DerivaUpload(object):
     Base class for upload tasks. Encapsulates a catalog instance and a hatrac store instance and provides some common
     and reusable functions.
 
-    This class is not intended to be instantiated directly, but rather extended by a deployment specific implementation.
+    This class is not intended to be instantiated directly, but rather extended by a specific implementation.
     """
 
     DefaultConfigFileName = "config.json"
@@ -240,7 +243,7 @@ class DerivaUpload(object):
         # This comparison wont work with PyInstaller single-file bundles because the bundle is extracted to a temp dir
         # and every timestamp for every file in the bundle is reset to the bundle extraction/creation time.
         if getattr(sys, 'frozen', False):
-            prefix = os.sep + "_MEI"
+            prefix = os.path.sep + "_MEI"
             if prefix in src:
                 return False
 
@@ -472,6 +475,11 @@ class DerivaUpload(object):
                         self.file_status[file_path] = FileUploadState(
                             UploadState.Paused, "Paused: %s" % status)._asdict()
                     continue
+                except HatracJobTimeout:
+                    status = self.getTransferStateStatus(file_path)
+                    if status:
+                        self.file_status[file_path] = FileUploadState(UploadState.Timeout, "Timeout")._asdict()
+                    continue
                 except HatracJobAborted:
                     self.file_status[file_path] = FileUploadState(UploadState.Aborted, "Aborted by user")._asdict()
                 except:
@@ -483,7 +491,7 @@ class DerivaUpload(object):
 
         failed_uploads = dict()
         for key, value in self.file_status.items():
-            if value["State"] == UploadState.Failed:
+            if (value["State"] == UploadState.Failed) or (value["State"] == UploadState.Timeout):
                 failed_uploads[key] = value["Status"]
 
         if self.skipped_files:
@@ -593,13 +601,13 @@ class DerivaUpload(object):
             raise ConfigurationError("Record query template substitution error: %s" % format_exception(e))
         result = self.catalog.get(path).json()
         if result:
-            self.metadata.update(result[0])
+            self._updateFileMetadata(result[0])
             return self.pruneDict(result[0], column_map)
         else:
             row = self.interpolateDict(self.metadata, column_map)
             result = self._catalogRecordCreate(self.metadata['target_table'], row)
             if result:
-                self.metadata.update(result[0])
+                self._updateFileMetadata(result[0])
             return self.interpolateDict(self.metadata, column_map, allowNone=True)
 
     def _urlEncodeMetadata(self, safe_overrides=None):
@@ -610,11 +618,11 @@ class DerivaUpload(object):
             if k.endswith("_urlencoded"):
                 continue
             urlencoded[k + "_urlencoded"] = urlquote(str(v), safe_overrides.get(k, ""))
-        self.metadata.update(urlencoded)
+        self._updateFileMetadata(urlencoded)
 
     def _initFileMetadata(self, file_path, asset_mapping, match_groupdict):
         self.metadata.clear()
-        self.metadata.update(match_groupdict)
+        self._updateFileMetadata(match_groupdict)
 
         self.metadata['target_table'] = self.getCatalogTable(asset_mapping, match_groupdict)
         self.metadata["file_name"] = self.getFileDisplayName(file_path)
@@ -622,6 +630,17 @@ class DerivaUpload(object):
 
         self._urlEncodeMetadata(asset_mapping.get("url_encoding_safe_overrides"))
 
+    def _updateFileMetadata(self, src, strict=False):
+        if not (isinstance(src, dict)):
+            ValueError("Invalid input parameter type(s): (src = %s), expected (dict)" % type(src).__name__)
+        if strict:
+            for k in src.keys():
+                if k in UploadMetadataReservedKeyNames:
+                    logging.warning("Context metadata update specified reserved key name [%s], "
+                                    "ignoring value: %s " % (k, src[k]))
+                    del src[k]
+        self.metadata.update(src)
+        
     def _queryFileMetadata(self, file_path, asset_mapping, match_groupdict):
         """
         Helper function that queries the catalog to get required metadata for a given file/asset
@@ -644,7 +663,7 @@ class DerivaUpload(object):
                 raise RuntimeError("Metadata query template substitution error: %s" % format_exception(e))
             result = self.catalog.get(path).json()
             if result:
-                self.metadata.update(result[0])
+                self._updateFileMetadata(result[0], True)
                 self._urlEncodeMetadata(asset_mapping.get("url_encoding_safe_overrides"))
             else:
                 raise RuntimeError("Metadata query did not return any results: %s" % path)
@@ -663,7 +682,7 @@ class DerivaUpload(object):
         ext_map = self.config.get("file_ext_mappings", {})
         entry = ext_map.get(ext)
         if entry:
-            self.metadata.update(entry)
+            self._updateFileMetadata(entry)
 
     def _getFileHatracMetadata(self, asset_mapping):
         try:
@@ -706,11 +725,12 @@ class DerivaUpload(object):
                 self.getTransferStateStatus(file_path), file_path, transfer_state.get("host")))
             path = transfer_state["target"]
             job_id = transfer_state['url'].rsplit("/", 1)[1]
-            self.store.put_obj_chunked(path,
-                                       file_path,
-                                       job_id,
-                                       callback=callback,
-                                       start_chunk=transfer_state["completed"])
+            if not (transfer_state["total"] == transfer_state["completed"]):
+                self.store.put_obj_chunked(path,
+                                           file_path,
+                                           job_id,
+                                           callback=callback,
+                                           start_chunk=transfer_state["completed"])
             return self.store.finalize_upload_job(path, job_id)
         else:
             logging.info("Uploading file: [%s] to host %s. Please wait..." % (
