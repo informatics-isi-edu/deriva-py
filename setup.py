@@ -49,22 +49,20 @@ setup(
         'mimetypes',
         'scandir',
         'requests',
+        'certifi',
         'pika',
         'portalocker',
+        'bdbag',
         'setuptools'],
     install_requires=[
         'requests',
         'certifi',
         'pika',
         'portalocker',
-        'portalocker>=1.2.1;platform_system=="Windows"',
+        'portalocker>=1.2.1; platform_system == "Windows"',
+        'scandir; python_version <= "2.7"',
         'bdbag>=1.4.1'
     ],
-    extras_require={
-        ':python_version <= "2.7"': [
-            'scandir',
-        ],
-    },
     license='Apache 2.0',
     classifiers=[
         'Intended Audience :: Science/Research',
@@ -75,7 +73,10 @@ setup(
         "Operating System :: Microsoft :: Windows",
         'Programming Language :: Python',
         'Programming Language :: Python :: 2.7',
-        'Programming Language :: Python :: 3.5'
+        'Programming Language :: Python :: 3.3',
+        'Programming Language :: Python :: 3.4',
+        'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3.6',
     ]
 )
 
