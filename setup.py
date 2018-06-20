@@ -56,7 +56,8 @@ setup(
         'requests',
         'certifi',
         'pika',
-        'portalocker>=1.2.1',
+        'portalocker',
+        'portalocker>=1.2.1;platform_system=="Windows"',
         'bdbag>=1.4.1'
     ],
     extras_require={
