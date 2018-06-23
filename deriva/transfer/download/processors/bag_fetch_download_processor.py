@@ -25,7 +25,7 @@ class BagFetchDownloadProcessor(BaseDownloadProcessor):
         logging.info("Creating remote file manifest")
         input_manifest = self.output_abspath
         remote_file_manifest = self.args.get("remote_file_manifest")
-        with open(input_manifest, "r") as in_file, open(remote_file_manifest, "w") as remote_file:
+        with open(input_manifest, "r") as in_file, open(remote_file_manifest, "a") as remote_file:
             for line in in_file:
                 # get the required bdbag remote file manifest vars from each line of the json-stream input file
                 entry = json.loads(line)
