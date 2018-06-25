@@ -359,7 +359,7 @@ class MultiKeyedList (list):
         """Append element to list and record its keys."""
         for name in e.names:
             if name in self.elements:
-                raise ValueError('Element name %s already exists.' % e.name)
+                raise ValueError('Element name %s already exists.' % e.names)
         list.append(self, e)
         for name in e.names:
             self.elements[name] = e
