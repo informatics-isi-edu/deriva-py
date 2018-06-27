@@ -597,4 +597,10 @@ builtin_types.update(
         }.items()
     }
 )
-
+builtin_types.update(
+    # define standard serial types which don't have array types
+    {
+        typename: Type({'typename': typename})
+        for typename in [ 'serial2', 'serial4', 'serial8' ]
+    }
+)
