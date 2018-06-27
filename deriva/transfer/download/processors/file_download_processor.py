@@ -20,7 +20,7 @@ class FileDownloadProcessor(BaseDownloadProcessor):
     def process(self):
         super(FileDownloadProcessor, self).process()
         try:
-            self.downloadFiles(self.output_abspath)
+            return self.downloadFiles(self.output_abspath)
         except requests.HTTPError as e:
             raise RuntimeError("Unable to download file(s): %s" % format_exception(e))
 
