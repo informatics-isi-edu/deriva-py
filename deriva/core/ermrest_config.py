@@ -29,9 +29,30 @@ tag = AttrDict({
 })
 
 
-def equivalent(doc1, doc2):
+def equivalent(doc1, doc2, method=None):
     """Determine whether two dict/array/literal documents are structurally equivalent."""
-    if isinstance(doc1, dict) and isinstance(doc2, dict):
+    if method == 'acl_binding':
+        # fill in defaults to avoid some false negatives on acl binding comparison
+        if not isinstance(doc1, dict):
+            return False
+        def canonicalize(d):
+            if not isinstance(d, dict):
+                return d
+            def helper(b):
+                if not isinstance(b, dict):
+                    return b
+                return {
+                    'projection': b['projection'],
+                    'projection_type': b.get('projection_type'), # we can't provide default w/o type inference!
+                    'types': b['types'],
+                    'scope_acl': b.get('scope_acl', ['*']), # this is a common omission...
+                }
+            return {
+                binding_name: helper(binding)
+                for binding_name, binding in d.items()
+            }
+        return equivalent(canonicalize(doc1), canonicalize(doc2))
+    elif isinstance(doc1, dict) and isinstance(doc2, dict):
         return equivalent(sorted(doc1.items()), sorted(doc2.items()))
     elif isinstance(doc1, (list, tuple)) and isinstance(doc2, (list, tuple)):
         if len(doc1) != len(doc2):
@@ -219,7 +240,7 @@ class NodeConfigAclBinding (NodeConfigAcl):
 
     def apply(self, catalog, existing=None):
         NodeConfigAcl.apply(self, catalog, existing)
-        if existing is None or not equivalent(self.acl_bindings, existing.acl_bindings):
+        if existing is None or not equivalent(self.acl_bindings, existing.acl_bindings, method='acl_binding'):
             catalog.put(
                 '%s/%s' % (self.update_uri_path, 'acl_binding'),
                 json=self.acl_bindings
