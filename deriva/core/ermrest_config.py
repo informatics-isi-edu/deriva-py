@@ -42,11 +42,11 @@ def equivalent(doc1, doc2):
         return True
     return doc1 == doc2
 
-
 class NodeConfig (object):
     """Generic model document node configuration management.
 
        annotations: map of annotations for node by key
+       comment: comment string or None (if supported by sub-class)
 
        Convenience access for common annotations:
          self.display: access mutable tag.display object
@@ -57,17 +57,33 @@ class NodeConfig (object):
         self.uri_path = uri_path
         self.update_uri_path = uri_path
         self.annotations = dict(node_doc.get('annotations', {}))
+        self._supports_comment = True
+        self._comment = node_doc.get('comment')
 
     def apply(self, catalog, existing=None):
+        if self._supports_comment:
+            if existing is None or not equivalent(self._comment, existing._comment):
+                if self._comment is not None:
+                    catalog.put('%s/comment' % self.update_uri_path, data=self._comment)
+                else:
+                    catalog.delete('%s/comment' % self.update_uri_path)
         if existing is None or not equivalent(self.annotations, existing.annotations):
             catalog.put(
                 '%s/%s' % (self.update_uri_path, 'annotation'),
                 json=self.annotations
             )
 
-    def clear(self):
-        """Clear existing annotations on node."""
+    def clear(self, clear_comment=False):
+        """Clear existing annotations on node, also clearing comment if clear_comment is True.
+
+        NOTE: as a backwards-compatible heuristic, comments are
+        retained by default so that a typical configuration-management
+        client does not strip useful documentation from existing models.
+
+        """
         self.annotations.clear()
+        if clear_comment and self._supports_comment:
+            self.comment = None
 
     def annotation_obj(self, tag):
         """Generic access to annotation object under given tag.
@@ -105,6 +121,28 @@ class NodeConfig (object):
         return d
 
     @property
+    def comment(self):
+        """Comment on this node in model, if supported.
+
+        Raises TypeError if accessed when unsupported, e.g. on top-level catalog objects.
+        """
+        if self._supports_comment:
+            return self._comment
+        else:
+            raise TypeError('%r does not support comment management.' % type(self).__name__)
+
+    @comment.setter
+    def comment(self, value):
+        """Comment on this node in model, if supported.
+
+        Raises TypeError if accessed when unsupported, e.g. on top-level catalog objects.
+        """
+        if self._supports_comment:
+            self._comment = value
+        else:
+            raise TypeError('%r does not support comment management.' % type(self).__name__)
+
+    @property
     def immutable(self):
         return self.annotation_presence(tag.immutable)
 
@@ -130,6 +168,7 @@ class NodeConfigAcl (NodeConfig):
 
        acls: map of acls for node by key
        annotations: map of annotations for node by key
+       comment: comment string or None (if supported by sub-class)
 
        Convenience access for common annotations:
          self.display: access mutable tag.display object
@@ -167,6 +206,7 @@ class NodeConfigAclBinding (NodeConfigAcl):
        acl_bindings: map of acl bindings for node by key
        acls: map of acls for node by key
        annotations: map of annotations for node by key
+       comment: comment string or None (if supported by sub-class)
 
        Convenience access for common annotations:
          self.display: access mutable tag.display object
@@ -207,6 +247,7 @@ class CatalogConfig (NodeConfigAcl):
     """
     def __init__(self, model_doc, **kwargs):
         NodeConfigAcl.__init__(self, "/schema", model_doc)
+        self._supports_comment = False
         self.update_uri_path = ""
         self.schemas = {
             sname: kwargs.get('schema_class', CatalogSchema)(sname, sdoc, **kwargs)
