@@ -11,7 +11,7 @@ from collections import OrderedDict
 from distutils.util import strtobool
 from pkg_resources import parse_version, get_distribution, DistributionNotFound
 
-__version__ = "0.5.4"
+__version__ = "0.5.5"
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
@@ -34,7 +34,7 @@ def urlquote(s, safe=''):
        characters.
 
     """
-    return _urlquote(s, safe=safe)
+    return _urlquote(s.encode('utf-8'), safe=safe)
 
 
 DEFAULT_HEADERS = {}
