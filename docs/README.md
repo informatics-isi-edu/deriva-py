@@ -92,7 +92,8 @@ For the following examples, we assume this common setup:
 
     from deriva.core import ErmrestCatalog
     import deriva.core.ermrest_model as em
-    import em.builtin_types as typ
+    from deriva.core.ermrest_model import builtin_types as typ
+
     
     catalog = ErmrestCatalog(...)
     model_root = catalog.getCatalogModel()
