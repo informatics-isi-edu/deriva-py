@@ -6,7 +6,6 @@ from .deriva_binding import DerivaBinding
 from .ermrest_config import CatalogConfig
 from . import ermrest_model
 
-
 class ErmrestCatalogMutationError(Exception):
     pass
 
@@ -157,6 +156,36 @@ class ErmrestCatalog(DerivaBinding):
         finally:
             destfile.close()
 
+    def delete(self, path, headers=DEFAULT_HEADERS, guard_response=None):
+        """Perform DELETE request, returning response object.
+
+           Arguments:
+             path: the path within this bound catalog
+             headers: headers to set in request
+             guard_response: expected current resource state
+               as previously seen response object.
+
+           Uses guard_response to build appropriate 'if-match' header
+           to assure change is only applied to expected state.
+
+           Raises ConcurrentUpdate for 412 status.
+
+        """
+        if path == `/`:
+            raise DerivaPathError('See self.delete_ermrest_catalog() if you really want to destroy this catalog.')
+        return DerivaBinding.delete(path, headers=headers, guard_response=guard_response)
+
+    def delete_ermrest_catalog(self, really=False):
+        """Perform DELETE request, destroying catalog on server.
+
+           Arguments:
+             really: delete when True, abort when False (default)
+
+        """
+        if really is True:
+            return DerivaBinding.delete('/')
+        else:
+            raise ValueError('Catalog deletion refused when really is %s.' % really)
 
 class ErmrestSnapshot(ErmrestCatalog):
     """Persistent handle for an ERMrest catalog snapshot.
