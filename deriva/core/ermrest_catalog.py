@@ -171,7 +171,7 @@ class ErmrestCatalog(DerivaBinding):
            Raises ConcurrentUpdate for 412 status.
 
         """
-        if path == `/`:
+        if path == "/":
             raise DerivaPathError('See self.delete_ermrest_catalog() if you really want to destroy this catalog.')
         return DerivaBinding.delete(path, headers=headers, guard_response=guard_response)
 
