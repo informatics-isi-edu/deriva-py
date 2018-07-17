@@ -173,7 +173,7 @@ class ErmrestCatalog(DerivaBinding):
         """
         if path == "/":
             raise DerivaPathError('See self.delete_ermrest_catalog() if you really want to destroy this catalog.')
-        return DerivaBinding.delete(path, headers=headers, guard_response=guard_response)
+        return DerivaBinding.delete(self, path, headers=headers, guard_response=guard_response)
 
     def delete_ermrest_catalog(self, really=False):
         """Perform DELETE request, destroying catalog on server.
