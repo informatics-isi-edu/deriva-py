@@ -19,6 +19,21 @@ class Model (_ec.CatalogConfig):
     """
     def __init__(self, model_doc, **kwargs):
         super(Model, self).__init__(model_doc, **_kwargs(**kwargs))
+        self.update_referenced_by()
+
+    def update_referenced_by(self):
+        """Introspects the 'foreign_keys' and updates the 'referenced_by' properties on the 'Table' objects.
+        :param model: an ERMrest model object
+        """
+        for schema in self.schemas.values():
+            for referer in schema.tables.values():
+                for fkey in referer.foreign_keys:
+                    referenced = self.schemas[
+                        fkey.referenced_columns[0]['schema_name']
+                    ].tables[
+                        fkey.referenced_columns[0]['table_name']
+                    ]
+                    referenced.referenced_by.append(fkey)
 
     def create_schema(self, catalog, schema_def):
         """Add a new schema to this model in the remote database based on schema_def.
@@ -109,6 +124,7 @@ class Table (_ec.CatalogTable):
         super(Table, self).__init__(sname, tname, table_doc, **_kwargs(**kwargs))
         self.comment = table_doc.get('comment')
         self.kind = table_doc.get('kind')
+        self.referenced_by = _ec.MultiKeyedList([])
 
     @classmethod
     def system_column_defs(cls, custom=[]):
