@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  
+  <link rel="shortcut icon" href="../img/favicon.ico">
+  <title>Interact with Hatrac object store (deriva-hatrac-cli) - deriva-py Documentation</title>
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700|Roboto+Slab:400,700|Inconsolata:400,700' rel='stylesheet' type='text/css'>
+
+  <link rel="stylesheet" href="../css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../css/theme_extra.css" type="text/css" />
+  <link rel="stylesheet" href="../css/highlight.css">
+  <link href="../css/extra.css" rel="stylesheet">
+  
+  <script>
+    // Current page data
+    var mkdocs_page_name = "Interact with Hatrac object store (deriva-hatrac-cli)";
+    var mkdocs_page_input_path = "deriva-hatrac-cli.md";
+    var mkdocs_page_url = "/deriva-hatrac-cli/";
+  </script>
+  
+  <script src="../js/jquery-2.1.1.min.js"></script>
+  <script src="../js/modernizr-2.8.3.min.js"></script>
+  <script type="text/javascript" src="../js/highlight.pack.js"></script> 
+  
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+      <div class="wy-side-nav-search">
+        <a href=".." class="icon icon-home"> deriva-py Documentation</a>
+        <div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+	<ul class="current">
+	  
+          
+            <li class="toctree-l1">
+		
+    <a class="" href="..">deriva-py Documentation</a>
+	    </li>
+          
+            <li class="toctree-l1">
+		
+    <span class="caption-text">User Docs</span>
+    <ul class="subnav">
+                <li class="">
+                    
+    <a class="" href="../install/">Installing deriva-py</a>
+                </li>
+                <li class="">
+                    
+    <a class="" href="../deriva-download-cli/">Bulk export tool (deriva-download-cli)</a>
+                </li>
+                <li class=" current">
+                    
+    <a class="current" href="./">Interact with Hatrac object store (deriva-hatrac-cli)</a>
+    <ul class="subnav">
+            
+    <li class="toctree-l3"><a href="#deriva-hatrac-cli">deriva-hatrac-cli</a></li>
+    
+        <ul>
+        
+            <li><a class="toctree-l4" href="#features">Features</a></li>
+        
+            <li><a class="toctree-l4" href="#common-options">Common options</a></li>
+        
+            <li><a class="toctree-l4" href="#namespace-operation-examples">Namespace operation examples</a></li>
+        
+            <li><a class="toctree-l4" href="#object-operation-examples">Object operation examples</a></li>
+        
+            <li><a class="toctree-l4" href="#acl-operation-examples">ACL operation examples</a></li>
+        
+        </ul>
+    
+
+    </ul>
+                </li>
+                <li class="">
+                    
+    <a class="" href="../deriva-acl-config/">Configure ACLs (deriva-acl-config)</a>
+                </li>
+                <li class="">
+                    
+    <a class="" href="../deriva-annotation-config/">Configure annotations (deriva-annotation-config)</a>
+                </li>
+    </ul>
+	    </li>
+          
+            <li class="toctree-l1">
+		
+    <a class="" href="../api/">API Docs</a>
+	    </li>
+          
+        </ul>
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="..">deriva-py Documentation</a>
+      </nav>
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="..">Docs</a> &raquo;</li>
+    
+      
+        
+          <li>User Docs &raquo;</li>
+        
+      
+    
+    <li>Interact with Hatrac object store (deriva-hatrac-cli)</li>
+    <li class="wy-breadcrumbs-aside">
+      
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main">
+            <div class="section">
+              
+                <h1 id="deriva-hatrac-cli">deriva-hatrac-cli<a class="headerlink" href="#deriva-hatrac-cli" title="Permanent link">&para;</a></h1>
+<p>The <code>deriva-hatrac-cli</code> is a command-line utility for interacting with the DERIVA 
+HATRAC object store.</p>
+<h2 id="features">Features<a class="headerlink" href="#features" title="Permanent link">&para;</a></h2>
+<ul>
+<li>List, create, and delete namespaces</li>
+<li>Get, put, and delete objects</li>
+<li>Get, set, and delete ACLs</li>
+</ul>
+<p>See <code>deriva-hatrac-cli --help</code> for a complete list of its features, arguments and
+options.</p>
+<h2 id="common-options">Common options<a class="headerlink" href="#common-options" title="Permanent link">&para;</a></h2>
+<p>All operations are performed with respect to a specific host and most hosts will
+require authentication.</p>
+<h3 id="hostname">Hostname<a class="headerlink" href="#hostname" title="Permanent link">&para;</a></h3>
+<p>If the <code>--host HOSTNAME</code> option is not given, <code>localhost</code> will be assumed.</p>
+<h3 id="authentication">Authentication<a class="headerlink" href="#authentication" title="Permanent link">&para;</a></h3>
+<p>The CLI accepts an authentication token with the <code>--token TOKEN</code> option. If this 
+option is not given, it will look in the user home dir where the <code>DERIVA-Auth</code> 
+client would store the credentials.</p>
+<h2 id="namespace-operation-examples">Namespace operation examples<a class="headerlink" href="#namespace-operation-examples" title="Permanent link">&para;</a></h2>
+<h3 id="list">List<a class="headerlink" href="#list" title="Permanent link">&para;</a></h3>
+<pre><code class="bash">$ deriva-hatrac-cli --host example.org list /hatrac/
+/hatrac/path1
+/hatrac/path2
+/hatrac/path3
+</code></pre>
+
+<h3 id="create-namespace">Create Namespace<a class="headerlink" href="#create-namespace" title="Permanent link">&para;</a></h3>
+<pre><code class="bash">$ deriva-hatrac-cli --host example.org mkdir /hatrac/path1/foo
+</code></pre>
+
+<h3 id="delete-namespace">Delete Namespace<a class="headerlink" href="#delete-namespace" title="Permanent link">&para;</a></h3>
+<pre><code class="bash">$ deriva-hatrac-cli --host example.org rmdir /hatrac/path1/foo
+</code></pre>
+
+<p>Hatrac does not allow reuse of namespace paths. If you create, delete, then 
+(re)create a namespace you will get an error.</p>
+<pre><code class="bash">$ deriva-hatrac-cli --host example.org mkdir /hatrac/path1/foo
+deriva-hatrac-cli mkdir: /hatrac/path1/foo: Namespace exists or the parent path is not a namespace
+</code></pre>
+
+<h2 id="object-operation-examples">Object operation examples<a class="headerlink" href="#object-operation-examples" title="Permanent link">&para;</a></h2>
+<h3 id="put-an-object">Put an object<a class="headerlink" href="#put-an-object" title="Permanent link">&para;</a></h3>
+<pre><code class="bash">$ deriva-hatrac-cli --host example.org put bar.jpg /hatrac/path1/foo/bar.jpg
+/hatrac/path1/foo/bar.jpg:LZJMSF6JQT7SFOVE2RBUZ4UEP4
+</code></pre>
+
+<p>The hatrac versioned path, ending in "...<code>:LZJMSF6JQT7SFOVE2RBUZ4UEP4</code>" is returned
+on success.</p>
+<h3 id="get-an-object">Get an object<a class="headerlink" href="#get-an-object" title="Permanent link">&para;</a></h3>
+<pre><code class="bash">$ deriva-hatrac-cli --host example.org get /hatrac/path1/foo/bar.jpg barcopy.jpg
+2017-11-28 12:15:40,700 - INFO - File [barcopy.jpg] transfer successful. 195.99 KB transferred at 29655.20 MB/second. Elapsed time: 0:00:00.006609.
+2017-11-28 12:15:40,700 - INFO - Verifying checksum for file [barcopy.jpg]
+</code></pre>
+
+<p>If the <code>outfilename</code> argument is not given it will take the <code>basename</code> of the 
+object path.</p>
+<pre><code class="bash">$ deriva-hatrac-cli --host example.org get /hatrac/path1/foo/bar.jpg
+2017-11-28 12:17:03,236 - INFO - File [bar.jpg] transfer successful. 195.99 KB transferred at 30447.60 MB/second. Elapsed time: 0:00:00.006437.
+2017-11-28 12:17:03,236 - INFO - Verifying checksum for file [bar.jpg]
+</code></pre>
+
+<p>Alternately, the object can be streamed to <code>stdout</code> which you could then pipe 
+through another utility or redirect to a file as in this example.</p>
+<pre><code class="bash">$ deriva-hatrac-cli --host example.org get /hatrac/path1/foo/bar.jpg - &gt; barcopy2.jpg
+</code></pre>
+
+<p>Note that when streaming to <code>stdout</code> the CLI will not (be able to) compute and 
+verify the retrieved object's checksum.</p>
+<h3 id="delete-an-object">Delete an object<a class="headerlink" href="#delete-an-object" title="Permanent link">&para;</a></h3>
+<pre><code class="bash">$ deriva-hatrac-cli --host example.org del /hatrac/path1/foo/bar.jpg
+</code></pre>
+
+<p>As with namespaces, a deleted object path cannot be reused.</p>
+<h2 id="acl-operation-examples">ACL operation examples<a class="headerlink" href="#acl-operation-examples" title="Permanent link">&para;</a></h2>
+<p>ACL operations may be performed on any hatrac "path"; i.e., on namespaces and 
+objects.</p>
+<h3 id="get-acls">Get ACLs<a class="headerlink" href="#get-acls" title="Permanent link">&para;</a></h3>
+<pre><code class="bash">$ deriva-hatrac-cli --host example.org getacl /hatrac/path1/foo
+subtree-update:
+create:
+subtree-create:
+subtree-read:
+owner:
+  https://auth.globus.org/111111-2222-3333-4444-5555555
+subtree-owner:
+</code></pre>
+
+<h3 id="set-acls">Set ACLs<a class="headerlink" href="#set-acls" title="Permanent link">&para;</a></h3>
+<pre><code class="bash">$ deriva-hatrac-cli --host example.org setacl /hatrac/path1/foo subtree-read http://0000000-1111-2222-333333
+</code></pre>
+
+<p>More than one role may be added at a time.</p>
+<h3 id="delete-acls">Delete ACLs<a class="headerlink" href="#delete-acls" title="Permanent link">&para;</a></h3>
+<p>Deleting an ACL deletes one or all <code>role</code>s from a specified ACL <code>access-mode</code>. See 
+the output of the <code>getacl</code> operation for a list of all available <code>access-mode</code>s.</p>
+<pre><code class="bash">$ deriva-hatrac-cli --host example.org delacl /hatrac/path1/foo subtree-read
+</code></pre>
+              
+            </div>
+          </div>
+          <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+        <a href="../deriva-acl-config/" class="btn btn-neutral float-right" title="Configure ACLs (deriva-acl-config)">Next <span class="icon icon-circle-arrow-right"></span></a>
+      
+      
+        <a href="../deriva-download-cli/" class="btn btn-neutral" title="Bulk export tool (deriva-download-cli)"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+      
+    </div>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+    
+      <p>Copyright &copy; 2018 <a href="http://github.com/informatics-isi-edu/deriva-py">deriva-py Project</a>.</p>
+    
+  </div>
+
+  Built with <a href="http://www.mkdocs.org">MkDocs</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+      
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" style="cursor: pointer">
+    <span class="rst-current-version" data-toggle="rst-current-version">
+      
+      
+        <span><a href="../deriva-download-cli/" style="color: #fcfcfc;">&laquo; Previous</a></span>
+      
+      
+        <span style="margin-left: 15px"><a href="../deriva-acl-config/" style="color: #fcfcfc">Next &raquo;</a></span>
+      
+    </span>
+</div>
+    <script>var base_url = '..';</script>
+    <script src="../js/theme.js"></script>
+      <script src="../search/require.js"></script>
+      <script src="../search/search.js"></script>
+
+</body>
+</html>

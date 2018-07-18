@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  
+  <link rel="shortcut icon" href="../img/favicon.ico">
+  <title>Configure annotations (deriva-annotation-config) - deriva-py Documentation</title>
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700|Roboto+Slab:400,700|Inconsolata:400,700' rel='stylesheet' type='text/css'>
+
+  <link rel="stylesheet" href="../css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../css/theme_extra.css" type="text/css" />
+  <link rel="stylesheet" href="../css/highlight.css">
+  <link href="../css/extra.css" rel="stylesheet">
+  
+  <script>
+    // Current page data
+    var mkdocs_page_name = "Configure annotations (deriva-annotation-config)";
+    var mkdocs_page_input_path = "deriva-annotation-config.md";
+    var mkdocs_page_url = "/deriva-annotation-config/";
+  </script>
+  
+  <script src="../js/jquery-2.1.1.min.js"></script>
+  <script src="../js/modernizr-2.8.3.min.js"></script>
+  <script type="text/javascript" src="../js/highlight.pack.js"></script> 
+  
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+      <div class="wy-side-nav-search">
+        <a href=".." class="icon icon-home"> deriva-py Documentation</a>
+        <div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+	<ul class="current">
+	  
+          
+            <li class="toctree-l1">
+		
+    <a class="" href="..">deriva-py Documentation</a>
+	    </li>
+          
+            <li class="toctree-l1">
+		
+    <span class="caption-text">User Docs</span>
+    <ul class="subnav">
+                <li class="">
+                    
+    <a class="" href="../install/">Installing deriva-py</a>
+                </li>
+                <li class="">
+                    
+    <a class="" href="../deriva-download-cli/">Bulk export tool (deriva-download-cli)</a>
+                </li>
+                <li class="">
+                    
+    <a class="" href="../deriva-hatrac-cli/">Interact with Hatrac object store (deriva-hatrac-cli)</a>
+                </li>
+                <li class="">
+                    
+    <a class="" href="../deriva-acl-config/">Configure ACLs (deriva-acl-config)</a>
+                </li>
+                <li class=" current">
+                    
+    <a class="current" href="./">Configure annotations (deriva-annotation-config)</a>
+    <ul class="subnav">
+            
+    <li class="toctree-l3"><a href="#using-deriva-annotation-config-to-configure-annotations">Using deriva-annotation-config to configure annotations</a></li>
+    
+        <ul>
+        
+            <li><a class="toctree-l4" href="#config-file-format">Config file format</a></li>
+        
+        </ul>
+    
+
+    </ul>
+                </li>
+    </ul>
+	    </li>
+          
+            <li class="toctree-l1">
+		
+    <a class="" href="../api/">API Docs</a>
+	    </li>
+          
+        </ul>
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="..">deriva-py Documentation</a>
+      </nav>
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="..">Docs</a> &raquo;</li>
+    
+      
+        
+          <li>User Docs &raquo;</li>
+        
+      
+    
+    <li>Configure annotations (deriva-annotation-config)</li>
+    <li class="wy-breadcrumbs-aside">
+      
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main">
+            <div class="section">
+              
+                <h3 id="using-deriva-annotation-config-to-configure-annotations">Using deriva-annotation-config to configure annotations<a class="headerlink" href="#using-deriva-annotation-config-to-configure-annotations" title="Permanent link">&para;</a></h3>
+<p>The <code>deriva-annotation-config</code> utility reads a configuration file and uses it to set annotationss for an ermrest catalog (or for a schema or table within that catalog). Usage is:</p>
+<p><code>deriva-annotation-config</code> [<code>-n</code>|<code>--dryrun</code>] [<code>-v</code>|<code>--verbose</code>] [<code>-s</code>|<code>--schema</code> schema] [<code>-t</code>|<code>--table</code> table] [<code>--host host</code>] [<code>--config-file</code> config_file] [<code>--credential-file</code> credential_file] catalog</p>
+<p>where the required arguments are:</p>
+<p><em>catalog</em>: an ermrest catalog number (e.g., 1)</p>
+<p><code>--config_file</code> file: the name of a configuration file</p>
+<p>Options are:</p>
+<p><code>-credential_file</code> file: read credentials from the named <em>file</em> (if not specified, look for credentials maintained by <code>deriva-auth</code>)</p>
+<p><code>--dryrun</code>: do nothing, just print out the catalog schema that would be applied</p>
+<p><code>--verbose</code>: verbose, print acls and acl bindings for each object</p>
+<p><code>--schema</code> schema: operate only on the named <em>schema</em>, not the whole catalog</p>
+<p><code>--table</code> table: operate only on the named <em>table</em>, not the whole catalog (requires the <code>--schema</code> option)</p>
+<p><code>--host</code> host: configure the server on the specified <em>host</em> (default <code>localhost</code>)</p>
+<h4 id="config-file-format">Config file format<a class="headerlink" href="#config-file-format" title="Permanent link">&para;</a></h4>
+<p>The config file is a json file divided into the following stanzas:</p>
+<p><code>known_attributes</code>: Attributes (i.e., annotation URIs, such as <code>tag:isrd.isi.edu,2016:display</code>) managed through this config file</p>
+<p><code>schema_annotations</code>: Catalog-level annotations.</p>
+<p><code>schema_annotations</code>: Annotations for individual schemas.</p>
+<p><code>table_annotations</code>: Annotations for individual tables.</p>
+<p><code>column_annotations</code>: Annotations for individual columns.</p>
+<p><code>foreign_key_annotations</code>: Annotations for foreign keys.</p>
+<h5 id="the-known_attributes-stanza">The <code>known_attributes</code> stanza<a class="headerlink" href="#the-known_attributes-stanza" title="Permanent link">&para;</a></h5>
+<p>This stanza contains parameters that control the behavior of <code>deriva-annotation-config</code> itself. This section has three sub-sections: <code>managed</code>, <code>ignored</code>, and <code>ignore_all_unmanaged</code>.</p>
+<p>The <code>managed</code> section is a list of annotation types managed by <code>deriva-annotation-config</code>.</p>
+<p>The <code>ignore_all_unmanaged</code> section is a boolean: if <code>true</code>, <code>deriva-annotation-config</code> will leave any annotations not in the <code>managed</code> list unchanged. If <code>false</code>, <code>deriva-annotation-config</code> will clear any annotations not in the <code>managed</code> list.</p>
+<p>The <code>ignored</code> section is a list of annotation types that are recognized by <code>deriva-annotation-config</code> but that aren't created or updated by it, depending on the value of <code>ignore_all_unmanaged</code>. If <code>ignore_all_unmanaged</code> is <code>true</code>, the program leaves existing annotations of this type alone. If <code>ignore_all_unmanaged</code> is <code>false</code>, the program removes existing annotation sof this type.</p>
+<p>Example:</p>
+<pre><code>    &quot;known_attributes&quot;: {
+        &quot;ignore_all_unmanaged&quot;: false,
+        &quot;managed&quot;: [
+            &quot;tag:isrd.isi.edu,2016:column-display&quot;, 
+            &quot;tag:isrd.isi.edu,2016:display&quot;, 
+            &quot;tag:isrd.isi.edu,2016:foreign-key&quot;, 
+            ...
+    ],
+    &quot;ignored&quot; : [
+            &quot;comment&quot;, 
+            &quot;description&quot;, 
+            &quot;facetOrder&quot;
+    ]
+    }
+</code></pre>
+
+<p>This is a version one might use to remove all <code>comment</code>, <code>description</code>, and <code>facetOrder</code> annotations from a catalog. If <code>ignore_all_attributes</code> were <code>true</code>, those annotations would be left unchanged.</p>
+<h5 id="the-schema_annotations-stanza">The schema_annotations stanza<a class="headerlink" href="#the-schema_annotations-stanza" title="Permanent link">&para;</a></h5>
+<p>This is where annotations for schemas are set. The syntax is a list of entries of the form:</p>
+<p>{schema_descriptor: value, annotation_descriptor: value}</p>
+<p>A schema_descriptor is either:</p>
+<p><code>"schema":</code> <em>schema_name</em></p>
+<p>or</p>
+<p><code>"schema_pattern:"</code> <em>regular_expression</em></p>
+<p>When setting permissions on a schema:
+<em> if an exact <code>schema</code> match is found, the associated ACL is used (and any matching <code>schema_pattern</code> entries are ignored).
+</em> If no exact <code>schema</code> match is found and exactly one matching <code>schema_pattern</code> entry is found, then that ACL is used.
+* If no exact <code>schema</code> match is found and more than one matching <code>schema_pattern</code> entry is found, then an error is thrown.</p>
+<p>An annotation_descriptor has the form:</p>
+<p><code>"uri":</code> <em>annotation_uri</em>
+<code>"value":</code>: <em>annotation_value</em></p>
+<p>For example:</p>
+<pre><code>        {
+            &quot;schema&quot;: &quot;Vocabulary&quot;, 
+            &quot;uri&quot;: &quot;tag:misd.isi.edu,2015:display&quot;, 
+            &quot;value&quot;: {
+                &quot;name_style&quot;: {
+                    &quot;title_case&quot;: true, 
+                    &quot;underline_space&quot;: true
+                }
+            }
+        }
+</code></pre>
+
+<h5 id="the-table_annotations-stanza">The table_annotations stanza<a class="headerlink" href="#the-table_annotations-stanza" title="Permanent link">&para;</a></h5>
+<p>This is where annotationss for tables are set. The syntax is a list of entries of the form:
+{schema_descriptor, table_descriptor, annotation_desciptor}
+The schema_descriptor and annotation_descriptor have the same form as above.</p>
+<p>A table_descriptor is either:</p>
+<p><code>"table":</code> <em>table_name</em></p>
+<p>or</p>
+<p><code>"table_pattern:"</code> <em>regular_expression</em></p>
+<p>Regular expression matching is used:
+<em> If an entry with an exact <code>schema</code> and <code>table</code> match is found, the associated ACL is used (and any other matching entries are ignored).
+</em> Otherwise, if entry with an exact <code>schema</code> match and exactly one <code>table_pattern</code> match is found, that ACL is used.
+<em> Otherwise, if exactly one entry with a <code>schema_pattern</code> and <code>table_pattern</code> match is found, that ACL is used.
+</em> If none of the above is true, and multiple matching entries are found, then an error is thrown.</p>
+<p>For example:</p>
+<pre><code>    &quot;table_annotations&quot;: [
+        {
+            &quot;schema&quot;: &quot;Vocabulary&quot;, 
+            &quot;table_pattern&quot;: &quot;.*_terms&quot;, 
+            &quot;uri&quot;: &quot;tag:isrd.isi.edu,2016:table-display&quot;, 
+            &quot;value&quot;: {
+                &quot;row_name&quot;: {
+                    &quot;row_markdown_pattern&quot;: &quot;{{name}}&quot;
+                }
+            }
+        }
+</code></pre>
+
+<p>This sets an annotation for any table in the "Vocabulary" schema whose table name ends in "_terms".</p>
+<h5 id="the-column_annotations-stanza">The column_annotations stanza<a class="headerlink" href="#the-column_annotations-stanza" title="Permanent link">&para;</a></h5>
+<p>This is where ACLs for columns are set. The syntax is a list of entries of the form:
+{schema_descriptor, table_descriptor, column_descriptor, annotation_descriptor}
+The schema, table, and annotation descriptors have the same form as above.
+The column_descriptor is either:</p>
+<p><code>"column":</code> <em>table_name</em></p>
+<p>or</p>
+<p><code>"column_pattern:"</code> <em>regular_expression</em></p>
+<p>Regular expression matching is used:
+<em> If an entry with exact <code>schema</code>, <code>table</code>, and <code>column</code> matches is found, the associated ACL is used (and any other matching entries are ignored).
+</em> Otherwise, if exactly one entry is found with <code>schema</code>, <code>table</code>, and <code>column</code> matches is found, that ACL is used
+* If multiple regular-expression matches are found and no exact match is found, an exception is thrown.</p>
+<p>Example:</p>
+<pre><code>        {
+            &quot;column&quot;: &quot;RCT&quot;, 
+            &quot;schema_pattern&quot;: &quot;.*&quot;, 
+            &quot;table_pattern&quot;: &quot;.*&quot;, 
+            &quot;uri&quot;: &quot;tag:misd.isi.edu,2015:display&quot;, 
+            &quot;value&quot;: {
+                &quot;name&quot;: &quot;Creation Time&quot;
+            }
+        }
+</code></pre>
+
+<p>This sets the display name for any column named "RCT" in the catalog.</p>
+<h5 id="the-foreign_key_annotations-stanza">The foreign_key_annotations stanza<a class="headerlink" href="#the-foreign_key_annotations-stanza" title="Permanent link">&para;</a></h5>
+<p>This is where annotations for foreign keys are set. The syntax is a list of entries of the form:</p>
+<p>{schema_descriptor, table_descriptor, fkey_schema_descriptor, fkey_name_descriptor, annotation_descriptor}</p>
+<p>The schema, table, and annotation descriptors have the same form as above.
+The fkey_schema_descriptor is either:</p>
+<p><code>"foreign_key_schema":</code> foreign_key_schema_name</p>
+<p>or</p>
+<p><code>"foreign_key_schema_pattern":</code> regular_expression</p>
+<p>The fkey_name_descriptor is either:</p>
+<p><code>"foreign_key":</code> foreign_key_name</p>
+<p>or</p>
+<p><code>"foreign_key_pattern":</code> regular_expression</p>
+<p>These specify the foreign key schema and name. As with the column_acls stanza:
+<em> If an exact match is found, it's used
+</em> If no exact match is found and exactly one regular expression match is found, it's used.
+* If no exact match is found and more than one regular expression match is found, an error is thrown.</p>
+<p>Example:</p>
+<pre><code>        {
+            &quot;foreign_key&quot;: &quot;Antibody_Gene_Association_NCBI_GeneID_fkey&quot;, 
+            &quot;foreign_key_schema&quot;: &quot;&quot;, 
+            &quot;schema&quot;: &quot;Antibody&quot;, 
+            &quot;table&quot;: &quot;Antibody_Gene_Association&quot;, 
+            &quot;uri&quot;: &quot;tag:isrd.isi.edu,2016:foreign-key&quot;, 
+            &quot;value&quot;: {
+                &quot;to_name&quot;: &quot;Related Genes&quot;
+            }
+        }
+</code></pre>
+              
+            </div>
+          </div>
+          <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+        <a href="../api/" class="btn btn-neutral float-right" title="API Docs">Next <span class="icon icon-circle-arrow-right"></span></a>
+      
+      
+        <a href="../deriva-acl-config/" class="btn btn-neutral" title="Configure ACLs (deriva-acl-config)"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+      
+    </div>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+    
+      <p>Copyright &copy; 2018 <a href="http://github.com/informatics-isi-edu/deriva-py">deriva-py Project</a>.</p>
+    
+  </div>
+
+  Built with <a href="http://www.mkdocs.org">MkDocs</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+      
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" style="cursor: pointer">
+    <span class="rst-current-version" data-toggle="rst-current-version">
+      
+      
+        <span><a href="../deriva-acl-config/" style="color: #fcfcfc;">&laquo; Previous</a></span>
+      
+      
+        <span style="margin-left: 15px"><a href="../api/" style="color: #fcfcfc">Next &raquo;</a></span>
+      
+    </span>
+</div>
+    <script>var base_url = '..';</script>
+    <script src="../js/theme.js"></script>
+      <script src="../search/require.js"></script>
+      <script src="../search/search.js"></script>
+
+</body>
+</html>

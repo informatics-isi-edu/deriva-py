@@ -1,0 +1,146 @@
+body {
+	font-family: Arial,Verdana,"Bitstream Vera Sans",Helvetica,sans-serif;
+}
+
+.wy-plain-list-decimal li, .rst-content .section ol li, .rst-content ol.arabic li, article ol li  {
+	font-size: 16px;
+}
+
+.wy-side-nav-search {
+    background-color: #428bca;
+}
+
+.wy-side-nav-search > a, .wy-side-nav-search .wy-dropdown > a {
+	display: inline-block;
+}
+
+.wy-side-nav-search span.title {
+	line-height: 24px;
+}
+
+li.toctree-l3 {
+	display: none;
+}
+
+.wy-breadcrumbs li {
+	font-weight: bold;
+}
+
+h3, h4, h5, h6 {
+	color: inherit;
+	font-weight: 600;
+}
+
+h1, h2, h3, h4, h5, h6, legend {
+	font-family: Arial,Verdana,"Bitstream Vera Sans",Helvetica,sans-serif;	
+}
+
+a {
+	color: #1d61be;
+}
+
+hr {
+	border-color: inherit;
+}
+
+pre {
+	padding: 16px;
+  overflow: auto;
+  line-height: 1.45;
+  background-color: #EEE;
+  border-radius: 3px;
+}
+
+code, .rst-content tt {
+	color: #444;
+	font-size: 16px;
+	font-family: courier;
+	background-color: transparent;
+	line-height: 1.5em;
+	border: none;
+}
+
+code {
+    background-color: #f1f1f1;
+}
+
+h3 code {
+	background-color: transparent;
+}
+
+pre code {
+	font-size: 16px;
+}
+
+.hljs-comment, .diff .hljs-header, .hljs-javadoc, .hljs-preprocessor, .hljs-pragma, .hljs-pi, .hljs-doctype, .hljs-shebang, .hljs-cdata {
+	color: inherit;
+}
+
+.hljs-preprocessor, .hljs-pragma, .hljs-pi, .hljs-doctype, .hljs-shebang, .hljs-cdata {
+	font-weight: normal;
+}
+
+.wy-menu-vertical a, .wy-menu-vertical span {
+	color: #F2F2F2;
+}
+
+::-webkit-input-placeholder { /* Chrome */
+  color: #000;
+}
+:-ms-input-placeholder { /* IE 10+ */
+  color: #000;
+}
+::-moz-placeholder { /* Firefox 19+ */
+  color: #000;
+  opacity: 1;
+}
+:-moz-placeholder { /* Firefox 4 - 18 */
+  color: #000;
+  opacity: 1;
+}
+
+.rst-content dl:not(.docutils) dt {
+	background-color: transparent;
+	border-top: none;
+	color: #555;
+}
+
+.hljs-keyword, .css .rule .hljs-keyword, .hljs-winutils, .nginx .hljs-title, .hljs-subst, .hljs-request, .hljs-status {
+	font-weight: normal;
+}
+
+.hljs-tag, .hljs-tag .hljs-title, .hljs-rule .hljs-property, .django .hljs-tag .hljs-keyword, .hljs-number, .hljs-hexcolor, .ruby .hljs-constant, .hljs-built_in, .hljs-string, .hljs-tag .hljs-value, .hljs-phpdoc, .hljs-dartdoc, .tex .hljs-formula, .hljs-attribute, .hljs-variable, .lisp .hljs-body, .hljs-name, .hljs-symbol, .ruby .hljs-symbol .hljs-string, .lisp .hljs-keyword, .clojure .hljs-keyword, .scheme .hljs-keyword, .tex .hljs-special, .hljs-prompt, .hljs-class .hljs-title, .hljs-type, .vhdl .hljs-literal, .tex .hljs-command, .hljs-title, .hljs-id, .scss .hljs-preprocessor, .hljs-regexp {
+	color: #000;
+	font-weight: normal;
+}
+
+.section .toc ul li li {
+	list-style-type: square;
+	margin-bottom: 0; 
+}
+
+/* glossary styles */
+
+.rst-content .section ul.definition-list li {
+	list-style-type: none;
+}
+
+.rst-content .section ul.definition-list li.term {
+	font-weight: bold;
+	padding: 6px;
+	margin-bottom: 6px;
+	margin-left: 0;
+	margin-top: 6px;
+}
+
+.rst-content .section ul.definition-list li.term:first-child {
+	margin-top: 0;
+}
+
+.rst-content .section ul.definition-list li.definition {
+	margin: 0 0 12 24;
+}
+
+#mkdocs-search-results {
+	padding: 20px;
+}

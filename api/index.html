@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  
+  <link rel="shortcut icon" href="../img/favicon.ico">
+  <title>API Docs - deriva-py Documentation</title>
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700|Roboto+Slab:400,700|Inconsolata:400,700' rel='stylesheet' type='text/css'>
+
+  <link rel="stylesheet" href="../css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../css/theme_extra.css" type="text/css" />
+  <link rel="stylesheet" href="../css/highlight.css">
+  <link href="../css/extra.css" rel="stylesheet">
+  
+  <script>
+    // Current page data
+    var mkdocs_page_name = "API Docs";
+    var mkdocs_page_input_path = "api.md";
+    var mkdocs_page_url = "/api/";
+  </script>
+  
+  <script src="../js/jquery-2.1.1.min.js"></script>
+  <script src="../js/modernizr-2.8.3.min.js"></script>
+  <script type="text/javascript" src="../js/highlight.pack.js"></script> 
+  
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+      <div class="wy-side-nav-search">
+        <a href=".." class="icon icon-home"> deriva-py Documentation</a>
+        <div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+	<ul class="current">
+	  
+          
+            <li class="toctree-l1">
+		
+    <a class="" href="..">deriva-py Documentation</a>
+	    </li>
+          
+            <li class="toctree-l1">
+		
+    <span class="caption-text">User Docs</span>
+    <ul class="subnav">
+                <li class="">
+                    
+    <a class="" href="../install/">Installing deriva-py</a>
+                </li>
+                <li class="">
+                    
+    <a class="" href="../deriva-download-cli/">Bulk export tool (deriva-download-cli)</a>
+                </li>
+                <li class="">
+                    
+    <a class="" href="../deriva-hatrac-cli/">Interact with Hatrac object store (deriva-hatrac-cli)</a>
+                </li>
+                <li class="">
+                    
+    <a class="" href="../deriva-acl-config/">Configure ACLs (deriva-acl-config)</a>
+                </li>
+                <li class="">
+                    
+    <a class="" href="../deriva-annotation-config/">Configure annotations (deriva-annotation-config)</a>
+                </li>
+    </ul>
+	    </li>
+          
+            <li class="toctree-l1 current">
+		
+    <a class="current" href="./">API Docs</a>
+    <ul class="subnav">
+            
+    <li class="toctree-l2"><a href="#python-apis">Python APIs</a></li>
+    
+        <ul>
+        
+            <li><a class="toctree-l3" href="#datapath">DataPath</a></li>
+        
+            <li><a class="toctree-l3" href="#ermrest-model-management">ERMrest Model Management</a></li>
+        
+            <li><a class="toctree-l3" href="#derivacoreermrest_catalog">deriva.core.ermrest_catalog</a></li>
+        
+        </ul>
+    
+
+    </ul>
+	    </li>
+          
+        </ul>
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="..">deriva-py Documentation</a>
+      </nav>
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="..">Docs</a> &raquo;</li>
+    
+      
+    
+    <li>API Docs</li>
+    <li class="wy-breadcrumbs-aside">
+      
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main">
+            <div class="section">
+              
+                <h1 id="python-apis">Python APIs<a class="headerlink" href="#python-apis" title="Permanent link">&para;</a></h1>
+<p><code>deriva-py</code> includes Python APIs for interacting with the DERIVA framework.</p>
+<p>The APIs include:</p>
+<ul>
+<li>low-level ERMrest interface (see <code>ErmrestCatalog</code>)</li>
+<li>low-level Hatrac interface (see <code>HatracStore</code>)</li>
+<li>higher-level ERMrest catalog configuration (see <code>CatalogConfig</code>)</li>
+<li>higher-level ERMrest "data path" (see below)</li>
+</ul>
+<h2 id="datapath">DataPath<a class="headerlink" href="#datapath" title="Permanent link">&para;</a></h2>
+<p>The <code>datapath</code> module is an interface for building ERMrest "data paths" and retrieving data from ERMrest catalogs. It
+also supports data manipulation (insert, update, delete). In its present form, the module provides a limited 
+programmatic interface to ERMrest.</p>
+<h3 id="features">Features<a class="headerlink" href="#features" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Build ERMrest "data path" URLs with a Pythonic interface</li>
+<li>Covers the essentials for data retrieval: link tables, filter on attributes, select attributes, alias tables</li>
+<li>Retrieve entity sets; all or limited numbers of entities</li>
+<li>Convert entity sets to Pandas DataFrames</li>
+<li>Insert and update entities of a table</li>
+<li>Delete entities identified by a (potentially, complex) data path</li>
+</ul>
+<h3 id="limitations">Limitations<a class="headerlink" href="#limitations" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Only supports <code>entity</code> and <code>attribute</code> resources</li>
+<li>Only supports <code>application/json</code> CONTENT-TYPE (i.e., protocol could be made more efficient)</li>
+<li>The <code>EntitySet</code> interface is a thin wrapper over a dictionary of a list of results</li>
+<li>Many user errors are caught by Python <code>assert</code> statements rather than checking for "invalid paramters" and throwing
+  custom <code>Exception</code> objects</li>
+</ul>
+<h3 id="tutorials">Tutorials<a class="headerlink" href="#tutorials" title="Permanent link">&para;</a></h3>
+<p>See the Jupyter Notebook tutorials in the <code>docs/</code> folder.</p>
+<ul>
+<li><a href="https://github.com/informatics-isi-edu/deriva-py/blob/master/docs/derivapy-datapath-example-1.ipynb">Example 1</a>: basic schema inspection</li>
+<li><a href="https://github.com/informatics-isi-edu/deriva-py/blob/master/docs/derivapy-datapath-example-2.ipynb">Example 2</a>: basic data retrieval</li>
+<li><a href="https://github.com/informatics-isi-edu/deriva-py/blob/master/docs/derivapy-datapath-example-3.ipynb">Example 3</a>: building simple data paths</li>
+<li><a href="https://github.com/informatics-isi-edu/deriva-py/blob/master/docs/derivapy-datapath-example-4.ipynb">Example 4</a>: slightly more advanced topics</li>
+<li><a href="https://github.com/informatics-isi-edu/deriva-py/blob/master/docs/derivapy-datapath-update.ipynb">Data Update Example</a>: examples of insert, update, and delete</li>
+</ul>
+<p>Now, <a href="https://github.com/informatics-isi-edu/deriva-py/blob/master/docs/get-started.ipynb">get started</a>!</p>
+<h2 id="ermrest-model-management">ERMrest Model Management<a class="headerlink" href="#ermrest-model-management" title="Permanent link">&para;</a></h2>
+<p>The <code>core.ermrest_model</code> module provides an interface for managing the
+model (schema definitions) of an ERMrest catalog.  This library
+provides an (incomplete) set of helper routines for common model
+management idioms.</p>
+<p>For some advanced scenarios supported by the server but not yet
+supported in this library, a client may need to resort to direct usage
+of the low-level <code>deriva.core.ermrest_catalog.ErmrestCatalog</code> HTTP
+access layer.</p>
+<h3 id="features_1">Features<a class="headerlink" href="#features_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Obtain an object hierarchy mirroring the model of a catalog or catalog snapshot.</li>
+<li>Discover names of schemas, tables, and columns as well as definitions where applicable.</li>
+<li>Discover names and definitions of key and foreign key constraints.</li>
+<li>Discover annotations on catalog and model elements.</li>
+<li>Discover policies on catalog and model elements (if sufficiently privileged).</li>
+<li>Create model elements</li>
+<li>Create new schemas.</li>
+<li>Create new tables.</li>
+<li>Create new columns on existing tables.</li>
+<li>Create new key constraints over existing columns.</li>
+<li>Create new foreign key constraints over existing columns and key constraints.</li>
+<li>Delete model elements</li>
+<li>Drop schemas.</li>
+<li>Drop tables.</li>
+<li>Drop columns.</li>
+<li>Drop key constraints.</li>
+<li>Drop foreign key constraints.</li>
+</ul>
+<h3 id="limitations_1">Limitations<a class="headerlink" href="#limitations_1" title="Permanent link">&para;</a></h3>
+<p>Because the model management interface mirrors a complex remote
+catalog model with a hierarchy of local objects, it is possible for
+the local objects to get out of synchronization with the remote
+catalog and either represent model elements which no longer exist or
+lack model elements recently added.</p>
+<p>The provided management methods, when used carefully, can
+incrementally update the local representation with changes made to the
+server by the calling client. However, if other clients make
+concurrent changes, it is likely that the local representation will
+diverge.</p>
+<p>The only robust solution to this problem is for the caller to discard
+its model representation, reconstruct it to match the latest server
+state, and retry whatever changes are intended.</p>
+<h3 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h3>
+<p>For the following examples, we assume this common setup:</p>
+<pre><code>from deriva.core import ErmrestCatalog
+import deriva.core.ermrest_model as em
+from deriva.core.ermrest_model import builtin_types as typ
+
+
+catalog = ErmrestCatalog(...)
+model_root = catalog.getCatalogModel()
+</code></pre>
+<p>Also, when examples show keyword arguments, they illustrate a typical
+override value. If omitted, a default value will apply. Many parts of
+the model definition are immutable once set, but in general <code>comment</code>,
+<code>acl</code>, <code>acl_binding</code>, and <code>annotation</code> attributes can be modified after
+the fact through configuration management APIs.</p>
+<h4 id="add-table-to-schema">Add Table to Schema<a class="headerlink" href="#add-table-to-schema" title="Permanent link">&para;</a></h4>
+<p>To create a new table, you build a table definition document and pass
+it to the table-creation method on the object representing an existing
+schema. The various classes involved include class-methods
+<code>define(...)</code> to construct the constituent parts of the table
+definition:</p>
+<pre><code>column_defs = [ 
+  em.Column.define("Col1", typ.text), 
+  em.Column.define("Col2", typ.int8),
+]
+key_defs = [
+  em.Key.define(
+    ["Col1"], # this is a list to allow for compound keys
+    constraint_names=[ [schema_name, "My New Table_Col1_key"] ],
+    comment="Col1 text values must be distinct.",
+    annotations={},
+  )
+]
+fkey_defs = [
+  em.ForeignKey.define(
+    ["Col2"], # this is a list to allow for compound foreign keys
+    "Foreign Schema",
+    "Referenced Table",
+    ["Referenced Column"], # this is a list to allow for compound keys
+    on_update='CASCADE',
+    on_delete='SET NULL',
+    constraint_names=[ [schema_name, "My New Table_Col2_fkey"] ],
+    comment="Col2 must be a valid reference value from the domain table.",
+    acls={},
+    acl_bindings={},
+    annotations={},
+  )
+]
+table_def = em.Table.define(
+  "My New Table",
+  column_defs,
+  key_defs=key_defs,
+  fkey_defs=fkey_defs,
+  comment="My new entity type.",
+  acls={},
+  acl_bindings={},
+  annotations={},
+  provide_system=True,
+)
+schema = model_root.schemas[schema_name]
+new_table = schema.create_table(catalog, table_def)
+</code></pre>
+<p>By default, <code>create_table(...)</code> will add system columns to the table
+definition, so the caller does not need to reconstruct these standard elements
+of the column definitions nor the <code>RID</code> key definition.</p>
+<h4 id="add-a-vocabulary-term-table">Add a Vocabulary Term Table<a class="headerlink" href="#add-a-vocabulary-term-table" title="Permanent link">&para;</a></h4>
+<p>A vocabulary term table is often useful to track a controlled
+vocabulary used as a domain table for foreign key values used in
+science data columns.  A simple vocabulary term table can be
+created with a helper function:</p>
+<pre><code>schema = model_root.schemas[schema_name]
+new_vocab_table = schema.create_table(catalog,
+  Table.define_vocabulary(
+    "My Vocabulary",
+    "MYPROJECT:{RID}",
+    "https://server.example.org/id/{RID}"
+  )
+)
+</code></pre>
+<p>The <code>Table.define_vocabular()</code> method is a convenience wrapper around
+<code>Table.define()</code> to automatically generate core vocabulary table
+structures. It accepts other table definition parameters which a
+sophisticated caller can use to override or extend these core
+structures.</p>
+<h4 id="add-column-to-table">Add Column to Table<a class="headerlink" href="#add-column-to-table" title="Permanent link">&para;</a></h4>
+<p>To create a new column, you build a column definition document and
+pass it to the column-creation method on the object representing an
+existing table.</p>
+<pre><code>column_def = em.Column.define(
+  "My New Column",
+  typ.text,
+  nullok=False,
+  comment="A string representing my new stuff.",
+  annotations={},
+  acls={},
+  acl_bindings={},
+)
+table = model_root.table(schema_name, table_name)
+new_column = table.create_column(catalog, column_def)
+</code></pre>
+<p>The same pattern can be used to add a key or foreign key to an
+existing table via <code>table.create_key(catalog, key_def)</code> or
+<code>table.create_fkey(catalog, fkey_def)</code>, respectively. Similarly, a
+schema can be added to a model with <code>model.create_schema(catalog,
+schema_def)</code>.</p>
+<h4 id="remove-a-column-from-a-table">Remove a Column from a Table<a class="headerlink" href="#remove-a-column-from-a-table" title="Permanent link">&para;</a></h4>
+<p>To delete a column, you invoke the <code>delete()</code> method on the
+column object itself:</p>
+<pre><code>table = model_root.table(schema_name, table_name)
+column = table.column_definitions[column_name]
+column.delete(catalog, table=table)
+</code></pre>
+<p>The optional <code>table</code> argument allows the method to prune the stale
+object from the table object to reflect the change made on
+the server. If this is omitted, the server change will be made but the
+local table object will fall out of synchronization.</p>
+<p>The same pattern can be used to remove a key or foreign key from a
+table via <code>key.delete(catalog, table)</code> or <code>foreign_key.delete(catalog,
+table)</code>, respectively. Similarly, a schema or table can be removed
+with <code>schema.delete(catalog, model)</code> or <code>table.delete(catalog,
+schema)</code>, respectively.</p>
+<h2 id="derivacoreermrest_catalog">deriva.core.ermrest_catalog<a class="headerlink" href="#derivacoreermrest_catalog" title="Permanent link">&para;</a></h2>
+<p>The <code>deriva.core.ermrest_catalog.ErmrestCatalog</code> class provides HTTP
+bindings to an ERMrest catalog as a thin wrapper around the Python
+Requests library.  Likewise, the
+<code>deriva.core.ermrest_catalog.ErmrestSnapshot</code> class provides HTTP
+bindings to an ERMrest catalog snapshot. While catalogs permit
+mutation of stored content, a snapshot is mostly read-only and only
+permits retrieval of content representing the state of the catalog at
+a specific time in the past.</p>
+<p>Instances of <code>ErmrestCatalog</code> or <code>ErmrestSnapshot</code> represent a
+particular remote catalog or catalog snapshot, respectively. They
+allow the client to perform HTTP requests against individual ERMrest
+resources, but require clients to know how to formulate those
+requests in terms of URL paths and resource representations.</p>
+<p>Other, higher-level client APIs are layered on top of this implementation
+class and exposed via factory-like methods integrated into each catalog
+instance.</p>
+<h3 id="catalog-binding">Catalog Binding<a class="headerlink" href="#catalog-binding" title="Permanent link">&para;</a></h3>
+<p>A catalog is bound using the class constructor, given parameters
+necessary for binding:</p>
+<pre><code>from deriva.core.ermrest_catalog import ErmrestCatalog
+from deriva.core import get_credential
+
+scheme = "https"
+server = "myserver.example.com"
+catalog_id = "1"
+credentials = get_credential(server)
+
+catalog = ErmrestCatalog(scheme, server, catalog_id, credentials=credentials)
+</code></pre>
+<h3 id="client-credentials">Client Credentials<a class="headerlink" href="#client-credentials" title="Permanent link">&para;</a></h3>
+<p>In the preceding example, a credential is obtained from the filesystem
+assuming that the user has activated the <code>deriva-auth</code> authentication
+agent prior to executing this code. For catalogs allowing anonymous
+access, the optional <code>credentials</code> parameter can be omitted to
+establish an anonymous binding.</p>
+<p>The same client credentials (or anonymous access) is applied to all
+HTTP operations performed by the subsequent calls to the catalog
+object's methods. If a calling program wishes to perform a mixture of
+requests with different credentials, they should create multiple
+catalog objects and choose the appropriate object for each request
+scenario.</p>
+<h3 id="high-level-api-factories">High-Level API Factories<a class="headerlink" href="#high-level-api-factories" title="Permanent link">&para;</a></h3>
+<p>Several optional access APIs are layered on top of <code>ErmrestCatalog</code>
+and/or <code>ErmrestSnapshot</code> and may be accessed by invoking convenient
+factory methods on a catalog or snapshot object:</p>
+<ul>
+<li><code>catalog_snapshot = catalog.latest_snapshot()</code></li>
+<li><code>ErmrestSnapshot</code> binding for latest known revision of catalog</li>
+<li><code>path_builder = catalog.getPathBuilder()</code></li>
+<li><code>deriva.core.datapath.Catalog</code> path builder for catalog (or snapshot)</li>
+<li>Allows higher-level data access idioms as described previously.</li>
+<li><code>config_root = catalog.getCatalogConfig()</code></li>
+<li><code>deriva.core.ermrest_config.CatalogConfig</code> object for catalog (or snapshot)</li>
+<li>The <code>config_root</code> object roots a tree of objects isomorphic to the catalog model, organizing configuration data according to each part of the model.</li>
+<li>Allows inspection of catalog/snapshot annotations and policies.</li>
+<li>Allows mutation to draft a new configuration objective.</li>
+<li>Draft changes are applied with <code>catalog.applyCatalogConfig(config_root)</code></li>
+<li><code>model_root = catalog.getCatalogModel()</code></li>
+<li><code>deriva.core.ermrest_model.Model</code> object for catalog (or snapshot)</li>
+<li>The <code>model_root</code> object roots a tree of objects isomorphic to the catalog model, organizing model definitions according to each part of the model.</li>
+<li>Allows inspection of catalog/snapshot models (schemas, tables, columns, constraints)</li>
+<li>Some model management idioms are exposed as methods on individual objects in the model hierarchy.</li>
+</ul>
+<h3 id="low-level-http-methods">Low-Level HTTP Methods<a class="headerlink" href="#low-level-http-methods" title="Permanent link">&para;</a></h3>
+<p>When the client understands the URL structuring conventions of
+ERMrest, they can use basic Python Requests idioms on a catalog
+instance:</p>
+<ul>
+<li>resp = catalog.get(path)</li>
+<li>resp = catalog.delete(path)</li>
+<li>resp = catalog.put(path, json=data)</li>
+<li>resp = catalog.post(path, json=data)</li>
+</ul>
+<p>Unlike Python Requests, the <code>path</code> argument to each of these methods
+should exclude the static prefix of the catalog itself. For example,
+assuming <code>catalog</code> has been bound to
+<code>https://myserver.example.com/ermrest/catalog/1</code> as in the constructor
+example above, an attempt to access table content at
+<code>https://myserver.example.com/ermrest/catalog/1/entity/MyTable</code> would
+call <code>catalog.get(</code>/entity/MyTable`) and the catalog binding would
+prepend the complete catalog prefix.</p>
+<p>The <code>json</code> input to the <code>catalog.put</code> and <code>catalog.post</code> methods
+behaves just as in Python Requests. The data is supplied as native
+Python lists, dictionaries, numbers, strings, and booleans. The method
+implicitly serializes the data to JSON format and sets the appropriate
+Content-Type header to inform the server we are sending JSON content.</p>
+<p>All of these HTTP methods return a <code>requests.Response</code> object which
+must be further interrogated to determine request status or to
+retrieve any content produced by the server:</p>
+<ul>
+<li>resp.status_code: the HTTP response status code</li>
+<li>resp.raise_for_status(): raise a Python exception for non-success codes</li>
+<li>resp.json(): deserialize JSON content from server response</li>
+<li>resp.headers: a dictionary of HTTP headers from the server response</li>
+</ul>
+<p>Low-level usage errors may raise exceptions directly from the HTTP
+methods. However, normal server-indicated errors will produce a
+response object and the caller must interrogate the <code>status_code</code>
+field or use the <code>raise_for_status()</code> helper to determine whether the
+request was successful.</p>
+<h3 id="http-caching">HTTP Caching<a class="headerlink" href="#http-caching" title="Permanent link">&para;</a></h3>
+<p>By default, the catalog binding uses HTTP caching for the
+<code>catalog.get</code> method: it will store previous responses, include
+appropriate <code>If-None-Match</code> headers in the new HTTP GET request,
+detect <code>304 Not Modified</code> responses indicating that cached content is
+valid, and return the cached content to the caller. This mechanism can
+be disabled by specifying <code>caching=False</code> in the ErmrestCatalog
+constructor call.</p>
+              
+            </div>
+          </div>
+          <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+      
+        <a href="../deriva-annotation-config/" class="btn btn-neutral" title="Configure annotations (deriva-annotation-config)"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+      
+    </div>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+    
+      <p>Copyright &copy; 2018 <a href="http://github.com/informatics-isi-edu/deriva-py">deriva-py Project</a>.</p>
+    
+  </div>
+
+  Built with <a href="http://www.mkdocs.org">MkDocs</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+      
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" style="cursor: pointer">
+    <span class="rst-current-version" data-toggle="rst-current-version">
+      
+      
+        <span><a href="../deriva-annotation-config/" style="color: #fcfcfc;">&laquo; Previous</a></span>
+      
+      
+    </span>
+</div>
+    <script>var base_url = '..';</script>
+    <script src="../js/theme.js"></script>
+      <script src="../search/require.js"></script>
+      <script src="../search/search.js"></script>
+
+</body>
+</html>
