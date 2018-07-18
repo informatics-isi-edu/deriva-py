@@ -11,7 +11,7 @@ from collections import OrderedDict
 from distutils.util import strtobool
 from pkg_resources import parse_version, get_distribution, DistributionNotFound
 
-__version__ = "0.5.5"
+__version__ = "0.5.7"
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
@@ -154,8 +154,11 @@ def write_config(config_file=DEFAULT_CONFIG_FILE, config=DEFAULT_CONFIG):
         except OSError as error:
             if error.errno != errno.EEXIST:
                 raise
-    with io.open(config_file, 'w', newline='\n') as cf:
-        cf.write(json.dumps(config, indent=2))
+    with io.open(config_file, 'w', newline='\n', encoding='utf-8') as cf:
+        config_data = json.dumps(config, ensure_ascii=False, indent=2)
+        if IS_PY2 and isinstance(config_data, str):
+            config_data = unicode(config_data, 'utf-8')
+        cf.write(config_data)
         cf.close()
 
 

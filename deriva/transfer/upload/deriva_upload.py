@@ -11,7 +11,7 @@ import platform
 from collections import OrderedDict, namedtuple
 from deriva.core import ErmrestCatalog, CatalogConfig, HatracStore, HatracJobAborted, HatracJobPaused, \
     HatracJobTimeout, urlquote, stob, format_exception, get_credential, read_config, write_config, copy_config, \
-    resource_path, __version__ as VERSION
+    resource_path, IS_PY2, __version__ as VERSION
 from deriva.core.utils import hash_utils as hu, mime_utils as mu, version_utils as vu
 
 try:
@@ -350,8 +350,11 @@ class DerivaUpload(object):
         if os.path.exists(tempdir):
             updated_config_path = os.path.abspath(os.path.join(tempdir, DerivaUpload.DefaultConfigFileName))
             with io.open(updated_config_path, 'w', newline='\n', encoding='utf-8') as config:
-                config.write(json.dumps(
-                    remote_config, ensure_ascii=False, sort_keys=True, separators=(',', ': '), indent=2))
+                remote_config_data = json.dumps(
+                    remote_config, ensure_ascii=False, sort_keys=True, separators=(',', ': '), indent=2)
+                if IS_PY2 and isinstance(remote_config_data, str):
+                    remote_config_data = unicode(remote_config_data, 'utf-8')
+                config.write(remote_config_data)
             new_md5 = hu.compute_file_hashes(updated_config_path, hashes=['md5'])['md5'][0]
             if current_md5 != new_md5:
                 logging.info("Updated configuration found.")

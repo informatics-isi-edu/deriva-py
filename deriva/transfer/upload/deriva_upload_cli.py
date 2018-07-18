@@ -2,7 +2,7 @@ import os
 import sys
 import traceback
 from deriva.transfer import DerivaUpload
-from deriva.core import BaseCLI, write_config, urlparse
+from deriva.core import BaseCLI, write_config, format_credential, urlparse
 
 
 class DerivaUploadCLI(BaseCLI):
