@@ -22,6 +22,11 @@ li.toctree-l3 {
 	display: none;
 }
 
+.wy-nav-content {
+	min-width: 800px;
+	max-width: none;
+}
+
 .wy-breadcrumbs li {
 	font-weight: bold;
 }
