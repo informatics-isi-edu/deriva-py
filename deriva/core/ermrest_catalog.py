@@ -9,6 +9,7 @@ from . import ermrest_model
 class ErmrestCatalogMutationError(Exception):
     pass
 
+_clone_state_url = "tag:isrd.isi.edu,2018:clone-status"
 
 class ErmrestCatalog(DerivaBinding):
     """Persistent handle for an ERMrest catalog.
@@ -186,6 +187,171 @@ class ErmrestCatalog(DerivaBinding):
             return DerivaBinding.delete('/')
         else:
             raise ValueError('Catalog deletion refused when really is %s.' % really)
+
+    def clone_catalog(self, dst_catalog=None, copy_data=True, copy_annotations=True, copy_policy=True, truncate_after=True):
+        """Clone this catalog's content into dest_catalog, creating a new catalog if needed.
+
+        :param dst_catalog: Destination catalog or None to request creation of new destination (default).
+        :param copy_data: Copy table contents when True (default).
+        :param copy_annotations: Copy annotations when True (default).
+        :param copy_policy: Copy access-control policies when True (default).
+        :param truncate_after: Truncate destination history after cloning when True (default).
+
+        When dest_catalog is provided, attempt an idempotent clone,
+        assuming content MAY be partially cloned already using the
+        same parameters. This routine uses a table-level annotation
+        "tag:isrd.isi.edu,2018:clone-state" to save progress markers
+        which help it restart efficiently if interrupted.
+
+        Cloning preserves source row RID values so that any RID-based
+        foreign keys are still valid. It is not generally advisable to
+        try to merge more than one source into the same clone, nor to
+        clone on top of rows generated locally in the destination,
+        since this could cause duplicate RID conflicts.
+
+        Truncation after cloning avoids retaining incremental
+        snapshots which contain partial clones.
+
+        """
+        src_model = self.getCatalogModel()
+
+        if dst_catalog is None:
+            # TODO: refactor with DerivaServer someday
+            server = DerivaBinding(self._scheme, self._server, self._credentials, self._caching, self._session_config)
+            dst_id = server.post("/ermrest/catalog").json()["id"]
+            dst_catalog = ErmrestCatalog(self._scheme, self._server, dst_id, self._credentials, self._caching, self._session_config)
+
+        # set top-level config right away and find fatal usage errors...
+        if copy_policy:
+            if not src_model.acls:
+                raise ValueError("Use of copy_policy=True not possible when caller does not own source catalog.")
+            dst_catalog.put('/acl', json=src_model.acls)
+
+        if copy_annotations:
+            dst_catalog.put('/annotation', json=src_model.annotations)
+
+        # build up the model content we will copy to destination
+        dst_model = dst_catalog.getCatalogModel()
+
+        new_model = []
+        clone_states = {}
+        fkeys_deferred = {}
+
+        def prune_parts(d):
+            if not copy_annotations and 'annotations' in d:
+                del d['annotations']
+            if not copy_policy:
+                if 'acls' in d:
+                    del d['acls']
+                if 'acl_bindings' in d:
+                    del d['acl_bindings']
+            return d
+
+        def copy_sdef(s):
+            """Copy schema definition structure with conditional parts for cloning."""
+            d = prune_parts(s.prejson())
+            if 'tables' in d:
+                del d['tables']
+            return d
+
+        def copy_tdef_core(t):
+            """Copy table definition structure with conditional parts excluding fkeys."""
+            d = prune_parts(t.prejson())
+            d['column_definitions'] = [ prune_parts(c) for c in d['column_definitions'] ]
+            d['keys'] = [ prune_parts(c) for c in d.get('keys', []) ]
+            if 'foreign_keys' in d:
+                del d['foreign_keys']
+            if 'annotations' not in d:
+                d['annotations'] = {}
+                d['annotations'][_clone_state_url] = 1 if copy_data else None
+            return d
+
+        def copy_tdef_fkeys(t):
+            """Copy table fkeys structure."""
+            return [ prune_parts(d) for d in t.prejson().get('foreign_keys', []) ]
+
+        for sname, schema in src_model.schemas.items():
+            if sname not in dst_model.schemas:
+                new_model.append(copy_sdef(schema))
+
+            for tname, table in schema.tables.items():
+                if sname == 'public' and tname == 'ermrest_client':
+                    # skip this automagic table...
+                    continue
+
+                if 'RID' not in table.column_definitions.elements:
+                    raise ValueError("Source table %s.%s lacks system-columns and cannot be cloned." % (sname, tname))
+
+                if sname not in dst_model.schemas or tname not in dst_model.schemas[sname].tables:
+                    new_model.append(copy_tdef_core(table))
+                    clone_states[(sname, tname)] = 1 if copy_data else None
+                    fkeys_deferred[(sname, tname)] = copy_tdef_fkeys(table)
+                else:
+                    if sorted([ c.name for c in table.column_definitions ]) \
+                       != sorted([ c.name for c in dst_model.schemas[sname].tables[tname].column_definitions ]):
+                        raise ValueError("Source table %s.%s conflicts with existing definition in destination catalog." % (sname, tname))
+                    clone_states[(sname, tname)] = dst_model.schemas[sname].tables[tname].annotations.get(_clone_state_url)
+                    if dst_model.schemas[sname].tables[tname].foreign_keys:
+                        # assume that presence of any destination foreign keys means we already completed
+                        return dst_catalog
+                    else:
+                        fkeys_deferred[(sname, tname)] = copy_tdef_fkeys(table)
+
+        # apply the stage 1 model to the destination in bulk
+        if new_model:
+            dst_catalog.post("/schema", json=new_model).raise_for_status()
+
+        # copy data in stage 2
+        if copy_data:
+            page_size = 10000
+            for sname, tname in clone_states.keys():
+                if clone_states[(sname, tname)] == 1:
+                    # determine current position in (partial?) copy
+                    tname_uri = "%s:%s" % (urlquote(sname), urlquote(tname))
+                    r = dst_catalog.get("/entity/%s@sort(RID::desc::)?limit=1" % tname_uri).json()
+                    if r:
+                        last = r[0]['RID']
+                    else:
+                        last = None
+
+                    while True:
+                        page = self.get(
+                            "/entity/%s@sort(RID)%s?limit=%d" % (
+                                tname_uri,
+                                ("@after(%s)" % urlquote(last)) if last is not None else "",
+                                page_size
+                            )
+                        ).json()
+                        if page:
+                            dst_catalog.post("/entity/%s?nondefaults=RID,RCT,RCB" % tname_uri, json=page)
+                            last = page[-1]['RID']
+                        else:
+                            break
+
+                    # record our progress on catalog in case we fail part way through
+                    dst_catalog.put(
+                        "/schema/%s/table/%s/annotation/%s" % (
+                            urlquote(sname),
+                            urlquote(tname),
+                            urlquote(_clone_state_url),
+                        ),
+                        json=2
+                    )
+
+        # apply stage 2 model in bulk only... we won't get here unless preceding succeeded
+        new_fkeys = []
+        for fkeys in fkeys_deferred.values():
+            new_fkeys.extend(fkeys)
+
+        if new_fkeys:
+            dst_catalog.post("/schema", json=new_fkeys)
+
+        # truncate cloning history
+        if truncate_after:
+            snaptime = dst_catalog.get("/").json()["snaptime"]
+            dst_catalog.delete("/history/,%s" % urlquote(snaptime))
+
+        return dst_catalog
 
 class ErmrestSnapshot(ErmrestCatalog):
     """Persistent handle for an ERMrest catalog snapshot.

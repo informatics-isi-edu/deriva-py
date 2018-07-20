@@ -406,6 +406,7 @@ class CatalogSchema (NodeConfigAcl):
     def prejson(self, prune=True):
         """Produce a representation of configuration as generic Python data structures"""
         d = NodeConfigAcl.prejson(self)
+        d["schema_name"] = self.name
         d["tables"] = {
             tname: table.prejson()
             for tname, table in self.tables.items()
@@ -558,6 +559,8 @@ class CatalogTable (NodeConfigAclBinding):
     def prejson(self, prune=True):
         """Produce a representation of configuration as generic Python data structures"""
         d = NodeConfigAclBinding.prejson(self)
+        d["schema_name"] = self.sname
+        d["table_name"] = self.name
         d["column_definitions"] = [
             column.prejson()
             for column in self.column_definitions
@@ -565,6 +568,10 @@ class CatalogTable (NodeConfigAclBinding):
         d["keys"] = [
             key.prejson()
             for key in self.keys
+        ]
+        d["foreign_keys"] = [
+            fkey.prejson()
+            for fkey in self.foreign_keys
         ]
         return d
 
@@ -685,8 +692,15 @@ class CatalogForeignKey (NodeConfigAclBinding):
     
     def prejson(self, prune=True):
         """Produce a representation of configuration as generic Python data structures"""
+        def expand(c):
+            c['schema_name'] = self.sname
+            c['table_name'] = self.tname
+            return c
         d = NodeConfig.prejson(self)
-        d['foreign_key_columns'] = self.foreign_key_columns
+        d['foreign_key_columns'] = [
+            expand(c)
+            for c in self.foreign_key_columns
+        ]
         d['referenced_columns'] = self.referenced_columns
         d['names'] = self.names
         return d
