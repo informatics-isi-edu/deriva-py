@@ -82,6 +82,15 @@ class NodeConfig (object):
         self._comment = node_doc.get('comment')
 
     def apply(self, catalog, existing=None):
+        """Apply configuration to corresponding node in catalog unless existing already matches.
+
+        :param catalog: The EmrestCatalog instance to which configuration will be applied.
+        :param existing: An instance comparable to self, or None to apply configuration unconditionally.
+
+        The configuration in self.comment and self.annotations will be
+        applied to the remote model node corresponding to self, unless
+        existing node configuration is supplied and is equivalent.
+        """
         if self._supports_comment:
             if existing is None or not equivalent(self._comment, existing._comment):
                 if self._comment is not None:
@@ -201,6 +210,17 @@ class NodeConfigAcl (NodeConfig):
         self.acls = AttrDict(node_doc.get('acls', {}))
 
     def apply(self, catalog, existing=None):
+        """Apply configuration to corresponding node in catalog unless existing already matches.
+
+        :param catalog: The EmrestCatalog instance to which configuration will be applied.
+        :param existing: An instance comparable to self, or None to apply configuration unconditionally.
+
+        The configuration in self.comment, self.annotations, and
+        self.acls will be applied to the remote model node
+        corresponding to self, unless existing node configuration is
+        supplied and is equivalent.
+
+        """
         NodeConfig.apply(self, catalog, existing)
         if existing is None or not equivalent(self.acls, existing.acls):
             catalog.put(
@@ -239,6 +259,17 @@ class NodeConfigAclBinding (NodeConfigAcl):
         self.acl_bindings = AttrDict(node_doc.get('acl_bindings', {}))
 
     def apply(self, catalog, existing=None):
+        """Apply configuration to corresponding node in catalog unless existing already matches.
+
+        :param catalog: The EmrestCatalog instance to which configuration will be applied.
+        :param existing: An instance comparable to self, or None to apply configuration unconditionally.
+
+        The configuration in self.comment, self.annotations,
+        self.acls, and self.acl_bindings will be applied to the remote
+        model node corresponding to self, unless existing node
+        configuration is supplied and is equivalent.
+
+        """
         NodeConfigAcl.apply(self, catalog, existing)
         if existing is None or not equivalent(self.acl_bindings, existing.acl_bindings, method='acl_binding'):
             catalog.put(
@@ -281,6 +312,23 @@ class CatalogConfig (NodeConfigAcl):
         return cls(catalog.get("/schema").json())
 
     def apply(self, catalog, existing=None):
+        """Apply catalog configuration to catalog unless existing already matches.
+
+        :param catalog: The EmrestCatalog instance to which configuration will be applied.
+        :param existing: An instance comparable to self.
+
+        The configuration in self will be applied recursively to the
+        corresponding model nodes in schema. For each node, the
+        comment, annotations, acls, and/or acl_bindings will be
+        applied where applicable.
+
+        If existing is not provided (default), the current whole
+        configuration will be retrieved from the catalog and used
+        automatically to determine whether the configuration goals
+        under this CatalogConfig instance are already met or need to
+        be remotely applied.
+
+        """
         if existing is None:
             existing = self.fromcatalog(catalog)
         NodeConfigAcl.apply(self, catalog, existing)
@@ -334,6 +382,17 @@ class CatalogSchema (NodeConfigAcl):
         }
 
     def apply(self, catalog, existing=None):
+        """Apply schema configuration to catalog unless existing already matches.
+
+        :param catalog: The EmrestCatalog instance to which configuration will be applied.
+        :param existing: An instance comparable to self.
+
+        The configuration in self will be applied recursively to the
+        corresponding model nodes in catalog. For each node, the
+        comment, annotations, acls, and/or acl_bindings will be
+        applied where applicable unless existing value is equivalent.
+
+        """
         NodeConfigAcl.apply(self, catalog, existing)
         for tname, table in self.tables.items():
             table.apply(catalog, existing.tables[tname] if existing else None)
@@ -467,6 +526,18 @@ class CatalogTable (NodeConfigAclBinding):
         ])
 
     def apply(self, catalog, existing=None):
+        """Apply table configuration to catalog unless existing already matches.
+
+        :param catalog: The EmrestCatalog instance to which configuration will be applied.
+        :param existing: An instance comparable to self.
+
+        The configuration in self will be applied recursively to the
+        corresponding model nodes in catalog. For each node, the
+        comment, annotations, acls, and/or acl_bindings will be
+        applied where applicable unless existing is supplied and is
+        equivalent.
+
+        """
         NodeConfigAclBinding.apply(self, catalog, existing)
         for col in self.column_definitions:
             col.apply(catalog, existing.column_definitions[col.name] if existing else None)
