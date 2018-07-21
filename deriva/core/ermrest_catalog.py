@@ -184,7 +184,7 @@ class ErmrestCatalog(DerivaBinding):
 
         """
         if really is True:
-            return DerivaBinding.delete('/')
+            return DerivaBinding.delete(self, '/')
         else:
             raise ValueError('Catalog deletion refused when really is %s.' % really)
 
