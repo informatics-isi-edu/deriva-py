@@ -10,8 +10,13 @@ the GIT commit number.
 
 At this time, we recommend installing from source, which can be accomplished with the `pip` utility.
 
+If you have root access and wish to install into your system Python directory, use the following command:
 ```
-$ pip install --upgrade git+https://github.com/informatics-isi-edu/deriva-py.git
+$ sudo pip install --upgrade git+https://github.com/informatics-isi-edu/deriva-py.git
+```
+Otherwise, it is recommended that you install into your user directory using the following command:
+```
+$ pip install --user --upgrade git+https://github.com/informatics-isi-edu/deriva-py.git
 ```
 
 ## APIs
