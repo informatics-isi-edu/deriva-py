@@ -134,6 +134,7 @@ Example configuration file:
 
 Example:
 ```json
+{
   "catalog": {
     "queries": [
       {
@@ -148,6 +149,7 @@ Example:
       }
     ]
   }
+}
 ```
 Parameters:
 
@@ -164,12 +166,14 @@ Parameters:
 #### Configuration file element: `bag`
 Example:
 ```json
-"bag": {
-    "bag_name": "test-bag",
-    "bag_archiver": "zip",
-    "bag_algorithms": ["sha256"],
-    "bag_metadata": {
-        "Source-Organization": "USC Information Sciences Institute, Informatics Systems Research Division"
+{
+    "bag": {
+        "bag_name": "test-bag",
+        "bag_archiver": "zip",
+        "bag_algorithms": ["sha256"],
+        "bag_metadata": {
+            "Source-Organization": "USC Information Sciences Institute, Informatics Systems Research Division"
+        }
     }
 }
 ```
@@ -186,9 +190,11 @@ Parameters:
 #### Configuration file element: `env`
 Example:
 ```json
-"env": {
-    "accession": "XYZ123",
-    "term": "Chip-seq"
+{
+    "env": {
+        "accession": "XYZ123",
+        "term": "Chip-seq"
+    }
 }
 ```
 Parameters:
@@ -247,7 +253,7 @@ This `output_format` generates a text file containing multiple lines of individu
 format is generally used when the result set is too prohibitively large to parse as a single JSON object and instead can be processed on a line-by-line basis.
 
 Example output:
-```json
+```
 {"subject_id":"CNP0001_F09","sample_id":"600009963128","snp_id":"rs6265","gt":"0/1","chipset":"HumanOmniExpress"}
 {"subject_id":"CNP0002_F15","sample_id":"600018902293","snp_id":"rs6265","gt":"0/0","chipset":"HumanOmniExpress"}
 ```

@@ -1,6 +1,3 @@
-# deriva-py
-DERIVA platform Python APIs.
-
 ## DataPath
 
 The `datapath` module is an interface for building ERMrest "data paths" and retrieving data from ERMrest catalogs. It
@@ -223,7 +220,7 @@ table)`, respectively. Similarly, a schema or table can be removed
 with `schema.delete(catalog, model)` or `table.delete(catalog,
 schema)`, respectively.
 
-## deriva.core.ermrest_catalog
+## ErmrestCatalog
 
 The `deriva.core.ermrest_catalog.ErmrestCatalog` class provides HTTP
 bindings to an ERMrest catalog as a thin wrapper around the Python

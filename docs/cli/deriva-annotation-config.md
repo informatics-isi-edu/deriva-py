@@ -1,4 +1,5 @@
-### Using deriva-annotation-config to configure annotations ###
+# deriva-annotation-config
+#### Using deriva-annotation-config to configure annotations ###
 The `deriva-annotation-config` utility reads a configuration file and uses it to set annotationss for an ermrest catalog (or for a schema or table within that catalog). Usage is:
 
 `deriva-annotation-config` [`-n`|`--dryrun`] [`-v`|`--verbose`] [`-s`|`--schema` schema] [`-t`|`--table` table] [`--host host`] [`--config-file` config_file] [`--credential-file` credential_file] catalog

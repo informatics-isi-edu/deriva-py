@@ -1,0 +1,8 @@
+recommonmark
+sphinx
+sphinx-autobuild
+sphinx-markdown-tables
+sphinx-rtd-theme
+nbsphinx
+jupyter
+jupyter_client
