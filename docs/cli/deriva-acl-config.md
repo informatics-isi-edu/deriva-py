@@ -1,4 +1,5 @@
-### Using deriva-acl-config to configure ACLs ###
+# deriva-acl-config
+#### Using deriva-acl-config to configure ACLs ###
 The `deriva-acl-config` utility reads a configuration file and uses it to set ACLs for an ermrest catalog (or for a schema or table within that catalog). Usage is:
 
 `deriva-acl-config` [`-g`|`--groups-only`] [`-n`|`--dryrun`] [`-v`|`--verbose`] [`-s`|`--schema` schema] [`-t`|`--table` table] [`--host host`] [`--config-file` config_file] [`--credential-file` credential_file] catalog
