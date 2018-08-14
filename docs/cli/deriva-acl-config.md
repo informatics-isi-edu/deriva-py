@@ -1,5 +1,7 @@
 # deriva-acl-config
-#### Using deriva-acl-config to configure ACLs ###
+
+## Using deriva-acl-config to configure ACLs 
+
 The `deriva-acl-config` utility reads a configuration file and uses it to set ACLs for an ermrest catalog (or for a schema or table within that catalog). Usage is:
 
 `deriva-acl-config` [`-g`|`--groups-only`] [`-n`|`--dryrun`] [`-v`|`--verbose`] [`-s`|`--schema` schema] [`-t`|`--table` table] [`--host host`] [`--config-file` config_file] [`--credential-file` credential_file] catalog
@@ -26,7 +28,8 @@ Options are:
 
 `--host` host: configure the server on the specified _host_ (default `localhost`)
 
-#### Config file format ####
+## Config file format 
+
 The config file is a json file divided into the following stanzas:
 
 `groups`: defines a set of named group lists, which can be used in ACL definitions later in the config file.
@@ -47,7 +50,8 @@ The config file is a json file divided into the following stanzas:
 
 `foreign_key_acls`: ACLs for foreign keys. Static ACLs (from `acl_definitions`) and dynamic ACLs (from `acl_bindings`) are assigned to foreign keys
 
-##### The groups stanza #####
+### The groups stanza 
+
 The `groups` stanza is a list of entries of the form 
 
 name: [values]
@@ -65,7 +69,8 @@ where _name_ is a name that will be used to refer to a set of groups, and _value
     }
 ```
 
-##### The group_list_table stanza #####
+### The group_list_table stanza 
+
 If you're defining dynamic ACLs, at some point you'll probably want a table in your catalog somewhere that maps names to lists of groups. The group_list_table stanza specifies the schema and table name of a table to create for this list of groups. For example:
 ```
     "group_list_table" : {"schema" : "_acl_admin", "table" : "group_lists"}
@@ -82,7 +87,8 @@ This will cause the `_acl_admin.group_lists` table to be created (if it doesn't 
  empty        | {}
 ```
 
-##### The acl_definitions stanza #####
+### The acl_definitions stanza 
+
 This is where you define static ACLs for later use. The syntax is a list of
 
 name: value
@@ -97,7 +103,8 @@ entries, where the _name_ is a name you can refer to later, to assign these ACLs
 ```
 In this example, the `unrestricted_read` ACL grants read access to everyone and restricts create and write access to the `isrd-systems` group; the `isrd_read` ACL is the same,except that it grants read access only to the `isrd-all` set of groups. Note that this stanza only defines the set of permissions and who they're associated with; by itself, it doesn't apply these ACLs to any object in the catalog.
 
-##### The acl_bindings stanza #####
+### The acl_bindings stanza 
+
 This is where you define dynamic ACLs for later use. The syntax is a list of
 
 name: value
@@ -132,14 +139,16 @@ then the actual ermrest dynamic ACL will be:
 ```
 This can be useful if you want to apply the same dynamic ACL to mutliple tables, since each table's foreign key will have a different name by default.
 
-##### The catalog_acls stanza #####
+### The catalog_acls stanza 
+
 This is where ACLs for the catalog itself are set. (Note: there's a bootstrapping issue for new catalogs - since this tool uses ermrest, you need to already have permission on the catalog before you can set any new permissions). For example:
 ```
     "catalog_acl" : {"acl" : "unrestricted_read"}
 ```
 This applies the `unrestricted_read` ACL defined above to the catalog.
 
-##### The schema_acls stanza #####
+### The schema_acls stanza 
+
 This is where ACLs for schemas are set. The syntax is a list of entries of the form:
 
 {schema_descriptor: value, acl_descriptor: value}
@@ -177,7 +186,8 @@ For example:
 ```
 This, paired with the catalog_acl stanza above, allows anyone to read the Vocabulary schema and ISRD people to read the "ISRD_Internal". It forbids anyone from reading any other schema in the catalog.
 
-##### The table_acls stanza #####
+### The table_acls stanza 
+
 This is where ACLs for tables are set. The syntax is a list of entries of the form:
 {schema_descriptor, table_descriptor, [acl_descriptor], [acl_bindings_descriptor]}
 A schema descriptor has the same form as in the schema_acls stanza.
@@ -204,7 +214,8 @@ An `acl_bindings_descriptor` has the form:
 
 where _list_of_bindings_ is a list of ACL bindings defined in the acl_bindings stanza.
 
-##### The column_acls stanza #####
+### The column_acls stanza 
+
 This is where ACLs for columns are set. The syntax is a list of entries of the form:
 {schema_descriptor, table_descriptor, column_descriptor, [acl_descriptor], [acl_bindings_descriptor] [invalidate_bindings_descriptor]}
 The schema, table, acl, and acl_bindings descriptors have the same form as above.
@@ -227,7 +238,7 @@ The i`nvalidate_bindings` descriptor has the form:
 
 where _list_of_bindings_ is a list of bindng names to invalidate (i.e., ACL bindings that were defined on the column's table but that should not be applied to the column).
 
-##### The foreign_key_acls stanza #####
+### The foreign_key_acls stanza 
 
 This is where ACLs for foreign keys are set. The syntax is a list of entries of the form:
 
@@ -255,7 +266,7 @@ These specify the foreign key schema and name. As with the column_acls stanza:
 * If no exact match is found and exactly one regular expression match is found, it's used.
 * If no exact match is found and more than one regular expression match is found, an error is thrown.
 
-#### Security Considerations ####
+## Security Considerations 
 
 There's no guarantee of the order in which changes will be applied. For example, if your current state restricts access to a table, like this:
 

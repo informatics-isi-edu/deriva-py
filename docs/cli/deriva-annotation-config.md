@@ -1,5 +1,7 @@
 # deriva-annotation-config
-#### Using deriva-annotation-config to configure annotations ###
+
+## Using deriva-annotation-config to configure annotations 
+
 The `deriva-annotation-config` utility reads a configuration file and uses it to set annotationss for an ermrest catalog (or for a schema or table within that catalog). Usage is:
 
 `deriva-annotation-config` [`-n`|`--dryrun`] [`-v`|`--verbose`] [`-s`|`--schema` schema] [`-t`|`--table` table] [`--host host`] [`--config-file` config_file] [`--credential-file` credential_file] catalog
@@ -24,8 +26,9 @@ Options are:
 
 `--host` host: configure the server on the specified _host_ (default `localhost`)
 
-#### Config file format ####
-The config file is a json file divided into the following stanzas:
+## Config file format 
+
+The config file is a JSON file divided into the following stanzas:
 
 `known_attributes`: Attributes (i.e., annotation URIs, such as `tag:isrd.isi.edu,2016:display`) managed through this config file
 
@@ -39,7 +42,8 @@ The config file is a json file divided into the following stanzas:
 
 `foreign_key_annotations`: Annotations for foreign keys.
 
-##### The `known_attributes` stanza #####
+### The `known_attributes` stanza 
+
 This stanza contains parameters that control the behavior of `deriva-annotation-config` itself. This section has three sub-sections: `managed`, `ignored`, and `ignore_all_unmanaged`.
 
 The `managed` section is a list of annotation types managed by `deriva-annotation-config`.
@@ -69,7 +73,8 @@ Example:
 This is a version one might use to remove all `comment`, `description`, and `facetOrder` annotations from a catalog. If `ignore_all_attributes` were `true`, those annotations would be left unchanged.
 
 
-##### The schema_annotations stanza #####
+### The schema_annotations stanza 
+
 This is where annotations for schemas are set. The syntax is a list of entries of the form:
 
 {schema_descriptor: value, annotation_descriptor: value}
@@ -106,7 +111,8 @@ For example:
         }
 ```
 
-##### The table_annotations stanza #####
+### The table_annotations stanza 
+
 This is where annotationss for tables are set. The syntax is a list of entries of the form:
 {schema_descriptor, table_descriptor, annotation_desciptor}
 The schema_descriptor and annotation_descriptor have the same form as above.
@@ -141,9 +147,10 @@ For example:
         }
 ```
 
-This sets an annotation for any table in the "Vocabulary" schema whose table name ends in "_terms".
+This sets an annotation for any table in the "Vocabulary" schema whose table name ends in "\_terms".
 
-##### The column_annotations stanza #####
+### The column_annotations stanza 
+
 This is where ACLs for columns are set. The syntax is a list of entries of the form:
 {schema_descriptor, table_descriptor, column_descriptor, annotation_descriptor}
 The schema, table, and annotation descriptors have the same form as above.
@@ -175,7 +182,7 @@ Example:
 
 This sets the display name for any column named "RCT" in the catalog.
 
-##### The foreign_key_annotations stanza #####
+### The foreign_key_annotations stanza 
 
 This is where annotations for foreign keys are set. The syntax is a list of entries of the form:
 
