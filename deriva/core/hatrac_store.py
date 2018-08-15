@@ -2,7 +2,7 @@ import os
 import datetime
 import requests
 import logging
-from . import format_exception, NotModified, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, urlquote, Megabyte, \
+from . import format_exception, NotModified, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, MAX_CHUNK_SIZE, urlquote, Megabyte, \
     get_transfer_summary
 from .deriva_binding import DerivaBinding, MaxRetryError
 from .utils import hash_utils as hu, mime_utils as mu
@@ -254,7 +254,8 @@ class HatracStore(DerivaBinding):
 
     def put_obj_chunked(self, path, file_path, job_id, chunk_size=DEFAULT_CHUNK_SIZE, callback=None, start_chunk=0):
         self.check_path(path)
-
+        if chunk_size > MAX_CHUNK_SIZE:
+            chunk_size = MAX_CHUNK_SIZE
         job_info = self.get_upload_job(path, job_id).json()
         try:
             file_size = os.path.getsize(file_path)
@@ -314,6 +315,8 @@ class HatracStore(DerivaBinding):
                           content_type=None,
                           content_disposition=None):
         self.check_path(path)
+        if chunk_size > MAX_CHUNK_SIZE:
+            chunk_size = MAX_CHUNK_SIZE
 
         url = '%s;upload%s' % (path, "" if not create_parents else "?parents=%s" % str(create_parents).lower())
         obj = {"chunk-length": chunk_size,

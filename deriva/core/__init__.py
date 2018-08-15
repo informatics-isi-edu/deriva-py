@@ -11,7 +11,7 @@ from collections import OrderedDict
 from distutils.util import strtobool
 from pkg_resources import parse_version, get_distribution, DistributionNotFound
 
-__version__ = "0.5.8"
+__version__ = "0.6.0"
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
@@ -19,9 +19,11 @@ IS_PY3 = (sys.version_info[0] == 3)
 if IS_PY3:
     from urllib.parse import quote as _urlquote, unquote as urlunquote
     from urllib.parse import urlparse, urlsplit, urlunsplit
+    from http.cookiejar import MozillaCookieJar
 else:
     from urllib import quote as _urlquote, unquote as urlunquote
     from urlparse import urlparse, urlsplit, urlunsplit
+    from cookielib import MozillaCookieJar
 
 
 def urlquote(s, safe=''):
@@ -39,10 +41,10 @@ def urlquote(s, safe=''):
 
 DEFAULT_HEADERS = {}
 
-DEFAULT_CHUNK_SIZE = 2400 ** 2  # == 5760000 which is above the minimum 5MB chunk size for AWS S3 multipart uploads
-
 Kilobyte = 1024
-Megabyte = 1024 ** 2
+Megabyte = Kilobyte ** 2
+DEFAULT_CHUNK_SIZE = Megabyte * 10  # above the minimum 5MB chunk size for AWS S3 multipart uploads
+MAX_CHUNK_SIZE = Megabyte * 100
 
 
 class NotModified (ValueError):
@@ -120,7 +122,8 @@ DEFAULT_SESSION_CONFIG = {
     "retry_connect": 5,
     "retry_read": 5,
     "retry_backoff_factor": 1.0,
-    "retry_status_forcelist": [500, 502, 503, 504]
+    "retry_status_forcelist": [500, 502, 503, 504],
+    "cookie_jar": os.path.join(DEFAULT_CONFIG_PATH, 'cookies.txt')
 }
 DEFAULT_CONFIG = {
     "server":
@@ -251,8 +254,26 @@ def format_credential(token=None, username=None, password=None):
         "Missing required argument(s): an authentication token or a username and password must be provided.")
 
 
+def load_cookies_from_file(cookie_file=None):
+    if not cookie_file:
+        cookie_file = DEFAULT_SESSION_CONFIG["cookie_jar"]
+    cookies = MozillaCookieJar(cookie_file)
+    if os.path.isfile(cookie_file):
+        # Load saved cookies
+        try:
+            cookies.load(ignore_discard=True, ignore_expires=True)
+            return cookies
+        except Exception as e:
+            logging.warning(format_exception(e))
+    # Create cookie file
+    cookies.save(ignore_discard=True, ignore_expires=True)
+    os.chmod(cookie_file, 0o600)
+
+    return cookies
+
+
 def resource_path(relative_path, default=os.path.abspath(".")):
-    """ required to find bundled data at runtime in Pyinstaller single-file exe mode """
+    # required to find bundled data at runtime in Pyinstaller single-file exe mode
     if getattr(sys, 'frozen', False):
         return os.path.join(getattr(sys, '_MEIPASS'), relative_path)
     if default is None:

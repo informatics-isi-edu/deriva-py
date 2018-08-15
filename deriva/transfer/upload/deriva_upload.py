@@ -577,6 +577,7 @@ class DerivaUpload(object):
                 default_columns = self.catalog.getDefaultColumns({}, self.metadata['target_table'])
             default_param = ('?defaults=%s' % ','.join(default_columns)) if len(default_columns) > 0 else ''
             file_ext = self.metadata['file_ext']
+            file_ext = file_ext.lower()
             if file_ext == 'csv':
                 headers = {'content-type': 'text/csv'}
             elif file_ext == 'json':
