@@ -23,6 +23,7 @@ deriva-py
    :maxdepth: 4
    :caption: Command Line Interfaces
 
+   cli/commands
    cli/deriva-acl-config
    cli/deriva-annotation-config
    cli/deriva-hatrac-cli
