@@ -3,6 +3,8 @@ import sys
 import traceback
 import argparse
 from deriva.transfer import GenericDownloader
+from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError, \
+    DerivaDownloadAuthenticationError, DerivaDownloadAuthorizationError
 from deriva.core import BaseCLI, KeyValuePairArgs, format_credential, urlparse, __version__
 
 
@@ -70,7 +72,12 @@ class DerivaDownloadCLI(BaseCLI):
                                                     args.config,
                                                     args.credential_file)
             sys.stdout.write("\n%s" % '\n'.join(downloaded))
-        except RuntimeError as e:
+        except DerivaDownloadAuthenticationError:
+            sys.stderr.write(("\n" if not args.quiet else "") +
+                             "The requested service requires authentication and a valid login session could not be "
+                             "found for the specified host.")
+            return 1
+        except (DerivaDownloadError, DerivaDownloadConfigurationError, DerivaDownloadAuthorizationError) as e:
             sys.stderr.write(("\n" if not args.quiet else "") + str(e))
             return 1
         except:

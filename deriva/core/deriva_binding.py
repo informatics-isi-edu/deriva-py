@@ -19,13 +19,14 @@ def _response_raise_for_status(self):
 
     """
     if 400 <= self.status_code < 600:
+        details = " Details: %s"
         raise requests.HTTPError(
-            u'%s %s Error: %s for url: %s details: %s' % (
+            u'%s %s Error: %s for url: [%s]%s' % (
                 self.status_code,
                 'Client' if self.status_code < 500 else 'Server',
                 self.reason,
                 self.url,
-                self.content,
+                details % self.content if self.content else "",
             ),
             response=self
         )

@@ -3,10 +3,14 @@ import time
 import uuid
 import logging
 import platform
+import requests
+from requests.exceptions import HTTPError
 from bdbag import bdbag_api as bdb, bdbag_ro as ro, BAG_PROFILE_TAG, BDBAG_RO_PROFILE_ID
 from deriva.core import ErmrestCatalog, HatracStore, format_exception, get_credential, read_config, stob, \
     __version__ as VERSION
 from deriva.transfer.download.processors import findProcessor
+from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError, \
+DerivaDownloadAuthenticationError
 
 
 class DerivaDownload(object):
@@ -32,12 +36,12 @@ class DerivaDownload(object):
         logging.info("Initializing downloader: %s" % info)
 
         if not self.server:
-            raise RuntimeError("Server not specified!")
+            raise DerivaDownloadConfigurationError("Server not specified!")
 
         # server variable initialization
         self.hostname = self.server.get('host', '')
         if not self.hostname:
-            raise RuntimeError("Host not specified!")
+            raise DerivaDownloadConfigurationError("Host not specified!")
         protocol = self.server.get('protocol', 'https')
         self.server_url = protocol + "://" + self.hostname
         catalog_id = self.server.get("catalog_id", "1")
@@ -72,20 +76,20 @@ class DerivaDownload(object):
     def download(self, identity=None):
 
         if not self.config:
-            raise RuntimeError("No configuration specified!")
+            raise DerivaDownloadConfigurationError("No configuration specified!")
 
         if self.config.get("catalog") is None:
-            raise RuntimeError("Catalog configuration error!")
+            raise DerivaDownloadConfigurationError("Catalog configuration error!")
 
         if not identity:
-            logging.info("Validating credentials")
             try:
                 if not self.credentials:
                     self.setCredentials(get_credential(self.hostname))
+                logging.info("Validating credentials for host: %s" % self.hostname)
                 attributes = self.catalog.get_authn_session().json()
                 identity = attributes["client"]
             except Exception as e:
-                raise RuntimeError("Unable to validate credentials: %s" % format_exception(e))
+                raise DerivaDownloadAuthenticationError("Unable to validate credentials: %s" % format_exception(e))
 
         ro_manifest = None
         ro_author_name = None

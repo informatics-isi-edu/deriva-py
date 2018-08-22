@@ -11,7 +11,7 @@ from collections import OrderedDict
 from distutils.util import strtobool
 from pkg_resources import parse_version, get_distribution, DistributionNotFound
 
-__version__ = "0.6.0"
+__version__ = "0.6.1"
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
@@ -118,12 +118,13 @@ def init_logging(level=logging.INFO,
 DEFAULT_CONFIG_PATH = os.path.join(os.path.expanduser('~'), '.deriva')
 DEFAULT_CREDENTIAL_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'credential.json')
 DEFAULT_CONFIG_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'config.json')
+DEFAULT_COOKIE_JAR_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'cookies.txt')
 DEFAULT_SESSION_CONFIG = {
     "retry_connect": 5,
     "retry_read": 5,
     "retry_backoff_factor": 1.0,
     "retry_status_forcelist": [500, 502, 503, 504],
-    "cookie_jar": os.path.join(DEFAULT_CONFIG_PATH, 'cookies.txt')
+    "cookie_jar": DEFAULT_COOKIE_JAR_FILE
 }
 DEFAULT_CONFIG = {
     "server":
@@ -257,16 +258,16 @@ def format_credential(token=None, username=None, password=None):
 def load_cookies_from_file(cookie_file=None):
     if not cookie_file:
         cookie_file = DEFAULT_SESSION_CONFIG["cookie_jar"]
-    cookies = MozillaCookieJar(cookie_file)
+    cookies = MozillaCookieJar()
     if os.path.isfile(cookie_file):
         # Load saved cookies
         try:
-            cookies.load(ignore_discard=True, ignore_expires=True)
+            cookies.load(cookie_file, ignore_discard=True, ignore_expires=True)
             return cookies
         except Exception as e:
             logging.warning(format_exception(e))
     # Create cookie file
-    cookies.save(ignore_discard=True, ignore_expires=True)
+    cookies.save(cookie_file, ignore_discard=True, ignore_expires=True)
     os.chmod(cookie_file, 0o600)
 
     return cookies

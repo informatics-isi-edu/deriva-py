@@ -7,6 +7,7 @@ from deriva.core import format_exception
 from deriva.core.utils.hash_utils import decodeBase64toHex
 from deriva.core.utils.mime_utils import parse_content_disposition
 from deriva.transfer.download.processors import BaseDownloadProcessor
+from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError
 
 
 class BagFetchDownloadProcessor(BaseDownloadProcessor):
@@ -45,7 +46,8 @@ class BagFetchDownloadProcessor(BaseDownloadProcessor):
         manifest_entry = dict()
         url = entry.get("url")
         if not url:
-            raise RuntimeError("Missing required attribute \"url\" in download manifest entry %s" % json.dumps(entry))
+            raise DerivaDownloadConfigurationError(
+                "Missing required attribute \"url\" in download manifest entry %s" % json.dumps(entry))
 
         length = entry.get("length")
         md5 = entry.get("md5")
@@ -59,7 +61,7 @@ class BagFetchDownloadProcessor(BaseDownloadProcessor):
             try:
                 headers = self.headForHeaders(url, raise_for_status=True)
             except requests.HTTPError as e:
-                raise RuntimeError("Exception during HEAD request: %s" % format_exception(e))
+                raise DerivaDownloadError("Exception during HEAD request: %s" % format_exception(e))
             length = headers.get("Content-Length")
             content_type = headers.get("Content-Type")
             content_disposition = headers.get("Content-Disposition")
@@ -73,9 +75,9 @@ class BagFetchDownloadProcessor(BaseDownloadProcessor):
                     sha256 = decodeBase64toHex(sha256)
         # if content length or both hash values are missing, it is a fatal error
         if not length:
-            raise RuntimeError("Could not determine Content-Length for %s" % url)
+            raise DerivaDownloadError("Could not determine Content-Length for %s" % url)
         if not (md5 or sha256):
-            raise RuntimeError("Could not locate an MD5 or SHA256 hash for %s" % url)
+            raise DerivaDownloadError("Could not locate an MD5 or SHA256 hash for %s" % url)
         envvars = self.envars.copy()
         envvars.update(entry)
         subdir = self.sub_path.format(**envvars)

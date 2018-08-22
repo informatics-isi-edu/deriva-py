@@ -8,6 +8,7 @@ from bdbag import bdbag_ro as ro
 from deriva.core import urlsplit, format_exception, get_transfer_summary, DEFAULT_CHUNK_SIZE
 from deriva.core.utils.mime_utils import parse_content_disposition
 from deriva.transfer.download.processors import BaseDownloadProcessor
+from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError
 
 
 class FileDownloadProcessor(BaseDownloadProcessor):
@@ -19,10 +20,7 @@ class FileDownloadProcessor(BaseDownloadProcessor):
 
     def process(self):
         super(FileDownloadProcessor, self).process()
-        try:
-            return self.downloadFiles(self.output_abspath)
-        except requests.HTTPError as e:
-            raise RuntimeError("Unable to download file(s): %s" % format_exception(e))
+        return self.downloadFiles(self.output_abspath)
 
     def getExternalFile(self, url, output_path, headers=None):
         host = urlsplit(url).netloc
@@ -34,10 +32,10 @@ class FileDownloadProcessor(BaseDownloadProcessor):
             session = self.getExternalSession(host)
             r = session.get(url, headers=headers, stream=True, verify=certifi.where())
             if r.status_code != 200:
-                file_error = "File transfer failed: [%s]" % output_path
+                file_error = "File [%s] transfer failed." % output_path
                 url_error = 'HTTP GET Failed for url: %s' % url
                 host_error = "Host %s responded:\n\n%s" % (urlsplit(url).netloc, r.text)
-                raise RuntimeError('%s\n\n%s\n%s' % (file_error, url_error, host_error))
+                raise DerivaDownloadError('%s\n\n%s\n%s' % (file_error, url_error, host_error))
             else:
                 total = 0
                 start = datetime.datetime.now()
@@ -60,7 +58,7 @@ class FileDownloadProcessor(BaseDownloadProcessor):
                     entry = json.loads(line)
                     url = entry.get('url')
                     if not url:
-                        raise RuntimeError(
+                        raise DerivaDownloadConfigurationError(
                             "Missing required attribute \"url\" in download manifest entry %s" % json.dumps(entry))
                     store = self.getHatracStore(url)
                     filename = entry.get('filename')
@@ -69,7 +67,10 @@ class FileDownloadProcessor(BaseDownloadProcessor):
                     subdir = self.sub_path.format(**envvars)
                     if not filename:
                         if store:
-                            head = store.head(url, headers=self.HEADERS)
+                            try:
+                                head = store.head(url, headers=self.HEADERS)
+                            except requests.HTTPError as e:
+                                raise DerivaDownloadError("HEAD request for [%s] failed: %s" % (url, e))
                             content_disposition = head.headers.get("Content-Disposition") if head.ok else None
                             filename = os.path.basename(filename).split(":")[0] if not content_disposition else \
                                 parse_content_disposition(content_disposition)
@@ -80,7 +81,10 @@ class FileDownloadProcessor(BaseDownloadProcessor):
                     output_dir = os.path.dirname(file_path)
                     self.makeDirs(output_dir)
                     if store:
-                        resp = store.get_obj(url, self.HEADERS, file_path)
+                        try:
+                            resp = store.get_obj(url, self.HEADERS, file_path)
+                        except requests.HTTPError as e:
+                            raise DerivaDownloadError("File [%s] transfer failed: %s" % (file_path, e))
                         length = int(resp.headers.get('Content-Length'))
                         content_type = resp.headers.get("Content-Type")
                         url = self.getExternalUrl(url)
@@ -91,7 +95,7 @@ class FileDownloadProcessor(BaseDownloadProcessor):
                         content_type = resp.headers.get("Content-Type")
                     file_bytes = os.path.getsize(file_path)
                     if length != file_bytes:
-                        raise RuntimeError(
+                        raise DerivaDownloadError(
                             "File size of %s does not match expected size of %s for file %s" %
                             (length, file_bytes, file_path))
                     output_path = ''.join([subdir, "/", filename]) if subdir else filename

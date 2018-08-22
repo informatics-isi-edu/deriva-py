@@ -4,7 +4,9 @@ import certifi
 import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
-from deriva.core import urlsplit, format_exception, DEFAULT_SESSION_CONFIG
+from deriva.core import urlsplit, DEFAULT_SESSION_CONFIG
+from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError, \
+    DerivaDownloadAuthenticationError, DerivaDownloadAuthorizationError
 from bdbag import bdbag_ro as ro
 
 
@@ -62,7 +64,11 @@ class BaseDownloadProcessor(object):
             else:
                 return self.catalog.get(self.query, headers=headers).json()
         except requests.HTTPError as e:
-            raise RuntimeError("Unable to execute catalog query: %s" % format_exception(e))
+            if e.response.status_code == 401:
+                raise DerivaDownloadAuthenticationError(e)
+            if e.response.status_code == 403:
+                raise DerivaDownloadAuthorizationError(e)
+            raise DerivaDownloadError("Error executing catalog query: %s" % e)
 
     def headForHeaders(self, url, raise_for_status=False):
         store = self.getHatracStore(url)
@@ -92,7 +98,7 @@ class BaseDownloadProcessor(object):
                 return self.store
             else:
                 # do we need to deal with the possibility of a fully qualified URL referencing a different hatrac host?
-                raise RuntimeError(
+                raise DerivaDownloadConfigurationError(
                     "Got a reference to a Hatrac server [%s] that is different from the expected Hatrac server: %s" % (
                         serverURI, self.store.get_server_uri))
 
@@ -137,7 +143,8 @@ class BaseDownloadProcessor(object):
         if login_params and auth_url:
             r = session.post(auth_url, data=login_params, verify=certifi.where())
             if r.status_code > 203:
-                raise RuntimeError('GetExternalSession Failed with Status Code: %s\n%s\n' % (r.status_code, r.text))
+                raise DerivaDownloadError(
+                    'GetExternalSession Failed with Status Code: %s\n%s\n' % (r.status_code, r.text))
 
         sessions[host] = session
         return session
