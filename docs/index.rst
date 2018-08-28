@@ -1,4 +1,4 @@
-deriva-py
+Python Command-line Clients and API (deriva-py)
 ==================
 
 .. toctree::
@@ -23,15 +23,8 @@ deriva-py
    :maxdepth: 4
    :caption: Command Line Interfaces
 
-   cli/commands
    cli/deriva-acl-config
    cli/deriva-annotation-config
    cli/deriva-hatrac-cli
    cli/deriva-download-cli
 
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
