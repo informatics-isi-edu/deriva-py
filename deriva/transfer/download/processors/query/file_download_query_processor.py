@@ -7,19 +7,19 @@ import certifi
 from bdbag import bdbag_ro as ro
 from deriva.core import urlsplit, format_exception, get_transfer_summary, DEFAULT_CHUNK_SIZE
 from deriva.core.utils.mime_utils import parse_content_disposition
-from deriva.transfer.download.processors import BaseDownloadProcessor
+from deriva.transfer.download.processors.query.base_query_processor import BaseQueryProcessor, LOCAL_PATH_KEY
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError
 
 
-class FileDownloadProcessor(BaseDownloadProcessor):
+class FileDownloadQueryProcessor(BaseQueryProcessor):
     def __init__(self, envars=None, **kwargs):
-        super(FileDownloadProcessor, self).__init__(envars, **kwargs)
+        super(FileDownloadQueryProcessor, self).__init__(envars, **kwargs)
         self.content_type = "application/x-json-stream"
-        self.output_relpath, self.output_abspath = self.createPaths(self.base_path, "download-manifest.json")
+        self.output_relpath, self.output_abspath = self.create_paths(self.base_path, "download-manifest.json")
         self.ro_file_provenance = False
 
     def process(self):
-        super(FileDownloadProcessor, self).process()
+        super(FileDownloadQueryProcessor, self).process()
         return self.downloadFiles(self.output_abspath)
 
     def getExternalFile(self, url, output_path, headers=None):
@@ -53,7 +53,7 @@ class FileDownloadProcessor(BaseDownloadProcessor):
         logging.info("Retrieving file(s)...")
         try:
             with open(input_manifest, "r") as in_file:
-                file_list = list()
+                file_list = dict()
                 for line in in_file:
                     entry = json.loads(line)
                     url = entry.get('url')
@@ -79,7 +79,7 @@ class FileDownloadProcessor(BaseDownloadProcessor):
                     file_path = os.path.abspath(os.path.join(
                         self.base_path, 'data' if self.is_bag else '', subdir, filename))
                     output_dir = os.path.dirname(file_path)
-                    self.makeDirs(output_dir)
+                    self.make_dirs(output_dir)
                     if store:
                         try:
                             resp = store.get_obj(url, self.HEADERS, file_path)
@@ -108,7 +108,7 @@ class FileDownloadProcessor(BaseDownloadProcessor):
                                              retrieved_by=ro.make_retrieved_by(
                                                  self.ro_author_name, orcid=self.ro_author_orcid),
                                              bundled_as=ro.make_bundled_as())
-                    file_list.append(output_path)
+                    file_list.update({output_path: {LOCAL_PATH_KEY: file_path}})
                 return file_list
         finally:
             os.remove(input_manifest)

@@ -6,26 +6,26 @@ from bdbag import bdbag_ro as ro
 from deriva.core import format_exception
 from deriva.core.utils.hash_utils import decodeBase64toHex
 from deriva.core.utils.mime_utils import parse_content_disposition
-from deriva.transfer.download.processors import BaseDownloadProcessor
+from deriva.transfer.download.processors.query.base_query_processor import BaseQueryProcessor, LOCAL_PATH_KEY
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError
 
 
-class BagFetchDownloadProcessor(BaseDownloadProcessor):
+class BagFetchQueryProcessor(BaseQueryProcessor):
     def __init__(self, envars=None, **kwargs):
-        super(BagFetchDownloadProcessor, self).__init__(envars, **kwargs)
+        super(BagFetchQueryProcessor, self).__init__(envars, **kwargs)
         self.content_type = "application/x-json-stream"
-        self.output_relpath, self.output_abspath = self.createPaths(self.base_path, "fetch-manifest.json")
+        self.output_relpath, self.output_abspath = self.create_paths(self.base_path, "fetch-manifest.json")
         self.ro_file_provenance = False
 
     def process(self):
-        super(BagFetchDownloadProcessor, self).process()
-        rfm_relpath = self.createRemoteFileManifest()
-        return [self.output_relpath] if not self.is_bag else []
+        super(BagFetchQueryProcessor, self).process()
+        rfm_relpath, rfm_abspath = self.createRemoteFileManifest()
+        return {rfm_relpath: {LOCAL_PATH_KEY: rfm_abspath}} if not self.is_bag else {}
 
     def createRemoteFileManifest(self):
         logging.info("Creating remote file manifest")
         input_manifest = self.output_abspath
-        remote_file_manifest = self.args.get("remote_file_manifest")
+        remote_file_manifest = self.kwargs.get("remote_file_manifest")
         with open(input_manifest, "r") as in_file, open(remote_file_manifest, "a") as remote_file:
             for line in in_file:
                 # get the required bdbag remote file manifest vars from each line of the json-stream input file
@@ -40,7 +40,7 @@ class BagFetchDownloadProcessor(BaseDownloadProcessor):
                                              folder=os.path.dirname(entry["filename"]),
                                              filename=os.path.basename(entry["filename"])))
         os.remove(input_manifest)
-        return os.path.relpath(remote_file_manifest, self.base_path)
+        return os.path.relpath(remote_file_manifest, self.base_path), os.path.abspath(remote_file_manifest)
 
     def createManifestEntry(self, entry):
         manifest_entry = dict()

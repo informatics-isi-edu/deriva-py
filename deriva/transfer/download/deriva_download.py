@@ -8,9 +8,10 @@ from requests.exceptions import HTTPError
 from bdbag import bdbag_api as bdb, bdbag_ro as ro, BAG_PROFILE_TAG, BDBAG_RO_PROFILE_ID
 from deriva.core import ErmrestCatalog, HatracStore, format_exception, get_credential, read_config, stob, \
     __version__ as VERSION
-from deriva.transfer.download.processors import findProcessor
+from deriva.transfer.download.processors import find_query_processor, find_pre_processor, find_post_processor
+from deriva.transfer.download.processors.base_processor import LOCAL_PATH_KEY
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError, \
-DerivaDownloadAuthenticationError
+    DerivaDownloadAuthenticationError
 
 
 class DerivaDownload(object):
@@ -73,23 +74,13 @@ class DerivaDownload(object):
         self.store.set_credentials(credentials, self.hostname)
         self.credentials = credentials
 
-    def download(self, identity=None):
+    def download(self, **kwargs):
 
         if not self.config:
             raise DerivaDownloadConfigurationError("No configuration specified!")
 
         if self.config.get("catalog") is None:
             raise DerivaDownloadConfigurationError("Catalog configuration error!")
-
-        if not identity:
-            try:
-                if not self.credentials:
-                    self.setCredentials(get_credential(self.hostname))
-                logging.info("Validating credentials for host: %s" % self.hostname)
-                attributes = self.catalog.get_authn_session().json()
-                identity = attributes["client"]
-            except Exception as e:
-                raise DerivaDownloadAuthenticationError("Unable to validate credentials: %s" % format_exception(e))
 
         ro_manifest = None
         ro_author_name = None
@@ -100,6 +91,19 @@ class DerivaDownload(object):
         catalog_config = self.config['catalog']
         self.envars.update(self.config.get('env', dict()))
 
+        # 1. If we don't have a client identity, we need to authenticate
+        identity = kwargs.get("identity")
+        if not identity:
+            try:
+                if not self.credentials:
+                    self.setCredentials(get_credential(self.hostname))
+                logging.info("Validating credentials for host: %s" % self.hostname)
+                attributes = self.catalog.get_authn_session().json()
+                identity = attributes["client"]
+            except Exception as e:
+                raise DerivaDownloadAuthenticationError("Unable to validate credentials: %s" % format_exception(e))
+
+        # 2. Check for bagging config and initialize bag related variables
         bag_path = None
         bag_archiver = None
         bag_algorithms = None
@@ -125,7 +129,8 @@ class DerivaDownload(object):
                     ro_manifest = ro.init_ro_manifest(author_name=ro_author_name, author_orcid=ro_author_orcid)
                     bag_metadata.update({BAG_PROFILE_TAG: BDBAG_RO_PROFILE_ID})
 
-        file_list = list()
+        # 3. Process the set of queries by locating, instantiating, and invoking the specified download processor
+        outputs = dict()
         base_path = bag_path if bag_path else self.output_dir
         for query in catalog_config['queries']:
             query_path = query['query_path']
@@ -135,26 +140,44 @@ class DerivaDownload(object):
             output_path = query.get('output_path', '')
 
             try:
-                download_processor = findProcessor(output_format, output_processor)
-                processor = download_processor(self.envars,
-                                               bag=create_bag,
-                                               catalog=self.catalog,
-                                               store=self.store,
-                                               query=query_path,
-                                               base_path=base_path,
-                                               sub_path=output_path,
-                                               format_args=format_args,
-                                               remote_file_manifest=remote_file_manifest,
-                                               ro_manifest=ro_manifest,
-                                               ro_author_name=ro_author_name,
-                                               ro_author_orcid=ro_author_orcid)
-                file_list.extend(processor.process())
+                query_processor = find_query_processor(output_format, output_processor)
+                processor = query_processor(self.envars,
+                                            bag=create_bag,
+                                            catalog=self.catalog,
+                                            store=self.store,
+                                            query=query_path,
+                                            base_path=base_path,
+                                            sub_path=output_path,
+                                            format_args=format_args,
+                                            remote_file_manifest=remote_file_manifest,
+                                            ro_manifest=ro_manifest,
+                                            ro_author_name=ro_author_name,
+                                            ro_author_orcid=ro_author_orcid)
+                outputs.update(processor.process())
             except Exception as e:
                 logging.error(format_exception(e))
                 if create_bag:
                     bdb.cleanup_bag(bag_path)
                 raise
 
+        # 4. Execute anything in the pre-processing pipeline, if configured
+        preprocessors = self.config.get('preprocessors', [])
+        if preprocessors:
+            for processor in preprocessors:
+                processor_name = processor["processor"]
+                processor_type = processor.get('processor_type', None)
+                processor_parameters = processor.get('processor_parameters', None)
+
+                try:
+                    preprocessor = find_pre_processor(processor_name, processor_type)
+                    processor = preprocessor(
+                        self.envars, input_files=outputs, processor_parameters=processor_parameters)
+                    outputs = processor.process()
+                except Exception as e:
+                    logging.error(format_exception(e))
+                    raise
+
+        # 5. Create the bag, and archive (serialize) if necessary
         if create_bag:
             try:
                 if ro_manifest:
@@ -176,14 +199,31 @@ class DerivaDownload(object):
                 try:
                     archive = bdb.archive_bag(bag_path, bag_archiver.lower())
                     bdb.cleanup_bag(bag_path)
-                    return [archive]
+                    outputs = {os.path.basename(archive): {LOCAL_PATH_KEY: archive}}
                 except Exception as e:
                     logging.error("Exception while creating data bag archive:", format_exception(e))
                     raise
             else:
-                return [bag_path]
+                outputs = {os.path.basename(bag_path): {LOCAL_PATH_KEY: bag_path}}
 
-        return file_list
+        # 6. Execute anything in the post processing pipeline, if configured
+        postprocessors = self.config.get('postprocessors', [])
+        if postprocessors:
+            for processor in postprocessors:
+                processor_name = processor["processor"]
+                processor_type = processor.get('processor_type', None)
+                processor_parameters = processor.get('processor_parameters', None)
+
+                try:
+                    postprocessor = find_post_processor(processor_name, processor_type)
+                    processor = postprocessor(
+                        self.envars, input_files=outputs, processor_parameters=processor_parameters)
+                    outputs = processor.process()
+                except Exception as e:
+                    logging.error(format_exception(e))
+                    raise
+
+        return outputs
 
 
 class GenericDownloader(DerivaDownload):
