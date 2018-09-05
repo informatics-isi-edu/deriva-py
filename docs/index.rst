@@ -1,5 +1,5 @@
 Python Command-line Clients and API (deriva-py)
-==================
+================================================
 
 .. toctree::
    :maxdepth: 1
