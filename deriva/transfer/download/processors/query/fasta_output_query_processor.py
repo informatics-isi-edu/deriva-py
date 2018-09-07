@@ -6,7 +6,7 @@ from download.processors.query.base_query_processor import BaseQueryProcessor, L
 
 class FastaOutputQueryProcessor(BaseQueryProcessor):
     def __init__(self, envars=None, **kwargs):
-        super(FastaDownloadProcessor, self).__init__(envars, **kwargs)
+        super(FastaOutputQueryProcessor, self).__init__(envars, **kwargs)
         self.ext = ".fasta"
         self.content_type = "application/x-json-stream"
         self.input_relpath, self.input_abspath = self.create_paths(self.base_path, "fasta-input.json")
@@ -15,7 +15,7 @@ class FastaOutputQueryProcessor(BaseQueryProcessor):
 
     def process(self):
         super(FastaOutputQueryProcessor, self).process()
-        self.convert_json_file_to_fasta(self.input_abspath, self.output_abspath, self.format_args)
+        self.convert_json_file_to_fasta(self.input_abspath, self.output_abspath, self.processor_params)
         os.remove(self.input_abspath)
         return {self.output_relpath: {LOCAL_PATH_KEY: self.output_abspath}}
 

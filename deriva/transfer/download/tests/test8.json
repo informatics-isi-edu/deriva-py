@@ -10,38 +10,49 @@
   "catalog": {
     "host": "https://pbcconsortium.isrd.isi.edu",
     "catalog_id": "1",
-    "queries": [
+    "query_processors": [
       {
-        "query_path": "/entity/M:=isa:biosample/RID=1-8X66;RID=1-8X6T/$M/left(RID)=(isa:mesh_data:biosample)/!(url::null::)/$M?limit=none",
-        "output_path": "biosample",
-        "output_format": "csv"
+        "processor": "csv",
+        "processor_params": {
+          "query_path": "/entity/M:=isa:biosample/RID=1-8X66;RID=1-8X6T/$M/left(RID)=(isa:mesh_data:biosample)/!(url::null::)/$M?limit=none",
+          "output_path": "biosample"
+        }
       },
       {
-        "query_path": "/attribute/M:=isa:biosample/RID=1-8X66;RID=1-8X6T/$M/left(RID)=(isa:mesh_data:biosample)/!(url::null::)/$M/X:=isa:xray_tomography_data/url,length:=X:byte_count,md5?limit=none",
-        "output_path": "MRC",
-        "output_format": "fetch"
+        "processor": "fetch",
+        "processor_params": {
+          "query_path": "/attribute/M:=isa:biosample/RID=1-8X66;RID=1-8X6T/$M/left(RID)=(isa:mesh_data:biosample)/!(url::null::)/$M/X:=isa:xray_tomography_data/url,length:=X:byte_count,md5?limit=none",
+          "output_path": "MRC"
+        }
       },
       {
-        "query_path": "/attribute/M:=isa:biosample/RID=1-8X66;RID=1-8X6T/$M/left(RID)=(isa:mesh_data:biosample)/!(url::null::)/$M/X:=isa:processed_tomography_data/url,length:=X:byte_count,md5?limit=none",
-        "output_path": "processed_data",
-        "output_format": "fetch"
+        "processor": "fetch",
+        "processor_params": {
+          "query_path": "/attribute/M:=isa:biosample/RID=1-8X66;RID=1-8X6T/$M/left(RID)=(isa:mesh_data:biosample)/!(url::null::)/$M/X:=isa:processed_tomography_data/url,length:=X:byte_count,md5?limit=none",
+          "output_path": "processed_data"
+        }
       },
       {
-        "query_path": "/attribute/M:=isa:biosample/RID=1-8X66;RID=1-8X6T/$M/left(RID)=(isa:mesh_data:biosample)/!(url::null::)/$M/X:=isa:mesh_data/url,length:=X:byte_count,md5?limit=none",
-        "output_path": "OBJS",
-        "output_format": "fetch"
+        "processor": "fetch",
+        "processor_params": {
+          "query_path": "/attribute/M:=isa:biosample/RID=1-8X66;RID=1-8X6T/$M/left(RID)=(isa:mesh_data:biosample)/!(url::null::)/$M/X:=isa:mesh_data/url,length:=X:byte_count,md5?limit=none",
+          "output_path": "OBJS"
+        }
       }
     ]
   },
-  "postprocessors": [
+  "post_processors": [
     {
-      "processor": "transfer",
-      "processor_parameters": {}
+      "processor": "cloud_upload",
+      "processor_params": {
+        "target_url": "s3://deriva-dev/test",
+        "acl": "public-read"
+      }
     },
     {
       "processor": "identifier",
       "processor_type": "deriva.transfer.download.processors.IdentifierPostProcessor",
-      "processor_parameters": {}
+      "processor_params": {}
     }
   ]
 }

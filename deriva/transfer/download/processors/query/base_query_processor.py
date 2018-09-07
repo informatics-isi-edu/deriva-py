@@ -21,15 +21,15 @@ class BaseQueryProcessor(BaseProcessor):
         super(BaseQueryProcessor, self).__init__(envars, **kwargs)
         self.catalog = kwargs["catalog"]
         self.store = kwargs["store"]
-        self.query = kwargs["query"]
+        self.base_path = kwargs["base_path"]
+        self.processor_params = kwargs["processor_params"]
+        self.query = self.processor_params["query_path"]
         if self.envars:
             self.query = self.query.format(**self.envars)
-        self.base_path = kwargs["base_path"]
+        self.sub_path = self.processor_params.get("output_path", "")
         self.store_base = kwargs.get("store_base", "/hatrac/")
         self.is_bag = kwargs.get("bag", False)
-        self.sub_path = kwargs.get("sub_path", "")
         self.sessions = kwargs.get("sessions", dict())
-        self.format_args = kwargs.get("format_args", dict())
         self.content_type = "application/octet-stream"
         self.url = ''.join([self.catalog.get_server_uri(), self.query])
         self.ro_file_provenance = True

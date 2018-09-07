@@ -6,7 +6,8 @@ from download.processors.query.bag_fetch_query_processor import BagFetchQueryPro
 from download.processors.query.file_download_query_processor import FileDownloadQueryProcessor
 from download.processors.query.fasta_output_query_processor import FastaOutputQueryProcessor
 from download.processors.postprocess.identifier_post_processor import IdentifierPostProcessor
-from download.processors.postprocess.transfer_post_processor import TransferPostProcessor
+from download.processors.postprocess.transfer_post_processor import Boto3UploadPostProcessor, \
+    LibcloudUploadPostProcessor
 
 DEFAULT_QUERY_PROCESSORS = {
     "csv": CSVQueryProcessor,
@@ -18,14 +19,14 @@ DEFAULT_QUERY_PROCESSORS = {
     "fasta": FastaOutputQueryProcessor
 }
 
-DEFAULT_PRE_PROCESSORS = {
-    "identifier": IdentifierPostProcessor,
-    "transfer": TransferPostProcessor
+DEFAULT_OUTPUT_PROCESSORS = {
+
 }
 
 DEFAULT_POST_PROCESSORS = {
     "identifier": IdentifierPostProcessor,
-    "transfer": TransferPostProcessor
+    "cloud_upload": Boto3UploadPostProcessor,
+    "libcloud_upload": LibcloudUploadPostProcessor
 }
 
 
@@ -59,8 +60,8 @@ def find_query_processor(processor_name, processor_type=None):
     return find_processor(processor_name, processor_type, DEFAULT_QUERY_PROCESSORS)
 
 
-def find_pre_processor(processor_name, processor_type=None):
-    return find_processor(processor_name, processor_type, DEFAULT_POST_PROCESSORS)
+def find_output_processor(processor_name, processor_type=None):
+    return find_processor(processor_name, processor_type, DEFAULT_OUTPUT_PROCESSORS)
 
 
 def find_post_processor(processor_name, processor_type=None):

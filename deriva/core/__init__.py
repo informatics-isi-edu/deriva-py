@@ -123,7 +123,7 @@ DEFAULT_SESSION_CONFIG = {
     "retry_connect": 5,
     "retry_read": 5,
     "retry_backoff_factor": 1.0,
-    "retry_status_forcelist": [500, 502, 503, 504],
+    "retry_status_forcelist": [500, 503, 504],
     "cookie_jar": DEFAULT_COOKIE_JAR_FILE
 }
 DEFAULT_CONFIG = {
@@ -143,7 +143,7 @@ def copy_config(src, dst):
     config_dir = os.path.dirname(dst)
     if not os.path.isdir(config_dir):
         try:
-            os.makedirs(config_dir)
+            os.makedirs(config_dir, mode=0o750)
         except OSError as error:
             if error.errno != errno.EEXIST:
                 raise
@@ -154,7 +154,7 @@ def write_config(config_file=DEFAULT_CONFIG_FILE, config=DEFAULT_CONFIG):
     config_dir = os.path.dirname(config_file)
     if not os.path.isdir(config_dir):
         try:
-            os.makedirs(config_dir)
+            os.makedirs(config_dir, mode=0o750)
         except OSError as error:
             if error.errno != errno.EEXIST:
                 raise
@@ -208,7 +208,7 @@ def write_credential(credential_file=DEFAULT_CREDENTIAL_FILE, credential=DEFAULT
     credential_dir = os.path.dirname(credential_file)
     if not os.path.isdir(credential_dir):
         try:
-            os.makedirs(credential_dir)
+            os.makedirs(credential_dir, mode=0o750)
         except OSError as error:
             if error.errno != errno.EEXIST:
                 raise
@@ -243,7 +243,7 @@ def get_credential(host, credential_file=DEFAULT_CREDENTIAL_FILE):
     if credential_file is None:
         credential_file = DEFAULT_CREDENTIAL_FILE
     credentials = read_credential(credential_file)
-    return credentials.get(host)
+    return credentials.get(host, credentials.get(host.lower()))
 
 
 def format_credential(token=None, username=None, password=None):
@@ -253,6 +253,12 @@ def format_credential(token=None, username=None, password=None):
         return {"username": username, "password": password}
     raise ValueError(
         "Missing required argument(s): an authentication token or a username and password must be provided.")
+
+
+def bootstrap():
+    init_logging()
+    read_config(create_default=True)
+    read_credential(create_default=True)
 
 
 def load_cookies_from_file(cookie_file=None):

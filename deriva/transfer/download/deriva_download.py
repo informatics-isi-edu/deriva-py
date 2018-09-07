@@ -8,7 +8,7 @@ from requests.exceptions import HTTPError
 from bdbag import bdbag_api as bdb, bdbag_ro as ro, BAG_PROFILE_TAG, BDBAG_RO_PROFILE_ID
 from deriva.core import ErmrestCatalog, HatracStore, format_exception, get_credential, read_config, stob, \
     __version__ as VERSION
-from deriva.transfer.download.processors import find_query_processor, find_pre_processor, find_post_processor
+from deriva.transfer.download.processors import find_query_processor, find_output_processor, find_post_processor
 from deriva.transfer.download.processors.base_processor import LOCAL_PATH_KEY
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError, \
     DerivaDownloadAuthenticationError
@@ -132,23 +132,19 @@ class DerivaDownload(object):
         # 3. Process the set of queries by locating, instantiating, and invoking the specified download processor
         outputs = dict()
         base_path = bag_path if bag_path else self.output_dir
-        for query in catalog_config['queries']:
-            query_path = query['query_path']
-            output_format = query['output_format']
-            output_processor = query.get("output_format_processor")
-            format_args = query.get('output_format_params', None)
-            output_path = query.get('output_path', '')
+        for processor in catalog_config['query_processors']:
+            processor_name = processor["processor"]
+            processor_type = processor.get('processor_type', None)
+            processor_params = processor.get('processor_params', None)
 
             try:
-                query_processor = find_query_processor(output_format, output_processor)
+                query_processor = find_query_processor(processor_name, processor_type)
                 processor = query_processor(self.envars,
                                             bag=create_bag,
                                             catalog=self.catalog,
                                             store=self.store,
-                                            query=query_path,
                                             base_path=base_path,
-                                            sub_path=output_path,
-                                            format_args=format_args,
+                                            processor_params=processor_params,
                                             remote_file_manifest=remote_file_manifest,
                                             ro_manifest=ro_manifest,
                                             ro_author_name=ro_author_name,
@@ -160,18 +156,17 @@ class DerivaDownload(object):
                     bdb.cleanup_bag(bag_path)
                 raise
 
-        # 4. Execute anything in the pre-processing pipeline, if configured
-        preprocessors = self.config.get('preprocessors', [])
-        if preprocessors:
-            for processor in preprocessors:
+        # 4. Execute anything in the ouput processing pipeline, if configured
+        output_processors = self.config.get('output_processors', [])
+        if output_processors:
+            for processor in output_processors:
                 processor_name = processor["processor"]
                 processor_type = processor.get('processor_type', None)
-                processor_parameters = processor.get('processor_parameters', None)
-
+                processor_params = processor.get('processor_params', None)
                 try:
-                    preprocessor = find_pre_processor(processor_name, processor_type)
-                    processor = preprocessor(
-                        self.envars, input_files=outputs, processor_parameters=processor_parameters)
+                    output_processor = find_output_processor(processor_name, processor_type)
+                    processor = output_processor(
+                        self.envars, input_files=outputs, processor_params=processor_params)
                     outputs = processor.process()
                 except Exception as e:
                     logging.error(format_exception(e))
@@ -207,17 +202,16 @@ class DerivaDownload(object):
                 outputs = {os.path.basename(bag_path): {LOCAL_PATH_KEY: bag_path}}
 
         # 6. Execute anything in the post processing pipeline, if configured
-        postprocessors = self.config.get('postprocessors', [])
-        if postprocessors:
-            for processor in postprocessors:
+        post_processors = self.config.get('post_processors', [])
+        if post_processors:
+            for processor in post_processors:
                 processor_name = processor["processor"]
                 processor_type = processor.get('processor_type', None)
-                processor_parameters = processor.get('processor_parameters', None)
-
+                processor_params = processor.get('processor_params', None)
                 try:
-                    postprocessor = find_post_processor(processor_name, processor_type)
-                    processor = postprocessor(
-                        self.envars, input_files=outputs, processor_parameters=processor_parameters)
+                    post_processors = find_post_processor(processor_name, processor_type)
+                    processor = post_processors(
+                        self.envars, input_files=outputs, processor_params=processor_params)
                     outputs = processor.process()
                 except Exception as e:
                     logging.error(format_exception(e))
