@@ -1,7 +1,6 @@
 ## DataPath
 
-The `datapath` module is an interface for building ERMrest "data paths" and retrieving data from ERMrest catalogs. It
-also supports data manipulation (insert, update, delete). In its present form, the module provides a limited 
+The `datapath` module is an interface for building ERMrest "data paths" and retrieving data from ERMrest catalogs. It also supports data manipulation (insert, update, delete). In its present form, the module provides a limited 
 programmatic interface to ERMrest.
 
 ### Features
