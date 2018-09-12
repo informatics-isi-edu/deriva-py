@@ -17,7 +17,8 @@ class FastaOutputQueryProcessor(BaseQueryProcessor):
         super(FastaOutputQueryProcessor, self).process()
         self.convert_json_file_to_fasta(self.input_abspath, self.output_abspath, self.processor_params)
         os.remove(self.input_abspath)
-        return {self.output_relpath: {LOCAL_PATH_KEY: self.output_abspath}}
+        self.outputs.update({self.output_relpath: {LOCAL_PATH_KEY: self.output_abspath}})
+        return self.outputs
 
     @staticmethod
     def convert_json_obj_to_fasta_lines(obj, params):

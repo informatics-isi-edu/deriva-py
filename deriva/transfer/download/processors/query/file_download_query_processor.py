@@ -20,7 +20,8 @@ class FileDownloadQueryProcessor(BaseQueryProcessor):
 
     def process(self):
         super(FileDownloadQueryProcessor, self).process()
-        return self.downloadFiles(self.output_abspath)
+        self.outputs.update(self.downloadFiles(self.output_abspath))
+        return self.outputs
 
     def getExternalFile(self, url, output_path, headers=None):
         host = urlsplit(url).netloc

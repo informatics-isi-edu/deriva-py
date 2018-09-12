@@ -1,10 +1,9 @@
 import os
 import logging
 from importlib import import_module
-from deriva.core import get_credential, urlsplit, urlunsplit, format_exception
-from deriva.core.utils import mime_utils as mu, hash_utils as hu
+from deriva.core import get_credential, urlsplit, urlunsplit, format_exception, strtobool
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError
-from deriva.transfer.download.processors.base_processor import BaseProcessor
+from deriva.transfer.download.processors.base_processor import *
 
 
 class UploadPostProcessor(BaseProcessor):
@@ -14,7 +13,6 @@ class UploadPostProcessor(BaseProcessor):
 
     def __init__(self, envars=None, **kwargs):
         super(UploadPostProcessor, self).__init__(envars, **kwargs)
-        self.inputs = kwargs.get("input_files", {})
         self.scheme = None
         self.netloc = None
         self.path = None
@@ -25,8 +23,8 @@ class UploadPostProcessor(BaseProcessor):
         target_url = self.parameters.get(target_url_param)
         if not target_url:
             raise DerivaDownloadConfigurationError(
-                "%s is missing required parameter '%s' from 'processor_params'" %
-                (self.__class__.__name__, target_url_param))
+                "%s is missing required parameter '%s' from %s" %
+                (self.__class__.__name__, target_url_param, PROCESSOR_PARAMS_KEY))
         upr = urlsplit(target_url, "https")
         self.scheme = upr.scheme.lower()
         self.netloc = upr.netloc
@@ -36,7 +34,7 @@ class UploadPostProcessor(BaseProcessor):
             raise DerivaDownloadConfigurationError("Unable to locate credential entry for: %s" % host)
         self.credentials = creds
 
-        return self.inputs
+        return self.outputs
 
 
 class Boto3UploadPostProcessor(UploadPostProcessor):
@@ -52,16 +50,34 @@ class Boto3UploadPostProcessor(UploadPostProcessor):
             except ImportError as e:
                 raise DerivaDownloadConfigurationError("Unable to find required module. "
                                                        "Ensure that the Python package \"boto3\" is installed.", e)
+        if logging.getLogger().isEnabledFor(logging.DEBUG):
+            self.BOTO3.set_stream_logger('')
 
     def __init__(self, envars=None, **kwargs):
         super(Boto3UploadPostProcessor, self).__init__(envars, **kwargs)
         self.import_boto3()
-        self.parameters = kwargs.get("processor_params", {})
 
     def process(self):
         super(Boto3UploadPostProcessor, self).process()
-        session = self.BOTO3.session.Session(profile_name=self.credentials.get("profile_name"))
-        s3 = session.resource('s3')
+        key = self.credentials.get("key")
+        secret = self.credentials.get("secret")
+        profile_name = self.credentials.get("profile_name")
+        region_name = self.credentials.get("region")
+        session = self.BOTO3.session.Session(aws_access_key_id=key,
+                                             aws_secret_access_key=secret,
+                                             profile_name=profile_name,
+                                             region_name=region_name)
+
+        if self.scheme == "gs":
+            s3 = session.resource("s3", endpoint_url="https://storage.googleapis.com",
+                                  config=self.BOTO3.session.Config(signature_version="s3v4"))
+        else:
+            s3 = session.resource("s3")
+
+        s3_client_signed = self.BOTO3.client('s3')
+        s3_client_unsigned = self.BOTO3.client(
+            's3', config=self.BOTO3.session.Config(signature_version=self.BOTOCORE.UNSIGNED))
+
         bucket_name = self.netloc
         bucket_exists = True
         try:
@@ -69,34 +85,41 @@ class Boto3UploadPostProcessor(UploadPostProcessor):
         except self.BOTOCORE.exceptions.ClientError as e:
             # If a client error is thrown, then check that it was a 404 error.
             # If it was a 404 error, then the bucket does not exist.
-            error_code = int(e.response['Error']['Code'])
+            error_code = int(e.response["Error"]["Code"])
             if error_code == 404:
                 bucket_exists = False
 
         if not bucket_exists:
             raise DerivaDownloadError("Target bucket [%s] does not exist." % bucket_name)
 
-        for k, v in self.inputs.items():
+        for k, v in self.outputs.items():
             object_name = self.path + k
-            file_path = v["local_path"]
-            file_hashes = hu.compute_file_hashes(file_path, ["md5", "sha256"])
-            remote_path = urlunsplit((self.scheme, self.netloc, object_name, "", ""))
+            file_path = v[LOCAL_PATH_KEY]
+            acl = self.parameters.get("acl", "private")
+            signed_url = strtobool(self.parameters.get("signed_url", str(acl == "public-read")))
+            if signed_url:
+                client = s3_client_unsigned if acl == "public-read" else s3_client_signed
+                remote_path = client.generate_presigned_url(
+                    'get_object', Params={'Bucket': bucket_name, 'Key': object_name})
+            else:
+                remote_path = urlunsplit((self.scheme, self.netloc, object_name, "", ""))
+            remote_paths = v.get(REMOTE_PATHS_KEY, list())
+            remote_paths.append(remote_path)
+            v[REMOTE_PATHS_KEY] = remote_paths
+            self.make_file_output_values(file_path, v)
             with open(file_path, "rb") as input_file:
                 s3_object = s3.Object(bucket_name, object_name)
                 try:
-                    response = s3_object.put(ACL=self.parameters.get("acl"),
+                    response = s3_object.put(ACL=acl,
                                              Body=input_file,
-                                             ContentType=mu.guess_content_type(file_path),
-                                             ContentLength=os.path.getsize(file_path),
-                                             ContentMD5=file_hashes["md5"][1],
-                                             Metadata={"Content-MD5": file_hashes["md5"][0]})
-                    v["remote_path"] = remote_path
-                    v["md5"] = file_hashes["md5"][0]
-                    v["sha256"] = file_hashes["sha256"][0]
+                                             ContentType=v[CONTENT_TYPE_KEY],
+                                             ContentLength=v[FILE_SIZE_KEY],
+                                             ContentMD5=v[MD5_KEY][1],
+                                             Metadata={"Content-MD5": v[MD5_KEY][0]})
                 except self.BOTOCORE.exceptions.ClientError as e:
                     raise DerivaDownloadError("Upload of %s failed: %s" % (remote_path, format_exception(e)))
 
-        return self.inputs
+        return self.outputs
 
 
 class LibcloudUploadPostProcessor(UploadPostProcessor):
@@ -141,7 +164,6 @@ class LibcloudUploadPostProcessor(UploadPostProcessor):
     def __init__(self, envars=None, **kwargs):
         super(LibcloudUploadPostProcessor, self).__init__(envars, **kwargs)
         self.import_libcloud()
-        self.parameters = kwargs.get("processor_params", {})
 
     def process(self):
         super(LibcloudUploadPostProcessor, self).process()
@@ -161,22 +183,21 @@ class LibcloudUploadPostProcessor(UploadPostProcessor):
             driver = cls(**self.credentials)
             container = driver.get_container(container_name=self.netloc)
 
-            for k, v in self.inputs.items():
+            for k, v in self.outputs.items():
                 object_name = self.path + k
-                file_path = v["local_path"]
-                file_hashes = hu.compute_file_hashes(file_path, ["md5", "sha256"])
+                file_path = v[LOCAL_PATH_KEY]
                 remote_path = urlunsplit((self.scheme, self.netloc, object_name, "", ""))
+                remote_paths = v.get(REMOTE_PATHS_KEY, list())
+                remote_paths.append(remote_path)
+                v[REMOTE_PATHS_KEY] = remote_paths
+                self.make_file_output_values(file_path, v)
                 result = driver.upload_object(file_path,
                                               container,
                                               object_name,
                                               extra={"acl": self.parameters.get("acl")},
                                               verify_hash=True)
-                if result:
-                    v["remote_path"] = remote_path
-                    v["md5"] = file_hashes["md5"][0]
-                    v["sha256"] = file_hashes["sha256"][0]
 
         except self.LIBCLOUD.common.types.LibcloudError as lce:
             raise DerivaDownloadError(format_exception(lce))
 
-        return self.inputs
+        return self.outputs

@@ -102,6 +102,7 @@ class DerivaDownload(object):
                 identity = attributes["client"]
             except Exception as e:
                 raise DerivaDownloadAuthenticationError("Unable to validate credentials: %s" % format_exception(e))
+        wallet = kwargs.get("wallet", {})
 
         # 2. Check for bagging config and initialize bag related variables
         bag_path = None
@@ -129,17 +130,18 @@ class DerivaDownload(object):
                     ro_manifest = ro.init_ro_manifest(author_name=ro_author_name, author_orcid=ro_author_orcid)
                     bag_metadata.update({BAG_PROFILE_TAG: BDBAG_RO_PROFILE_ID})
 
-        # 3. Process the set of queries by locating, instantiating, and invoking the specified download processor
+        # 3. Process the set of queries by locating, instantiating, and invoking the specified processor(s)
         outputs = dict()
         base_path = bag_path if bag_path else self.output_dir
         for processor in catalog_config['query_processors']:
             processor_name = processor["processor"]
-            processor_type = processor.get('processor_type', None)
-            processor_params = processor.get('processor_params', None)
+            processor_type = processor.get('processor_type')
+            processor_params = processor.get('processor_params')
 
             try:
                 query_processor = find_query_processor(processor_name, processor_type)
                 processor = query_processor(self.envars,
+                                            inputs=outputs,
                                             bag=create_bag,
                                             catalog=self.catalog,
                                             store=self.store,
@@ -148,25 +150,31 @@ class DerivaDownload(object):
                                             remote_file_manifest=remote_file_manifest,
                                             ro_manifest=ro_manifest,
                                             ro_author_name=ro_author_name,
-                                            ro_author_orcid=ro_author_orcid)
-                outputs.update(processor.process())
+                                            ro_author_orcid=ro_author_orcid,
+                                            identity=identity,
+                                            wallet=wallet)
+                outputs = processor.process()
             except Exception as e:
                 logging.error(format_exception(e))
                 if create_bag:
                     bdb.cleanup_bag(bag_path)
                 raise
 
-        # 4. Execute anything in the ouput processing pipeline, if configured
+        # 4. Execute anything in the output processing pipeline, if configured
         output_processors = self.config.get('output_processors', [])
         if output_processors:
             for processor in output_processors:
                 processor_name = processor["processor"]
-                processor_type = processor.get('processor_type', None)
-                processor_params = processor.get('processor_params', None)
+                processor_type = processor.get('processor_type')
+                processor_params = processor.get('processor_params')
                 try:
                     output_processor = find_output_processor(processor_name, processor_type)
                     processor = output_processor(
-                        self.envars, input_files=outputs, processor_params=processor_params)
+                        self.envars,
+                        inputs=outputs,
+                        processor_params=processor_params,
+                        identity=identity,
+                        wallet=wallet)
                     outputs = processor.process()
                 except Exception as e:
                     logging.error(format_exception(e))
@@ -206,12 +214,16 @@ class DerivaDownload(object):
         if post_processors:
             for processor in post_processors:
                 processor_name = processor["processor"]
-                processor_type = processor.get('processor_type', None)
-                processor_params = processor.get('processor_params', None)
+                processor_type = processor.get('processor_type')
+                processor_params = processor.get('processor_params')
                 try:
                     post_processors = find_post_processor(processor_name, processor_type)
                     processor = post_processors(
-                        self.envars, input_files=outputs, processor_params=processor_params)
+                        self.envars,
+                        inputs=outputs,
+                        processor_params=processor_params,
+                        identity=identity,
+                        wallet=wallet)
                     outputs = processor.process()
                 except Exception as e:
                     logging.error(format_exception(e))

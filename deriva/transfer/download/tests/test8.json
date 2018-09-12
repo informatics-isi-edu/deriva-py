@@ -51,8 +51,12 @@
     },
     {
       "processor": "identifier",
-      "processor_type": "deriva.transfer.download.processors.IdentifierPostProcessor",
-      "processor_params": {}
+      "processor_params": {
+        "test": "True"
+      }
+    },
+    {
+      "processor": "workspace"
     }
   ]
 }

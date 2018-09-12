@@ -1,10 +1,6 @@
-import inspect
 import requests
-from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.util.retry import Retry
-from requests.packages.urllib3.exceptions import MaxRetryError
 from multiprocessing import Queue
-from . import ConcurrentUpdate, NotModified, DEFAULT_HEADERS, DEFAULT_SESSION_CONFIG
+from . import get_new_requests_session, ConcurrentUpdate, NotModified, DEFAULT_HEADERS, DEFAULT_SESSION_CONFIG
 
 
 class DerivaPathError (ValueError):
@@ -66,23 +62,7 @@ class DerivaBinding (object):
         return self._server_uri
 
     def _get_new_session(self, session_config):
-        self._session = requests.session()
-        inspect_retry = inspect.getargspec(Retry.__init__)
-        if "raise_on_status" in inspect_retry.args:
-            retries = Retry(connect=session_config['retry_connect'],
-                            read=session_config['retry_read'],
-                            backoff_factor=session_config['retry_backoff_factor'],
-                            status_forcelist=session_config['retry_status_forcelist'],
-                            raise_on_status=True)
-        else:
-            # this is in case installed urllib3 is < 1.15 and raise_on_status is unavailable
-            retries = Retry(connect=session_config['retry_connect'],
-                            read=session_config['retry_read'],
-                            backoff_factor=session_config['retry_backoff_factor'],
-                            status_forcelist=session_config['retry_status_forcelist'])
-
-        self._session.mount(self._server_uri + '/',
-                            HTTPAdapter(max_retries=retries))
+        self._session = get_new_requests_session(self._server_uri + '/', session_config)
 
     def _pre_get(self, path, headers):
         self.check_path(path)

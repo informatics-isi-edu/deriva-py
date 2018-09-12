@@ -20,7 +20,8 @@ class BagFetchQueryProcessor(BaseQueryProcessor):
     def process(self):
         super(BagFetchQueryProcessor, self).process()
         rfm_relpath, rfm_abspath = self.createRemoteFileManifest()
-        return {rfm_relpath: {LOCAL_PATH_KEY: rfm_abspath}} if not self.is_bag else {}
+        self.outputs.update({rfm_relpath: {LOCAL_PATH_KEY: rfm_abspath}} if not self.is_bag else {})
+        return self.outputs
 
     def createRemoteFileManifest(self):
         logging.info("Creating remote file manifest")

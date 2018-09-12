@@ -4,7 +4,7 @@ import certifi
 import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
-from deriva.core import urlsplit, DEFAULT_SESSION_CONFIG
+from deriva.core import urlsplit, get_new_requests_session, DEFAULT_SESSION_CONFIG
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError, \
     DerivaDownloadAuthenticationError, DerivaDownloadAuthorizationError
 from deriva.transfer.download.processors.base_processor import BaseProcessor, LOCAL_PATH_KEY
@@ -22,11 +22,10 @@ class BaseQueryProcessor(BaseProcessor):
         self.catalog = kwargs["catalog"]
         self.store = kwargs["store"]
         self.base_path = kwargs["base_path"]
-        self.processor_params = kwargs["processor_params"]
-        self.query = self.processor_params["query_path"]
+        self.query = self.parameters["query_path"]
         if self.envars:
             self.query = self.query.format(**self.envars)
-        self.sub_path = self.processor_params.get("output_path", "")
+        self.sub_path = self.parameters.get("output_path", "")
         self.store_base = kwargs.get("store_base", "/hatrac/")
         self.is_bag = kwargs.get("bag", False)
         self.sessions = kwargs.get("sessions", dict())
@@ -52,7 +51,9 @@ class BaseQueryProcessor(BaseProcessor):
                                  retrieved_on=ro.make_retrieved_on(),
                                  retrieved_by=ro.make_retrieved_by(self.ro_author_name, orcid=self.ro_author_orcid),
                                  bundled_as=ro.make_bundled_as())
-        return {self.output_relpath: {LOCAL_PATH_KEY: self.output_abspath}}
+
+        self.outputs.update({self.output_relpath: {LOCAL_PATH_KEY: self.output_abspath}})
+        return self.outputs
 
     def catalogQuery(self, headers=HEADERS, as_file=True):
         if as_file:
@@ -127,16 +128,9 @@ class BaseQueryProcessor(BaseProcessor):
         if session is not None:
             return session
 
-        session = requests.session()
         if not session_config:
             session_config = DEFAULT_SESSION_CONFIG
-        retries = Retry(connect=session_config['retry_connect'],
-                        read=session_config['retry_read'],
-                        backoff_factor=session_config['retry_backoff_factor'],
-                        status_forcelist=session_config['retry_status_forcelist'])
-
-        session.mount('http://', HTTPAdapter(max_retries=retries))
-        session.mount('https://', HTTPAdapter(max_retries=retries))
+        session = get_new_requests_session(session_config=session_config)
 
         if cookies:
             session.cookies.update(cookies)

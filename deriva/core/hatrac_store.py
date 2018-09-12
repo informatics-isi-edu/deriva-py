@@ -3,8 +3,8 @@ import datetime
 import requests
 import logging
 from . import format_exception, NotModified, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, MAX_CHUNK_SIZE, urlquote, Megabyte, \
-    get_transfer_summary
-from .deriva_binding import DerivaBinding, MaxRetryError
+    get_transfer_summary, MaxRetryError
+from .deriva_binding import DerivaBinding
 from .utils import hash_utils as hu, mime_utils as mu
 
 

@@ -1,8 +1,14 @@
 import os
 import errno
+from deriva.core.utils import mime_utils as mu, hash_utils as hu
 
+PROCESSOR_PARAMS_KEY = "processor_params"
 LOCAL_PATH_KEY = "local_path"
-REMOTE_URLS_KEY = "remote_urls"
+REMOTE_PATHS_KEY = "remote_paths"
+FILE_SIZE_KEY = "size"
+MD5_KEY = "md5"
+SHA256_KEY = "sha256"
+CONTENT_TYPE_KEY = "content_type"
 IDENTIFIER_KEY = "identifier"
 
 
@@ -12,8 +18,12 @@ class BaseProcessor(object):
     """
 
     def __init__(self, envars=None, **kwargs):
-        self.kwargs = kwargs
         self.envars = envars if (envars is not None) else dict()
+        self.kwargs = kwargs
+        self.outputs = kwargs["inputs"]
+        self.parameters = kwargs.get(PROCESSOR_PARAMS_KEY, dict()) or dict()
+        self.identity = kwargs.get("identity", dict()) or dict()
+        self.wallet = kwargs.get("wallet", dict()) or dict()
 
     @classmethod
     def process(cls):
@@ -41,3 +51,18 @@ class BaseProcessor(object):
                 if error.errno != errno.EEXIST:
                     raise
 
+    @staticmethod
+    def make_file_output_values(file_path, input_dict, make_file_hashes=True):
+        input_dict[FILE_SIZE_KEY] = input_dict.get(FILE_SIZE_KEY, os.path.getsize(file_path))
+        input_dict[CONTENT_TYPE_KEY] = input_dict.get(CONTENT_TYPE_KEY, mu.guess_content_type(file_path))
+        has_file_hashes = input_dict.get(MD5_KEY) is not None and input_dict.get(SHA256_KEY) is not None
+        if not has_file_hashes and make_file_hashes:
+            input_dict.update(hu.compute_file_hashes(file_path, [MD5_KEY, SHA256_KEY]))
+
+    @staticmethod
+    def get_access_token_from_wallet(token_name, wallet, issuer="https://auth.globus.org"):
+        service_tokens = {t['resource_server']: t for t in wallet.get(issuer, {}).values()}
+        service_token = service_tokens.get(token_name)
+        if service_token:
+            return service_token['access_token']
+        return None
