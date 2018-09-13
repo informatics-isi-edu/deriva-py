@@ -1,16 +1,16 @@
 from pydoc import locate
 from deriva.core import read_config
 from deriva.transfer.download.processors.base_processor import BaseProcessor
-from download.processors.query.base_query_processor import CSVQueryProcessor, \
+from deriva.transfer.download.processors.query.base_query_processor import CSVQueryProcessor, \
     JSONEnvUpdateProcessor, JSONQueryProcessor, JSONStreamQueryProcessor
-from download.processors.query.bag_fetch_query_processor import BagFetchQueryProcessor
-from download.processors.query.file_download_query_processor import FileDownloadQueryProcessor
-from download.processors.query.fasta_output_query_processor import FastaOutputQueryProcessor
-from download.processors.postprocess.identifier_post_processor import GlobusIdentifierPostProcessor, \
+from deriva.transfer.download.processors.query.bag_fetch_query_processor import BagFetchQueryProcessor
+from deriva.transfer.download.processors.query.file_download_query_processor import FileDownloadQueryProcessor
+from deriva.transfer.download.processors.query.fasta_output_query_processor import FastaOutputQueryProcessor
+from deriva.transfer.download.processors.postprocess.identifier_post_processor import GlobusIdentifierPostProcessor, \
     MinidIdentifierPostProcessor
-from download.processors.postprocess.transfer_post_processor import Boto3UploadPostProcessor, \
+from deriva.transfer.download.processors.postprocess.transfer_post_processor import Boto3UploadPostProcessor, \
     LibcloudUploadPostProcessor
-from download.processors.postprocess.workspace_post_processor import GlobusWorkspacePortalPostProcessor
+from deriva.transfer.download.processors.postprocess.workspace_post_processor import GlobusWorkspacePortalPostProcessor
 
 DEFAULT_QUERY_PROCESSORS = {
     "csv": CSVQueryProcessor,
@@ -22,7 +22,7 @@ DEFAULT_QUERY_PROCESSORS = {
     "fasta": FastaOutputQueryProcessor
 }
 
-DEFAULT_OUTPUT_PROCESSORS = {
+DEFAULT_TRANSFORM_PROCESSORS = {
 
 }
 
@@ -68,8 +68,8 @@ def find_query_processor(processor_name, processor_type=None, **kwargs):
     return find_processor(processor_name, processor_type, DEFAULT_QUERY_PROCESSORS, **kwargs)
 
 
-def find_output_processor(processor_name, processor_type=None, **kwargs):
-    return find_processor(processor_name, processor_type, DEFAULT_OUTPUT_PROCESSORS, **kwargs)
+def find_transform_processor(processor_name, processor_type=None, **kwargs):
+    return find_processor(processor_name, processor_type, DEFAULT_TRANSFORM_PROCESSORS, **kwargs)
 
 
 def find_post_processor(processor_name, processor_type=None, **kwargs):

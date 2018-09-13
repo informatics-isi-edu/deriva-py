@@ -1,7 +1,7 @@
 import os
 import json
 from collections import OrderedDict
-from download.processors.query.base_query_processor import BaseQueryProcessor, LOCAL_PATH_KEY
+from deriva.transfer.download.processors.query.base_query_processor import BaseQueryProcessor, LOCAL_PATH_KEY
 
 
 class FastaOutputQueryProcessor(BaseQueryProcessor):

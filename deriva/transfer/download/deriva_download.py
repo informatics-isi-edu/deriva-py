@@ -8,7 +8,7 @@ from requests.exceptions import HTTPError
 from bdbag import bdbag_api as bdb, bdbag_ro as ro, BAG_PROFILE_TAG, BDBAG_RO_PROFILE_ID
 from deriva.core import ErmrestCatalog, HatracStore, format_exception, get_credential, read_config, stob, \
     __version__ as VERSION
-from deriva.transfer.download.processors import find_query_processor, find_output_processor, find_post_processor
+from deriva.transfer.download.processors import find_query_processor, find_transform_processor, find_post_processor
 from deriva.transfer.download.processors.base_processor import LOCAL_PATH_KEY
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError, \
     DerivaDownloadAuthenticationError
@@ -160,16 +160,16 @@ class DerivaDownload(object):
                     bdb.cleanup_bag(bag_path)
                 raise
 
-        # 4. Execute anything in the output processing pipeline, if configured
-        output_processors = self.config.get('output_processors', [])
-        if output_processors:
-            for processor in output_processors:
+        # 4. Execute anything in the transform processing pipeline, if configured
+        transform_processors = self.config.get('transform_processors', [])
+        if transform_processors:
+            for processor in transform_processors:
                 processor_name = processor["processor"]
                 processor_type = processor.get('processor_type')
                 processor_params = processor.get('processor_params')
                 try:
-                    output_processor = find_output_processor(processor_name, processor_type)
-                    processor = output_processor(
+                    transform_processor = find_transform_processor(processor_name, processor_type)
+                    processor = transform_processor(
                         self.envars,
                         inputs=outputs,
                         processor_params=processor_params,
