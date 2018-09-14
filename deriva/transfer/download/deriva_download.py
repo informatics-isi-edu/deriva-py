@@ -90,6 +90,7 @@ class DerivaDownload(object):
 
         catalog_config = self.config['catalog']
         self.envars.update(self.config.get('env', dict()))
+        self.envars.update({"hostname": self.hostname})
 
         # 1. If we don't have a client identity, we need to authenticate
         identity = kwargs.get("identity")
@@ -217,8 +218,8 @@ class DerivaDownload(object):
                 processor_type = processor.get('processor_type')
                 processor_params = processor.get('processor_params')
                 try:
-                    post_processors = find_post_processor(processor_name, processor_type)
-                    processor = post_processors(
+                    post_processor = find_post_processor(processor_name, processor_type)
+                    processor = post_processor(
                         self.envars,
                         inputs=outputs,
                         processor_params=processor_params,

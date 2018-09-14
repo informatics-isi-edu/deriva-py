@@ -2,6 +2,7 @@ import json
 import logging
 from importlib import import_module
 from deriva.core import get_credential, urlsplit, urlunsplit, format_exception, strtobool
+from deriva.core.utils.webauthn_utils import get_wallet_entries
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError
 from deriva.transfer.download.processors.base_processor import *
 
@@ -90,7 +91,11 @@ class GlobusIdentifierPostProcessor(IdentifierPostProcessor):
                     "Ensure that the Python package \"identifier_client\" is installed.", e)
 
     def load_identifier_client(self):
-        token = self.get_access_token_from_wallet("identifiers.globus.org", self.wallet)
+        entries = get_wallet_entries(self.wallet, "oauth2",
+                                     credential_source="https://auth.globus.org",
+                                     resource_server="identifiers.globus.org",
+                                     scopes=["https://auth.globus.org/scopes/identifiers.globus.org/create_update"])
+        token = entries[0].get("access_token") if entries else None
         ac = self.GLOBUS_SDK.AccessTokenAuthorizer(token) if token else None
         return self.GLOBUS_IDENTIFIER_CLIENT.identifier_api.IdentifierClient(
             'Identifier', base_url='https://identifiers.globus.org/', app_name='DERIVA Export', authorizer=ac)
@@ -122,6 +127,7 @@ class GlobusIdentifierPostProcessor(IdentifierPostProcessor):
                 'metadata': json.dumps(metadata)
             }
             try:
+                logging.info("Creating identifier for file [%s] with locations: %s" % (file_path, locations))
                 minid = ic.create_identifier(**kwargs)
                 v[IDENTIFIER_KEY] = minid['identifier']
             except self.GLOBUS_IDENTIFIER_CLIENT.identifier_api.IdentifierClientError as e:

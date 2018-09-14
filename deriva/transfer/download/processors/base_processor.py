@@ -58,11 +58,3 @@ class BaseProcessor(object):
         has_file_hashes = input_dict.get(MD5_KEY) is not None and input_dict.get(SHA256_KEY) is not None
         if not has_file_hashes and make_file_hashes:
             input_dict.update(hu.compute_file_hashes(file_path, [MD5_KEY, SHA256_KEY]))
-
-    @staticmethod
-    def get_access_token_from_wallet(token_name, wallet, issuer="https://auth.globus.org"):
-        service_tokens = {t['resource_server']: t for t in wallet.get(issuer, {}).values()}
-        service_token = service_tokens.get(token_name)
-        if service_token:
-            return service_token['access_token']
-        return None
