@@ -62,22 +62,39 @@ class Boto3UploadPostProcessor(UploadPostProcessor):
         super(Boto3UploadPostProcessor, self).process()
         key = self.credentials.get("key")
         secret = self.credentials.get("secret")
+        token = self.credentials.get("token")
+        role_arn = self.parameters.get("role_arn")
         profile_name = self.parameters.get("profile")
         region_name = self.parameters.get("region")
         try:
-            session = self.BOTO3.session.Session(aws_access_key_id=key,
-                                                 aws_secret_access_key=secret,
-                                                 profile_name=profile_name,
-                                                 region_name=region_name)
+            session = self.BOTO3.session.Session(profile_name=profile_name, region_name=region_name)
         except Exception as e:
             raise DerivaDownloadConfigurationError("Unable to create Boto3 session: %s" % format_exception(e))
 
+        if role_arn:
+            try:
+                sts = session.client('sts')
+                response = sts.assume_role(RoleArn=role_arn, RoleSessionName='DERIVA-Export', DurationSeconds=3600)
+                temp_credentials = response['Credentials']
+                key = temp_credentials['AccessKeyId']
+                secret = temp_credentials['SecretAccessKey']
+                token = temp_credentials['SessionToken']
+            except Exception as e:
+                raise RuntimeError("Unable to get temporary credentials using arn [%s]. %s" %
+                                   (role_arn, get_typed_exception(e)))
+
         try:
-            kwargs = dict()
             if self.scheme == "gs":
                 endpoint_url = "https://storage.googleapis.com"
                 config = self.BOTO3.session.Config(signature_version="s3v4")
-                kwargs = {"endpoint_url": endpoint_url, "config": config}
+                kwargs = {"aws_access_key_id": key,
+                          "aws_secret_access_key": secret,
+                          "endpoint_url": endpoint_url,
+                          "config": config}
+            else:
+                kwargs = {"aws_access_key_id": key, "aws_secret_access_key": secret}
+                if token:
+                    kwargs.update({"aws_session_token": token})
 
             s3_client = session.client("s3", **kwargs)
             kwargs["config"] = self.BOTO3.session.Config(signature_version=self.BOTOCORE.UNSIGNED)
