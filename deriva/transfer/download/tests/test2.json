@@ -13,16 +13,22 @@
   },
   "catalog":
   {
-    "queries":
+    "host": "https://bdds-dev.isrd.isi.edu",
+    "catalog_id": "4",
+    "query_processors":
     [
       {
-        "query_path": "/entity/A:=abide:subject",
-        "output_name": "subject",
-        "output_format": "csv"
+        "processor": "csv",
+        "processor_params": {
+          "query_path":  "/entity/A:=abide:subject",
+          "output_path": "subject"
+        }
       },
       {
-        "query_path": "/attribute/A:=abide:subject_denorm/$A/B:=abide:image_files/url:=B:uri,length:=B:bytes,filename:=B:filepath,sha256:=B:sha256sum",
-        "output_format": "fetch"
+        "processor": "download",
+        "processor_params": {
+          "query_path":  "/attribute/A:=abide:subject_denorm/$A/B:=abide:image_files/url:=B:uri,length:=B:bytes,filename:=B:filepath,sha256:=B:sha256sum"
+        }
       }
     ]
   }

@@ -9,27 +9,37 @@
   },
   "catalog":
   {
-    "queries":
+    "host": "https://bdds-dev.isrd.isi.edu",
+    "catalog_id": "3",
+    "query_processors":
     [
       {
-        "query_path": "/entity/A:=pnc:subject/A1:=snp_v/snp_id=rs6265/$A/B:=pnc:metrics_v",
-        "output_path": "metrics",
-        "output_format": "csv",
-        "output_format_processor": "deriva.transfer.download.processors.CSVDownloadProcessor"
+        "processor": "csv",
+        "processor_type": "deriva.transfer.download.processors.CSVQueryProcessor",
+        "processor_params": {
+          "query_path": "/entity/A:=pnc:subject/A1:=snp_v/snp_id=rs6265/$A/B:=pnc:metrics_v",
+          "output_path": "metrics"
+        }
       },
       {
-        "query_path": "/entity/A:=pnc:subject/A1:=snp_v/snp_id=rs6265",
-        "output_path": "genotypes",
-        "output_format": "csv"
+        "processor": "csv",
+        "processor_params": {
+          "query_path": "/entity/A:=pnc:subject/A1:=snp_v/snp_id=rs6265",
+          "output_path": "genotypes"
+        }
       },
       {
-        "query_path": "/entity/A:=pnc:subject/A1:=snp_v/snp_id=rs6265/$A/B:=pnc:subject_phenotypes_v",
-        "output_path": "phenotypes",
-        "output_format": "csv"
+        "processor": "csv",
+        "processor_params": {
+          "query_path": "/entity/A:=pnc:subject/A1:=snp_v/snp_id=rs6265/$A/B:=pnc:subject_phenotypes_v",
+          "output_path": "phenotypes"
+        }
       },
       {
-        "query_path": "/attribute/A:=pnc:subject/A1:=snp_v/snp_id=rs6265/$A/B:=pnc:image_files/filename::ciregexp::0mm.mgh/url:=B:uri,length:=B:bytes,filename:=B:filepath,sha256:=B:sha256sum",
-        "output_format": "fetch"
+        "processor": "fetch",
+        "processor_params": {
+          "query_path":  "/attribute/A:=pnc:subject/A1:=snp_v/snp_id=rs6265/$A/B:=pnc:image_files/filename::ciregexp::0mm.mgh/url:=B:uri,length:=B:bytes,filename:=B:filepath,sha256:=B:sha256sum"
+        }
       }
     ]
   }

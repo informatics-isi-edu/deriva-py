@@ -7,11 +7,15 @@ import json
 import platform
 import logging
 import requests
+import inspect
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
+from requests.packages.urllib3.exceptions import MaxRetryError
 from collections import OrderedDict
 from distutils.util import strtobool
 from pkg_resources import parse_version, get_distribution, DistributionNotFound
 
-__version__ = "0.6.1"
+__version__ = "0.6.2"
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
@@ -77,36 +81,36 @@ def frozendict(d):
     return frozenset(set(items))
 
 
-def add_logging_level(levelName, levelNum, methodName=None):
-    if not methodName:
-        methodName = levelName.lower()
+def add_logging_level(level_name, level_num, method_name=None):
+    if not method_name:
+        method_name = level_name.lower()
 
-    if hasattr(logging, levelName):
-        raise AttributeError('{} already defined in logging module'.format(levelName))
-    if hasattr(logging, methodName):
-        raise AttributeError('{} already defined in logging module'.format(methodName))
-    if hasattr(logging.getLoggerClass(), methodName):
-        raise AttributeError('{} already defined in logger class'.format(methodName))
+    if hasattr(logging, level_name):
+        raise AttributeError('{} already defined in logging module'.format(level_name))
+    if hasattr(logging, method_name):
+        raise AttributeError('{} already defined in logging module'.format(method_name))
+    if hasattr(logging.getLoggerClass(), method_name):
+        raise AttributeError('{} already defined in logger class'.format(method_name))
 
-    def logForLevel(self, message, *args, **kwargs):
-        if self.isEnabledFor(levelNum):
-            self._log(levelNum, message, args, **kwargs)
+    def log_for_level(self, message, *args, **kwargs):
+        if self.isEnabledFor(level_num):
+            self._log(level_num, message, args, **kwargs)
 
-    def logToRoot(message, *args, **kwargs):
-        logging.log(levelNum, message, *args, **kwargs)
+    def log_to_root(message, *args, **kwargs):
+        logging.log(level_num, message, *args, **kwargs)
 
-    logging.addLevelName(levelNum, levelName)
-    setattr(logging, levelName, levelNum)
-    setattr(logging.getLoggerClass(), methodName, logForLevel)
-    setattr(logging, methodName, logToRoot)
+    logging.addLevelName(level_num, level_name)
+    setattr(logging, level_name, level_num)
+    setattr(logging.getLoggerClass(), method_name, log_for_level)
+    setattr(logging, method_name, log_to_root)
 
 
 def init_logging(level=logging.INFO,
                  log_format="%(asctime)s - %(levelname)s - %(message)s",
                  file_path=None,
-                 captureWarnings=True):
+                 capture_warnings=True):
     add_logging_level("TRACE", logging.DEBUG-5)
-    logging.captureWarnings(captureWarnings)
+    logging.captureWarnings(capture_warnings)
     # this will suppress potentially numerous INFO-level "Resetting dropped connection" messages from requests
     logging.getLogger("requests.packages.urllib3.connectionpool").setLevel(logging.WARNING)
     if file_path:
@@ -123,7 +127,7 @@ DEFAULT_SESSION_CONFIG = {
     "retry_connect": 5,
     "retry_read": 5,
     "retry_backoff_factor": 1.0,
-    "retry_status_forcelist": [500, 502, 503, 504],
+    "retry_status_forcelist": [500, 503, 504],
     "cookie_jar": DEFAULT_COOKIE_JAR_FILE
 }
 DEFAULT_CONFIG = {
@@ -133,17 +137,42 @@ DEFAULT_CONFIG = {
         "host": platform.uname()[1],
         "catalog_id": 1
     },
-    "session": DEFAULT_SESSION_CONFIG
+    "session": DEFAULT_SESSION_CONFIG,
+    "download_processor_whitelist": []
 }
 
 DEFAULT_CREDENTIAL = {}
+
+
+def get_new_requests_session(url=None, session_config=DEFAULT_SESSION_CONFIG):
+    session = requests.session()
+    inspect_retry = inspect.getargspec(Retry.__init__)
+    if "raise_on_status" in inspect_retry.args:
+        retries = Retry(connect=session_config['retry_connect'],
+                        read=session_config['retry_read'],
+                        backoff_factor=session_config['retry_backoff_factor'],
+                        status_forcelist=session_config['retry_status_forcelist'],
+                        raise_on_status=True)
+    else:
+        # this is in case installed urllib3 is < 1.15 and raise_on_status is unavailable
+        retries = Retry(connect=session_config['retry_connect'],
+                        read=session_config['retry_read'],
+                        backoff_factor=session_config['retry_backoff_factor'],
+                        status_forcelist=session_config['retry_status_forcelist'])
+    if url:
+        session.mount(url, HTTPAdapter(max_retries=retries))
+    else:
+        session.mount('http://', HTTPAdapter(max_retries=retries))
+        session.mount('https://', HTTPAdapter(max_retries=retries))
+
+    return session
 
 
 def copy_config(src, dst):
     config_dir = os.path.dirname(dst)
     if not os.path.isdir(config_dir):
         try:
-            os.makedirs(config_dir)
+            os.makedirs(config_dir, mode=0o750)
         except OSError as error:
             if error.errno != errno.EEXIST:
                 raise
@@ -154,7 +183,7 @@ def write_config(config_file=DEFAULT_CONFIG_FILE, config=DEFAULT_CONFIG):
     config_dir = os.path.dirname(config_file)
     if not os.path.isdir(config_dir):
         try:
-            os.makedirs(config_dir)
+            os.makedirs(config_dir, mode=0o750)
         except OSError as error:
             if error.errno != errno.EEXIST:
                 raise
@@ -208,7 +237,7 @@ def write_credential(credential_file=DEFAULT_CREDENTIAL_FILE, credential=DEFAULT
     credential_dir = os.path.dirname(credential_file)
     if not os.path.isdir(credential_dir):
         try:
-            os.makedirs(credential_dir)
+            os.makedirs(credential_dir, mode=0o750)
         except OSError as error:
             if error.errno != errno.EEXIST:
                 raise
@@ -243,7 +272,7 @@ def get_credential(host, credential_file=DEFAULT_CREDENTIAL_FILE):
     if credential_file is None:
         credential_file = DEFAULT_CREDENTIAL_FILE
     credentials = read_credential(credential_file)
-    return credentials.get(host)
+    return credentials.get(host, credentials.get(host.lower()))
 
 
 def format_credential(token=None, username=None, password=None):
@@ -253,6 +282,12 @@ def format_credential(token=None, username=None, password=None):
         return {"username": username, "password": password}
     raise ValueError(
         "Missing required argument(s): an authentication token or a username and password must be provided.")
+
+
+def bootstrap():
+    init_logging()
+    read_config(create_default=True)
+    read_credential(create_default=True)
 
 
 def load_cookies_from_file(cookie_file=None):

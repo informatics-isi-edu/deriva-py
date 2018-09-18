@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import traceback
 import argparse
 from deriva.transfer import GenericDownloader
@@ -71,7 +72,7 @@ class DerivaDownloadCLI(BaseCLI):
                                                     args.kwargs,
                                                     args.config,
                                                     args.credential_file)
-            sys.stdout.write("\n%s" % '\n'.join(downloaded))
+            sys.stdout.write("\n%s\n" % (json.dumps(downloaded)))
         except DerivaDownloadAuthenticationError:
             sys.stderr.write(("\n" if not args.quiet else "") +
                              "The requested service requires authentication and a valid login session could not be "

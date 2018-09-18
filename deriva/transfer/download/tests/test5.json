@@ -8,16 +8,20 @@
   },
   "catalog":
   {
-    "queries":
+    "query_processors":
     [
       {
-        "query_path": "/attribute/Zebrafish:Image Region/Segmentation Mode=synaptic&!Npz URL=null/url:=Npz URL,*@sort(RID::desc::)",
-        "output_format": "fetch"
+        "processor": "fetch",
+        "processor_params": {
+          "query_path": "/attribute/Zebrafish:Image Region/Segmentation Mode=synaptic&!Npz URL=null/url:=Npz URL,*@sort(RID::desc::)"
+        }
       },
       {
-        "query_path": "/attribute/Zebrafish:Image Region/Status=\"processed\"/url:=Segments Filtered URL,*@sort(RID::desc::)",
-        "output_path": "Source Image - {Source Image}",
-        "output_format": "download"
+        "processor": "download",
+        "processor_params": {
+          "query_path": "/attribute/Zebrafish:Image Region/Status=\"processed\"/url:=Segments Filtered URL,*@sort(RID::desc::)",
+          "output_path": "Source Image - {Source Image}"
+        }
       }
     ]
   }

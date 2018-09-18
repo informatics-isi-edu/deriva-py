@@ -12,26 +12,34 @@
   "catalog": {
     "host": "https://nih-commons.derivacloud.org",
     "catalog": "1",
-    "queries": [
+    "query_processors": [
       {
-        "query_path": "/entity/M:=public:KC7%20Search%20Demo?limit=none",
-        "output_path": "phenotypes",
-        "output_format": "csv"
+        "processor": "csv",
+        "processor_params": {
+          "query_path": "/entity/M:=public:KC7%20Search%20Demo?limit=none",
+          "output_path": "phenotypes"
+        }
       },
       {
-        "query_path": "/attribute/M:=public:KC7%20Search%20Demo/!Paths%20%28forward%29::null::&!Byte%20length%20%28forward%29::null::&!MD5sum%20%28forward%29::null::/url:=Paths%20%28forward%29,length:=Byte%20length%20%28forward%29,md5:=MD5sum%20%28forward%29?limit=none",
-        "output_path": "forward_reads",
-        "output_format": "fetch"
+        "processor": "fetch",
+        "processor_params": {
+          "query_path": "/attribute/M:=public:KC7%20Search%20Demo/!Paths%20%28forward%29::null::&!Byte%20length%20%28forward%29::null::&!MD5sum%20%28forward%29::null::/url:=Paths%20%28forward%29,length:=Byte%20length%20%28forward%29,md5:=MD5sum%20%28forward%29?limit=none",
+          "output_path": "forward_reads"
+        }
       },
       {
-        "query_path": "/attribute/M:=public:KC7%20Search%20Demo/!Paths%20%28reverse%29::null::&!Byte%20length%20%28reverse%29::null::&!%20MD5sum%20%28reverse%29::null::/url:=Paths%20%28reverse%29,length:=Byte%20length%20%28reverse%29,md5:=%20MD5sum%20%28reverse%29?limit=none",
-        "output_path": "reverse_reads",
-        "output_format": "fetch"
+        "processor": "fetch",
+        "processor_params": {
+          "query_path": "/attribute/M:=public:KC7%20Search%20Demo/!Paths%20%28reverse%29::null::&!Byte%20length%20%28reverse%29::null::&!%20MD5sum%20%28reverse%29::null::/url:=Paths%20%28reverse%29,length:=Byte%20length%20%28reverse%29,md5:=%20MD5sum%20%28reverse%29?limit=none",
+          "output_path": "reverse_reads"
+        }
       },
       {
-        "query_path": "/attribute/M:=public:KC7%20Search%20Demo/!CRAM%20File%20Path::null::&!CRAM%20Byte%20length::null::&!CRAM%20MD5sum::null::/url:=CRAM%20File%20Path,length:=CRAM%20Byte%20length,md5:=CRAM%20MD5sum?limit=none",
-        "output_path": "CRAM_files",
-        "output_format": "fetch"
+        "processor": "fetch",
+        "processor_params": {
+          "query_path": "/attribute/M:=public:KC7%20Search%20Demo/!CRAM%20File%20Path::null::&!CRAM%20Byte%20length::null::&!CRAM%20MD5sum::null::/url:=CRAM%20File%20Path,length:=CRAM%20Byte%20length,md5:=CRAM%20MD5sum?limit=none",
+          "output_path": "CRAM_files"
+        }
       }
     ]
   }

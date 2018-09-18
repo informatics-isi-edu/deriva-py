@@ -4,38 +4,37 @@ import certifi
 import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
-from deriva.core import urlsplit, DEFAULT_SESSION_CONFIG
+from deriva.core import urlsplit, get_new_requests_session, DEFAULT_SESSION_CONFIG
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError, \
     DerivaDownloadAuthenticationError, DerivaDownloadAuthorizationError
+from deriva.transfer.download.processors.base_processor import BaseProcessor, LOCAL_PATH_KEY
 from bdbag import bdbag_ro as ro
 
 
-class BaseDownloadProcessor(object):
+class BaseQueryProcessor(BaseProcessor):
     """
-    Base class for DownloadProcessor classes
+    Base class for QueryProcessor classes
     """
     HEADERS = {'Connection': 'keep-alive'}
 
     def __init__(self, envars=None, **kwargs):
-        self.args = kwargs
-        self.envars = envars if (envars is not None) else dict()
+        super(BaseQueryProcessor, self).__init__(envars, **kwargs)
         self.catalog = kwargs["catalog"]
         self.store = kwargs["store"]
-        self.query = kwargs["query"]
+        self.base_path = kwargs["base_path"]
+        self.query = self.parameters["query_path"]
         if self.envars:
             self.query = self.query.format(**self.envars)
-        self.base_path = kwargs["base_path"]
+        self.sub_path = self.parameters.get("output_path", "")
         self.store_base = kwargs.get("store_base", "/hatrac/")
         self.is_bag = kwargs.get("bag", False)
-        self.sub_path = kwargs.get("sub_path", "")
         self.sessions = kwargs.get("sessions", dict())
-        self.format_args = kwargs.get("format_args", dict())
         self.content_type = "application/octet-stream"
         self.url = ''.join([self.catalog.get_server_uri(), self.query])
         self.ro_file_provenance = True
-        self.ro_manifest = self.args.get("ro_manifest")
-        self.ro_author_name = self.args.get("ro_author_name")
-        self.ro_author_orcid = self.args.get("ro_author_orcid")
+        self.ro_manifest = self.kwargs.get("ro_manifest")
+        self.ro_author_name = self.kwargs.get("ro_author_name")
+        self.ro_author_orcid = self.kwargs.get("ro_author_orcid")
         self.output_relpath = None
         self.output_abspath = None
 
@@ -52,12 +51,14 @@ class BaseDownloadProcessor(object):
                                  retrieved_on=ro.make_retrieved_on(),
                                  retrieved_by=ro.make_retrieved_by(self.ro_author_name, orcid=self.ro_author_orcid),
                                  bundled_as=ro.make_bundled_as())
-        return [self.output_relpath]
+
+        self.outputs.update({self.output_relpath: {LOCAL_PATH_KEY: self.output_abspath}})
+        return self.outputs
 
     def catalogQuery(self, headers=HEADERS, as_file=True):
         if as_file:
             output_dir = os.path.dirname(self.output_abspath)
-            self.makeDirs(output_dir)
+            self.make_dirs(output_dir)
         try:
             if as_file:
                 return self.catalog.getAsFile(self.query, self.output_abspath, headers=headers)
@@ -117,26 +118,19 @@ class BaseDownloadProcessor(object):
 
     def getExternalSession(self, host):
         sessions = self.sessions
-        auth_params = self.args.get("auth_params", dict())
+        auth_params = self.kwargs.get("auth_params", dict())
         cookies = auth_params.get("cookies")
         auth_url = auth_params.get("auth_url")
         login_params = auth_params.get("login_params")
-        session_config = self.args.get("session_config")
+        session_config = self.kwargs.get("session_config")
 
         session = sessions.get(host)
         if session is not None:
             return session
 
-        session = requests.session()
         if not session_config:
             session_config = DEFAULT_SESSION_CONFIG
-        retries = Retry(connect=session_config['retry_connect'],
-                        read=session_config['retry_read'],
-                        backoff_factor=session_config['retry_backoff_factor'],
-                        status_forcelist=session_config['retry_status_forcelist'])
-
-        session.mount('http://', HTTPAdapter(max_retries=retries))
-        session.mount('https://', HTTPAdapter(max_retries=retries))
+        session = get_new_requests_session(session_config=session_config)
 
         if cookies:
             session.cookies.update(cookies)
@@ -149,57 +143,35 @@ class BaseDownloadProcessor(object):
         sessions[host] = session
         return session
 
-    @staticmethod
-    def createPaths(base_path, sub_path=None, ext='', is_bag=False, envars=None):
-        relpath = sub_path if sub_path else ''
-        if not os.path.splitext(sub_path)[1][1:]:
-            relpath += ext
-        if isinstance(envars, dict):
-            relpath = relpath.format(**envars)
 
-        abspath = os.path.abspath(
-            os.path.join(base_path, 'data' if is_bag else '', relpath))
-
-        return relpath, abspath
-
-    @staticmethod
-    def makeDirs(path):
-        if not os.path.isdir(path):
-            try:
-                os.makedirs(path)
-            except OSError as error:
-                if error.errno != errno.EEXIST:
-                    raise
-
-
-class CSVDownloadProcessor(BaseDownloadProcessor):
+class CSVQueryProcessor(BaseQueryProcessor):
     def __init__(self, envars=None, **kwargs):
-        super(CSVDownloadProcessor, self).__init__(envars, **kwargs)
+        super(CSVQueryProcessor, self).__init__(envars, **kwargs)
         self.ext = ".csv"
         self.content_type = "text/csv"
-        self.output_relpath, self.output_abspath = self.createPaths(
+        self.output_relpath, self.output_abspath = self.create_paths(
             self.base_path, self.sub_path, ext=self.ext, is_bag=self.is_bag, envars=envars)
 
 
-class JSONDownloadProcessor(BaseDownloadProcessor):
+class JSONQueryProcessor(BaseQueryProcessor):
     def __init__(self, envars=None, **kwargs):
-        super(JSONDownloadProcessor, self).__init__(envars, **kwargs)
+        super(JSONQueryProcessor, self).__init__(envars, **kwargs)
         self.ext = ".json"
         self.content_type = "application/json"
-        self.output_relpath, self.output_abspath = self.createPaths(
+        self.output_relpath, self.output_abspath = self.create_paths(
             self.base_path, self.sub_path, ext=self.ext, is_bag=self.is_bag, envars=envars)
 
 
-class JSONStreamDownloadProcessor(BaseDownloadProcessor):
+class JSONStreamQueryProcessor(BaseQueryProcessor):
     def __init__(self, envars=None, **kwargs):
-        super(JSONStreamDownloadProcessor, self).__init__(envars, **kwargs)
+        super(JSONStreamQueryProcessor, self).__init__(envars, **kwargs)
         self.ext = ".json"
         self.content_type = "application/x-json-stream"
-        self.output_relpath, self.output_abspath = self.createPaths(
+        self.output_relpath, self.output_abspath = self.create_paths(
             self.base_path, self.sub_path, ext=self.ext, is_bag=self.is_bag, envars=envars)
 
 
-class JSONEnvUpdateProcessor(BaseDownloadProcessor):
+class JSONEnvUpdateProcessor(BaseQueryProcessor):
     def __init__(self, envars=None, **kwargs):
         super(JSONEnvUpdateProcessor, self).__init__(envars, **kwargs)
 
@@ -209,4 +181,4 @@ class JSONEnvUpdateProcessor(BaseDownloadProcessor):
         resp = self.catalogQuery(headers, as_file=False)
         if resp[0]:
             self.envars.update(resp[0])
-        return []
+        return {}
