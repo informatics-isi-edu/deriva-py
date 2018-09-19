@@ -1,5 +1,6 @@
-from pydoc import locate
-from deriva.core import read_config
+from importlib import import_module
+from deriva.core import read_config, format_exception
+from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError
 from deriva.transfer.download.processors.base_processor import BaseProcessor
 from deriva.transfer.download.processors.query.base_query_processor import CSVQueryProcessor, \
     JSONEnvUpdateProcessor, JSONQueryProcessor, JSONStreamQueryProcessor
@@ -39,19 +40,25 @@ def find_processor(processor_name, processor_type=None, defaults={}, **kwargs):
         if processor_name in defaults:
             return defaults[processor_name]
         else:
-            raise RuntimeError("Unsupported processor type: %s" % processor_name)
+            raise DerivaDownloadConfigurationError("Unsupported processor type: %s" % processor_name)
 
     if not is_processor_whitelisted(processor_type, **kwargs):
-        raise RuntimeError(
+        raise DerivaDownloadConfigurationError(
             "Unknown external processor type [%s]: this processor must be added to the whitelist." % processor_type)
 
-    clazz = locate(processor_type)
+    clazz = None
+    try:
+        module_name, class_name = processor_type.rsplit(".", 1)
+        module = import_module(module_name)
+        clazz = getattr(module, class_name) if module else None
+    except (ImportError, AttributeError):
+        pass
     if not clazz:
-        raise RuntimeError("Unable to locate specified processor class %s" % processor_type)
+        raise DerivaDownloadConfigurationError("Unable to import specified processor class %s" % processor_type)
 
     if not issubclass(clazz, BaseProcessor):
-        raise NotImplementedError("The class %s is not a subclass of %s" %
-                                  (processor_type, BaseProcessor.__module__ + "." + BaseProcessor.__name__))
+        raise DerivaDownloadError(format_exception(NotImplementedError("The imported class %s is not a subclass of %s" %
+                                  (processor_type, BaseProcessor.__module__ + "." + BaseProcessor.__name__))))
 
     return clazz
 
