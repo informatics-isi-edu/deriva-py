@@ -46,7 +46,7 @@ DefaultConfig = {
   "version_update_url": "https://github.com/informatics-isi-edu/deriva-py/releases",
   "asset_mappings": [
     {
-      "asset_type": "data",
+      "asset_type": "table",
       "default_columns": ["RID", "RCB", "RMB", "RCT", "RMT"],
       "file_pattern": "^((?!/assets/).)*/records/(?P<schema>.+?)/(?P<table>.+?)[.]",
       "ext_pattern": "^.*[.](?P<file_ext>json|csv)$"

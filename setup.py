@@ -55,6 +55,7 @@ setup(
         'bdbag',
         'setuptools'],
     install_requires=[
+        'setuptools>=20.2',
         'requests',
         'certifi',
         'pika',

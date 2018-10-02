@@ -49,7 +49,10 @@ def find_processor(processor_name, processor_type=None, defaults={}, **kwargs):
     clazz = None
     try:
         module_name, class_name = processor_type.rsplit(".", 1)
-        module = import_module(module_name)
+        try:
+            module = sys.modules[module_name]
+        except KeyError:
+            module = import_module(module_name)
         clazz = getattr(module, class_name) if module else None
     except (ImportError, AttributeError):
         pass

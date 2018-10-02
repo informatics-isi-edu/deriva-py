@@ -1,7 +1,7 @@
 import os
 import logging
 from importlib import import_module
-from deriva.core import get_credential, urlsplit, urlunsplit, format_exception, strtobool
+from deriva.core import get_credential, urlsplit, urlunsplit, format_exception, stob
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError
 from deriva.transfer.download.processors.base_processor import *
 
@@ -122,7 +122,7 @@ class Boto3UploadPostProcessor(UploadPostProcessor):
             object_name = self.path + k
             file_path = v[LOCAL_PATH_KEY]
             acl = self.parameters.get("acl", "private")
-            signed_url = strtobool(self.parameters.get("signed_url", str(acl == "public-read")))
+            signed_url = stob(self.parameters.get("signed_url", acl == "public-read"))
             if signed_url:
                 client = s3_client_unsigned if acl == "public-read" else s3_client
                 remote_path = client.generate_presigned_url(
