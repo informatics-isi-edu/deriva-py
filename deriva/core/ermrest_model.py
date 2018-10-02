@@ -485,6 +485,9 @@ class ForeignKey (_ec.CatalogForeignKey):
             'on_delete': on_delete,
             'names': constraint_names,
             'comment': comment,
+            'acls': acls,
+            'acl_bindings': acl_bindings,
+            'annotations': annotations,
         }
 
     def prejson(self, prune=True):
