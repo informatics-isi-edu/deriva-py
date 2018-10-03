@@ -119,6 +119,8 @@ class DerivaBinding (object):
             self._session.cookies.set(cname, cval, domain=server, path='/')
         elif credentials and ('username' in credentials and 'password' in credentials):
             self.post_authn_session(credentials)
+        elif credentials and ('bearer-token' in credentials):
+            self._session.headers.update({'Authorization' : 'Bearer {token}'.format(token=credentials['bearer-token'])})
 
     def get_authn_session(self):
         r = self._session.get(self._base_server_uri + "/authn/session")

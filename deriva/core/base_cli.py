@@ -34,6 +34,9 @@ class BaseCLI(object):
         self.parser.add_argument(
             "--token", metavar="<auth-token>", help="Authorization bearer token.")
 
+        self.parser.add_argument(
+            "--oauth2-token", metavar="<oauth2-token>", help="OAuth2 bearer token.")        
+
     def remove_options(self, options):
         for option in options:
             for action in self.parser._actions:
