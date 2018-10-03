@@ -85,11 +85,11 @@ class GlobusIdentifierPostProcessor(IdentifierPostProcessor):
                 raise DerivaDownloadConfigurationError(
                     "Unable to find required module. Ensure that the Python package \"globus_sdk\" is installed.", e)
             try:
-                self.GLOBUS_IDENTIFIER_CLIENT = import_module("identifier_client")
+                self.GLOBUS_IDENTIFIER_CLIENT = import_module("identifiers_client")
             except ImportError as e:
                 raise DerivaDownloadConfigurationError(
                     "Unable to find required module. "
-                    "Ensure that the Python package \"identifier_client\" is installed.", e)
+                    "Ensure that the Python package \"identifiers_client\" is installed.", e)
 
     def load_identifier_client(self):
         entries = get_wallet_entries(self.wallet, "oauth2",
@@ -98,7 +98,7 @@ class GlobusIdentifierPostProcessor(IdentifierPostProcessor):
                                      scopes=["https://auth.globus.org/scopes/identifiers.globus.org/create_update"])
         token = entries[0].get("access_token") if entries else None
         ac = self.GLOBUS_SDK.AccessTokenAuthorizer(token) if token else None
-        return self.GLOBUS_IDENTIFIER_CLIENT.identifier_api.IdentifierClient(
+        return self.GLOBUS_IDENTIFIER_CLIENT.identifiers_api.IdentifierClient(
             'Identifier', base_url=self.GLOBUS_IDENTIFIER_SERVICE, app_name='DERIVA Export', authorizer=ac)
 
     def process(self):
