@@ -133,7 +133,7 @@ class GlobusIdentifierPostProcessor(IdentifierPostProcessor):
                 identifier = minid['identifier']
                 v[IDENTIFIER_KEY] = identifier
                 v[IDENTIFIER_LANDING_PAGE] = self.GLOBUS_IDENTIFIER_SERVICE + identifier
-            except self.GLOBUS_IDENTIFIER_CLIENT.identifier_api.IdentifierClientError as e:
+            except self.GLOBUS_IDENTIFIER_CLIENT.identifiers_api.IdentifierClientError as e:
                 raise DerivaDownloadError("Unable to create identifier: %s" % e.message)
 
         return self.outputs
