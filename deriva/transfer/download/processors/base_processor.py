@@ -10,6 +10,7 @@ MD5_KEY = "md5"
 SHA256_KEY = "sha256"
 CONTENT_TYPE_KEY = "content_type"
 IDENTIFIER_KEY = "identifier"
+IDENTIFIER_LANDING_PAGE = "identifier_landing_page"
 
 
 class BaseProcessor(object):

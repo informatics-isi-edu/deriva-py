@@ -68,6 +68,7 @@ class GlobusIdentifierPostProcessor(IdentifierPostProcessor):
 
     GLOBUS_SDK = None
     GLOBUS_IDENTIFIER_CLIENT = None
+    GLOBUS_IDENTIFIER_SERVICE = "https://identifiers.globus.org/"
     TEST_IDENTIFIER_NAMESPACE = 'HHxPIZaVDh9u'
     IDENTIFIER_NAMESPACE = 'kHAAfCby2zdn'
 
@@ -98,7 +99,7 @@ class GlobusIdentifierPostProcessor(IdentifierPostProcessor):
         token = entries[0].get("access_token") if entries else None
         ac = self.GLOBUS_SDK.AccessTokenAuthorizer(token) if token else None
         return self.GLOBUS_IDENTIFIER_CLIENT.identifier_api.IdentifierClient(
-            'Identifier', base_url='https://identifiers.globus.org/', app_name='DERIVA Export', authorizer=ac)
+            'Identifier', base_url=self.GLOBUS_IDENTIFIER_SERVICE, app_name='DERIVA Export', authorizer=ac)
 
     def process(self):
         ic = self.load_identifier_client()
@@ -129,7 +130,9 @@ class GlobusIdentifierPostProcessor(IdentifierPostProcessor):
             try:
                 logging.info("Creating identifier for file [%s] with locations: %s" % (file_path, locations))
                 minid = ic.create_identifier(**kwargs)
-                v[IDENTIFIER_KEY] = minid['identifier']
+                identifier = minid['identifier']
+                v[IDENTIFIER_KEY] = identifier
+                v[IDENTIFIER_LANDING_PAGE] = self.GLOBUS_IDENTIFIER_SERVICE + identifier
             except self.GLOBUS_IDENTIFIER_CLIENT.identifier_api.IdentifierClientError as e:
                 raise DerivaDownloadError("Unable to create identifier: %s" % e.message)
 
