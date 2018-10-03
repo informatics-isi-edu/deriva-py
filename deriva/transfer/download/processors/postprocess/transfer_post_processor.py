@@ -25,6 +25,8 @@ class UploadPostProcessor(BaseProcessor):
             raise DerivaDownloadConfigurationError(
                 "%s is missing required parameter '%s' from %s" %
                 (self.__class__.__name__, target_url_param, PROCESSOR_PARAMS_KEY))
+        if self.envars:
+            target_url = target_url.format(**self.envars)
         upr = urlsplit(target_url, "https")
         self.scheme = upr.scheme.lower()
         self.netloc = upr.netloc
