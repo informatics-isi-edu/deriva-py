@@ -86,11 +86,14 @@ def add_logging_level(level_name, level_num, method_name=None):
         method_name = level_name.lower()
 
     if hasattr(logging, level_name):
-        raise AttributeError('{} already defined in logging module'.format(level_name))
+        logging.warn('{} already defined in logging module'.format(level_name))
+        return
     if hasattr(logging, method_name):
-        raise AttributeError('{} already defined in logging module'.format(method_name))
+        logging.warn('{} already defined in logging module'.format(method_name))
+        return
     if hasattr(logging.getLoggerClass(), method_name):
-        raise AttributeError('{} already defined in logger class'.format(method_name))
+        logging.warn('{} already defined in logger class'.format(method_name))
+        return
 
     def log_for_level(self, message, *args, **kwargs):
         if self.isEnabledFor(level_num):
@@ -223,14 +226,14 @@ except DistributionNotFound:
     pass
 
 
-def lock_file(file, mode, exclusive=True):
-    if PORTALOCKER:
+def lock_file(file_path, mode, exclusive=True):
+    if PORTALOCKER and os.path.isfile(file_path):
         if parse_version(PORTALOCKER.version) > parse_version("0.6.1"):
-            return Lock(file, mode, timeout=60, flags=LOCK_EX if exclusive else LOCK_SH)
+            return Lock(file_path, mode, timeout=60, flags=LOCK_EX if exclusive else LOCK_SH)
         else:
-            return Lock(file, mode, timeout=60, flags=LOCK_EX if exclusive else LOCK_SH, truncate=None)
+            return Lock(file_path, mode, timeout=60, flags=LOCK_EX if exclusive else LOCK_SH, truncate=None)
     else:
-        return io.open(file, mode)
+        return io.open(file_path, mode)
 
 
 def write_credential(credential_file=DEFAULT_CREDENTIAL_FILE, credential=DEFAULT_CREDENTIAL):
@@ -243,7 +246,10 @@ def write_credential(credential_file=DEFAULT_CREDENTIAL_FILE, credential=DEFAULT
                 raise
     with lock_file(credential_file, mode='w', exclusive=True) as cf:
         os.chmod(credential_file, 0o600)
-        cf.write(json.dumps(credential, indent=2))
+        credential_data = json.dumps(credential, ensure_ascii=False, indent=2)
+        if IS_PY2 and isinstance(credential_data, str):
+            credential_data = unicode(credential_data, 'utf-8')
+        cf.write(credential_data)
         cf.flush()
         cf.close()
 
