@@ -503,6 +503,18 @@ introduced earlier. There are two subtle differences:
    cannot control `insert` access since there is no existing row to
    consult when determining access privileges.
 
+### Pitfall of Foreign Key Policies
+
+While this policy mechanism is useful and important in some scenarios,
+there is a potential user-experience problem.  The Chaise GUI does
+not understand the restriction and will offer the user choices which
+will subsequently fail when submitted to the server.
+
+For now, use of such policies should include user training so they
+understand the policy of the project. Eventually, we hope to make the
+policy visible in some way to Chaise so that it can automatically
+restrict the offered choices to those which may succeed.
+
 ### Adding a Column
 
 Our trivial Journal example only has the system-managed timestamp
