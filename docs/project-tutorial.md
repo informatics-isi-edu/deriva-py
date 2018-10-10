@@ -233,6 +233,7 @@ provider information:
     client_table.column_definitions["client_obj"].acls.update({
       "select": [],    
     })
+    
     # apply these local changes to server
     model.apply(catalog)
 
@@ -267,21 +268,156 @@ documents suitable as input to these model management APIs.
 
 When adding a table for our project, we only need to define
 project-specific columns while allowing the API to fill in the ERMrest
-system columns for us. Here is a trivial example where we simply
-define a "Notes" column to store formatted markdown text, while relying
-on the system columns to provide keys and basic timestamp metadata:
+system columns for us. Here is a trivial "Journal" example where we
+simply define a "Notes" column to store formatted markdown text, while
+relying on the system columns to provide keys and basic timestamp
+metadata:
 
     model.schemas["public"].create_table(
       Table.define(
         "Journal",
         [
-          Column.define("Notes", builtin_types["markdown"], nullok=False, comment="User-provided notes.")
+          Column.define(
+            "Notes",
+            builtin_types["markdown"],
+            nullok=False,
+            comment="User-provided notes.",
+          )
         ],
         comment="A journal of user-provided notes."
       )
     )
+    
     # retrieve catalog model again to ensure we reflect latest structural changes
     model = catalog.getCurrentModel()
+
+### Adding an Asset Table
+
+Let's embellish our Journal to allow the user to submit file attachments
+linked to their journal entries:
+
+    model.schemas["public"].create_table(
+      Table.define(
+        "Journal_Attachment",
+        [
+          Column.define(
+            "journal_rid",
+            builtin_types["text"],
+            nullok=False,
+            comment="The journal entry to which this asset is attached."
+          ),
+          Column.define(
+            "url",
+            builtin_types["text"],
+            nullok=False,
+            comment="The URL of the stored attachment."
+          ),
+          Column.define(
+            "length",
+            builtin_types["int8"],
+            nullok=False,
+            comment="The asset length (byte count)."
+          ),
+          Column.define(
+            "md5",
+            builtin_types["text"],
+            nullok=False,
+            comment="The hexademical encoded MD5 checksum of the asset."
+          ),
+          Column.define(
+            "content_type",
+            builtin_types["text"],
+            nullok=True,
+            comment="The content-type of the asset."
+          ),
+          Column.define(
+            "file_name",
+            builtin_types["text"],
+            nullok=True,
+            comment="The suggested local filename on client systems."
+          ),
+        ],
+        fkey_defs=[
+          ForeignKey.define(
+            ["journal_rid"],
+            "public",
+            "Journal",
+            ["RID"],
+            on_delete="CASCADE",
+            constraint_names=[["public", "Journal_Attachment_journal_rid_fkey"]]
+          ),
+        ],
+        comment="Assets (files) attached to Journal entries.",
+      )
+    )
+    
+    # retrieve catalog model again to ensure we reflect latest structural changes
+    model = catalog.getCurrentModel()
+
+This example defines a number of standard metadata columns to
+represent an uploaded file, as well as a foreign key `journal_rid` linking
+each asset to a specific Journal entry.
+
+### Asset Configuration
+
+To get the best experience from the Chaise GUI, we also want to add model
+_annotations_ declaring how we prefer to present this table:
+
+    attachment_table = model.schemas["public"].tables["Journal_Attachment"]
+    url_column = attachment_table.column_definitions["url"]
+    
+    url_column.annotations.update({
+      "tag:isrd.isi.edu,2017:asset": {
+        "filename_column": "file_name",
+        "byte_count_column": "length",
+        "md5": "md5",
+        "url_pattern": "/hatrac/project_data/journal_attachment/{{{journal_rid}}}/{{{_url.md5_hex}}}"
+      }
+    })
+    
+    attachment_table.annotations.update({
+      "tag:isrd.isi.edu,2015:display": {
+        "name_style": { "underline_space": True }
+      },
+      "tag:isrd.isi.edu,2016:visible-columns": {
+        "entry": [
+          ["public", "Journal_Attachment_journal_rid_fkey"],
+          "url"
+        ]
+      }
+    })
+    
+    model.apply(catalog)
+
+The first `tag:isrd.isi.edu,2017:asset` annotation tells Chaise to
+provide a more specialized asset behavior with upload/download
+features when presenting the `url` column:
+
+- Present existing `url` content as a download link.
+- Offer a file-chooser to submit new files in data-entry forms.
+- Name uploaded assets in the object store based on linked Journal entry RID and asset checksum.
+- Store computed asset metadata to additional metadata columns: MD5, length, and original file name.
+
+Without this, Chaise would just present it as a textual column
+containing a URL.
+
+The second `tag:isrd.isi.edu,2015:display` annotation simply tells
+Chaise that we prefer to display the table name of
+`Journal_Attachements` as `Journal Attachments` by rewriting the
+underscore as whitespace.
+
+The third `tag:isrd.isi.edu,2016:visible-columns` annotation further
+customizes data-entry in Chaise, while using default presentation in
+other read-only contexts:
+
+- Instead of display the raw value in `journal_rid`, interpret the
+  foreign key linkage and present an item-chooser to link this Journal
+  Attachment to an existing Journal record.
+- Prompt for `url` input, which will be displayed as a file-chooser
+  due to the preceding asset annotation.
+- Don't prompt for input on other excluded columns, since they will
+  automatically be populated by the Chaise file uploader based on the
+  preceding asset annotation.
 
 ### Allowing Self-Service Editing by Writers
 
@@ -291,13 +427,19 @@ wish to enable self-service editing of journal entries by writers, we
 need to add a data-dependent policy to the table:
 
     journal_table = model.schemas["public"].tables["Journal"]
-    journal_table.acl_bindings.update({
+    attachment_table = model.schemas["public"].tables["Journal"]
+
+    # we can re-use this generic policy on any table since they all have an RCB column
+    self_service_policy = {
       "self_service": {
         "types": ["update", "delete"],
         "projection": ["RCB"],
         "projection_type": "acl"
-      }
-    })
+    }
+    
+    journal_table.acl_bindings.update(self_service_policy)
+    attachment_table.acl_bindings.update(self_service_policy)
+    
     # apply these local config changes to the server
     model.apply(catalog)
 
@@ -305,16 +447,61 @@ This slightly cryptic policy states that ERMrest should project the
 `RCB` (aka _row created by_) column and treat it like an ACL; when the
 requesting client matches this extra ACL for an existing row, the
 client is granted the `update` and `delete` access rights which they
-otherwise would not have. In practice, this means that after a client
-with writer role inserts a journal entry, their client ID will be
-listed as the `RCB` and they will be permitted to make updates to or
-delete their own journal entries.
+otherwise would not have.
 
-With no other column-level configuration, the columns of the table are 
-governed by default inherited policies:
+In practice, this means that after a client with writer role inserts a
+Journal entry or Journal attachment, their client ID will be listed as
+the `RCB` and they will be permitted to make updates to or delete
+their own journal entries.
 
-- The `Notes` column has the same permissions as the table as a whole, allowing self-service.
-- The other system columns are always effectively read-only/system-managed.
+### Preventing Attachments by Unrelated Writers
+
+The policy so far is a little bit trusting. It does not prevent one
+writer from introducing attachments to a different writer's Journal
+entries. To restrict this, we can leverage a more subtle ERMrest
+feature which allows policies on foreign keys.
+
+Rather than determining row permissions based on row-specific content
+like `RCB` of the row being modified, such policies can restrict the
+_expression_ of a foreign key value in the controlled foreign key
+column based on row-specific content of the referenced entity. In
+this case, we can make sure writers can only link an attachment to
+a Journal record if they are the creator of that Journal entry:
+
+    journal_fkey = attachment_table.foreign_keys[
+      ("public", "Journal_Attachment_journal_rid_fkey")
+    ]
+    
+    journal_fkey.acls.update({
+      "insert": [grps.curator],
+      "update": [grps.curator],
+    })
+    
+    journal_fkey.acl_bindings.update({
+      "self_linkage": {
+        "types": ["insert", "update"],
+        "projection": ["RCB"],
+        "projection_type": "acl",
+      }
+    })
+
+The preceding static ACLs overrides the ERMrest default behavior
+assuming an ACL of `["*"]` to allow unconstrained use of foreign key
+values; in this case, we still want to allow curators to adjust
+attachment linkage regardless of whether they created a Journal entry
+or not.
+
+The dynamic ACL binding is much like the self-service binding
+introduced earlier. There are two subtle differences:
+
+1. The projected `RCB` column comes from the referred row in the
+   Journal table rather than the Journal\_Attachment table row being
+   modified.
+2. Because the projected row already exists, we can set a policy for
+   the `insert` access type, i.e. while creating a new
+   Journal\_Attachment record. Regular table (and column) ACL bindings
+   cannot control `insert` access since there is no existing row to
+   consult when determining access privileges.
 
 ### Adding a Column
 
@@ -324,7 +511,12 @@ ERMrest client to override and "backdate" these timestamps if they
 wish to enter past information that was collected offline. We can add
 a Date column to model a user-provided timestamp:
 
-    journal_table.add_column("Date", builtin_types["timestamptz"], nullok=False, comment="User-provided timestamp.")
+    journal_table.add_column(
+      "Date",
+      builtin_types["timestamptz"],
+      nullok=False,
+      comment="User-provided timestamp."
+    )
     # retrieve catalog model again to ensure we reflect latest structural changes
     model = catalog.getCurrentModel()
 
@@ -348,6 +540,23 @@ actually find it useful:
     model.schemas["public"].tables["Journal"].delete()
     # retrieve catalog model again to ensure we reflect latest structural changes
     model = catalog.getCurrentModel()
+
+This request will actually fail unless we first remove the dependent
+Journal\_Attachment table (or at least the foreign key constraint
+linking the two):
+
+    model.schemas["public"].tables["Journal_Attachment"].delete()
+    model.schemas["public"].tables["Journal"].delete()
+    # retrieve catalog model again to ensure we reflect latest structural changes
+    model = catalog.getCurrentModel()
+
+Note, even though we deleted the attachment table, all existing assets
+in the Hatrac object store will remain.
+
+A project data administrator needs to consider data retention policies
+when deciding whether they should periodically search for
+abandoned/orphaned objects or retain them in case there are external
+URL references to these objects outside the ERMrest metadata catalog.
 
 ### Other Model Changes...?
 
@@ -404,8 +613,10 @@ fruitless as it would be reset to the values provided by the
 authentication system. There are two reasonable approaches to
 extending the table:
 
-1. Add columns edited by curators (or by users themselves with appropriate self-service policies in place).
-2. Link the client table to other project tables via foreign keys or associations.
+1. Add columns edited by curators (or by users themselves with
+   appropriate self-service policies in place).
+2. Link the client table to other project tables via foreign keys or
+   associations.
 
 ### Enumerable Catalogs support ERMresolve
 
