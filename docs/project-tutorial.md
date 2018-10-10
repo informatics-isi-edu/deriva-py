@@ -148,7 +148,7 @@ You can inspect the `ermrest_client` table definition:
 The column definitions are summarized in the following table.
 
 | Column Name  | Typename     | Null OK | Description |
-|--------------|---------=----|---------|-------------|
+|--------------|--------------|---------|-------------|
 | RID          | ermrest\_rid | false   | System-managed _record identifier_ |
 | RCT          | ermrest\_rct | false   | System-managed _record creation timestamp_ |
 | RMT          | ermrest\_rmt | false   | System-managed _record last modification timestamp_ |
@@ -298,6 +298,8 @@ need to add a data-dependent policy to the table:
         "projection_type": "acl"
       }
     })
+    # apply these local config changes to the server
+    model.apply(catalog)
 
 This slightly cryptic policy states that ERMrest should project the
 `RCB` (aka _row created by_) column and treat it like an ACL; when the
