@@ -26,8 +26,67 @@ tag = AttrDict({
     'table_alternatives': 'tag:isrd.isi.edu,2016:table-alternatives',
     'column_display':     'tag:isrd.isi.edu,2016:column-display',
     'asset':              'tag:isrd.isi.edu,2017:asset',
+    'bulk_upload':        'tag:isrd.isi.edu,2017:bulk-upload',
 })
 
+def presence_annotation(tag_uri):
+    """Decorator to establish property getter/setter/deleter for presence annotations.
+
+       Usage example:
+
+          @presence_annotation(tag.generated)
+          def generated(self): pass
+
+       The stub method will be discarded.
+    """
+    def helper(ignore):
+        docstr = "Convenience property for managing presence of annotation %s" % tag_uri
+
+        def getter(self):
+            return tag_uri in self.annotations
+
+        def setter(self, present):
+            if present:
+                self.annotations[tag_uri] = None
+            else:
+                self.annotations.pop(tag_uri, None)
+
+        def deleter(self):
+            self.annotations.pop(tag_uri, None)
+
+        return property(getter, setter, deleter, docstr)
+
+    return helper
+
+def object_annotation(tag_uri):
+    """Decorator to establish property getter/setter/deleter for object annotations.
+
+       Usage example:
+
+          @presence_annotation(tag.display)
+          def display(self): pass
+
+       The stub method will be discarded.
+    """
+    def helper(ignore):
+        docstr = "Convenience property for managing content of object annotation %s" % tag_uri
+
+        def getter(self):
+            if tag_uri not in self.annotations:
+                self.annotations[tag_uri] = AttrDict({})
+            return self.annotations[tag_uri]
+
+        def setter(self, value):
+            if not isinstance(value, (dict, AttrDict)):
+                raise TypeError('Unexpected object type %s for annotation %s' % (type(value), tag_uri))
+            self.annotations[tag_uri] = AttrDict(value)
+
+        def deleter(self):
+            self.annotations.pop(tag_uri, None)
+
+        return property(getter, setter, deleter, docstr)
+
+    return helper
 
 def equivalent(doc1, doc2, method=None):
     """Determine whether two dict/array/literal documents are structurally equivalent."""
@@ -115,34 +174,6 @@ class NodeConfig (object):
         if clear_comment and self._supports_comment:
             self.comment = None
 
-    def annotation_obj(self, tag):
-        """Generic access to annotation object under given tag.
-
-           Returns object stored under tag in node's annotations, so
-           that side-effects applied to it will affect the annotation.
-
-           If annotation is not yet present, an empty object is added
-           and returned.
-        """
-        if tag not in self.annotations:
-            self.annotations[tag] = AttrDict({})
-        return self.annotations[tag]
-
-    def annotation_presence(self, tag):
-        """Return True if annotation is present for given tag, False otherwise."""
-        return tag in self.annotations
-
-    def set_annotation_presence(self, tag, value):
-        """Add or remove annotation with given tag depending on boolean presence value.
-
-           True: add or replace tag with None value
-           False: remove tag if it exists
-        """
-        if value:
-            self.annotations[tag] = None
-        else:
-            self.annotations.pop(tag, None)
-
     def prejson(self):
         """Produce a representation of configuration as generic Python data structures"""
         d = dict()
@@ -172,26 +203,14 @@ class NodeConfig (object):
         else:
             raise TypeError('%r does not support comment management.' % type(self).__name__)
 
-    @property
-    def immutable(self):
-        return self.annotation_presence(tag.immutable)
+    @presence_annotation(tag.immutable)
+    def immutable(self): pass
 
-    @immutable.setter
-    def immutable(self, value):
-        self.set_annotation_presence(tag.immutable, value)
+    @presence_annotation(tag.generated)
+    def generated(self): pass
 
-    @property
-    def generated(self):
-        return self.annotation_presence(tag.generated)
-
-    @generated.setter
-    def generated(self, value):
-        self.set_annotation_presence(tag.generated, value)
-
-    @property
-    def display(self):
-        return self.annotation_obj(tag.display)
-
+    @object_annotation(tag.display)
+    def display(self): pass
 
 class NodeConfigAcl (NodeConfig):
     """Generic model acl-bearing document node configuration management.
@@ -349,6 +368,9 @@ class CatalogConfig (NodeConfigAcl):
         """Return column configuration for column with given name."""
         return self.table(sname, tname).column_definitions[cname]
 
+    @object_annotation(tag.bulk_upload)
+    def bulk_upload(self): pass
+
     def prejson(self, prune=True):
         """Produce a representation of configuration as generic Python data structures"""
         d = NodeConfigAcl.prejson(self)
@@ -357,7 +379,6 @@ class CatalogConfig (NodeConfigAcl):
             for sname, schema in self.schemas.items()
         }
         return d
-
 
 class CatalogSchema (NodeConfigAcl):
     """Schema-level configuration management.
@@ -575,22 +596,17 @@ class CatalogTable (NodeConfigAclBinding):
         ]
         return d
 
-    @property
-    def alternatives(self):
-        return self.annotation_obj(tag.table_alternatives)
+    @object_annotation(tag.table_alternatives)
+    def alternatives(self): pass
 
-    @property
-    def table_display(self):
-        return self.annotation_obj(tag.table_display)
+    @object_annotation(tag.table_display)
+    def table_display(self): pass
 
-    @property
-    def visible_columns(self):
-        return self.annotation_obj(tag.visible_columns)
+    @object_annotation(tag.visible_columns)
+    def visible_columns(self): pass
 
-    @property
-    def visible_foreign_keys(self):
-        return self.annotation_obj(tag.visible_foreign_keys)
-
+    @object_annotation(tag.visible_foreign_keys)
+    def visible_foreign_keys(self): pass
 
 class CatalogColumn (NodeConfigAclBinding):
     """Column-level configuration management.
@@ -625,14 +641,11 @@ class CatalogColumn (NodeConfigAclBinding):
         d["name"] = self.name
         return d
 
-    @property
-    def asset(self):
-        return self.annotation_obj(tag.asset)
+    @object_annotation(tag.asset)
+    def asset(self): pass
 
-    @property
-    def column_display(self):
-        return self.annotation_obj(tag.column_display)
-
+    @object_annotation(tag.column_display)
+    def column_display(self): pass
 
 class CatalogKey (NodeConfig):
     """Key-level configuration management.
@@ -705,6 +718,5 @@ class CatalogForeignKey (NodeConfigAclBinding):
         d['names'] = self.names
         return d
 
-    @property
-    def foreign_key(self):
-        return self.annotation_obj(tag.foreign_key)
+    @object_annotation(tag.foreign_key)
+    def foreign_key(self): pass
