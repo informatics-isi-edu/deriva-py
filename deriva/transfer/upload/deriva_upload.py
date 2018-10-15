@@ -327,7 +327,7 @@ class DerivaUpload(object):
 
     def getRemoteConfig(self):
         catalog_config = CatalogConfig.fromcatalog(self.catalog)
-        return catalog_config.annotation_obj("tag:isrd.isi.edu,2017:bulk-upload")
+        return catalog_config.bulk_upload
 
     def getUpdatedConfig(self):
         # if we are using an overridden config file, skip the update check
