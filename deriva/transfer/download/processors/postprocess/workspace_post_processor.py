@@ -38,6 +38,8 @@ class GlobusWorkspacePortalPostProcessor(BaseProcessor):
         if token:
             headers.update({"Authorization": "Bearer %s" % token})
         tasks = self.parameters.get("tasks", ["WES", "JUPYTERHUB"])
+        data_set = self.parameters.get("data_set")
+        data_id = self.parameters.get("data_id")
         for k, v in self.outputs.items():
             minid = v[IDENTIFIER_KEY]
             logging.info("Registering minid [%s] with Workspace Portal: [%s]" % (minid, url))
@@ -45,8 +47,8 @@ class GlobusWorkspacePortalPostProcessor(BaseProcessor):
             hostname = "" if not hostname else " (%s)" % hostname
             metadata = self.parameters.get("metadata",
                                            {"grouping": "DERIVA%s" % hostname,
-                                            "data_set": "%s" % k,
-                                            "data_id": "%s" % datetime.now().isoformat()})
+                                            "data_set": "%s" % data_set if data_set else k,
+                                            "data_id": "%s" % data_id if data_id else datetime.now().isoformat()})
             workspaces = v.get("workspaces", [])
             body = {
                 "input_minid": minid,
