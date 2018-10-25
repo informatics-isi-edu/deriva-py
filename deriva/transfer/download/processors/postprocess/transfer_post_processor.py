@@ -1,5 +1,7 @@
 import os
 import logging
+import uuid
+from datetime import datetime
 from importlib import import_module
 from deriva.core import get_credential, urlsplit, urlunsplit, format_exception, stob
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError
@@ -27,10 +29,11 @@ class UploadPostProcessor(BaseProcessor):
                 (self.__class__.__name__, target_url_param, PROCESSOR_PARAMS_KEY))
         if self.envars:
             target_url = target_url.format(**self.envars)
+        target_url = target_url.strip(" ")
         upr = urlsplit(target_url, "https")
         self.scheme = upr.scheme.lower()
         self.netloc = upr.netloc
-        self.path = upr.path.lstrip("/") + "/" if upr.path else ""
+        self.path = upr.path.strip("/")
         host = urlunsplit((self.scheme, upr.netloc, "", "", ""))
         creds = get_credential(host)
         if not creds:
@@ -120,8 +123,12 @@ class Boto3UploadPostProcessor(UploadPostProcessor):
         if not bucket_exists:
             raise DerivaDownloadError("Target bucket [%s] does not exist." % bucket_name)
 
+        object_qualifier = os.path.basename(self.identity.get("id", "")) or "anon-" + str(uuid.uuid4())
+        if not stob(self.parameters.get("overwrite", "False")):
+            object_qualifier = "/".join([object_qualifier, datetime.strftime(datetime.now(), "%Y-%m-%d_%H.%M.%S")])
+
         for k, v in self.outputs.items():
-            object_name = self.path + k
+            object_name = "/".join([self.path, object_qualifier, k])
             file_path = v[LOCAL_PATH_KEY]
             acl = self.parameters.get("acl", "private")
             signed_url = stob(self.parameters.get("signed_url", acl == "public-read"))
@@ -148,86 +155,5 @@ class Boto3UploadPostProcessor(UploadPostProcessor):
                                                     Metadata={"Content-MD5": v[MD5_KEY][0]})
                 except Exception as e:
                     raise DerivaDownloadError("Upload of %s failed: %s" % (remote_path, format_exception(e)))
-
-        return self.outputs
-
-
-class LibcloudUploadPostProcessor(UploadPostProcessor):
-    """
-    Post processor that transfers download results to remote cloud storage systems via libcloud library.
-    There are various problems with it that make it not viable at this time.
-    """
-    LIBCLOUD = None
-    LIBCLOUD_DRIVERS = None
-
-    def import_libcloud(self):
-        # locate library
-        if self.LIBCLOUD is None:
-            try:
-                self.LIBCLOUD = import_module("libcloud")
-            except ImportError as e:
-                raise DerivaDownloadConfigurationError("Unable to find required module. "
-                                                       "Ensure that the Python package \"libcloud\" is installed.", e)
-            self.LIBCLOUD_DRIVERS = {
-                "s3": {
-                    "us-east-1": self.LIBCLOUD.storage.types.Provider.S3,
-                    "us-east-2": self.LIBCLOUD.storage.types.Provider.S3_US_EAST2,
-                    "us-west-1": self.LIBCLOUD.storage.types.Provider.S3_US_WEST,
-                    "us-west-2": self.LIBCLOUD.storage.types.Provider.S3_US_WEST_OREGON,
-                    "us-gov-west-1": self.LIBCLOUD.storage.types.Provider.S3_US_GOV_WEST,
-                    "cn-north-1": self.LIBCLOUD.storage.types.Provider.S3_CN_NORTH,
-                    "eu-west-1": self.LIBCLOUD.storage.types.Provider.S3_EU_WEST,
-                    "eu-west-2": self.LIBCLOUD.storage.types.Provider.S3_EU_WEST2,
-                    "eu-central-1": self.LIBCLOUD.storage.types.Provider.S3_EU_CENTRAL,
-                    "ap-south-1": self.LIBCLOUD.storage.types.Provider.S3_AP_SOUTH,
-                    "ap-southeast-1": self.LIBCLOUD.storage.types.Provider.S3_AP_SOUTHEAST,
-                    "ap-southeast-2": self.LIBCLOUD.storage.types.Provider.S3_AP_SOUTHEAST2,
-                    "ap-northeast": self.LIBCLOUD.storage.types.Provider.S3_AP_NORTHEAST1,
-                    "ap-northeast-1": self.LIBCLOUD.storage.types.Provider.S3_AP_NORTHEAST1,
-                    "ap-northeast-2": self.LIBCLOUD.storage.types.Provider.S3_AP_NORTHEAST2,
-                    "sa-east-1": self.LIBCLOUD.storage.types.Provider.S3_SA_EAST,
-                    "ca-central-1": self.LIBCLOUD.storage.types.Provider.S3_CA_CENTRAL
-                },
-                "gs": self.LIBCLOUD.storage.types.Provider.GOOGLE_STORAGE
-            }
-
-    def __init__(self, envars=None, **kwargs):
-        super(LibcloudUploadPostProcessor, self).__init__(envars, **kwargs)
-        self.import_libcloud()
-
-    def process(self):
-        super(LibcloudUploadPostProcessor, self).process()
-        provider = self.LIBCLOUD_DRIVERS.get(self.scheme)
-        region = None
-        if self.scheme == "s3":
-            region = self.parameters.get("region", "us-east-1")
-            if region:
-                provider = self.LIBCLOUD_DRIVERS["s3"].get(region.lower(), provider)
-        if not provider:
-            raise DerivaDownloadConfigurationError(
-                "%s could not locate a suitable libcloud storage provider driver for URL scheme: %s" %
-                (self.__class__.__name__, upr.scheme))
-
-        try:
-            cls = self.LIBCLOUD.storage.providers.get_driver(provider)
-            driver = cls(region=region, **self.credentials)
-            container = driver.get_container(container_name=self.netloc)
-
-            for k, v in self.outputs.items():
-                object_name = self.path + k
-                file_path = v[LOCAL_PATH_KEY]
-                remote_path = urlunsplit((self.scheme, self.netloc, object_name, "", ""))
-                remote_paths = v.get(REMOTE_PATHS_KEY, list())
-                remote_paths.append(remote_path)
-                v[REMOTE_PATHS_KEY] = remote_paths
-                self.make_file_output_values(file_path, v)
-                result = driver.upload_object(file_path,
-                                              container,
-                                              object_name,
-                                              extra={"acl": self.parameters.get("acl")},
-                                              verify_hash=True)
-
-        except self.LIBCLOUD.common.types.LibcloudError as lce:
-            raise DerivaDownloadError(format_exception(lce))
 
         return self.outputs

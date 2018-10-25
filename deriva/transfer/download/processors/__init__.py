@@ -9,8 +9,7 @@ from deriva.transfer.download.processors.query.file_download_query_processor imp
 from deriva.transfer.download.processors.query.fasta_output_query_processor import FastaOutputQueryProcessor
 from deriva.transfer.download.processors.postprocess.identifier_post_processor import GlobusIdentifierPostProcessor, \
     MinidIdentifierPostProcessor
-from deriva.transfer.download.processors.postprocess.transfer_post_processor import Boto3UploadPostProcessor, \
-    LibcloudUploadPostProcessor
+from deriva.transfer.download.processors.postprocess.transfer_post_processor import Boto3UploadPostProcessor
 from deriva.transfer.download.processors.postprocess.workspace_post_processor import GlobusWorkspacePortalPostProcessor
 
 DEFAULT_QUERY_PROCESSORS = {
@@ -30,7 +29,6 @@ DEFAULT_TRANSFORM_PROCESSORS = {
 DEFAULT_POST_PROCESSORS = {
     "identifier": GlobusIdentifierPostProcessor,
     "cloud_upload": Boto3UploadPostProcessor,
-    "libcloud_upload": LibcloudUploadPostProcessor,
     "workspace": GlobusWorkspacePortalPostProcessor
 }
 
