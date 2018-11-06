@@ -2,7 +2,7 @@ import json
 import logging
 import requests
 from datetime import datetime
-from deriva.core import get_credential, get_new_requests_session, urlsplit, urlunsplit, format_exception, strtobool
+from deriva.core import get_credential, get_new_requests_session, urlsplit, urlunsplit, format_exception, stob
 from deriva.core.utils.webauthn_utils import get_wallet_entries
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError
 from deriva.transfer.download.processors.base_processor import *

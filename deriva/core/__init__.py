@@ -12,10 +12,10 @@ from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 from requests.packages.urllib3.exceptions import MaxRetryError
 from collections import OrderedDict
-from distutils.util import strtobool
+from distutils import util as du_util
 from pkg_resources import parse_version, get_distribution, DistributionNotFound
 
-__version__ = "0.6.4"
+__version__ = "0.6.5"
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
@@ -60,7 +60,7 @@ class ConcurrentUpdate (ValueError):
 
 
 def stob(string):
-    return bool(strtobool(str(string)))
+    return bool(du_util.strtobool(str(string)))
 
 
 def format_exception(e):

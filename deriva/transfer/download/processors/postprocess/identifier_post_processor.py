@@ -1,7 +1,7 @@
 import json
 import logging
 from importlib import import_module
-from deriva.core import get_credential, urlsplit, urlunsplit, format_exception, strtobool
+from deriva.core import get_credential, urlsplit, urlunsplit, format_exception, stob
 from deriva.core.utils.webauthn_utils import get_wallet_entries
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError
 from deriva.transfer.download.processors.base_processor import *
@@ -54,7 +54,7 @@ class MinidIdentifierPostProcessor(IdentifierPostProcessor):
             result = self.MINID.minid_client_api.register_entity(
                 server, checksum, email, code,
                 url=locations, title=self.parameters.get("title", ''),
-                test=strtobool(self.parameters.get("test", "False")),
+                test=stob(self.parameters.get("test", "False")),
                 globus_auth_token=None, checksum_function=None)
             v[IDENTIFIER_KEY] = result
 
@@ -103,7 +103,7 @@ class GlobusIdentifierPostProcessor(IdentifierPostProcessor):
 
     def process(self):
         ic = self.load_identifier_client()
-        test = strtobool(self.parameters.get("test", "False"))
+        test = stob(self.parameters.get("test", "False"))
         namespace = (self.TEST_IDENTIFIER_NAMESPACE if test else self.IDENTIFIER_NAMESPACE)
         for k, v in self.outputs.items():
             file_path = v[LOCAL_PATH_KEY]
