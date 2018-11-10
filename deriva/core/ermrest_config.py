@@ -9,7 +9,10 @@ class AttrDict (dict):
        self[key].
     """
     def __getattr__(self, a):
-        return self[a]
+        try:
+            return self[a]
+        except KeyError as e:
+            raise AttributeError(str(e))
 
     def __setattr__(self, a, v):
         self[a] = v
