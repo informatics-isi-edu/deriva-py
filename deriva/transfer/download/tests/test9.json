@@ -1,0 +1,72 @@
+{
+  "bag": {
+    "bag_name": "Protocol_N-H9AY",
+    "bag_algorithms": [
+      "md5"
+    ],
+    "bag_archiver": "zip",
+    "bag_metadata": {}
+  },
+  "catalog": {
+    "host": "https://dev.rebuildingakidney.org",
+    "catalog_id": "2",
+    "query_processors": [
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "Protocol",
+          "query_path": "/entity/M:=Protocol:Protocol/RID=N-H9AY?limit=none"
+        }
+      },
+      {
+        "processor": "fetch",
+        "processor_params": {
+          "output_path": "assets/File_URI",
+          "query_path": "/attribute/M:=Protocol:Protocol/RID=N-H9AY/url:=File_URI,length:=File_Size,filename:=File_Name,md5:=File_MD5?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "Protocol Subject",
+          "query_path": "/attributegroup/M:=Protocol:Protocol/RID=N-H9AY/(RID)=(Protocol:Protocol_Subject:Protocol)/(Subject_Term)=(Protocol:Subject:Term)/RID,Protocol_RID:=M:RID;ID,Term,Description,RCB,RMB,RCT,RMT?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "Protocol Keyword",
+          "query_path": "/attributegroup/M:=Protocol:Protocol/RID=N-H9AY/(RID)=(Protocol:Protocol_Keyword:Protocol)/(Keyword_Term)=(Protocol:Keyword:Term)/RID,Protocol_RID:=M:RID;ID,Term,Description,RCB,RMB,RCT,RMT?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "Protocol Author",
+          "query_path": "/entity/M:=Protocol:Protocol/RID=N-H9AY/(RID)=(Protocol:Protocol_Author:Protocol)?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "Figure",
+          "query_path": "/entity/M:=Protocol:Protocol/RID=N-H9AY/(RID)=(Protocol:Figure:Protocol)?limit=none"
+        }
+      },
+      {
+        "processor": "fetch",
+        "processor_params": {
+          "output_path": "assets/Figure/URI",
+          "query_path": "/attribute/M:=Protocol:Protocol/RID=N-H9AY/(RID)=(Protocol:Figure:Protocol)/!(URI::null::)/url:=URI,length:=File_Size,filename:=File_Name,md5:=File_MD5?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "Reference",
+          "query_path": "/entity/M:=Protocol:Protocol/RID=N-H9AY/(Key)=(Protocol:Reference:Consortium_Protocol)?limit=none"
+        }
+      }
+    ]
+  }
+}

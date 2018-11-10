@@ -15,7 +15,7 @@ from collections import OrderedDict
 from distutils import util as du_util
 from pkg_resources import parse_version, get_distribution, DistributionNotFound
 
-__version__ = "0.6.5"
+__version__ = "0.6.6"
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)

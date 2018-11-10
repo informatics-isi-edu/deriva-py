@@ -24,7 +24,7 @@ class BagFetchQueryProcessor(BaseQueryProcessor):
         return self.outputs
 
     def createRemoteFileManifest(self):
-        logging.info("Creating remote file manifest")
+        logging.info("Creating remote file manifest from results of query: %s" % self.query)
         input_manifest = self.output_abspath
         remote_file_manifest = self.kwargs.get("remote_file_manifest")
         with open(input_manifest, "r") as in_file, open(remote_file_manifest, "a") as remote_file:
@@ -32,6 +32,8 @@ class BagFetchQueryProcessor(BaseQueryProcessor):
                 # get the required bdbag remote file manifest vars from each line of the json-stream input file
                 entry = json.loads(line)
                 entry = self.createManifestEntry(entry)
+                if not entry:
+                    continue
                 remote_file.write(json.dumps(entry) + "\n")
                 if self.ro_manifest:
                     ro.add_file_metadata(self.ro_manifest,
@@ -47,8 +49,10 @@ class BagFetchQueryProcessor(BaseQueryProcessor):
         manifest_entry = dict()
         url = entry.get("url")
         if not url:
-            raise DerivaDownloadConfigurationError(
-                "Missing required attribute \"url\" in download manifest entry %s" % json.dumps(entry))
+            logging.warning(
+                "Skipping a record due to missing required attribute \"url\" in fetch manifest entry %s" %
+                json.dumps(entry))
+            return
 
         length = entry.get("length")
         md5 = entry.get("md5")

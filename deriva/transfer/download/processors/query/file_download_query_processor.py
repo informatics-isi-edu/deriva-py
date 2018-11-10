@@ -51,7 +51,7 @@ class FileDownloadQueryProcessor(BaseQueryProcessor):
                 return output_path, r
 
     def downloadFiles(self, input_manifest):
-        logging.info("Retrieving file(s)...")
+        logging.info("Attempting to download file(s) based on the results of query: %s" % self.query)
         try:
             with open(input_manifest, "r") as in_file:
                 file_list = dict()
@@ -59,8 +59,10 @@ class FileDownloadQueryProcessor(BaseQueryProcessor):
                     entry = json.loads(line)
                     url = entry.get('url')
                     if not url:
-                        raise DerivaDownloadConfigurationError(
-                            "Missing required attribute \"url\" in download manifest entry %s" % json.dumps(entry))
+                        logging.warning(
+                            "Skipping download due to missing required attribute \"url\" in download manifest entry %s"
+                            % json.dumps(entry))
+                        continue
                     store = self.getHatracStore(url)
                     filename = entry.get('filename')
                     envvars = self.envars.copy()
