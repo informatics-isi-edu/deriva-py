@@ -191,7 +191,7 @@ class DerivaDownload(object):
                 bdb.make_bag(bag_path,
                              algs=bag_algorithms,
                              remote_file_manifest=remote_file_manifest
-                             if os.path.getsize(remote_file_manifest) > 0 else None,
+                             if (remote_file_manifest and os.path.getsize(remote_file_manifest) > 0) else None,
                              update=True)
             except Exception as e:
                 logging.fatal("Exception while updating bag manifests: %s", format_exception(e))
