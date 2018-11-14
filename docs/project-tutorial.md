@@ -30,12 +30,12 @@ This code establishes the presumed Python environment and all
 subsequent Python examples should be read as incrementally extending
 this environment in the order presented:
 
-    from deriva.core import DerivaServer, ErmrestCatalog, HatracStore, AttrDict
-    from deriva.core.ermrest_model import builtin_types, Table, Column, Key, ForeignKey, get_credentials
+    from deriva.core import DerivaServer, ErmrestCatalog, HatracStore, AttrDict, get_credential
+    from deriva.core.ermrest_model import builtin_types, Table, Column, Key, ForeignKey
 
     # replace this with your real server FQDN
     servername = "yourserver.example.com"
-    credentials = get_credentials(servername)
+    credentials = get_credential(servername)
 
 
 ## Your Project-Specific Groups
@@ -90,11 +90,12 @@ the Hatrac object store and sets appropriate ACLs to allow subsequent
 management of data objects:
 
     object_store = HatracStore('https', servername, credentials)
-    object_store.create_namespace('/project_data')
-    object_store.set_acl('/project_data', 'owner', [grps.admin])
-    object_store.set_acl('/project_data', 'subtree-create', [grps.curator, grps.writer])
-    object_store.set_acl('/project_data', 'subtree-update', [grps.curator])
-    object_store.set_acl('/project_data', 'subtree-read', [grps.reader])
+    namespace = '/hatrac/project_data'
+    object_store.create_namespace(namespace)
+    object_store.set_acl(namespace, 'owner', [grps.admin])
+    object_store.set_acl(namespace, 'subtree-create', [grps.curator, grps.writer])
+    object_store.set_acl(namespace, 'subtree-update', [grps.curator])
+    object_store.set_acl(namespace, 'subtree-read', [grps.reader])
 
 These requests can only succeed if the client represented by the
 credentials is granted namepsace creation rights on the root namepsace
@@ -229,7 +230,7 @@ provider information:
     # mutate local configuration of client_table which is part of model
     client_table.acls.update({
       "select": [grps.curator, grps.writer, grps.reader],
-    }
+    })
     client_table.column_definitions["client_obj"].acls.update({
       "select": [],    
     })
@@ -322,7 +323,7 @@ linked to their journal entries:
             "md5",
             builtin_types["text"],
             nullok=False,
-            comment="The hexademical encoded MD5 checksum of the asset."
+            comment="The hexadecimal encoded MD5 checksum of the asset."
           ),
           Column.define(
             "content_type",
@@ -435,6 +436,7 @@ need to add a data-dependent policy to the table:
         "types": ["update", "delete"],
         "projection": ["RCB"],
         "projection_type": "acl"
+      }
     }
     
     journal_table.acl_bindings.update(self_service_policy)

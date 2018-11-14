@@ -12,26 +12,38 @@ def get_wallet_entries(wallet, credential_type="oauth2", **kwargs):
     Currently, only "oauth2" is supported as a credential type, and the following keyword args are supported
     (all of these are optional):
 
-    credential_source - where the credentials came from (e.g., "https://auth.globus.org")
-    resource_server - the resource server associated with a credential
-    scopes - a list of desired scopes
+        * `credential_source` - where the credentials came from (e.g., "https://auth.globus.org").
+        * `resource_server` - the resource server associated with a credential.
+        * `scopes` - a list of desired scopes.
 
-    For example:
-    wallet = client.wallet.extra_values.get("wallet")
-    get_wallet_entries(wallet, "oauth2", resource_server="identifiers.globus.org")
-    returns a list of oauth2 credentials associated with the resource server identifiers.globus.org
+    Example #1:
+    ::
+        wallet = client.wallet.extra_values.get("wallet")
+        entries = get_wallet_entries(wallet, "oauth2", resource_server="identifiers.globus.org")
 
-    get_wallet_entries(wallet, "oauth2", credential_source="https://auth.globus.org")
-    returns a list of oauth2 credentials obtained from auth.globus.org
+    :return: a list of oauth2 credentials associated with the resource server `identifiers.globus.org`.
 
-    get_wallet_entries(wallet, "oauth2",
-          credential_source="https://auth.globus.org",
-          scopes=["https://auth.globus.org/scopes/identifiers.globus.org/create_update"])
-    returns a list of oauth2 credentials obtained from auth.globus.org with the requested scope
+    Example #2:
+    ::
+        entries = get_wallet_entries(wallet, "oauth2", credential_source="https://auth.globus.org")
 
-    Eventually, we may support wallets with multiple credential types (at the same time)  for talking
-    to a variety of remote servers, at which point the implementation will probably become a lot more
-    generalized (with registered wallet providers, etc.).
+    :return: a list of oauth2 credentials obtained from `auth.globus.org`.
+
+    Example #3:
+    ::
+        entries = get_wallet_entries(
+                      wallet,
+                      "oauth2",
+                      credential_source="https://auth.globus.org",
+                      scopes=["https://auth.globus.org/scopes/identifiers.globus.org/create_update")
+
+    :return: a list of oauth2 credentials obtained from `auth.globus.org` with the requested scope.
+
+    .. note::
+        Eventually, we may support wallets with multiple credential types (at the same time) for talking
+        to a variety of remote servers, at which point the implementation will probably become a lot more
+        generalized (with registered wallet providers, etc.).
+
     """
     if wallet is None:
         return []

@@ -28,6 +28,14 @@ deriva.core.utils.version\_utils module
     :undoc-members:
     :show-inheritance:
 
+deriva.core.utils.webauthn\_utils module
+----------------------------------------
+
+.. automodule:: deriva.core.utils.webauthn_utils
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 
 Module contents
 ---------------

@@ -1,29 +1,22 @@
 deriva.transfer.download.processors package
 ===========================================
 
+Subpackages
+-----------
+
+.. toctree::
+
+    deriva.transfer.download.processors.postprocess
+    deriva.transfer.download.processors.query
+    deriva.transfer.download.processors.transform
+
 Submodules
 ----------
 
-deriva.transfer.download.processors.bag\_fetch\_download\_processor module
---------------------------------------------------------------------------
+deriva.transfer.download.processors.base\_processor module
+----------------------------------------------------------
 
-.. automodule:: deriva.transfer.download.processors.bag_fetch_download_processor
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-deriva.transfer.download.processors.base\_download\_processor module
---------------------------------------------------------------------
-
-.. automodule:: deriva.transfer.download.processors.base_download_processor
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-deriva.transfer.download.processors.file\_download\_processor module
---------------------------------------------------------------------
-
-.. automodule:: deriva.transfer.download.processors.file_download_processor
+.. automodule:: deriva.transfer.download.processors.base_processor
     :members:
     :undoc-members:
     :show-inheritance:

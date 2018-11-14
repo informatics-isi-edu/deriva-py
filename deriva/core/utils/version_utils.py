@@ -8,43 +8,51 @@ def is_compatible(source_version, compat_versions):
     comparison via setuptools version comparison logic (http://setuptools.readthedocs.io/en/latest/setuptools.html#id7).
 
     :param source_version: a source version string
-    :param compat_versions: an array of tuples with each tuple consisting of a set of strings of the form
-                            <operator><version>. The source_version is evaluated in a conjunction against each
-                            <operator><version> string in the tuple, using the pkg_resources version comparison
-                            function. The result of every tuple evaluation is then evaluated in a disjunction
-                            against other tuples in the array.  If any one of the tuples evaluates to True, then the
-                            returned disjunction is logically true, and the source version is assumed to be compatible.
+    :param compat_versions:
+        an array of tuples with each tuple consisting of a set of strings of the form
+        `<operator><version>`. The source_version is evaluated in a conjunction against each
+        `<operator><version>` string in the tuple, using the pkg_resources version comparison
+        function. The result of every tuple evaluation is then evaluated in a disjunction
+        against other tuples in the array.  If any one of the tuples evaluates to True, then the
+        returned disjunction is logically true, and the source version is assumed to be compatible.
     :return: boolean indicating compatibility
 
     Example 1:
-    source_version: 0.1.0
-    compat_versions: [[">=0.1.0", "<1.0.0"]]
-    result: True
+    ::
+        is_compatible("0.1.0", [[">=0.1.0", "<1.0.0"]])
+
+    :return: `True`
 
     Example 2:
-    source_version: 1.1.0
-    compat_versions: [[">=0.1.0", "<1.0.0"]]
-    result: False
+    ::
+        is_compatible("1.1.0", [[">=0.1.0", "<1.0.0"]])
+
+    :return: `False`
 
     Example 3:
-    source_version: 0.5.1-dev
-    compat_versions: [[">=0.3.5rc4", "<0.5.9-beta", "!=0.5.0"]]
-    result: True
+    ::
+        is_compatible("0.5.1-dev", [[">=0.3.5rc4", "<0.5.9-beta", "!=0.5.0"]])
+
+    :return: `True`
 
     Example 4:
-    source_version: 0.7.7
-    compat_versions: [[">=0.7.0", "<0.7.6"], ["!=0.7.1"]]
-    result: True (disjunct of "!=0.7.1" cancelled out range ">=0.7.0", "<0.7.6" -- see below)
+    ::
+        is_compatible("0.7.7", [[">=0.7.0", "<0.7.6"], ["!=0.7.1"]])
+
+    :return: `True` (disjunct of "!=0.7.1" cancelled out range ">=0.7.0", "<0.7.6" -- see below)
 
     Example 5:
-    source_version: 0.7.7
-    compat_versions: [[">=0.7.0", "<0.7.6", "!=0.7.1"]]
-    result: False
+    ::
+        is_compatible("0.7.7", [[">=0.7.0", "<0.7.6", "!=0.7.1"]])
+
+    :return: `False`
 
     Example 5:
-    source_version: version-3.3
-    compat_versions: [["==version-3.0"], ["==version-3.1"], ["==version-3.3"]]
-    result: True
+    ::
+        is_compatible("version-3.3", [["==version-3.0"], ["==version-3.1"], ["==version-3.3"]])
+
+    :return: `True`
+
     """
     pattern = "^.*(?P<operator>(>=|<=|>|<|==|!=))(?P<version>.*)$"
     compat = None

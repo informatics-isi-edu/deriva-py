@@ -12,9 +12,9 @@
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
-# import os
-# import sys
-# sys.path.insert(0, os.path.abspath('.'))
+import os
+import sys
+sys.path.insert(0, os.path.abspath('..'))
 
 
 # -- Project information -----------------------------------------------------
@@ -23,10 +23,18 @@ project = 'deriva-py'
 copyright = '2018, USC Information Sciences Institute, Informatics Systems Research Division'
 author = 'USC Information Sciences Institute, Informatics Systems Research Division'
 
+
+# -- Project version ---------------------------------------------------------
+import re
+import io
+__version__ = re.search(
+    r'__version__\s*=\s*[\'"]([^\'"]*)[\'"]',
+    io.open('../deriva/core/__init__.py', encoding='utf_8_sig').read()
+    ).group(1)
 # The short X.Y version
-version = '5.8'
+version = __version__
 # The full version, including alpha/beta/rc tags
-release = '5.8'
+release = __version__
 
 
 # -- General configuration ---------------------------------------------------
