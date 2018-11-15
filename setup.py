@@ -20,11 +20,10 @@ setup(
     description="DERIVA Python APIs",
     url='https://github.com/informatics-isi-edu/deriva-py',
     maintainer='USC Information Sciences Institute ISR Division',
-    maintainer_email='misd-support@isi.edu',
+    maintainer_email='isrd-support@isi.edu',
     version=__version__,
     packages=find_packages(),
     package_data={},
-    test_suite='tests',
     entry_points={
         'console_scripts': [
             'deriva-upload-cli = deriva.transfer.upload.__main__:main',
@@ -32,7 +31,8 @@ setup(
             'deriva-hatrac-cli = deriva.core.hatrac_cli:main',
             'deriva-acl-config = deriva.config.acl_config:main',
             'deriva-annotation-config = deriva.config.annotation_config:main',
-            'deriva-annotation-dump = deriva.config.dump_catalog_annotations:main'
+            'deriva-annotation-dump = deriva.config.dump_catalog_annotations:main',
+            'deriva-annotation-rollback = deriva.config.rollback_annotation:main'
         ]
     },
     requires=[
