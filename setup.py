@@ -22,7 +22,7 @@ setup(
     maintainer='USC Information Sciences Institute ISR Division',
     maintainer_email='isrd-support@isi.edu',
     version=__version__,
-    packages=find_packages(),
+    packages=find_packages(exclude=["tests"]),
     package_data={},
     entry_points={
         'console_scripts': [
