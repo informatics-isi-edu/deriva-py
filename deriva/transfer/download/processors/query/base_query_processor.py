@@ -4,10 +4,10 @@ import certifi
 import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
-from deriva.core import urlsplit, get_new_requests_session, DEFAULT_SESSION_CONFIG
+from deriva.core import urlsplit, get_new_requests_session, stob, DEFAULT_SESSION_CONFIG
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError, \
     DerivaDownloadAuthenticationError, DerivaDownloadAuthorizationError
-from deriva.transfer.download.processors.base_processor import BaseProcessor, LOCAL_PATH_KEY
+from deriva.transfer.download.processors.base_processor import BaseProcessor, LOCAL_PATH_KEY, SOURCE_URL_KEY
 from bdbag import bdbag_ro as ro
 
 
@@ -31,7 +31,7 @@ class BaseQueryProcessor(BaseProcessor):
         self.sessions = kwargs.get("sessions", dict())
         self.content_type = "application/octet-stream"
         self.url = ''.join([self.catalog.get_server_uri(), self.query])
-        self.ro_file_provenance = True
+        self.ro_file_provenance = stob(self.parameters.get("ro_file_provenance", True))
         self.ro_manifest = self.kwargs.get("ro_manifest")
         self.ro_author_name = self.kwargs.get("ro_author_name")
         self.ro_author_orcid = self.kwargs.get("ro_author_orcid")
@@ -52,7 +52,7 @@ class BaseQueryProcessor(BaseProcessor):
                                  retrieved_by=ro.make_retrieved_by(self.ro_author_name, orcid=self.ro_author_orcid),
                                  bundled_as=ro.make_bundled_as())
 
-        self.outputs.update({self.output_relpath: {LOCAL_PATH_KEY: self.output_abspath}})
+        self.outputs.update({self.output_relpath: {LOCAL_PATH_KEY: self.output_abspath, SOURCE_URL_KEY: self.url}})
         return self.outputs
 
     def catalogQuery(self, headers=HEADERS, as_file=True):

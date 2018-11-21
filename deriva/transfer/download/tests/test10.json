@@ -1,0 +1,34 @@
+{
+  "bag": {
+    "bag_name": "Geo-Test",
+    "bag_algorithms": [
+      "md5"
+    ],
+    "bag_archiver": "zip",
+    "bag_metadata": {}
+  },
+  "catalog": {
+    "host": "https://dev.gudmap.org",
+    "catalog_id": "2",
+    "query_processors": [
+      {
+        "processor": "json",
+        "processor_params": {
+          "output_path": "geo-input.json",
+          "query_path": "/attributegroup/St:=RNASeq:Study/E:=left(RID)=(RNASeq:Experiment:Study_RID)/$E/R:=left(RID)=(RNASeq:Replicate:Experiment_RID)/S:=left(Specimen_RID)=(Gene_Expression:Specimen:RID)/$E/ES:=left(RID)=(RNASeq:Experiment_Settings:Experiment_RID)/$R/F:=left(RID)=(RNASeq:File:Replicate_RID)/$St/RID=Q-Y4H2/$St/Sf:=left(RID)=(RNASeq:Study_File:Study_RID)/$St/RID;Study:=array_d(St:*),Experiment:=array_d(E:*),Experiment_Setting:=array_d(ES:*),Replicate:=array_d(R:*),Specimen:=array_d(S:*),File:=array_d(F:*),Study_File:=array_d(Sf:*)",
+          "ro_file_provenance": "False"
+        }
+      }
+    ]
+  },
+  "transform_processors": [
+    {
+      "processor":"geo",
+      "processor_params": {
+        "input_path": "geo-input.json",
+        "output_path": "GEO_Metadata_Output.xlsx",
+        "excel_template_path": "D:\\GEO_Metadata_Template.xlsx"
+      }
+    }
+  ]
+}

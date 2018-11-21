@@ -174,6 +174,11 @@ class DerivaDownload(object):
                         self.envars,
                         inputs=outputs,
                         processor_params=processor_params,
+                        base_path=base_path,
+                        bag=create_bag,
+                        ro_manifest=ro_manifest,
+                        ro_author_name=ro_author_name,
+                        ro_author_orcid=ro_author_orcid,
                         identity=identity,
                         wallet=wallet)
                     outputs = processor.process()

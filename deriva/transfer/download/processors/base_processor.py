@@ -3,6 +3,7 @@ import errno
 from deriva.core.utils import mime_utils as mu, hash_utils as hu
 
 PROCESSOR_PARAMS_KEY = "processor_params"
+SOURCE_URL_KEY = "source_url"
 LOCAL_PATH_KEY = "local_path"
 REMOTE_PATHS_KEY = "remote_paths"
 FILE_SIZE_KEY = "size"
