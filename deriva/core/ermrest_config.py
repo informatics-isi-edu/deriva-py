@@ -30,6 +30,7 @@ tag = AttrDict({
     'column_display':     'tag:isrd.isi.edu,2016:column-display',
     'asset':              'tag:isrd.isi.edu,2017:asset',
     'bulk_upload':        'tag:isrd.isi.edu,2017:bulk-upload',
+    'export':             'tag:isrd.isi.edu,2016:export',
 })
 
 def presence_annotation(tag_uri):
