@@ -202,11 +202,11 @@ class Table (_ec.CatalogTable):
         These core vocabulary columns are generated automatically if
         absent from the input column_defs.
 
-        - id: ermrest_curie, unique not null, default curie template "%s:{RID}" % curie_prefix
-        - uri: ermrest_uri, unique not null, default URI template "/id/{RID}"
-        - name: text, unique not null
-        - description: markdown, not null
-        - synonyms: text[]
+        - ID: ermrest_curie, unique not null, default curie template "%s:{RID}" % curie_prefix
+        - URI: ermrest_uri, unique not null, default URI template "/id/{RID}"
+        - Name: text, unique not null
+        - Description: markdown, not null
+        - Synonyms: text[]
 
         However, caller-supplied definitions override the default.
 
@@ -222,33 +222,33 @@ class Table (_ec.CatalogTable):
                 col_def
                 for col_def in [
                         Column.define(
-                            'id',
+                            'ID',
                             builtin_types['ermrest_curie'],
                             nullok=False,
                             default=curie_template,
                             comment='The preferred Compact URI (CURIE) for this term.'
                         ),
                         Column.define(
-                            'uri',
+                            'URI',
                             builtin_types['ermrest_uri'],
                             nullok=False,
                             default=uri_template,
                             comment='The preferred URI for this term.'
                         ),
                         Column.define(
-                            'name',
+                            'Name',
                             builtin_types['text'],
                             nullok=False,
                             comment='The preferred human-readable name for this term.'
                         ),
                         Column.define(
-                            'description',
+                            'Description',
                             builtin_types['markdown'],
                             nullok=False,
                             comment='A longer human-readable description of this term.'
                         ),
                         Column.define(
-                            'synonyms',
+                            'Synonyms',
                             builtin_types['text[]'],
                             comment='Alternate human-readable names for this term.'
                         ),
@@ -262,8 +262,8 @@ class Table (_ec.CatalogTable):
             return [
                 key_def
                 for key_def in [
-                        Key.define(['id']),
-                        Key.define(['uri']),
+                        Key.define(['ID']),
+                        Key.define(['URI']),
                 ]
                 if ktup(key_def) not in { ktup(kdef): kdef for kdef in custom }
             ] + custom
