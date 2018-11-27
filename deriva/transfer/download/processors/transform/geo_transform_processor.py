@@ -169,7 +169,6 @@ class Export2GEO(object):
             for i in range(len(self.study_files) - 1):
                 self.excel.insert_row(self.current_row_idx, 1)
                 self.excel.copy_cell(self.current_row_idx - 1, 1, self.current_row_idx, 1)
-                self.current_row_idx += 1
                 self.excel.write_cell(self.current_row_idx, 2, self.study_files[i + 1]['Name'])
                 self.current_row_idx += 1
         else:
@@ -211,8 +210,8 @@ class Export2GEO(object):
                     self.other_item_unique[i] = False
 
     def export_sample(self):
-        self.header_row_idx = self.current_row_idx + 7
-        self.current_row_idx = self.current_row_idx + 7
+        self.header_row_idx = self.current_row_idx + 6
+        self.current_row_idx = self.current_row_idx + 6
         # write SAMPLES
         for e in self.experiments:
             for r in self.replicates:
@@ -341,7 +340,6 @@ class Export2GEO(object):
         # todo: check fixed value OK?
         self.excel.write_cell(self.current_row_idx, 2, 'RNA-seq')
         self.current_row_idx += 1
-        self.rows_to_delete.insert(0, self.header_row_idx)
 
     def export_data_processing(self):
         # DATA PROCESSING PIPLINE
@@ -392,6 +390,7 @@ class Export2GEO(object):
         # RAW FILES
         self.current_row_idx = self.current_row_idx + 5
         self.rows_to_delete.insert(0, self.current_row_idx - 1)
+        self.rows_to_delete.insert(0, self.current_row_idx)
 
         for pf in self.files:
             current_col_idx = 1
@@ -416,6 +415,7 @@ class Export2GEO(object):
                         single_or_paired = 'single'
                     self.excel.write_cell(self.current_row_idx, current_col_idx, single_or_paired)
                     current_col_idx += 1
+        self.excel.insert_row(self.current_row_idx, 1)
 
     def export_paired_end(self):
         # PAIRED-END EXPERIMENTS
