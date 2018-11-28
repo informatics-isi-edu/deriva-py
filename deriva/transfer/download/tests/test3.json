@@ -1,6 +1,6 @@
 {
   "bag": {
-    "bag_name": "facebase-test-bag",
+    "bag_name": "FaceBase-Seq-Bag",
     "bag_algorithms":["md5"],
     "bag_metadata": {
       "Source-Organization": "USC Information Sciences Institute, Informatics Systems Research Division"
@@ -12,28 +12,28 @@
       {
         "processor": "csv",
         "processor_params": {
-          "query_path": "/attribute/D:=isa:dataset/accession={accession}/E:=isa:experiment/experiment_type:=isa:experiment_type/term=RNA%20expression%20%28RNA-seq%29/$E/STRAND:=vocabulary:strandedness/$E/R:=isa:replicate/SAMPLE:=isa:biosample/SPEC:=vocabulary:species/$R/SEQ:=isa:sequencing_data/PAIRED:=vocabulary:paired_end_or_single_read/$SEQ/file_format:=vocabulary:file_format/term=FastQ/$SEQ/dataset:=D:accession,experiment:=E:RID,biosample:=SAMPLE:RID,replicate:=R:RID,bioreplicate_num:=R:bioreplicate_number,techreplicate_num:=R:technical_replicate_number,species:=SPEC:term,paired:=PAIRED:term,stranded:=STRAND:term,read:=SEQ:read,file:=SEQ:RID,filename:=SEQ:filename,url:=SEQ:url",
-          "output_path": "{accession}/{accession}-RNA-Seq"
+          "query_path": "/attribute/D:=isa:dataset/RID={RID}/E:=isa:experiment/experiment_type:=vocab:experiment_type/id=OBI%3A0001271/$E/STRAND:=vocab:strandedness/$E/R:=isa:replicate/SAMPLE:=isa:biosample/SPEC:=vocab:species/$R/SEQ:=isa:sequencing_data/PAIRED:=vocab:paired_end_or_single_read/$SEQ/file_format:=vocab:file_format/name=FastQ/$SEQ/dataset:=D:RID,experiment:=E:RID,biosample:=SAMPLE:RID,replicate:=R:RID,bioreplicate_num:=R:bioreplicate_number,techreplicate_num:=R:technical_replicate_number,species:=SPEC:name,paired:=PAIRED:name,stranded:=STRAND:name,read:=SEQ:read,file:=SEQ:RID,filename:=SEQ:filename,url:=SEQ:url",
+          "output_path": "{RID}/{RID}-RNA-Seq"
         }
       },
       {
-        "processor": "download",
+        "processor": "fetch",
         "processor_params": {
-          "query_path": "/attribute/D:=isa:dataset/accession={accession}/E:=isa:experiment/experiment_type:=isa:experiment_type/term=RNA%20expression%20%28RNA-seq%29/$E/STRAND:=vocabulary:strandedness/$E/R:=isa:replicate/SAMPLE:=isa:biosample/SPEC:=vocabulary:species/$R/SEQ:=isa:sequencing_data/PAIRED:=vocabulary:paired_end_or_single_read/$SEQ/file_format:=vocabulary:file_format/term=FastQ/$SEQ/dataset:=D:RID,experiment:=E:RID,biosample:=SAMPLE:RID,file:=SEQ:RID,filename:=SEQ:filename,size:=SEQ:byte_count,md5:=SEQ:md5,url:=SEQ:url",
+          "query_path": "/attribute/D:=isa:dataset/RID={RID}/E:=isa:experiment/experiment_type:=vocab:experiment_type/id=OBI%3A0001271/$E/STRAND:=vocab:strandedness/$E/R:=isa:replicate/SAMPLE:=isa:biosample/SPEC:=vocab:species/$R/SEQ:=isa:sequencing_data/PAIRED:=vocab:paired_end_or_single_read/$SEQ/file_format:=vocab:file_format/name=FastQ/$SEQ/dataset:=D:RID,experiment:=E:RID,biosample:=SAMPLE:RID,file:=SEQ:RID,filename:=SEQ:filename,size:=SEQ:byte_count,md5:=SEQ:md5,url:=SEQ:url",
           "output_path": "{dataset}/{experiment}/{biosample}/seq"
         }
       },
       {
         "processor": "csv",
         "processor_params": {
-          "query_path": "/attribute/D:=isa:dataset/accession={accession}/E:=isa:experiment/experiment_type:=isa:experiment_type/term=Chip-seq/$E/TARGET:=vocabulary:target_of_assay/$E/R:=isa:replicate/SAMPLE:=isa:biosample/SPEC:=vocabulary:species/$R/SEQ:=isa:sequencing_data/PAIRED:=vocabulary:paired_end_or_single_read/$SEQ/file_format:=vocabulary:file_format/term=FastQ/$SEQ/dataset:=D:accession,experiment:=E:RID,control:=E:control_assay,biosample:=SAMPLE:RID,replicate:=R:RID,bioreplicate_num:=R:bioreplicate_number,technical_replicate_num:=R:technical_replicate_number,species:=SPEC:term,target:=TARGET:term,paired:=PAIRED:term,read:=SEQ:read,file:=SEQ:RID,filename:=SEQ:filename,url:=SEQ:url",
-          "output_path": "{accession}/{accession}-ChIP-Seq"
+          "query_path": "/attribute/D:=isa:dataset/RID={RID}/E:=isa:experiment/experiment_type:=vocab:experiment_type/id=OBI%3A0000716/$E/TARGET:=vocab:target_of_assay/$E/R:=isa:replicate/SAMPLE:=isa:biosample/SPEC:=vocab:species/$R/SEQ:=isa:sequencing_data/PAIRED:=vocab:paired_end_or_single_read/$SEQ/file_format:=vocab:file_format/name=FastQ/$SEQ/dataset:=D:RID,experiment:=E:RID,control:=E:control_assay,biosample:=SAMPLE:RID,replicate:=R:RID,bioreplicate_num:=R:bioreplicate_number,technical_replicate_num:=R:technical_replicate_number,species:=SPEC:name,target:=TARGET:name,paired:=PAIRED:name,read:=SEQ:read,file:=SEQ:RID,filename:=SEQ:filename,url:=SEQ:url",
+          "output_path": "{RID}/{RID}-ChIP-Seq"
         }
       },
       {
         "processor": "fetch",
         "processor_params": {
-          "query_path": "/attribute/D:=isa:dataset/accession={accession}/E:=isa:experiment/experiment_type:=isa:experiment_type/term=Chip-seq/$E/TARGET:=vocabulary:target_of_assay/$E/R:=isa:replicate/SAMPLE:=isa:biosample/SPEC:=vocabulary:species/$R/SEQ:=isa:sequencing_data/PAIRED:=vocabulary:paired_end_or_single_read/$SEQ/file_format:=vocabulary:file_format/term=FastQ/$SEQ/dataset:=D:accession,experiment:=E:RID,biosample:=SAMPLE:RID,technical_replicate_num:=R:technical_replicate_number,file:=SEQ:RID,filename:=SEQ:filename,size:=SEQ:byte_count,md5:=SEQ:md5,url:=SEQ:url",
+          "query_path": "/attribute/D:=isa:dataset/RID={RID}/E:=isa:experiment/experiment_type:=vocab:experiment_type/id=OBI%3A0000716/$E/TARGET:=vocab:target_of_assay/$E/R:=isa:replicate/SAMPLE:=isa:biosample/SPEC:=vocab:species/$R/SEQ:=isa:sequencing_data/PAIRED:=vocab:paired_end_or_single_read/$SEQ/file_format:=vocab:file_format/name=FastQ/$SEQ/dataset:=D:RID,experiment:=E:RID,biosample:=SAMPLE:RID,technical_replicate_num:=R:technical_replicate_number,file:=SEQ:RID,filename:=SEQ:filename,size:=SEQ:byte_count,md5:=SEQ:md5,url:=SEQ:url",
           "output_path": "{dataset}/{experiment}/{biosample}/seq"
         }
       }
