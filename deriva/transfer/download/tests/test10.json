@@ -27,7 +27,7 @@
       "processor_params": {
         "input_path": "geo-input.json",
         "output_path": "GEO_Metadata_Output.xlsx",
-        "excel_template_path": "D:\\GEO_Metadata_Template.xlsx"
+        "excel_template_path": "GEO_Metadata_Template.xlsx"
       }
     }
   ]
