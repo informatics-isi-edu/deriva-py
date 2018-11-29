@@ -31,7 +31,7 @@ class BaseQueryProcessor(BaseProcessor):
         self.sessions = kwargs.get("sessions", dict())
         self.content_type = "application/octet-stream"
         self.url = ''.join([self.catalog.get_server_uri(), self.query])
-        self.ro_file_provenance = stob(self.parameters.get("ro_file_provenance", True))
+        self.ro_file_provenance = stob(self.parameters.get("ro_file_provenance", False if not self.is_bag else True))
         self.ro_manifest = self.kwargs.get("ro_manifest")
         self.ro_author_name = self.kwargs.get("ro_author_name")
         self.ro_author_orcid = self.kwargs.get("ro_author_orcid")
@@ -181,4 +181,5 @@ class JSONEnvUpdateProcessor(BaseQueryProcessor):
         resp = self.catalogQuery(headers, as_file=False)
         if resp[0]:
             self.envars.update(resp[0])
+            self._urlencode_envars()
         return {}

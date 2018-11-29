@@ -19,7 +19,12 @@ class DerivaDownload(object):
 
     """
     def __init__(self, server,
-                 output_dir=None, kwargs=None, config=None, config_file=None, credentials=None, credential_file=None):
+                 output_dir=None,
+                 kwargs=None,
+                 config=None,
+                 config_file=None,
+                 credentials=None,
+                 credential_file=None):
         self.server = server
         self.hostname = None
         self.output_dir = output_dir if output_dir else "."
@@ -101,6 +106,9 @@ class DerivaDownload(object):
                 logging.info("Validating credentials for host: %s" % self.hostname)
                 attributes = self.catalog.get_authn_session().json()
                 identity = attributes["client"]
+            except HTTPError as he:
+                if he.response.status_code == 404:
+                    logging.info("No existing login session found for host: %s" % self.hostname)
             except Exception as e:
                 raise DerivaDownloadAuthenticationError("Unable to validate credentials: %s" % format_exception(e))
         wallet = kwargs.get("wallet", {})
@@ -124,6 +132,7 @@ class DerivaDownload(object):
                 bag = bdb.make_bag(bag_path, algs=bag_algorithms, metadata=bag_metadata)
                 if bag_ro:
                     ro_author_name = bag.info.get("Contact-Name",
+                                                  None if not identity else
                                                   identity.get('full_name',
                                                                identity.get('display_name',
                                                                             identity.get('id', None))))

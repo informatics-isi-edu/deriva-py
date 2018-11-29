@@ -92,6 +92,8 @@ class GlobusIdentifierPostProcessor(IdentifierPostProcessor):
                     "Ensure that the Python package \"identifiers_client\" is installed.", e)
 
     def load_identifier_client(self):
+        if not (self.wallet and self.identity):
+            logging.warning("Unauthenticated (anonymous) identity being used with Globus identifier client")
         entries = get_wallet_entries(self.wallet, "oauth2",
                                      credential_source="https://auth.globus.org",
                                      resource_server="identifiers.globus.org",
@@ -128,7 +130,8 @@ class GlobusIdentifierPostProcessor(IdentifierPostProcessor):
                 'metadata': json.dumps(metadata)
             }
             try:
-                logging.info("Creating identifier for file [%s] with locations: %s" % (file_path, locations))
+                logging.info("Attempting to create identifier for file [%s] with locations: %s" %
+                             (file_path, locations))
                 minid = ic.create_identifier(**kwargs)
                 identifier = minid['identifier']
                 v[IDENTIFIER_KEY] = identifier
