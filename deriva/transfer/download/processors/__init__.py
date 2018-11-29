@@ -8,6 +8,7 @@ from deriva.transfer.download.processors.query.bag_fetch_query_processor import 
 from deriva.transfer.download.processors.query.file_download_query_processor import FileDownloadQueryProcessor
 from deriva.transfer.download.processors.query.fasta_output_query_processor import FastaOutputQueryProcessor
 from deriva.transfer.download.processors.transform.geo_transform_processor import GeoExportTransformProcessor
+from deriva.transfer.download.processors.transform.interpolation_transform_processor import InterpolationTransformProcessor
 from deriva.transfer.download.processors.postprocess.identifier_post_processor import GlobusIdentifierPostProcessor, \
     MinidIdentifierPostProcessor
 from deriva.transfer.download.processors.postprocess.transfer_post_processor import Boto3UploadPostProcessor
@@ -24,6 +25,7 @@ DEFAULT_QUERY_PROCESSORS = {
 }
 
 DEFAULT_TRANSFORM_PROCESSORS = {
+    "interpolation": InterpolationTransformProcessor,
     "geo": GeoExportTransformProcessor
 }
 
