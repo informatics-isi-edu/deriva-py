@@ -3,8 +3,7 @@ import re
 from string import Template
 import logging
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError
-from deriva.transfer.download.processors.transform.base_transform_processor import BaseTransformProcessor, \
-    LOCAL_PATH_KEY, SOURCE_URL_KEY
+from deriva.transfer.download.processors.transform.base_transform_processor import BaseTransformProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -14,12 +13,8 @@ class InterpolationTransformProcessor(BaseTransformProcessor):
     """
     def __init__(self, envars=None, **kwargs):
         super(InterpolationTransformProcessor, self).__init__(envars, **kwargs)
-
-        self.input_relpath, self.input_abspath = self.create_paths(
-            self.base_path, self.input_path, is_bag=self.is_bag, envars=envars)
-        self.output_relpath, self.output_abspath = self.create_paths(
-            self.base_path, self.sub_path, is_bag=self.is_bag, envars=envars)
-
+        self._create_input_output_paths()
+        # get custom param
         self.template = Template(self.parameters.get('template'))
         logger.debug("Interpolating with template: {}".format(self.template.template))
 
@@ -36,7 +31,6 @@ class InterpolationTransformProcessor(BaseTransformProcessor):
         except IOError as e:
             raise DerivaDownloadError("Interpolation transform failed", e)
 
-        self.outputs.update({self.output_relpath: {LOCAL_PATH_KEY: self.output_abspath, SOURCE_URL_KEY: self.url}})
         return super(InterpolationTransformProcessor, self).process()
 
 
@@ -45,12 +39,8 @@ class StrSubTransformProcessor(BaseTransformProcessor):
     """
     def __init__(self, envars=None, **kwargs):
         super(StrSubTransformProcessor, self).__init__(envars, **kwargs)
-
-        self.input_relpath, self.input_abspath = self.create_paths(
-            self.base_path, self.input_path, is_bag=self.is_bag, envars=envars)
-        self.output_relpath, self.output_abspath = self.create_paths(
-            self.base_path, self.sub_path, is_bag=self.is_bag, envars=envars)
-
+        self._create_input_output_paths()
+        # get custom param
         self.substitutions = self.parameters.get('substitutions', [])
         logger.debug("String substitutions: {}".format(self.substitutions))
         # validate strsubs
@@ -76,5 +66,4 @@ class StrSubTransformProcessor(BaseTransformProcessor):
         except KeyError as e:
             raise DerivaDownloadError("Required input attribute not found in row", e)
 
-        self.outputs.update({self.output_relpath: {LOCAL_PATH_KEY: self.output_abspath, SOURCE_URL_KEY: self.url}})
         return super(StrSubTransformProcessor, self).process()
