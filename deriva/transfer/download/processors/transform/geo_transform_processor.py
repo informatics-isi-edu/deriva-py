@@ -11,20 +11,15 @@ from deriva.transfer.download.processors.transform.base_transform_processor impo
 class GeoExportTransformProcessor(BaseTransformProcessor):
     def __init__(self, envars=None, **kwargs):
         super(GeoExportTransformProcessor, self).__init__(envars, **kwargs)
+        self._create_input_output_paths()
         self.excel_template_path = self.parameters.get("excel_template_path", "GEO_Metadata_Template.xlsx")
-        self.input_relpath, self.input_abspath = self.create_paths(
-            self.base_path, self.input_path, is_bag=self.is_bag, envars=envars)
-        self.output_relpath, self.output_abspath = self.create_paths(
-            self.base_path, self.sub_path, is_bag=self.is_bag, envars=envars)
 
     def process(self):
         logging.info("Transforming input file [%s] into output file [%s] using template file [%s]" %
                      (self.input_abspath, self.output_abspath, self.excel_template_path))
         geo = Export2GEO(self.input_abspath, self.excel_template_path, self.output_abspath)
         geo.export_all()
-        os.remove(self.input_abspath)
-        del self.outputs[self.input_relpath]
-        self.outputs.update({self.output_relpath: {LOCAL_PATH_KEY: self.output_abspath, SOURCE_URL_KEY: self.url}})
+
         super(GeoExportTransformProcessor, self).process()
         return self.outputs
 
