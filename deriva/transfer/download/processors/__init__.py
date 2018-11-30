@@ -6,7 +6,7 @@ from deriva.transfer.download.processors.query.base_query_processor import CSVQu
     JSONEnvUpdateProcessor, JSONQueryProcessor, JSONStreamQueryProcessor
 from deriva.transfer.download.processors.query.bag_fetch_query_processor import BagFetchQueryProcessor
 from deriva.transfer.download.processors.query.file_download_query_processor import FileDownloadQueryProcessor
-from deriva.transfer.download.processors.query.fasta_output_query_processor import FastaOutputQueryProcessor
+from deriva.transfer.download.processors.transform.fasta_transform_processor import FastaExportTransformProcessor
 from deriva.transfer.download.processors.transform.geo_transform_processor import GeoExportTransformProcessor
 from deriva.transfer.download.processors.transform.string_transform_processor import InterpolationTransformProcessor, \
     StrSubTransformProcessor
@@ -21,14 +21,14 @@ DEFAULT_QUERY_PROCESSORS = {
     "json": JSONQueryProcessor,
     "json-stream": JSONStreamQueryProcessor,
     "download": FileDownloadQueryProcessor,
-    "fetch": BagFetchQueryProcessor,
-    "fasta": FastaOutputQueryProcessor
+    "fetch": BagFetchQueryProcessor
 }
 
 DEFAULT_TRANSFORM_PROCESSORS = {
     "interpolation": InterpolationTransformProcessor,
     "strsub": StrSubTransformProcessor,
-    "geo": GeoExportTransformProcessor
+    "geo": GeoExportTransformProcessor,
+    "fasta": FastaOutputQueryProcessor
 }
 
 DEFAULT_POST_PROCESSORS = {

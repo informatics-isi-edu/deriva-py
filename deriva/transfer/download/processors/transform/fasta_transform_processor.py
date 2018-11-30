@@ -1,24 +1,18 @@
 import os
 import json
 from collections import OrderedDict
-from deriva.transfer.download.processors.query.base_query_processor import BaseQueryProcessor, LOCAL_PATH_KEY
+from deriva.transfer.download.processors.transform.base_transform_processor import BaseTransformProcessor, \
+    LOCAL_PATH_KEY
 
 
-class FastaOutputQueryProcessor(BaseQueryProcessor):
+class FastaExportTransformProcessor(BaseTransformProcessor):
     def __init__(self, envars=None, **kwargs):
-        super(FastaOutputQueryProcessor, self).__init__(envars, **kwargs)
-        self.ext = ".fasta"
-        self.content_type = "application/x-json-stream"
-        self.input_relpath, self.input_abspath = self.create_paths(self.base_path, "fasta-input.json")
-        self.output_relpath, self.output_abspath = self.create_paths(
-            self.base_path, self.sub_path, ext=self.ext, is_bag=self.is_bag, envars=envars)
+        super(FastaExportTransformProcessor, self).__init__(envars, **kwargs)
+        self._create_input_output_paths()
 
     def process(self):
-        super(FastaOutputQueryProcessor, self).process()
         self.convert_json_file_to_fasta(self.input_abspath, self.output_abspath, self.processor_params)
-        os.remove(self.input_abspath)
-        self.outputs.update({self.output_relpath: {LOCAL_PATH_KEY: self.output_abspath}})
-        return self.outputs
+        return super(FastaExportTransformProcessor, self).process()
 
     @staticmethod
     def convert_json_obj_to_fasta_lines(obj, params):
