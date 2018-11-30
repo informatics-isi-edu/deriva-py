@@ -19,7 +19,7 @@
       {
         "processor": "fetch",
         "processor_params": {
-          "query_path": "/attribute/D:=isa:dataset/RID={RID}/E:=isa:experiment/experiment_type:=vocab:experiment_type/id=OBI%3A0001271/$E/STRAND:=vocab:strandedness/$E/R:=isa:replicate/SAMPLE:=isa:biosample/SPEC:=vocab:species/$R/SEQ:=isa:sequencing_data/PAIRED:=vocab:paired_end_or_single_read/$SEQ/file_format:=vocab:file_format/name=FastQ/$SEQ/dataset:=D:RID,experiment:=E:RID,biosample:=SAMPLE:RID,file:=SEQ:RID,filename:=SEQ:filename,size:=SEQ:byte_count,md5:=SEQ:md5,url:=SEQ:url",
+          "query_path": "/attribute/D:=isa:dataset/RID={RID}/E:=isa:experiment/experiment_type:=vocab:experiment_type/id=OBI%3A0001271/$E/STRAND:=vocab:strandedness/$E/R:=isa:replicate/SAMPLE:=isa:biosample/SPEC:=vocab:species/$R/SEQ:=isa:sequencing_data/PAIRED:=vocab:paired_end_or_single_read/$SEQ/file_format:=vocab:file_format/name=FastQ/$SEQ/dataset:=D:RID,experiment:=E:RID,biosample:=SAMPLE:RID,file:=SEQ:RID,filename:=SEQ:filename,length:=SEQ:byte_count,md5:=SEQ:md5,url:=SEQ:url",
           "output_path": "{dataset}/{experiment}/{biosample}/seq"
         }
       },
@@ -33,7 +33,7 @@
       {
         "processor": "fetch",
         "processor_params": {
-          "query_path": "/attribute/D:=isa:dataset/RID={RID}/E:=isa:experiment/experiment_type:=vocab:experiment_type/id=OBI%3A0000716/$E/TARGET:=vocab:target_of_assay/$E/R:=isa:replicate/SAMPLE:=isa:biosample/SPEC:=vocab:species/$R/SEQ:=isa:sequencing_data/PAIRED:=vocab:paired_end_or_single_read/$SEQ/file_format:=vocab:file_format/name=FastQ/$SEQ/dataset:=D:RID,experiment:=E:RID,biosample:=SAMPLE:RID,technical_replicate_num:=R:technical_replicate_number,file:=SEQ:RID,filename:=SEQ:filename,size:=SEQ:byte_count,md5:=SEQ:md5,url:=SEQ:url",
+          "query_path": "/attribute/D:=isa:dataset/RID={RID}/E:=isa:experiment/experiment_type:=vocab:experiment_type/id=OBI%3A0000716/$E/TARGET:=vocab:target_of_assay/$E/R:=isa:replicate/SAMPLE:=isa:biosample/SPEC:=vocab:species/$R/SEQ:=isa:sequencing_data/PAIRED:=vocab:paired_end_or_single_read/$SEQ/file_format:=vocab:file_format/name=FastQ/$SEQ/dataset:=D:RID,experiment:=E:RID,biosample:=SAMPLE:RID,technical_replicate_num:=R:technical_replicate_number,file:=SEQ:RID,filename:=SEQ:filename,length:=SEQ:byte_count,md5:=SEQ:md5,url:=SEQ:url",
           "output_path": "{dataset}/{experiment}/{biosample}/seq"
         }
       }

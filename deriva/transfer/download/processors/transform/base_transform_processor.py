@@ -1,4 +1,5 @@
 import os
+from deriva.core import stob
 from deriva.core.utils.mime_utils import guess_content_type
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError
 from deriva.transfer.download.processors.base_processor import BaseProcessor, LOCAL_PATH_KEY, SOURCE_URL_KEY
@@ -18,7 +19,7 @@ class BaseTransformProcessor(BaseProcessor):
         self.is_bag = kwargs.get("bag", False)
         self.transformed_output = self.outputs.get(self.input_path, dict())
         self.url = self.transformed_output.get(SOURCE_URL_KEY)
-        self.ro_file_provenance = True
+        self.ro_file_provenance = stob(self.parameters.get("ro_file_provenance", False if not self.is_bag else True))
         self.ro_manifest = self.kwargs.get("ro_manifest")
         self.ro_author_name = self.kwargs.get("ro_author_name")
         self.ro_author_orcid = self.kwargs.get("ro_author_orcid")
@@ -26,6 +27,12 @@ class BaseTransformProcessor(BaseProcessor):
         self.input_abspath = None
         self.output_relpath = None
         self.output_abspath = None
+
+    def _create_input_output_paths(self):
+        self.input_relpath, self.input_abspath = self.create_paths(
+            self.base_path, self.input_path, is_bag=self.is_bag, envars=envars)
+        self.output_relpath, self.output_abspath = self.create_paths(
+            self.base_path, self.sub_path, is_bag=self.is_bag, envars=envars)
 
     def process(self):
         if self.ro_manifest and self.ro_file_provenance:

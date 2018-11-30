@@ -1,5 +1,6 @@
 import os
 import errno
+from deriva.core import urlquote
 from deriva.core.utils import mime_utils as mu, hash_utils as hu
 
 PROCESSOR_PARAMS_KEY = "processor_params"
@@ -21,11 +22,22 @@ class BaseProcessor(object):
 
     def __init__(self, envars=None, **kwargs):
         self.envars = envars if (envars is not None) else dict()
+        self._urlencode_envars()
         self.kwargs = kwargs
         self.outputs = kwargs["inputs"]
         self.parameters = kwargs.get(PROCESSOR_PARAMS_KEY, dict()) or dict()
         self.identity = kwargs.get("identity", dict()) or dict()
         self.wallet = kwargs.get("wallet", dict()) or dict()
+
+    def _urlencode_envars(self, safe_overrides=None):
+        urlencoded = dict()
+        if not safe_overrides:
+            safe_overrides = dict()
+        for k, v in self.envars.items():
+            if k.endswith("_urlencoded"):
+                continue
+            urlencoded[k + "_urlencoded"] = urlquote(str(v), safe_overrides.get(k, ""))
+        self.envars.update(urlencoded)
 
     @classmethod
     def process(cls):
