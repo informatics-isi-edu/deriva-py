@@ -1,4 +1,5 @@
 {
+  "comment": "use with: RID=TMJ genome=FACEBASE%3A1-4FZE",
   "bag": {
     "bag_name": "custom-tracks-test",
     "bag_algorithms":["md5"],
@@ -9,7 +10,6 @@
   "catalog": {
     "query_processors": [
       {
-        "comment": "use with: RID=TMJ genome=FACEBASE%3A1-4FZE",
         "processor": "json-stream",
         "processor_params": {
           "output_path": "track-metadata.json",
