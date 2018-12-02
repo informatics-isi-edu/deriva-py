@@ -1,0 +1,46 @@
+{
+  "comment": "use with: RID=TMJ genome=FACEBASE%3A1-4FZE",
+  "bag": {
+    "bag_name": "custom-tracks-test",
+    "bag_algorithms":["md5"],
+    "bag_metadata": {
+      "Source-Organization": "USC Information Sciences Institute, Informatics Systems Research Division"
+    }
+  },
+  "catalog": {
+    "query_processors": [
+      {
+        "processor": "json-stream",
+        "processor_params": {
+          "output_path": "track-metadata.json",
+          "query_path": "/attribute/D:=isa:dataset/RID={RID}/T:=isa:track_data/mapping_assembly={genome}/FF:=vocab:file_format/$T/RID,filename,url,type:=FF:name"
+        }
+      }
+    ]
+  },
+  "transform_processors": [
+    {
+      "processor":"strsub",
+      "processor_params": {
+        "input_path": "track-metadata.json",
+        "output_path": "track-metadata-unversioned.json",
+        "substitutions": [
+          {
+            "pattern": ":[^/]*$",
+            "repl": "",
+            "input": "url",
+            "output": "url"
+          }
+        ]
+      }
+    },
+    {
+      "processor":"interpolation",
+      "processor_params": {
+        "input_path": "track-metadata-unversioned.json",
+        "output_path": "customtracks.txt",
+        "template": "track type=$type name=\"$RID\" description=\"$filename\" bigDataUrl=https://www.facebase.org$url\n"
+      }
+    }
+  ]
+}

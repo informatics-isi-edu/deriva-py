@@ -23,6 +23,7 @@ class BaseTransformProcessor(BaseProcessor):
         self.ro_manifest = self.kwargs.get("ro_manifest")
         self.ro_author_name = self.kwargs.get("ro_author_name")
         self.ro_author_orcid = self.kwargs.get("ro_author_orcid")
+        self.delete_input = stob(self.parameters.get("delete_input", True))
         self.input_relpath = None
         self.input_abspath = None
         self.output_relpath = None
@@ -30,9 +31,14 @@ class BaseTransformProcessor(BaseProcessor):
 
     def _create_input_output_paths(self):
         self.input_relpath, self.input_abspath = self.create_paths(
-            self.base_path, self.input_path, is_bag=self.is_bag, envars=envars)
+            self.base_path, self.input_path, is_bag=self.is_bag, envars=self.envars)
         self.output_relpath, self.output_abspath = self.create_paths(
-            self.base_path, self.sub_path, is_bag=self.is_bag, envars=envars)
+            self.base_path, self.sub_path, is_bag=self.is_bag, envars=self.envars)
+
+    def _delete_input(self):
+        if os.path.isfile(self.input_abspath):
+            os.remove(self.input_abspath)
+        del self.outputs[self.input_relpath]
 
     def process(self):
         if self.ro_manifest and self.ro_file_provenance:
@@ -43,6 +49,10 @@ class BaseTransformProcessor(BaseProcessor):
                                  retrieved_on=ro.make_retrieved_on(),
                                  retrieved_by=ro.make_retrieved_by(self.ro_author_name, orcid=self.ro_author_orcid),
                                  bundled_as=ro.make_bundled_as())
+        if self.delete_input:
+            self._delete_input()
+
+        self.outputs.update({self.output_relpath: {LOCAL_PATH_KEY: self.output_abspath, SOURCE_URL_KEY: self.url}})
         return self.outputs
 
 
