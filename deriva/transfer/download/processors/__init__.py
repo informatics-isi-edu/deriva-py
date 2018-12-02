@@ -28,7 +28,7 @@ DEFAULT_TRANSFORM_PROCESSORS = {
     "interpolation": InterpolationTransformProcessor,
     "strsub": StrSubTransformProcessor,
     "geo": GeoExportTransformProcessor,
-    "fasta": FastaOutputQueryProcessor
+    "fasta": FastaExportTransformProcessor
 }
 
 DEFAULT_POST_PROCESSORS = {

@@ -1,8 +1,7 @@
 import os
 import json
 from collections import OrderedDict
-from deriva.transfer.download.processors.transform.base_transform_processor import BaseTransformProcessor, \
-    LOCAL_PATH_KEY
+from deriva.transfer.download.processors.transform.base_transform_processor import BaseTransformProcessor
 
 
 class FastaExportTransformProcessor(BaseTransformProcessor):
