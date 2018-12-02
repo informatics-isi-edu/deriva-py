@@ -72,6 +72,7 @@ class Schema (_ec.CatalogSchema):
             "schema_name": sname,
             "acls": acls,
             "annotations": annotations,
+            "comment": comment,
         }
 
     def prejson(self, prune=True):
