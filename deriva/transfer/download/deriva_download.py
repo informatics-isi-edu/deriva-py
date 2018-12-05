@@ -9,7 +9,7 @@ from bdbag import bdbag_api as bdb, bdbag_ro as ro, BAG_PROFILE_TAG, BDBAG_RO_PR
 from deriva.core import ErmrestCatalog, HatracStore, format_exception, get_credential, read_config, stob, \
     __version__ as VERSION
 from deriva.transfer.download.processors import find_query_processor, find_transform_processor, find_post_processor
-from deriva.transfer.download.processors.base_processor import LOCAL_PATH_KEY
+from deriva.transfer.download.processors.base_processor import LOCAL_PATH_KEY, REMOTE_PATHS_KEY, SERVICE_URL_KEY
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError, \
     DerivaDownloadAuthenticationError
 
@@ -20,7 +20,7 @@ class DerivaDownload(object):
     """
     def __init__(self, server,
                  output_dir=None,
-                 kwargs=None,
+                 envars=None,
                  config=None,
                  config_file=None,
                  credentials=None,
@@ -28,7 +28,7 @@ class DerivaDownload(object):
         self.server = server
         self.hostname = None
         self.output_dir = output_dir if output_dir else "."
-        self.envars = kwargs if kwargs else dict()
+        self.envars = envars if envars else dict()
         self.catalog = None
         self.store = None
         self.config = config
@@ -252,6 +252,9 @@ class DerivaDownload(object):
 
 
 class GenericDownloader(DerivaDownload):
+    LOCAL_PATH_KEY = LOCAL_PATH_KEY
+    REMOTE_PATHS_KEY = REMOTE_PATHS_KEY
+    SERVICE_URL_KEY = SERVICE_URL_KEY
 
     def __init__(self, server, **kwargs):
         DerivaDownload.__init__(self, server, **kwargs)

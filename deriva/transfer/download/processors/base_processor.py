@@ -4,6 +4,7 @@ from deriva.core import urlquote
 from deriva.core.utils import mime_utils as mu, hash_utils as hu
 
 PROCESSOR_PARAMS_KEY = "processor_params"
+SERVICE_URL_KEY = "deriva_service_url"
 SOURCE_URL_KEY = "source_url"
 LOCAL_PATH_KEY = "local_path"
 REMOTE_PATHS_KEY = "remote_paths"

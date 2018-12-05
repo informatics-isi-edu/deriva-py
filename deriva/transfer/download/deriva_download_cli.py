@@ -30,7 +30,7 @@ class DerivaDownloadCLI(BaseCLI):
                hostname,
                catalog=1,
                token=None,
-               kwargs=None,
+               envars=None,
                config_file=None,
                credential_file=None):
 
@@ -47,7 +47,7 @@ class DerivaDownloadCLI(BaseCLI):
 
         downloader = GenericDownloader(server,
                                        output_dir=output_path,
-                                       kwargs=kwargs,
+                                       envars=envars,
                                        config_file=config_file,
                                        credential_file=credential_file)
         if token:
@@ -65,13 +65,13 @@ class DerivaDownloadCLI(BaseCLI):
             sys.stderr.write("\n")
 
         try:
-            downloaded = DerivaDownloadCLI.download(os.path.abspath(args.path),
-                                                    args.host,
-                                                    args.catalog,
-                                                    args.token,
-                                                    args.kwargs,
-                                                    args.config,
-                                                    args.credential_file)
+            downloaded = DerivaDownloadCLI.download(output_path=os.path.abspath(args.path),
+                                                    hostname=args.host,
+                                                    catalog=args.catalog,
+                                                    token=args.token,
+                                                    envars=args.kwargs,
+                                                    config_file=args.config,
+                                                    credential_file=args.credential_file)
             sys.stdout.write("\n%s\n" % (json.dumps(downloaded)))
         except DerivaDownloadAuthenticationError:
             sys.stderr.write(("\n" if not args.quiet else "") +
