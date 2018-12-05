@@ -14,6 +14,7 @@ from deriva.transfer.download.processors.postprocess.identifier_post_processor i
     MinidIdentifierPostProcessor
 from deriva.transfer.download.processors.postprocess.transfer_post_processor import Boto3UploadPostProcessor
 from deriva.transfer.download.processors.postprocess.workspace_post_processor import GlobusWorkspacePortalPostProcessor
+from deriva.transfer.download.processors.postprocess.url_post_processor import UrlRewritePostProcessor
 
 DEFAULT_QUERY_PROCESSORS = {
     "csv": CSVQueryProcessor,
@@ -34,7 +35,8 @@ DEFAULT_TRANSFORM_PROCESSORS = {
 DEFAULT_POST_PROCESSORS = {
     "identifier": GlobusIdentifierPostProcessor,
     "cloud_upload": Boto3UploadPostProcessor,
-    "workspace": GlobusWorkspacePortalPostProcessor
+    "workspace": GlobusWorkspacePortalPostProcessor,
+    "url_rewrite": UrlRewritePostProcessor
 }
 
 
