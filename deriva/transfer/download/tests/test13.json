@@ -1,0 +1,39 @@
+{
+  "comment": "use with: RID=TMJ genome=FACEBASE%3A1-4FZE",
+  "catalog": {
+    "query_processors": [
+      {
+        "processor": "env",
+        "processor_params": {
+          "query_path": "/attribute/D:=isa:dataset/RID={RID}/T:=isa:track_data/mapping_assembly={genome}/MA:=vocab:mapping_assembly/genome_assembly:=name"
+        }
+      },
+      {
+        "processor": "json-stream",
+        "processor_params": {
+          "output_path": "track-metadata.json",
+          "query_path": "/attribute/D:=isa:dataset/RID={RID}/T:=isa:track_data/mapping_assembly={genome}/FF:=vocab:file_format/$T/RID,filename,url,type:=FF:name"
+        }
+      }
+    ]
+  },
+  "transform_processors": [
+    {
+      "processor":"interpolation",
+      "processor_params": {
+        "input_path": "track-metadata.json",
+        "output_path": "customtracks.txt",
+        "template": "track type=$type name=\"$RID\" description=\"$filename\" bigDataUrl=https://www.facebase.org$url\n"
+      }
+    }
+  ],
+  "post_processors": [
+    {
+      "processor":"url_rewrite",
+      "processor_params": {
+        "input_path": "customtracks.json",
+        "remote_path": "http://genome.ucsc.edu/cgi-bin/hgTracks?db={genome_assembly_urlencoded}&position=chr1&hgt.customText={output_url_urlencoded}"
+      }
+    }
+  ]
+}
