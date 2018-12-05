@@ -16,6 +16,15 @@ class UrlRewritePostProcessor(BaseProcessor):
     
     This can be used for scenarios where the client should be directed to a secondary service that consumes the export
     service's output file.
+
+    Service params:
+      `remote_path`: the remote path pattern formatted with the following env.
+
+    Formatting environment:
+      - copy of all `envars` in the current environment, plus
+      - `output`: the current output key
+      - `output_url`: the url to the current output formed by `deriva_service_url` + `/` + `output`
+      - and `..._urlencoded` variants of the above using the deriva urlquote() function.
     """
 
     def __init__(self, envars=None, **kwargs):
