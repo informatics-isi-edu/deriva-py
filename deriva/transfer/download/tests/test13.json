@@ -31,7 +31,7 @@
     {
       "processor":"url_rewrite",
       "processor_params": {
-        "input_path": "customtracks.json",
+        "input_paths": ["customtracks.txt"],
         "remote_path": "http://genome.ucsc.edu/cgi-bin/hgTracks?db={genome_assembly_urlencoded}&position=chr1&hgt.customText={output_url_urlencoded}"
       }
     }

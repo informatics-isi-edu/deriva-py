@@ -1,9 +1,10 @@
 import logging
-from deriva.transfer.download import DerivaDownloadConfigurationError
+from deriva.transfer.download import DerivaDownloadConfigurationError, DerivaDownloadError
 from deriva.transfer.download.processors.base_processor import *
 
 logger = logging.getLogger(__name__)
 
+INPUT_PATHS_KEY = 'input_paths'
 REMOTE_PATH_KEY = 'remote_path'
 OUTPUT_KEY = 'output'
 OUTPUT_URLENCODED_KEY = 'output_urlencoded'
@@ -18,6 +19,7 @@ class UrlRewritePostProcessor(BaseProcessor):
     service's output file.
 
     Service params:
+      `input_paths`: a list of input path names which will be post processed.
       `remote_path`: the remote path pattern formatted with the following env.
 
     Formatting environment:
@@ -29,16 +31,30 @@ class UrlRewritePostProcessor(BaseProcessor):
 
     def __init__(self, envars=None, **kwargs):
         super(UrlRewritePostProcessor, self).__init__(envars, **kwargs)
-        self.remote_path_pattern = self.parameters[REMOTE_PATH_KEY]
+
+        # get remote path pattern
+        self.remote_path_pattern = self.parameters.get(REMOTE_PATH_KEY)
         if not self.remote_path_pattern:
             raise DerivaDownloadConfigurationError(
                     "%s is missing required parameter '%s' from %s" %
                     (self.__class__.__name__, REMOTE_PATH_KEY, PROCESSOR_PARAMS_KEY))
         logger.debug("remote path pattern: {}".format(self.remote_path_pattern))
 
+        # get input paths
+        self.input_paths = self.parameters.get(INPUT_PATHS_KEY)
+        if not self.input_paths:
+            raise DerivaDownloadConfigurationError(
+                    "%s is missing required parameter '%s' from %s" %
+                    (self.__class__.__name__, INPUT_PATHS_KEY, PROCESSOR_PARAMS_KEY))
+
     def process(self):
         env = self.envars.copy()
-        for k, v in self.outputs.items():
+        for input_path in self.input_paths:
+            k = input_path
+            v = self.outputs.get(k)
+            if not v:
+                raise DerivaDownloadError(
+                    "%s is missing required input path '%s'" % (self.__class__.__name__, k))
             env[OUTPUT_KEY] = k
             env[OUTPUT_URLENCODED_KEY] = urlquote(k)
             env[OUTPUT_URL_KEY] = self.envars.get(SERVICE_URL_KEY, '') + '/' + k
