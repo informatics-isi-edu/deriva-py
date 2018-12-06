@@ -264,10 +264,12 @@ class DataPath (object):
             expression = Project(expression, attributes, renamed_attributes)
         base_path = str(expression)
 
-        def fetcher(limit=None):
+        def fetcher(limit=None, sort=None):
             assert limit is None or isinstance(limit, int)
-            opts = '?limit=%d' % limit if limit else ''
-            path = base_path + opts
+            assert sort is None or hasattr(sort, '__iter__')
+            limiting = '?limit=%d' % limit if limit else ''
+            sorting = '@sort(' + ','.join([col.uname for col in sort]) + ')' if sort else ''
+            path = base_path + sorting + limiting
             logger.debug("Fetching " + path)
             try:
                 resp = catalog.get(path)
@@ -324,13 +326,14 @@ class EntitySet (object):
     def __iter__(self):
         return iter(self._results)
 
-    def fetch(self, limit=None):
+    def fetch(self, limit=None, sort=None):
         """Fetches the entities from the catalog.
         :param limit: maximum number of entities to fetch from the catalog.
+        :param sort: collection of columns to use for sorting.
         :return: self
         """
         limit = int(limit) if limit else None
-        self._results_doc = self._fetcher_fn(limit)
+        self._results_doc = self._fetcher_fn(limit, sort)
         self._dataframe = None  # clear potentially cached state
         logger.debug("Fetched %d entities" % len(self._results_doc))
         return self
@@ -608,6 +611,11 @@ class Column (object):
         else:
             return self.uname
 
+    @property
+    def desc(self):
+        """A descending sort modifier based on this column."""
+        return SortDescending(self)
+
     def __str__(self):
         return self.name
 
@@ -640,6 +648,23 @@ class Column (object):
     def ts(self, other):
         assert isinstance(other, str), "This comparison only supports string literals."
         return FilterPredicate(self, "::ts::", other)
+
+
+class SortDescending (object):
+    """Represents a descending sort condition.
+    """
+    def __init__(self, col):
+        """Creates sort descending object.
+
+        :param col: a column object
+        """
+        assert isinstance(col, Column)
+        self.col = col
+
+    @property
+    def uname(self):
+        """the url encoded name"""
+        return urlquote(self.col.uname) + "::desc::"
 
 
 class PathOperator (object):
