@@ -184,25 +184,25 @@ class Export2GEO(object):
 
         for e in self.experiments:
             for p in self.protocol_type:
-                if len(self.protocol_list[p]) == 0 and e[p] is not None and str(e[p]) != 'None':
+                if len(self.protocol_list[p]) == 0 and e[p] is not None and e[p] != 'None':
                     self.protocol_list[p].append(e[p])
-                elif e[p] not in self.protocol_list[p] and e[p] is not None and str(e[p]) != 'None':
+                elif e[p] not in self.protocol_list[p] and e[p] is not None and e[p] != 'None':
                     self.protocol_list[p].append(e[p])
                     self.protocol_unique[p] = False
             i = 'Data_Processing'
             if i in e.keys():
-                if len(self.other_item_list[i]) == 0 and e[i] is not None and str(e[i]) != 'None':
+                if len(self.other_item_list[i]) == 0 and e[i] is not None and e[i] != 'None':
                     self.other_item_list[i].append(e[i])
-                elif e[i] not in self.other_item_list[i] and e[i] is not None and str(e[i]) != 'None':
+                elif e[i] not in self.other_item_list[i] and e[i] is not None and e[i] != 'None':
                     self.other_item_list[i].append(e[i])
                     self.other_item_unique[i] = False
 
         for e in self.experiment_settings:
             i = 'Reference_Genome'
             if i in e.keys():
-                if len(self.other_item_list[i]) == 0 and e[i] is not None and str(e[i]) != 'None':
+                if len(self.other_item_list[i]) == 0 and e[i] is not None and e[i] != 'None':
                     self.other_item_list[i].append(e[i])
-                elif e[i] not in self.other_item_list[i] and e[i] is not None and str(e[i]) != 'None':
+                elif e[i] not in self.other_item_list[i] and e[i] is not None and e[i] != 'None':
                     self.other_item_list[i].append(e[i])
                     self.other_item_unique[i] = False
 
