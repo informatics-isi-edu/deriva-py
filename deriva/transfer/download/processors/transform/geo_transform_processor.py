@@ -47,7 +47,6 @@ class Export2Excel(object):
 
     def initialize_wb(self):
         self.import_openpyxl()
-
         # Open an xlsx for reading
         self.wb = self.OPENPYXL.load_workbook(filename=self._template_path_)
         self.ws = self.wb[self.sheet_name]
@@ -108,7 +107,6 @@ class Export2GEO(object):
                               'Construction_Protocol', 'Label_Protocol', 'Hybridization_Protocol', 'Scan_Protocol']
         self.protocol_unique = {}
         self.protocol_list = {}
-
         self.other_item = ['Data_Processing', 'Reference_Genome']
         self.other_item_unique = {}
         self.other_item_list = {}
@@ -134,37 +132,38 @@ class Export2GEO(object):
         self.excel = Export2Excel(self.excel_template, self.output_excel_path)
 
     def export_all(self):
-        self.export_start()
-        self.export_series()
-        self.export_sample_prepare()
-        self.export_sample()
-        self.export_protocol()
-        self.export_data_processing()
-        self.export_processed_datafiles()
-        self.export_raw_datafiles()
-        self.export_paired_end()
-        self.export_finish()
+        if self.study is not None:
+            self.export_start()
+            self.export_series()
+            self.export_sample_prepare()
+            self.export_sample()
+            self.export_protocol()
+            self.export_data_processing()
+            self.export_processed_datafiles()
+            self.export_raw_datafiles()
+            self.export_paired_end()
+            self.export_finish()
 
     def export_series(self):
         # write SERIES
         self.current_row_idx = 9
-        self.excel.write_cell(self.current_row_idx, 2, self.study['Title'])
+        self.excel.write_cell(self.current_row_idx, 2, self.study.get('Title',''))
         self.current_row_idx += 1
-        self.excel.write_cell(self.current_row_idx, 2, self.study['Summary'])
+        self.excel.write_cell(self.current_row_idx, 2, self.study.get('Summary',''))
         self.current_row_idx += 1
-        self.excel.write_cell(self.current_row_idx, 2, self.study['Overall_Design'])
+        self.excel.write_cell(self.current_row_idx, 2, self.study.get('Overall_Design',''))
         self.current_row_idx += 1
-        self.excel.write_cell(self.current_row_idx, 2, self.study['Principal_Investigator_Name'])
+        self.excel.write_cell(self.current_row_idx, 2, self.study.get('Principal_Investigator_Name',''))
         self.current_row_idx += 1
 
         if len(self.study_files) >= 1 and self.study_files[0] is not None:
             # todo test if it works correctly
-            self.excel.write_cell(self.current_row_idx, 2, self.study_files[0]['Name'])
+            self.excel.write_cell(self.current_row_idx, 2, self.study_files[0].get('Name',''))
             self.current_row_idx += 1
             for i in range(len(self.study_files) - 1):
                 self.excel.insert_row(self.current_row_idx, 1)
                 self.excel.copy_cell(self.current_row_idx - 1, 1, self.current_row_idx, 1)
-                self.excel.write_cell(self.current_row_idx, 2, self.study_files[i + 1]['Name'])
+                self.excel.write_cell(self.current_row_idx, 2, self.study_files[i + 1].get('Name',''))
                 self.current_row_idx += 1
         else:
             self.excel.write_cell(self.current_row_idx, 2, '')
@@ -173,6 +172,9 @@ class Export2GEO(object):
     def export_sample_prepare(self):
         # check self.protocol unique
         for p in self.protocol_type:
+            # protocols which are applicable to only a subset of Samples should be included
+            # as additional columns of the SAMPLES section instead.
+            # this dictionary is used to handle dynamic headers related to protocol
             self.protocol_unique[p] = True
             self.protocol_list[p] = []
 
@@ -209,20 +211,23 @@ class Export2GEO(object):
         self.current_row_idx = self.current_row_idx + 6
         # write SAMPLES
         for e in self.experiments:
+            if e is None or 'RID' not in e.keys():
+                continue
             for r in self.replicates:
+                if r is None or 'Experiment_RID' not in r.keys() or 'RID' not in r.keys():
+                    continue
                 if r['Experiment_RID'] == e['RID']:
                     local_col_idx = 1
                     self.current_row_idx += 1
                     self.excel.insert_row(self.current_row_idx, 1)
-                    sample_name = e['Internal_ID'] + '_' + str(r['Biological_Replicate_Number']) + '_' + str(
-                        r['Technical_Replicate_Number'])
-                    sample_title = e['Name'] + '_' + str(r['Biological_Replicate_Number']) + '_' + str(
-                        r['Technical_Replicate_Number'])
+                    sample_name = e.get('Internal_ID','') + '_' + str(r.get('Biological_Replicate_Number','')) + '_' + str(
+                        r.get('Technical_Replicate_Number',''))
+                    sample_title = e.get('Name','') + '_' + str(r.get('Biological_Replicate_Number','')) + '_' + str(
+                        r.get('Technical_Replicate_Number',''))
                     # todo verify the data
-                    # value shows: "rbk-legacy:Proximal tubule:"
-                    sample_source_name = e['Anatomy']
-                    sample_organism = e['Species']
-                    sample_molecule = e['Molecule_Type']
+                    sample_source_name = e.get('Anatomy','')
+                    sample_organism = e.get('Species','')
+                    sample_molecule = e.get('Molecule_Type','')
 
                     self.excel.write_cell(self.current_row_idx, local_col_idx, sample_name)
                     local_col_idx += 1
@@ -242,8 +247,10 @@ class Export2GEO(object):
 
                     # todo dynamic changing columns
                     for s in self.specimen:
-                        if s['REPLICATE_RID'] == r['RID']:
-                            sample_phenotype = s['Phenotype']
+                        if s is None or 'REPLICATE_RID' not in s.keys():
+                            continue
+                        elif s['REPLICATE_RID'] == r['RID']:
+                            sample_phenotype = s.get('Phenotype','')
                             local_col_idx += 1
                             self.excel.copy_cell(self.header_row_idx - 1, 5, self.header_row_idx, local_col_idx)
                             self.excel.write_cell(self.header_row_idx, local_col_idx, 'characteristics: Phenotype')
@@ -258,9 +265,11 @@ class Export2GEO(object):
                     local_col_idx += 1
 
                     for s in self.specimen:
-                        if s['REPLICATE_RID'] == r['RID']:
+                        if s is None or 'REPLICATE_RID' not in s.keys():
+                            continue
+                        elif s['REPLICATE_RID'] == r['RID']:
                             self.excel.copy_cell(self.header_row_idx - 1, 8, self.header_row_idx, local_col_idx)
-                            sample_description = s['Upload_Notes']
+                            sample_description = s.get('Upload_Notes','')
                             self.excel.write_cell(self.current_row_idx, local_col_idx, sample_description)
                             local_col_idx += 1
                         else:
@@ -270,9 +279,11 @@ class Export2GEO(object):
 
                     # writing raw file
                     for f in self.files:
-                        if f['Replicate_RID'] == r['RID']:
+                        if f is None or 'Replicate_RID' not in f.keys():
+                            continue
+                        elif f['Replicate_RID'] == r['RID']:
                             self.excel.copy_cell(self.header_row_idx - 1, 10, self.header_row_idx, local_col_idx)
-                            self.excel.write_cell(self.current_row_idx, local_col_idx, f['File_Name'])
+                            self.excel.write_cell(self.current_row_idx, local_col_idx, f.get('File_Name',''))
                             local_col_idx += 1
                         else:
                             continue
@@ -332,7 +343,6 @@ class Export2GEO(object):
                     self.excel.write_cell(self.current_row_idx, 2, self.protocol_list[p][0])
                     self.current_row_idx += 1
 
-        # todo: check fixed value OK?
         self.excel.write_cell(self.current_row_idx, 2, 'RNA-seq')
         self.current_row_idx += 1
 
@@ -344,7 +354,6 @@ class Export2GEO(object):
         if len(self.other_item_list['Data_Processing']) == 1:
             processing_list = self.other_item_list['Data_Processing'][0].split('\n')
         else:
-            # logging.debug(len(self.other_item_list['Data_Processing']))
             processing_list = []
         for step_row in processing_list:
             self.excel.insert_row(self.current_row_idx, 1)
@@ -365,21 +374,23 @@ class Export2GEO(object):
         # todo: where to find data
         self.excel.write_cell(self.current_row_idx, 2, 'processed data file format')
         self.current_row_idx += 1
-        self.rows_to_delete.insert(0, self.header_row_idx)
 
     def export_processed_datafiles(self):
         # PROCESSED DATA FILES
         self.current_row_idx = self.current_row_idx + 5
         self.rows_to_delete.insert(0, self.current_row_idx - 1)
         for pf in self.files:
-            local_col_idx = 1
-            self.excel.insert_row(self.current_row_idx, 1)
-            self.excel.write_cell(self.current_row_idx, local_col_idx, pf['File_Name'])
-            local_col_idx += 1
-            self.excel.write_cell(self.current_row_idx, local_col_idx, pf['File_Type'])
-            local_col_idx += 1
-            self.excel.write_cell(self.current_row_idx, local_col_idx, pf['MD5'])
-            self.current_row_idx += 1
+            if pf is None:
+                continue
+            else:
+                local_col_idx = 1
+                self.excel.insert_row(self.current_row_idx, 1)
+                self.excel.write_cell(self.current_row_idx, local_col_idx, pf.get('File_Name',''))
+                local_col_idx += 1
+                self.excel.write_cell(self.current_row_idx, local_col_idx, pf.get('File_Type',''))
+                local_col_idx += 1
+                self.excel.write_cell(self.current_row_idx, local_col_idx, pf.get('MD5',''))
+                self.current_row_idx += 1
 
     def export_raw_datafiles(self):
         # RAW FILES
@@ -388,28 +399,33 @@ class Export2GEO(object):
         self.rows_to_delete.insert(0, self.current_row_idx)
 
         for pf in self.files:
-            current_col_idx = 1
-            self.excel.insert_row(self.current_row_idx, 1)
-            self.excel.write_cell(self.current_row_idx, current_col_idx, pf['File_Name'])
-            current_col_idx += 1
-            self.excel.write_cell(self.current_row_idx, current_col_idx, pf['File_Type'])
-            current_col_idx += 1
-            self.excel.write_cell(self.current_row_idx, current_col_idx, pf['MD5'])
-            current_col_idx += 1
-            # Experiment_Settings.Protocol_Reference
-            for es in self.experiment_settings:
-                if es['Experiment_RID'] == pf['Experiment_RID']:
-                    self.excel.write_cell(self.current_row_idx, current_col_idx, es['Sequencing_Platform'])
-                    current_col_idx += 1
-                    self.excel.write_cell(self.current_row_idx, current_col_idx, es['Read_Length'])
-                    current_col_idx += 1
-                    # todo need change to single or paired-end
-                    if 'pair' in str(es['Paired_End']).lower():
-                        single_or_paired = 'paired-end'
-                    else:
-                        single_or_paired = 'single'
-                    self.excel.write_cell(self.current_row_idx, current_col_idx, single_or_paired)
-                    current_col_idx += 1
+            if pf is None or 'Experiment_RID' not in pf.keys():
+                continue
+            else:
+                current_col_idx = 1
+                self.excel.insert_row(self.current_row_idx, 1)
+                self.excel.write_cell(self.current_row_idx, current_col_idx, pf.get('File_Name',''))
+                current_col_idx += 1
+                self.excel.write_cell(self.current_row_idx, current_col_idx, pf.get('File_Type',''))
+                current_col_idx += 1
+                self.excel.write_cell(self.current_row_idx, current_col_idx, pf.get('MD5',''))
+                current_col_idx += 1
+                # Experiment_Settings.Protocol_Reference
+                for es in self.experiment_settings:
+                    if es is None or 'Experiment_RID' not in es.keys():
+                        continue
+                    elif es['Experiment_RID'] == pf['Experiment_RID']:
+                        self.excel.write_cell(self.current_row_idx, current_col_idx, es.get('Sequencing_Platform',''))
+                        current_col_idx += 1
+                        self.excel.write_cell(self.current_row_idx, current_col_idx, es.get('Read_Length',''))
+                        current_col_idx += 1
+                        # todo need change to single or paired-end
+                        if 'pair' in str(es.get('Paired_End','')).lower():
+                            single_or_paired = 'paired-end'
+                        else:
+                            single_or_paired = 'single'
+                        self.excel.write_cell(self.current_row_idx, current_col_idx, single_or_paired)
+                        current_col_idx += 1
         self.excel.insert_row(self.current_row_idx, 1)
 
     def export_paired_end(self):
