@@ -452,7 +452,7 @@ class Table (object):
         entities = entities if isinstance(entities, (list, tuple)) else list(entities)
         try:
             resp = self.catalog.post(path, json=entities, headers={'Content-Type': 'application/json'})
-            return EntitySet(self.path.uri, lambda ignore: resp.json())
+            return EntitySet(self.path.uri, lambda ignore1, ignore2: resp.json())
         except HTTPError as e:
             logger.error(e.response.text)
             if 400 <= e.response.status_code < 500:
@@ -494,7 +494,7 @@ class Table (object):
 
         try:
             resp = self.catalog.put(path, json=entities, headers={'Content-Type': 'application/json'})
-            return EntitySet(self.path.uri, lambda ignore: resp.json())
+            return EntitySet(self.path.uri, lambda ignore1, ignore2: resp.json())
         except HTTPError as e:
             logger.error(e.response.text)
             if 400 <= e.response.status_code < 500:
