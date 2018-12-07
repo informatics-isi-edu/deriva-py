@@ -72,11 +72,11 @@ class Export2Excel(object):
     def save_xlsx(self):
         self.wb.save(self._output_path_)
 
-    def copy_cell(self, old_row_idx, old_col_idx, new_row_idx, new_col_idx):
+    def copy_cell(self, old_row_idx, old_col_idx, new_row_idx, new_col_idx,copy_style=True):
         cell = self.ws[self.cell_name(old_row_idx, old_col_idx)]
         new_cell = self.ws[self.cell_name(new_row_idx, new_col_idx)]
         new_cell.value = cell.value
-        if cell.has_style:
+        if cell.has_style and copy_style:
             new_cell.font = copy(cell.font)
             new_cell.border = copy(cell.border)
             new_cell.fill = copy(cell.fill)
@@ -157,7 +157,6 @@ class Export2GEO(object):
         self.current_row_idx += 1
 
         if len(self.study_files) >= 1 and self.study_files[0] is not None:
-            # todo test if it works correctly
             self.excel.write_cell(self.current_row_idx, 2, self.study_files[0].get('Name',''))
             self.current_row_idx += 1
             for i in range(len(self.study_files) - 1):
@@ -216,7 +215,7 @@ class Export2GEO(object):
             for r in self.replicates:
                 if r is None or 'Experiment_RID' not in r.keys() or 'RID' not in r.keys():
                     continue
-                if r['Experiment_RID'] == e['RID']:
+                elif r['Experiment_RID'] == e['RID']:
                     local_col_idx = 1
                     self.current_row_idx += 1
                     self.excel.insert_row(self.current_row_idx, 1)
@@ -224,7 +223,6 @@ class Export2GEO(object):
                         r.get('Technical_Replicate_Number',''))
                     sample_title = e.get('Name','') + '_' + str(r.get('Biological_Replicate_Number','')) + '_' + str(
                         r.get('Technical_Replicate_Number',''))
-                    # todo verify the data
                     sample_source_name = e.get('Anatomy','')
                     sample_organism = e.get('Species','')
                     sample_molecule = e.get('Molecule_Type','')
@@ -245,20 +243,19 @@ class Export2GEO(object):
                             self.excel.write_cell(self.current_row_idx, local_col_idx, e[p])
                             local_col_idx += 1
 
-                    # todo dynamic changing columns
+                    # todo list all the characteristics properties
                     for s in self.specimen:
                         if s is None or 'REPLICATE_RID' not in s.keys():
                             continue
                         elif s['REPLICATE_RID'] == r['RID']:
                             sample_phenotype = s.get('Phenotype','')
-                            local_col_idx += 1
                             self.excel.copy_cell(self.header_row_idx - 1, 5, self.header_row_idx, local_col_idx)
                             self.excel.write_cell(self.header_row_idx, local_col_idx, 'characteristics: Phenotype')
                             self.excel.write_cell(self.current_row_idx, local_col_idx, sample_phenotype)
+                            local_col_idx += 1
                         else:
                             continue
 
-                    local_col_idx += 1
                     # copy header
                     self.excel.copy_cell(self.header_row_idx - 1, 7, self.header_row_idx, local_col_idx)
                     self.excel.write_cell(self.current_row_idx, local_col_idx, sample_molecule)
@@ -275,7 +272,7 @@ class Export2GEO(object):
                         else:
                             continue
                     # writing processed file
-                    # todo: how to handle multi-files for one sample
+                    # todo: how to handle multi processed files for one sample
 
                     # writing raw file
                     for f in self.files:
@@ -288,6 +285,9 @@ class Export2GEO(object):
                         else:
                             continue
 
+                    for i in [1,2,3,4,5,6,7,8]:
+                        self.excel.copy_cell(self.header_row_idx - 2, local_col_idx, self.header_row_idx, local_col_idx,False)
+                        local_col_idx += 1
                 else:
                     continue
 
@@ -358,10 +358,13 @@ class Export2GEO(object):
         for step_row in processing_list:
             self.excel.insert_row(self.current_row_idx, 1)
             self.excel.copy_cell(self.header_row_idx, 1, self.current_row_idx, 1)
-            self.excel.write_cell(self.current_row_idx, 2, step_row)
+            self.excel.write_cell(self.current_row_idx-1, 2, step_row)
             self.current_row_idx += 1
 
-        # todo: need to find data source
+        # remove the unused row
+        if len(processing_list)>=1:
+            self.rows_to_delete.insert(0, self.current_row_idx - 1)
+
         if self.other_item_unique['Reference_Genome']:
             if len(self.other_item_list['Reference_Genome']) == 1:
                 self.excel.write_cell(self.current_row_idx, 2, self.other_item_list['Reference_Genome'][0])
@@ -419,7 +422,6 @@ class Export2GEO(object):
                         current_col_idx += 1
                         self.excel.write_cell(self.current_row_idx, current_col_idx, es.get('Read_Length',''))
                         current_col_idx += 1
-                        # todo need change to single or paired-end
                         if 'pair' in str(es.get('Paired_End','')).lower():
                             single_or_paired = 'paired-end'
                         else:
