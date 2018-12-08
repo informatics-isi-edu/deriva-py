@@ -182,8 +182,12 @@ class Export2GEO(object):
             self.other_item_list[i] = []
 
         for e in self.experiments:
+            if e is None or 'RID' not in e.keys():
+                continue
             for p in self.protocol_type:
-                if len(self.protocol_list[p]) == 0 and e[p] is not None and e[p] != 'None':
+                if p not in e.keys():
+                    continue
+                elif len(self.protocol_list[p]) == 0 and e[p] is not None and e[p] != 'None':
                     self.protocol_list[p].append(e[p])
                 elif e[p] not in self.protocol_list[p] and e[p] is not None and e[p] != 'None':
                     self.protocol_list[p].append(e[p])
@@ -197,6 +201,8 @@ class Export2GEO(object):
                     self.other_item_unique[i] = False
 
         for e in self.experiment_settings:
+            if e is None:
+                continue
             i = 'Reference_Genome'
             if i in e.keys():
                 if len(self.other_item_list[i]) == 0 and e[i] is not None and e[i] != 'None':
