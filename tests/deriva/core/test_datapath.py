@@ -41,6 +41,27 @@ def define_test_schema(catalog):
     ))
 
 
+def populate_test_catalog(catalog):
+    """Populate the test catalog."""
+    paths = catalog.getPathBuilder()
+    logger.debug("Insert experiment types")
+    type_table = paths.schemas['Vocab'].tables['Experiment_Type']
+    types = type_table.insert([
+        {"Name": "{}".format(name), "Description": "NA"} for name in range(10)
+    ], defaults=['ID', 'URI'])
+    logger.debug("Inserting experiments")
+    exp = paths.schemas['ISA'].tables['Experiment']
+    exp.insert([
+        {
+            "Name": "experiment-{}".format(i),
+            "Amount": 10 * i,
+            "Time": "2018-01-{}T01:00:00.0".format(1 + (i % 31)),
+            "Type": types[i % 10]['ID']
+        }
+        for i in range(100)
+    ])
+
+
 @unittest.skipUnless(TEST_HOSTNAME, "Test host not specified")
 class DatapathTests (unittest.TestCase):
     catalog = None
@@ -53,6 +74,7 @@ class DatapathTests (unittest.TestCase):
         cls.catalog = server.create_ermrest_catalog()
         try:
             define_test_schema(cls.catalog)
+            populate_test_catalog(cls.catalog)
         except Exception:
             # If this fails, delete catalog and re-raise exception
             cls.catalog.delete_ermrest_catalog(really=True)
