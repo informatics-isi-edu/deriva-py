@@ -4,8 +4,10 @@ import unittest
 from deriva.core import DerivaServer, get_credential, ermrest_model as _em
 
 TEST_HOSTNAME = os.getenv("DERIVA_PY_TEST_HOSTNAME")
-TEST_SNAME = "test_datapath"
-TEST_TNAME = "test1"
+TEST_CREDENTIALS = os.getenv("DERIVA_PY_TEST_CREDENTIALS")
+TEST_EXP_MAX = 100
+TEST_EXPTYPE_MAX = 10
+TEST_EXP_NAME_FORMAT = "experiment-{}"
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -47,18 +49,18 @@ def populate_test_catalog(catalog):
     logger.debug("Insert experiment types")
     type_table = paths.schemas['Vocab'].tables['Experiment_Type']
     types = type_table.insert([
-        {"Name": "{}".format(name), "Description": "NA"} for name in range(10)
+        {"Name": "{}".format(name), "Description": "NA"} for name in range(TEST_EXPTYPE_MAX)
     ], defaults=['ID', 'URI'])
     logger.debug("Inserting experiments")
     exp = paths.schemas['ISA'].tables['Experiment']
     exp.insert([
         {
-            "Name": "experiment-{}".format(i),
-            "Amount": 10 * i,
+            "Name": TEST_EXP_NAME_FORMAT.format(i),
+            "Amount": i,
             "Time": "2018-01-{}T01:00:00.0".format(1 + (i % 31)),
             "Type": types[i % 10]['ID']
         }
-        for i in range(100)
+        for i in range(TEST_EXP_MAX)
     ])
 
 
@@ -69,14 +71,14 @@ class DatapathTests (unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         logger.debug("setupUpClass begin")
-        credentials = get_credential(TEST_HOSTNAME)
+        credentials = TEST_CREDENTIALS or get_credential(TEST_HOSTNAME)
         server = DerivaServer('https', TEST_HOSTNAME, credentials)
         cls.catalog = server.create_ermrest_catalog()
         try:
             define_test_schema(cls.catalog)
             populate_test_catalog(cls.catalog)
         except Exception:
-            # If this fails, delete catalog and re-raise exception
+            # on failure, delete catalog and re-raise exception
             cls.catalog.delete_ermrest_catalog(really=True)
             raise
         logger.debug("setupUpClass done")
@@ -87,8 +89,88 @@ class DatapathTests (unittest.TestCase):
         cls.catalog.delete_ermrest_catalog(really=True)
         logger.debug("tearDownClass done")
 
-    def test_A(self):
-        logger.debug("running test A")
+    def setUp(self):
+        self.paths = self.catalog.getPathBuilder()
+        self.experiment = self.paths.schemas['ISA'].tables['Experiment']
+        self.experiment_type = self.paths.schemas['Vocab'].tables['Experiment_Type']
 
-    def test_B(self):
-        logger.debug("running test B")
+    def test_unfiltered_fetch(self):
+        entities = self.experiment.entities()
+        self.assertEquals(len(entities), TEST_EXP_MAX)
+
+    def test_fetch_with_limit(self):
+        entities = self.experiment.entities()
+        limit = TEST_EXP_MAX / 5
+        entities.fetch(limit=limit)
+        self.assertEquals(len(entities), limit)
+
+    def test_attribute_projection(self):
+        entities = self.experiment.entities(
+            self.experiment.column_definitions['Name'],
+            self.experiment.column_definitions['Amount']
+        )
+        entity = entities.fetch(limit=1)[0]
+        self.assertIn('Name', entity)
+        self.assertIn('Amount', entity)
+
+    def test_link(self):
+        entities = self.experiment.link(self.experiment_type).entities()
+        self.assertEquals(len(entities), TEST_EXPTYPE_MAX)
+
+    def test_filter_equality(self):
+        entities = self.experiment.filter(
+            self.experiment.column_definitions['Name'] == TEST_EXP_NAME_FORMAT.format(1)
+        ).entities()
+        self.assertEquals(len(entities), 1)
+
+    def test_filter_inequality(self):
+        entities = self.experiment.filter(
+            self.experiment.column_definitions['Amount'] < 10
+        ).entities()
+        self.assertEquals(len(entities), 10)
+
+    def test_filter_ciregexp(self):
+        entities = self.experiment.filter(
+            self.experiment.column_definitions['Name'].ciregexp(TEST_EXP_NAME_FORMAT.format(0)[10:])
+        ).entities()
+        self.assertEquals(len(entities), 1)
+
+    def test_filter_negation(self):
+        entities = self.experiment.filter(
+            ~ (self.experiment.column_definitions['Name'].ciregexp(TEST_EXP_NAME_FORMAT.format(0)[10:]))
+        ).entities()
+        self.assertEquals(len(entities), TEST_EXP_MAX - 1)
+
+    def test_filter_conjunction(self):
+        entities = self.experiment.filter(
+            self.experiment.column_definitions['Name'].ciregexp(TEST_EXP_NAME_FORMAT.format(0)[10:])
+            & (self.experiment.column_definitions['Amount'] == 0)
+        ).entities()
+        self.assertEquals(len(entities), 1)
+
+    def test_attribute_rename(self):
+        entities = self.experiment.entities(
+            self.experiment.column_definitions['Name'],
+            howmuch=self.experiment.column_definitions['Amount']
+        )
+        entity = entities.fetch(limit=1)[0]
+        self.assertIn('Name', entity)
+        self.assertIn('howmuch', entity)
+
+    def test_context(self):
+        path = self.experiment.link(self.experiment_type)
+        entities = path.Experiment.entities()
+        self.assertEquals(len(entities), TEST_EXP_MAX)
+
+    def test_path_project(self):
+        path = self.experiment.link(self.experiment_type)
+        entities = path.Experiment.entities(
+            path.Experiment,
+            path.Experiment_Type.column_definitions['URI'],
+            exptype=path.Experiment_Type.column_definitions['Name']
+        )
+        entity = entities.fetch(limit=1)[0]
+        self.assertIn('Experiment:Name', entity)
+        self.assertIn('Experiment:Time', entity)
+        self.assertIn('URI', entity)
+        self.assertIn('exptype', entity)
