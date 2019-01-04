@@ -546,7 +546,7 @@ class Export2GEO(object):
         self.excel.write_cell(self.current_row_idx, 1, 'DATA PROCESSING PIPELINE', Style.SECTION)
         self.current_row_idx += 1
         self.excel.write_cell(self.current_row_idx, 1, ('# Data processing steps include base-calling, alignment, filtering,'
-        'peak-calling, generation of normalized abundance measurements etc…'), Style.INSTRUCTION)
+'peak-calling, generation of normalized abundance measurements etc'), Style.INSTRUCTION)
         for col in range(2,13):
             self.excel.write_cell(self.current_row_idx, col, '', Style.INSTRUCTION)
         self.current_row_idx += 1
