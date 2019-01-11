@@ -1,17 +1,24 @@
+# Tests for the datapath module.
+#
+# Environment variables:
+#  DERIVA_PY_TEST_HOSTNAME: hostname of the test server
+#  DERIVA_PY_TEST_CREDENTIAL: user credential, if none, it will attempt to get credentail for given hostname
+#  DERIVA_PY_TEST_VERBOSE: set for verbose logging output to stdout
+
 import logging
 import os
 import unittest
 from deriva.core import DerivaServer, get_credential, ermrest_model as _em
 
-TEST_HOSTNAME = os.getenv("DERIVA_PY_TEST_HOSTNAME")
-TEST_CREDENTIALS = os.getenv("DERIVA_PY_TEST_CREDENTIALS")
 TEST_EXP_MAX = 100
 TEST_EXPTYPE_MAX = 10
 TEST_EXP_NAME_FORMAT = "experiment-{}"
 
+hostname = os.getenv("DERIVA_PY_TEST_HOSTNAME")
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-logger.addHandler(logging.StreamHandler())
+if os.getenv("DERIVA_PY_TEST_VERBOSE"):
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(logging.StreamHandler())
 
 
 def define_test_schema(catalog):
@@ -64,15 +71,15 @@ def populate_test_catalog(catalog):
     ])
 
 
-@unittest.skipUnless(TEST_HOSTNAME, "Test host not specified")
+@unittest.skipUnless(hostname, "Test host not specified")
 class DatapathTests (unittest.TestCase):
     catalog = None
 
     @classmethod
     def setUpClass(cls):
         logger.debug("setupUpClass begin")
-        credentials = TEST_CREDENTIALS or get_credential(TEST_HOSTNAME)
-        server = DerivaServer('https', TEST_HOSTNAME, credentials)
+        credential = os.getenv("DERIVA_PY_TEST_CREDENTIAL") or get_credential(hostname)
+        server = DerivaServer('https', hostname, credential)
         cls.catalog = server.create_ermrest_catalog()
         try:
             define_test_schema(cls.catalog)
