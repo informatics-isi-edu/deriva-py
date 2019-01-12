@@ -619,33 +619,83 @@ class Column (object):
     def __str__(self):
         return self.name
 
-    def __eq__(self, other):
+    def eq(self, other):
+        """Returns an 'equality' comparison predicate.
+
+        :param other: `None` or any other literal value.
+        :return: a filter predicate object
+        """
         if other is None:
             return FilterPredicate(self, "::null::", '')
         else:
             return FilterPredicate(self, "=", other)
 
-    def __lt__(self, other):
+    __eq__ = eq
+
+    def lt(self, other):
+        """Returns a 'less than' comparison predicate.
+
+        :param other: a literal value.
+        :return: a filter predicate object
+        """
         return FilterPredicate(self, "::lt::", other)
 
-    def __le__(self, other):
+    __lt__ = lt
+
+    def le(self, other):
+        """Returns a 'less than or equal' comparison predicate.
+
+        :param other: a literal value.
+        :return: a filter predicate object
+        """
         return FilterPredicate(self, "::leq::", other)
 
-    def __gt__(self, other):
+    __le__ = le
+
+    def gt(self, other):
+        """Returns a 'greater than' comparison predicate.
+
+        :param other: a literal value.
+        :return: a filter predicate object
+        """
         return FilterPredicate(self, "::gt::", other)
 
-    def __ge__(self, other):
+    __gt__ = gt
+
+    def ge(self, other):
+        """Returns a 'greater than or equal' comparison predicate.
+
+        :param other: a literal value.
+        :return: a filter predicate object
+        """
         return FilterPredicate(self, "::geq::", other)
 
+    __ge__ = ge
+
     def regexp(self, other):
+        """Returns a 'regular expression' comparison predicate.
+
+        :param other: a _string_ literal value.
+        :return: a filter predicate object
+        """
         assert isinstance(other, str), "This comparison only supports string literals."
         return FilterPredicate(self, "::regexp::", other)
 
     def ciregexp(self, other):
+        """Returns a 'case-insensitive regular expression' comparison predicate.
+
+        :param other: a _string_ literal value.
+        :return: a filter predicate object
+        """
         assert isinstance(other, str), "This comparison only supports string literals."
         return FilterPredicate(self, "::ciregexp::", other)
 
     def ts(self, other):
+        """Returns a 'text search' comparison predicate.
+
+        :param other: a _string_ literal value.
+        :return: a filter predicate object
+        """
         assert isinstance(other, str), "This comparison only supports string literals."
         return FilterPredicate(self, "::ts::", other)
 
@@ -783,14 +833,36 @@ class Predicate (object):
     def __init__(self):
         pass
 
-    def __and__(self, other):
+    def and_(self, other):
+        """Returns a conjunction predicate.
+
+        :param other: a predicate object.
+        :return: a junction predicate object.
+        """
         return JunctionPredicate(self, "&", other)
 
-    def __or__(self, other):
+    __and__ = and_
+
+    def or_(self, other):
+        """Returns a disjunction predicate.
+
+        :param other: a predicate object.
+        :return: a junction predicate object.
+        """
         return JunctionPredicate(self, ";", other)
 
-    def __invert__(self):
+    __or__ = or_
+
+    def negate(self):
+        """Returns a negation predicate.
+
+        This predicate is wrapped in a negation predicate which is returned to the caller.
+
+        :return: a negation predicate object.
+        """
         return NegationPredicate(self)
+
+    __invert__ = negate
 
 
 class FilterPredicate (Predicate):
