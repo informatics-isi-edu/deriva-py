@@ -57,7 +57,6 @@ class DataPathException (Exception):
     """
     def __init__(self, message, reason=None):
         super(DataPathException, self).__init__(message, reason)
-        assert isinstance(message, str)
         self.message = message
         self.reason = reason
 
@@ -678,7 +677,8 @@ class Column (object):
         :param other: a _string_ literal value.
         :return: a filter predicate object
         """
-        assert isinstance(other, str), "This comparison only supports string literals."
+        if not isinstance(other, str):
+            logger.warning("'regexp' method comparison only supports string literals.")
         return FilterPredicate(self, "::regexp::", other)
 
     def ciregexp(self, other):
@@ -687,7 +687,8 @@ class Column (object):
         :param other: a _string_ literal value.
         :return: a filter predicate object
         """
-        assert isinstance(other, str), "This comparison only supports string literals."
+        if not isinstance(other, str):
+            logger.warning("'ciregexp' method comparison only supports string literals.")
         return FilterPredicate(self, "::ciregexp::", other)
 
     def ts(self, other):
@@ -696,7 +697,8 @@ class Column (object):
         :param other: a _string_ literal value.
         :return: a filter predicate object
         """
-        assert isinstance(other, str), "This comparison only supports string literals."
+        if not isinstance(other, str):
+            logger.warning("'ts' method comparison only supports string literals.")
         return FilterPredicate(self, "::ts::", other)
 
 
