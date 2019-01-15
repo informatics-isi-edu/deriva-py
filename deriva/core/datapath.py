@@ -79,7 +79,7 @@ class Catalog (object):
         }
 
     def __dir__(self):
-        return list(super(Catalog, self).__dir__()) + [key for key in self.schemas if _isidentifier(key)]
+        return list(dir(super(Catalog, self))) + [key for key in self.schemas if _isidentifier(key)]
 
     def __getattr__(self, a):
         return self.schemas[a]
@@ -101,7 +101,7 @@ class Schema (object):
         }
 
     def __dir__(self):
-        return list(super(Schema, self).__dir__()) + [key for key in self.tables if _isidentifier(key)]
+        return list(dir(super(Schema, self))) + [key for key in self.tables if _isidentifier(key)]
 
     def __getattr__(self, a):
         return self.tables[a]
@@ -128,7 +128,7 @@ class DataPath (object):
         self._bind_table_instance(root)
 
     def __dir__(self):
-        return list(super(DataPath, self).__dir__()) + self._identifiers
+        return list(dir(super(DataPath, self))) + self._identifiers
 
     def __getattr__(self, a):
         return self._table_instances[a]
@@ -362,7 +362,7 @@ class Table (object):
         }
 
     def __dir__(self):
-        return list(super(Table, self).__dir__()) + [key for key in self.column_definitions if _isidentifier(key)]
+        return list(dir(super(Table, self))) + [key for key in self.column_definitions if _isidentifier(key)]
 
     def __getattr__(self, a):
         return self.column_definitions[a]

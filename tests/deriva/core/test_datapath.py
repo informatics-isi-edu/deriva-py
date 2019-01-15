@@ -101,6 +101,18 @@ class DatapathTests (unittest.TestCase):
         self.experiment = self.paths.schemas['ISA'].tables['Experiment']
         self.experiment_type = self.paths.schemas['Vocab'].tables['Experiment_Type']
 
+    def test_dir_model(self):
+        self.assertIn('ISA', dir(self.paths))
+
+    def test_dir_schema(self):
+        self.assertIn('Experiment', dir(self.paths.ISA))
+
+    def test_dir_table(self):
+        self.assertIn('Name', dir(self.paths.ISA.Experiment))
+
+    def test_dir_path(self):
+        self.assertIn('Experiment', dir(self.paths.ISA.Experiment.path))
+
     def test_unfiltered_fetch(self):
         entities = self.experiment.entities()
         self.assertEquals(len(entities), TEST_EXP_MAX)
