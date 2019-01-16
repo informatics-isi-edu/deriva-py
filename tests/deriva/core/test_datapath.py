@@ -1,17 +1,30 @@
+# Tests for the datapath module.
+#
+# Environment variables:
+#  DERIVA_PY_TEST_HOSTNAME: hostname of the test server
+#  DERIVA_PY_TEST_CREDENTIAL: user credential, if none, it will attempt to get credentail for given hostname
+#  DERIVA_PY_TEST_VERBOSE: set for verbose logging output to stdout
+
 import logging
 import os
 import unittest
 from deriva.core import DerivaServer, get_credential, ermrest_model as _em
 
-TEST_HOSTNAME = os.getenv("DERIVA_PY_TEST_HOSTNAME")
-TEST_CREDENTIALS = os.getenv("DERIVA_PY_TEST_CREDENTIALS")
+try:
+    from pandas import DataFrame
+    HAS_PANDAS = True
+except ImportError:
+    HAS_PANDAS = False
+
 TEST_EXP_MAX = 100
 TEST_EXPTYPE_MAX = 10
 TEST_EXP_NAME_FORMAT = "experiment-{}"
 
+hostname = os.getenv("DERIVA_PY_TEST_HOSTNAME")
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-logger.addHandler(logging.StreamHandler())
+if os.getenv("DERIVA_PY_TEST_VERBOSE"):
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(logging.StreamHandler())
 
 
 def define_test_schema(catalog):
@@ -64,15 +77,15 @@ def populate_test_catalog(catalog):
     ])
 
 
-@unittest.skipUnless(TEST_HOSTNAME, "Test host not specified")
+@unittest.skipUnless(hostname, "Test host not specified")
 class DatapathTests (unittest.TestCase):
     catalog = None
 
     @classmethod
     def setUpClass(cls):
         logger.debug("setupUpClass begin")
-        credentials = TEST_CREDENTIALS or get_credential(TEST_HOSTNAME)
-        server = DerivaServer('https', TEST_HOSTNAME, credentials)
+        credential = os.getenv("DERIVA_PY_TEST_CREDENTIAL") or get_credential(hostname)
+        server = DerivaServer('https', hostname, credential)
         cls.catalog = server.create_ermrest_catalog()
         try:
             define_test_schema(cls.catalog)
@@ -93,6 +106,27 @@ class DatapathTests (unittest.TestCase):
         self.paths = self.catalog.getPathBuilder()
         self.experiment = self.paths.schemas['ISA'].tables['Experiment']
         self.experiment_type = self.paths.schemas['Vocab'].tables['Experiment_Type']
+
+    def test_dir_model(self):
+        self.assertIn('ISA', dir(self.paths))
+
+    def test_dir_schema(self):
+        self.assertIn('Experiment', dir(self.paths.ISA))
+
+    def test_dir_table(self):
+        self.assertIn('Name', dir(self.paths.ISA.Experiment))
+
+    def test_dir_path(self):
+        self.assertIn('Experiment', dir(self.paths.ISA.Experiment.path))
+
+    def test_describe_schema(self):
+        self.assert_(self.paths.schemas['ISA'].describe())
+
+    def test_describe_table(self):
+        self.assert_(self.paths.schemas['ISA'].tables['Experiment'].describe())
+
+    def test_describe_column(self):
+        self.assert_(self.paths.schemas['ISA'].tables['Experiment'].column_definitions['Name'].describe())
 
     def test_unfiltered_fetch(self):
         entities = self.experiment.entities()
@@ -174,3 +208,9 @@ class DatapathTests (unittest.TestCase):
         self.assertIn('Experiment:Time', entity)
         self.assertIn('URI', entity)
         self.assertIn('exptype', entity)
+
+    @unittest.skipUnless(HAS_PANDAS, "pandas library not available")
+    def test_dataframe(self):
+        entities = self.experiment.entities()
+        df = entities.dataframe
+        self.assertEquals(len(df), TEST_EXP_MAX)

@@ -4,11 +4,6 @@ import logging
 import re
 from requests import HTTPError
 
-try:
-    from pandas import DataFrame as _DataFrame
-except ImportError:
-    _DataFrame = None
-
 logger = logging.getLogger(__name__)
 """Logger for this module"""
 
@@ -57,7 +52,6 @@ class DataPathException (Exception):
     """
     def __init__(self, message, reason=None):
         super(DataPathException, self).__init__(message, reason)
-        assert isinstance(message, str)
         self.message = message
         self.reason = reason
 
@@ -79,10 +73,13 @@ class Catalog (object):
         }
 
     def __dir__(self):
-        return list(super(Catalog, self).__dir__()) + [key for key in self.schemas if _isidentifier(key)]
+        return list(dir(super(Catalog, self))) + [key for key in self.schemas if _isidentifier(key)]
 
     def __getattr__(self, a):
-        return self.schemas[a]
+        if a in self.schemas:
+            return self.schemas[a]
+        else:
+            return getattr(super(Catalog, self), a)
 
 
 class Schema (object):
@@ -101,18 +98,28 @@ class Schema (object):
         }
 
     def __dir__(self):
-        return list(super(Schema, self).__dir__()) + [key for key in self.tables if _isidentifier(key)]
+        return list(dir(super(Schema, self))) + ['name', 'tables', 'describe'] + [key for key in self.tables if _isidentifier(key)]
 
     def __getattr__(self, a):
-        return self.tables[a]
+        if a in self.tables:
+            return self.tables[a]
+        else:
+            return getattr(super(Schema, self), a)
 
-    def __repr__(self):
+    def describe(self):
+        """Provides a description of the model element.
+
+        :return: a user-friendly string representation of the model element.
+        """
         s = "Schema name: '%s'\nList of tables:\n" % self.name
-        if len(self.table_names) == 0:
+        if len(self.tables) == 0:
             s += "none"
         else:
-            s += "\n".join("  '%s'" % tname for tname in self.table_names)
+            s += "\n".join("  '%s'" % tname for tname in self.tables)
         return s
+
+    def _repr_html_(self):
+        return self.describe()
 
 
 class DataPath (object):
@@ -128,10 +135,13 @@ class DataPath (object):
         self._bind_table_instance(root)
 
     def __dir__(self):
-        return list(super(DataPath, self).__dir__()) + self._identifiers
+        return list(dir(super(DataPath, self))) + self._identifiers
 
     def __getattr__(self, a):
-        return self._table_instances[a]
+        if a in self._table_instances:
+            return self._table_instances[a]
+        else:
+            return getattr(super(DataPath, self), a)
 
     @property
     def context(self):
@@ -309,12 +319,14 @@ class EntitySet (object):
 
     @property
     def dataframe(self):
-        """Pandas DataFrame representation of this path."""
+        """Pandas DataFrame representation of this path.
+
+        :return: a pandas dataframe object
+        :raise ImportError: exception if the 'pandas' library is not available
+        """
         if not self._dataframe:
-            if _DataFrame:
-                self._dataframe = _DataFrame(self._results)
-            else:
-                logger.debug("'pandas' package not installed")
+            from pandas import DataFrame
+            self._dataframe = DataFrame(self._results)
         return self._dataframe
 
     def __len__(self):
@@ -362,18 +374,30 @@ class Table (object):
         }
 
     def __dir__(self):
-        return list(super(Table, self).__dir__()) + [key for key in self.column_definitions if _isidentifier(key)]
+        return list(dir(super(Table, self))) + \
+               ['catalog', 'sname', 'name', 'describe'] + \
+               [key for key in self.column_definitions if _isidentifier(key)]
 
     def __getattr__(self, a):
-        return self.column_definitions[a]
+        if a in self.column_definitions:
+            return self.column_definitions[a]
+        else:
+            return getattr(super(Table, self), a)
 
-    def __repr__(self):
+    def describe(self):
+        """Provides a description of the model element.
+
+        :return: a user-friendly string representation of the model element.
+        """
         s = "Table name: '%s'\nList of columns:\n" % self.name
         if len(self.column_definitions) == 0:
             s += "none"
         else:
-            s += "\n".join("  %s" % repr(col) for col in self.column_definitions.values())
+            s += "\n".join("  %s" % col.name for col in self.column_definitions.values())
         return s
+
+    def _repr_html_(self):
+        return self.describe()
 
     @property
     def uname(self):
@@ -589,9 +613,16 @@ class Column (object):
         self.type = column_doc['type']
         self.comment = column_doc['comment']
 
-    def __repr__(self):
+    def describe(self):
+        """Provides a description of the model element.
+
+        :return: a user-friendly string representation of the model element.
+        """
         return "Column name: '%s'\tType: %s\tComment: '%s'" % \
                (self.name, self.type['typename'], self.comment)
+
+    def _repr_html_(self):
+        return self.describe()
 
     @property
     def uname(self):
@@ -619,34 +650,87 @@ class Column (object):
     def __str__(self):
         return self.name
 
-    def __eq__(self, other):
+    def eq(self, other):
+        """Returns an 'equality' comparison predicate.
+
+        :param other: `None` or any other literal value.
+        :return: a filter predicate object
+        """
         if other is None:
             return FilterPredicate(self, "::null::", '')
         else:
             return FilterPredicate(self, "=", other)
 
-    def __lt__(self, other):
+    __eq__ = eq
+
+    def lt(self, other):
+        """Returns a 'less than' comparison predicate.
+
+        :param other: a literal value.
+        :return: a filter predicate object
+        """
         return FilterPredicate(self, "::lt::", other)
 
-    def __le__(self, other):
+    __lt__ = lt
+
+    def le(self, other):
+        """Returns a 'less than or equal' comparison predicate.
+
+        :param other: a literal value.
+        :return: a filter predicate object
+        """
         return FilterPredicate(self, "::leq::", other)
 
-    def __gt__(self, other):
+    __le__ = le
+
+    def gt(self, other):
+        """Returns a 'greater than' comparison predicate.
+
+        :param other: a literal value.
+        :return: a filter predicate object
+        """
         return FilterPredicate(self, "::gt::", other)
 
-    def __ge__(self, other):
+    __gt__ = gt
+
+    def ge(self, other):
+        """Returns a 'greater than or equal' comparison predicate.
+
+        :param other: a literal value.
+        :return: a filter predicate object
+        """
         return FilterPredicate(self, "::geq::", other)
 
+    __ge__ = ge
+
     def regexp(self, other):
-        assert isinstance(other, str), "This comparison only supports string literals."
+        """Returns a 'regular expression' comparison predicate.
+
+        :param other: a _string_ literal value.
+        :return: a filter predicate object
+        """
+        if not isinstance(other, str):
+            logger.warning("'regexp' method comparison only supports string literals.")
         return FilterPredicate(self, "::regexp::", other)
 
     def ciregexp(self, other):
-        assert isinstance(other, str), "This comparison only supports string literals."
+        """Returns a 'case-insensitive regular expression' comparison predicate.
+
+        :param other: a _string_ literal value.
+        :return: a filter predicate object
+        """
+        if not isinstance(other, str):
+            logger.warning("'ciregexp' method comparison only supports string literals.")
         return FilterPredicate(self, "::ciregexp::", other)
 
     def ts(self, other):
-        assert isinstance(other, str), "This comparison only supports string literals."
+        """Returns a 'text search' comparison predicate.
+
+        :param other: a _string_ literal value.
+        :return: a filter predicate object
+        """
+        if not isinstance(other, str):
+            logger.warning("'ts' method comparison only supports string literals.")
         return FilterPredicate(self, "::ts::", other)
 
 
@@ -783,14 +867,36 @@ class Predicate (object):
     def __init__(self):
         pass
 
-    def __and__(self, other):
+    def and_(self, other):
+        """Returns a conjunction predicate.
+
+        :param other: a predicate object.
+        :return: a junction predicate object.
+        """
         return JunctionPredicate(self, "&", other)
 
-    def __or__(self, other):
+    __and__ = and_
+
+    def or_(self, other):
+        """Returns a disjunction predicate.
+
+        :param other: a predicate object.
+        :return: a junction predicate object.
+        """
         return JunctionPredicate(self, ";", other)
 
-    def __invert__(self):
+    __or__ = or_
+
+    def negate(self):
+        """Returns a negation predicate.
+
+        This predicate is wrapped in a negation predicate which is returned to the caller.
+
+        :return: a negation predicate object.
+        """
         return NegationPredicate(self)
+
+    __invert__ = negate
 
 
 class FilterPredicate (Predicate):
