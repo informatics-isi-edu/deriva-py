@@ -10,6 +10,12 @@ import os
 import unittest
 from deriva.core import DerivaServer, get_credential, ermrest_model as _em
 
+try:
+    from pandas import DataFrame
+    HAS_PANDAS = True
+except ImportError:
+    HAS_PANDAS = False
+
 TEST_EXP_MAX = 100
 TEST_EXPTYPE_MAX = 10
 TEST_EXP_NAME_FORMAT = "experiment-{}"
@@ -202,3 +208,9 @@ class DatapathTests (unittest.TestCase):
         self.assertIn('Experiment:Time', entity)
         self.assertIn('URI', entity)
         self.assertIn('exptype', entity)
+
+    @unittest.skipUnless(HAS_PANDAS, "pandas library not available")
+    def test_dataframe(self):
+        entities = self.experiment.entities()
+        df = entities.dataframe
+        self.assertEquals(len(df), TEST_EXP_MAX)

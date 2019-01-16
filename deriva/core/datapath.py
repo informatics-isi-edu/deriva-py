@@ -4,11 +4,6 @@ import logging
 import re
 from requests import HTTPError
 
-try:
-    from pandas import DataFrame as _DataFrame
-except ImportError:
-    _DataFrame = None
-
 logger = logging.getLogger(__name__)
 """Logger for this module"""
 
@@ -324,12 +319,14 @@ class EntitySet (object):
 
     @property
     def dataframe(self):
-        """Pandas DataFrame representation of this path."""
+        """Pandas DataFrame representation of this path.
+
+        :return: a pandas dataframe object
+        :raise ImportError: exception if the 'pandas' library is not available
+        """
         if not self._dataframe:
-            if _DataFrame:
-                self._dataframe = _DataFrame(self._results)
-            else:
-                logger.debug("'pandas' package not installed")
+            from pandas import DataFrame
+            self._dataframe = DataFrame(self._results)
         return self._dataframe
 
     def __len__(self):
