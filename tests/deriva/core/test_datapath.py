@@ -113,6 +113,15 @@ class DatapathTests (unittest.TestCase):
     def test_dir_path(self):
         self.assertIn('Experiment', dir(self.paths.ISA.Experiment.path))
 
+    def test_describe_schema(self):
+        self.assert_(self.paths.schemas['ISA'].describe())
+
+    def test_describe_table(self):
+        self.assert_(self.paths.schemas['ISA'].tables['Experiment'].describe())
+
+    def test_describe_column(self):
+        self.assert_(self.paths.schemas['ISA'].tables['Experiment'].column_definitions['Name'].describe())
+
     def test_unfiltered_fetch(self):
         entities = self.experiment.entities()
         self.assertEquals(len(entities), TEST_EXP_MAX)

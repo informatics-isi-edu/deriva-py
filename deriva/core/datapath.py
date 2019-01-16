@@ -81,7 +81,10 @@ class Catalog (object):
         return list(dir(super(Catalog, self))) + [key for key in self.schemas if _isidentifier(key)]
 
     def __getattr__(self, a):
-        return self.schemas[a]
+        if a in self.schemas:
+            return self.schemas[a]
+        else:
+            return getattr(super(Catalog, self), a)
 
 
 class Schema (object):
@@ -100,18 +103,28 @@ class Schema (object):
         }
 
     def __dir__(self):
-        return list(dir(super(Schema, self))) + [key for key in self.tables if _isidentifier(key)]
+        return list(dir(super(Schema, self))) + ['name', 'tables', 'describe'] + [key for key in self.tables if _isidentifier(key)]
 
     def __getattr__(self, a):
-        return self.tables[a]
+        if a in self.tables:
+            return self.tables[a]
+        else:
+            return getattr(super(Schema, self), a)
 
-    def __repr__(self):
+    def describe(self):
+        """Provides a description of the model element.
+
+        :return: a user-friendly string representation of the model element.
+        """
         s = "Schema name: '%s'\nList of tables:\n" % self.name
-        if len(self.table_names) == 0:
+        if len(self.tables) == 0:
             s += "none"
         else:
-            s += "\n".join("  '%s'" % tname for tname in self.table_names)
+            s += "\n".join("  '%s'" % tname for tname in self.tables)
         return s
+
+    def _repr_html_(self):
+        return self.describe()
 
 
 class DataPath (object):
@@ -130,7 +143,10 @@ class DataPath (object):
         return list(dir(super(DataPath, self))) + self._identifiers
 
     def __getattr__(self, a):
-        return self._table_instances[a]
+        if a in self._table_instances:
+            return self._table_instances[a]
+        else:
+            return getattr(super(DataPath, self), a)
 
     @property
     def context(self):
@@ -361,18 +377,30 @@ class Table (object):
         }
 
     def __dir__(self):
-        return list(dir(super(Table, self))) + [key for key in self.column_definitions if _isidentifier(key)]
+        return list(dir(super(Table, self))) + \
+               ['catalog', 'sname', 'name', 'describe'] + \
+               [key for key in self.column_definitions if _isidentifier(key)]
 
     def __getattr__(self, a):
-        return self.column_definitions[a]
+        if a in self.column_definitions:
+            return self.column_definitions[a]
+        else:
+            return getattr(super(Table, self), a)
 
-    def __repr__(self):
+    def describe(self):
+        """Provides a description of the model element.
+
+        :return: a user-friendly string representation of the model element.
+        """
         s = "Table name: '%s'\nList of columns:\n" % self.name
         if len(self.column_definitions) == 0:
             s += "none"
         else:
-            s += "\n".join("  %s" % repr(col) for col in self.column_definitions.values())
+            s += "\n".join("  %s" % col.name for col in self.column_definitions.values())
         return s
+
+    def _repr_html_(self):
+        return self.describe()
 
     @property
     def uname(self):
@@ -588,9 +616,16 @@ class Column (object):
         self.type = column_doc['type']
         self.comment = column_doc['comment']
 
-    def __repr__(self):
+    def describe(self):
+        """Provides a description of the model element.
+
+        :return: a user-friendly string representation of the model element.
+        """
         return "Column name: '%s'\tType: %s\tComment: '%s'" % \
                (self.name, self.type['typename'], self.comment)
+
+    def _repr_html_(self):
+        return self.describe()
 
     @property
     def uname(self):
