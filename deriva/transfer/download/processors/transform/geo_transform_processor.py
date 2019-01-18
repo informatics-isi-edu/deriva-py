@@ -235,11 +235,11 @@ class Export2GEO(object):
 
         if len(self.study_files) >= 1 and self.study_files[0] is not None:
             self.excel.write_cell(self.current_row_idx, 1, 'supplementary file', Style.FIELD)
-            self.excel.write_cell(self.current_row_idx, 2, self.study_files[0].get('Name',''))
+            self.excel.write_cell(self.current_row_idx, 2, self.study_files[0].get('File_Name',''))
             self.current_row_idx += 1
             for i in range(len(self.study_files) - 1):
                 self.excel.write_cell(self.current_row_idx, 1, 'supplementary file', Style.FIELD)
-                self.excel.write_cell(self.current_row_idx, 2, self.study_files[i + 1].get('Name',''))
+                self.excel.write_cell(self.current_row_idx, 2, self.study_files[i + 1].get('File_Name',''))
                 self.current_row_idx += 1
         else:
             self.excel.write_cell(self.current_row_idx, 2, '')
@@ -321,6 +321,7 @@ class Export2GEO(object):
                     sample_source_name = e.get('Anatomy','')
                     sample_organism = e.get('Species','')
                     sample_molecule = e.get('Molecule_Type','')
+                    sample_description = r.get('Notes', '')
 
                     self.excel.write_cell(self.header_row_idx, local_col_idx, 'Sample name', Style.HEADER)
                     self.excel.write_cell(self.current_row_idx, local_col_idx, sample_name)
@@ -453,16 +454,10 @@ class Export2GEO(object):
                     self.excel.write_cell(self.current_row_idx, local_col_idx, sample_molecule)
                     local_col_idx += 1
 
-                    for s in self.specimen:
-                        if s is None or 'REPLICATE_RID' not in s.keys():
-                            continue
-                        elif s['REPLICATE_RID'] == r['RID']:
-                            self.excel.write_cell(self.header_row_idx, local_col_idx, 'description',Style.HEADER)
-                            sample_description = s.get('Upload_Notes','')
-                            self.excel.write_cell(self.current_row_idx, local_col_idx, sample_description)
-                            local_col_idx += 1
-                        else:
-                            continue
+                    self.excel.write_cell(self.header_row_idx, local_col_idx, 'description', Style.HEADER)
+                    self.excel.write_cell(self.current_row_idx, local_col_idx, sample_description)
+                    local_col_idx += 1
+
                     # writing processed file
                     # todo: how to handle multi processed files for one sample
 
@@ -537,6 +532,7 @@ class Export2GEO(object):
                     self.current_row_idx += 1
 
         self.excel.write_cell(self.current_row_idx, 1, 'library strategy',Style.FIELD)
+        # todo: fixed value for now.
         self.excel.write_cell(self.current_row_idx, 2, 'RNA-seq')
 
     def export_data_processing(self):
@@ -596,7 +592,7 @@ class Export2GEO(object):
         self.header_row_idx = self.current_row_idx + 1
         self.current_row_idx += 2
 
-        for pf in self.files:
+        for pf in self.study_files:
             if pf is None:
                 continue
             else:
@@ -655,7 +651,7 @@ class Export2GEO(object):
                         self.excel.write_cell(self.header_row_idx, current_col_idx, 'single or paired-end', Style.HEADER)
                         self.excel.write_cell(self.current_row_idx, current_col_idx, single_or_paired)
                         current_col_idx += 1
-        self.current_row_idx += 1
+            self.current_row_idx += 1
 
     def export_paired_end(self):
         # PAIRED-END EXPERIMENTS
