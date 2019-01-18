@@ -13,9 +13,9 @@ from requests.packages.urllib3.util.retry import Retry
 from requests.packages.urllib3.exceptions import MaxRetryError
 from collections import OrderedDict
 from distutils import util as du_util
-from pkg_resources import parse_version, get_distribution, DistributionNotFound
-
-__version__ = "0.7.1"
+from importlib import import_module
+from pkg_resources import get_distribution
+__version__ = "0.7.2"
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
@@ -220,18 +220,21 @@ def read_config(config_file=DEFAULT_CONFIG_FILE, create_default=False, default=D
 
 PORTALOCKER = None
 try:
-    PORTALOCKER = get_distribution("portalocker")
-    from portalocker import Lock, LOCK_EX, LOCK_SH
-except DistributionNotFound:
+    PORTALOCKER = import_module("portalocker")
+except ImportError:
     pass
 
 
 def lock_file(file_path, mode, exclusive=True):
+    global PORTALOCKER
     if PORTALOCKER and os.path.isfile(file_path):
-        if parse_version(PORTALOCKER.version) > parse_version("0.6.1"):
-            return Lock(file_path, mode, timeout=60, flags=LOCK_EX if exclusive else LOCK_SH)
+        portalocker_argspec = inspect.getargspec(PORTALOCKER.Lock.__init__)
+        if "truncate" not in portalocker_argspec.args:
+            return PORTALOCKER.Lock(file_path, mode, timeout=60,
+                                    flags=PORTALOCKER.LOCK_EX if exclusive else PORTALOCKER.LOCK_SH)
         else:
-            return Lock(file_path, mode, timeout=60, flags=LOCK_EX if exclusive else LOCK_SH, truncate=None)
+            return PORTALOCKER.Lock(file_path, mode, timeout=60,
+                                    flags=PORTALOCKER.LOCK_EX if exclusive else PORTALOCKER.LOCK_SH, truncate=None)
     else:
         return io.open(file_path, mode)
 
