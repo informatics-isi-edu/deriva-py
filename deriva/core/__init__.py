@@ -14,7 +14,7 @@ from requests.packages.urllib3.exceptions import MaxRetryError
 from collections import OrderedDict
 from distutils import util as du_util
 from importlib import import_module
-from pkg_resources import get_distribution
+
 __version__ = "0.7.2"
 
 IS_PY2 = (sys.version_info[0] == 2)

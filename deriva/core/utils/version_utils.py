@@ -1,5 +1,5 @@
 import re
-from pkg_resources import parse_version
+from packaging import version
 
 
 def is_compatible(source_version, compat_versions):
@@ -11,7 +11,7 @@ def is_compatible(source_version, compat_versions):
     :param compat_versions:
         an array of tuples with each tuple consisting of a set of strings of the form
         `<operator><version>`. The source_version is evaluated in a conjunction against each
-        `<operator><version>` string in the tuple, using the pkg_resources version comparison
+        `<operator><version>` string in the tuple, using the packaging module version comparison
         function. The result of every tuple evaluation is then evaluated in a disjunction
         against other tuples in the array.  If any one of the tuples evaluates to True, then the
         returned disjunction is logically true, and the source version is assumed to be compatible.
@@ -58,13 +58,13 @@ def is_compatible(source_version, compat_versions):
     compat = None
     for version_spec in compat_versions:
         check = None
-        for version in version_spec:
-            match = re.search(pattern, version)
+        for ver in version_spec:
+            match = re.search(pattern, ver)
             if match:
                 gd = match.groupdict()
                 operator = gd["operator"]
                 target_version = gd["version"]
-                ret = eval("parse_version(source_version) %s parse_version(target_version)" % operator)
+                ret = eval("version.parse(source_version) %s version.parse(target_version)" % operator)
                 if check is None:
                     check = ret
                 else:
