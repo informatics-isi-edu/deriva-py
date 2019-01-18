@@ -179,7 +179,7 @@ class JSONEnvUpdateProcessor(BaseQueryProcessor):
         headers = self.HEADERS
         headers.update({'accept': "application/json"})
         resp = self.catalogQuery(headers, as_file=False)
-        if resp[0]:
+        if resp:
             self.envars.update(resp[0])
             self._urlencode_envars()
         return {}

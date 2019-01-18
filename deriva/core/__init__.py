@@ -317,7 +317,7 @@ def load_cookies_from_file(cookie_file=None):
 def resource_path(relative_path, default=os.path.abspath(".")):
     # required to find bundled data at runtime in Pyinstaller single-file exe mode
     if getattr(sys, 'frozen', False):
-        return os.path.join(getattr(sys, '_MEIPASS'), relative_path)
+        return os.path.join(getattr(sys, '_MEIPASS', '.'), relative_path)
     if default is None:
         return relative_path
     return os.path.join(default, relative_path)
