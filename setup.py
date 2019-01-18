@@ -53,10 +53,10 @@ setup(
         'pika',
         'portalocker',
         'bdbag',
-        'packaging',
-        'setuptools'],
+        'packaging'],
     install_requires=[
         'setuptools>=20.2',
+        'packaging',
         'requests',
         'certifi',
         'pika',
