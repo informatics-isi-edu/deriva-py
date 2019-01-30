@@ -8,6 +8,7 @@ from requests.exceptions import HTTPError
 from bdbag import bdbag_api as bdb, bdbag_ro as ro, BAG_PROFILE_TAG, BDBAG_RO_PROFILE_ID
 from deriva.core import ErmrestCatalog, HatracStore, format_exception, get_credential, read_config, stob, \
     __version__ as VERSION
+from deriva.core.utils.version_utils import get_installed_version
 from deriva.transfer.download.processors import find_query_processor, find_transform_processor, find_post_processor
 from deriva.transfer.download.processors.base_processor import LOCAL_PATH_KEY, REMOTE_PATHS_KEY, SERVICE_URL_KEY
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError, \
@@ -38,7 +39,8 @@ class DerivaDownload(object):
         self.sessions = dict()
 
         info = "%s v%s [Python %s, %s]" % (
-            self.__class__.__name__, VERSION, platform.python_version(), platform.platform(aliased=True))
+            self.__class__.__name__, get_installed_version(VERSION),
+            platform.python_version(), platform.platform(aliased=True))
         logging.info("Initializing downloader: %s" % info)
 
         if not self.server:

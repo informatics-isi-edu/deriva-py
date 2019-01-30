@@ -41,6 +41,20 @@ class ErmrestCatalog(DerivaBinding):
         self._scheme, self._server, self._catalog_id, self._credentials, self._caching, self._session_config = \
             scheme, server, catalog_id, credentials, caching, session_config
 
+    def exists(self):
+        """Simple boolean test for catalog existence.
+
+        :return: True if exists, False if not (404), otherwise raises exception
+        """
+        try:
+            self.get('/')
+            return True
+        except HTTPError as e:
+            if e.response.status_code == 404:
+                return False
+            else:
+                raise
+
     def latest_snapshot(self):
         """Gets a handle to this catalog's latest snapshot.
         """

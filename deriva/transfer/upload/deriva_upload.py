@@ -92,7 +92,8 @@ class DerivaUpload(object):
 
     def initialize(self, cleanup=False):
         info = "%s v%s [Python %s, %s]" % (
-            self.__class__.__name__, VERSION, platform.python_version(), platform.platform(aliased=True))
+            self.__class__.__name__, vu.get_installed_version(VERSION),
+            platform.python_version(), platform.platform(aliased=True))
         logging.info("Initializing uploader: %s" % info)
 
         # cleanup invalidates the current configuration and credentials in addition to clearing internal state

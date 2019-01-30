@@ -2,6 +2,7 @@ import argparse
 import logging
 
 from . import init_logging
+from .utils.version_utils import get_installed_version
 
 
 class BaseCLI(object):
@@ -9,7 +10,7 @@ class BaseCLI(object):
     def __init__(self, description, epilog, version=None):
         assert version, "A valid version string is required"
 
-        self.version = version
+        self.version = get_installed_version(version)
 
         self.parser = argparse.ArgumentParser(description=description, epilog=epilog)
 

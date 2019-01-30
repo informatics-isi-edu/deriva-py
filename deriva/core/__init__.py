@@ -15,7 +15,7 @@ from collections import OrderedDict
 from distutils import util as du_util
 from importlib import import_module
 
-__version__ = "0.7.2"
+__version__ = "0.7.3"
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
