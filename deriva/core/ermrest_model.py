@@ -282,11 +282,12 @@ class Table (_ec.CatalogTable):
         )
 
     @classmethod
-    def define_asset(cls, tname, hatrac_template=None, column_defs=[], key_defs=[],
+    def define_asset(cls, sname, tname, hatrac_template=None, column_defs=[], key_defs=[],
                      fkey_defs=[], comment=None, acls={}, acl_bindings={}, annotations={},
                      provide_system=True):
         """Build an asset  table definition.
 
+          :param sname: the name of the schema for the asset table
           :param tname: the name of the newly defined table
           :param hatrac_template: template for the hatrac URL.  Will undergo substitution to template can include
                  elmenents such at {{{MD5}}} or {{{Filename}}}
@@ -316,7 +317,7 @@ class Table (_ec.CatalogTable):
           """
 
         if not hatrac_template:
-            hatrac_template='/hatrac/%s/{{{_URL.Filename}}}.{{{_URL.MD5}}}' % tname
+            hatrac_template='/hatrac/{}/{}/{{{_URL.Filename}}}.{{{_URL.MD5}}}'.format(sname, tname)
 
         def add_asset_annotations(custom):
             annotations =  {_ec.tag['table_display']: {'row_name': {'row_markdown_pattern': '{{{Filename}}}'}}}
