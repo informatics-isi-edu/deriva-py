@@ -317,7 +317,7 @@ class Table (_ec.CatalogTable):
           """
 
         if not hatrac_template:
-            hatrac_template='/hatrac/%s/%s/{{{_URL.Filename}}}.{{{_URL.MD5}}}' % (sname, tname)
+            hatrac_template='/hatrac/%s/%s/{{#encode}}{{{Filename}}}{{/encode}}.{{{MD5}}}' % (sname, tname)
 
         def add_asset_annotations(custom):
             annotations =  {_ec.tag['table_display']: {'row_name': {'row_markdown_pattern': '{{{Filename}}}'}}}
