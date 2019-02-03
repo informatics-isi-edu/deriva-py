@@ -333,10 +333,6 @@ class Table (_ec.CatalogTable):
                         'url_pattern': hatrac_template,
                         'md5': 'MD5'
                     },
-                    _ec.tag.column_display: {'*': {'markdown_pattern': '[**{{URL}}**]({{{URL}}})'}}
-                },
-                'Filename': {
-                    _ec.tag.column_display: {'*': {'markdown_pattern': '[**{{Filename}}**]({{{URL}}})'}}
                 }
             }
             return [
