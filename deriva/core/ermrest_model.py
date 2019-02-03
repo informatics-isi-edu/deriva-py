@@ -325,32 +325,29 @@ class Table (_ec.CatalogTable):
             return annotations
 
         def add_asset_columns(custom):
-            column_annotations = {
-                'URL': {
-                    _ec.tag.asset: {
-                        'filename_column': 'Filename',
-                        'byte_count_column': 'Length',
-                        'url_pattern': hatrac_template,
-                        'md5': 'MD5'
-                    },
-                }
-            }
             return [
-                col_def
-                for col_def in [
+                       col_def
+                       for col_def in [
                     Column.define('URL', builtin_types['text'],
                                   nullok=False,
-                                  annotations=column_annotations['URL'],
+                                  annotations={
+                                      _ec.tag.asset: {
+                                          'filename_column': 'Filename',
+                                          'byte_count_column': 'Length',
+                                          'url_pattern': hatrac_template,
+                                          'md5': 'MD5'
+                                      }
+                                  },
                                   comment='URL to the asset'),
-                    Column.define('Filename', builtin_types['text'], annotations=column_annotations['Filename'],
+                    Column.define('Filename', builtin_types['text'],
                                   comment='Filename of the asset that was uploaded'),
                     Column.define('Description', builtin_types['markdown'],
                                   comment='Description of the asset'),
                     Column.define('Length', builtin_types['int8'], nullok=False, comment='Asset length (bytes)'),
                     Column.define('MD5', builtin_types['text'], nullok=False)
                 ]
-                if col_def['name'] not in {c['name']: c for c in custom}
-            ] + custom
+                       if col_def['name'] not in {c['name']: c for c in custom}
+                   ] + custom
 
         def add_asset_keys(custom):
             def ktup(k):
