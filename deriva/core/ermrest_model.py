@@ -319,7 +319,7 @@ class Table (_ec.CatalogTable):
           facilitate use of the table by Chaise.
           """
 
-        if hatrac_template is not None:
+        if hatrac_template is None:
             hatrac_template = '/hatrac/%s/%s/{{#encode}}{{{Filename}}}{{/encode}}.{{{MD5}}}' % (sname, tname)
 
         def add_asset_annotations(custom):
