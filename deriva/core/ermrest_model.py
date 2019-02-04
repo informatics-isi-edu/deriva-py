@@ -293,7 +293,7 @@ class Table (_ec.CatalogTable):
                  elmenents such at {{{MD5}}} or {{{Filename}}}. The default template puts files in
                      /hatrac/schema_name/table_name/filename.md5
                  where the filename and md5 value is computed on upload and the schema_name and table_name are the
-                 values of the provided arguments.
+                 values of the provided arguments.  If value is set to False, no hatrac_template is used.
           :param column_defs: a list of Column.define() results for extra or overridden column definitions
           :param key_defs: a list of Key.define() results for extra or overridden key constraint definitions
           :param fkey_defs: a list of ForeignKey.define() results for foreign key definitions
@@ -323,25 +323,26 @@ class Table (_ec.CatalogTable):
             hatrac_template = '/hatrac/%s/%s/{{#encode}}{{{Filename}}}{{/encode}}.{{{MD5}}}' % (sname, tname)
 
         def add_asset_annotations(custom):
-            annotations = {_ec.tag['table_display']: {'row_name': {'row_markdown_pattern': '{{{Filename}}}'}}}
             annotations.update(custom)
             return annotations
 
         def add_asset_columns(custom):
+            asset_annotation = {
+                _ec.tag.asset: {
+                    'filename_column': 'Filename',
+                    'byte_count_column': 'Length',
+                    'md5': 'MD5',
+                }
+            }
+            if hatrac_template:
+                asset_annotation[_ec.tag.asset]['url_pattern'] = hatrac_template
             return [
                 col_def
                 for col_def in [
                         Column.define(
                             'URL', builtin_types['text'],
                             nullok=False,
-                            annotations={
-                                _ec.tag.asset: {
-                                    'filename_column': 'Filename',
-                                    'byte_count_column': 'Length',
-                                    'url_pattern': hatrac_template,
-                                    'md5': 'MD5',
-                                }
-                            },
+                            annotations=asset_annotation,
                             comment='URL to the asset',
                         ),
                         Column.define('Filename', builtin_types['text'], comment='Filename of the asset that was uploaded'),
