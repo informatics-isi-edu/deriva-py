@@ -282,8 +282,17 @@ class Table (_ec.CatalogTable):
         )
 
     @classmethod
-    def define_asset(cls, sname, tname, hatrac_template=None, column_defs=[], key_defs=[],
-                     fkey_defs=[], comment=None, acls={}, acl_bindings={}, annotations={},
+    def define_asset(cls,
+                     sname,
+                     tname,
+                     hatrac_template=None,
+                     column_defs=[],
+                     key_defs=[],
+                     fkey_defs=[],
+                     comment=None,
+                     acls={},
+                     acl_bindings={},
+                     annotations={},
                      provide_system=True):
         """Build an asset  table definition.
 
@@ -291,7 +300,7 @@ class Table (_ec.CatalogTable):
           :param tname: the name of the newly defined table
           :param hatrac_template: template for the hatrac URL.  Will undergo substitution to template can include
                  elmenents such at {{{MD5}}} or {{{Filename}}}. The default template puts files in
-                     /hatrac/schema_name/table_name/filename.md5
+                     /hatrac/schema_name/table_name/md5.filename
                  where the filename and md5 value is computed on upload and the schema_name and table_name are the
                  values of the provided arguments.  If value is set to False, no hatrac_template is used.
           :param column_defs: a list of Column.define() results for extra or overridden column definitions
@@ -308,7 +317,7 @@ class Table (_ec.CatalogTable):
 
           - Filename: ermrest_curie, unique not null, default curie template "%s:{RID}" % curie_prefix
           - URL: Location of the asset, unique not null.  Default template is:
-                    /hatrac/sname/tname/{{{Filename}}}.{{{MD5}}} where tname is the name of the asset table.
+                    /hatrac/sname/tname/{{{MD5}}}.{{{Filename}}} where tname is the name of the asset table.
           - Length: Length of the asset.
           - MD5: text
           - Description: markdown, not null
@@ -320,7 +329,7 @@ class Table (_ec.CatalogTable):
           """
 
         if hatrac_template is None:
-            hatrac_template = '/hatrac/%s/%s/{{#encode}}{{{Filename}}}{{/encode}}.{{{MD5}}}' % (sname, tname)
+            hatrac_template = '/hatrac/%s/%s/{{{MD5}}}.{{#encode}}{{{Filename}}}{{/encode}}' % (sname, tname)
 
         def add_asset_annotations(custom):
             annotations.update(custom)
