@@ -290,7 +290,10 @@ class Table (_ec.CatalogTable):
           :param sname: the name of the schema for the asset table
           :param tname: the name of the newly defined table
           :param hatrac_template: template for the hatrac URL.  Will undergo substitution to template can include
-                 elmenents such at {{{MD5}}} or {{{Filename}}}
+                 elmenents such at {{{MD5}}} or {{{Filename}}}. The default template puts files in
+                     /hatrac/schema_name/table_name/filename.md5
+                 where the filename and md5 value is computed on upload and the schema_name and table_name are the
+                 values of the provided arguments.
           :param column_defs: a list of Column.define() results for extra or overridden column definitions
           :param key_defs: a list of Key.define() results for extra or overridden key constraint definitions
           :param fkey_defs: a list of ForeignKey.define() results for foreign key definitions
@@ -305,7 +308,7 @@ class Table (_ec.CatalogTable):
 
           - Filename: ermrest_curie, unique not null, default curie template "%s:{RID}" % curie_prefix
           - URL: Location of the asset, unique not null.  Default template is:
-                    /hatrac/tname/{{{_URL.Filename}}}.{{{_URL.MD5}}} where tname is the name of the asset table.
+                    /hatrac/sname/tname/{{{Filename}}}.{{{MD5}}} where tname is the name of the asset table.
           - Length: Length of the asset.
           - MD5: text
           - Description: markdown, not null
@@ -316,49 +319,50 @@ class Table (_ec.CatalogTable):
           facilitate use of the table by Chaise.
           """
 
-        if not hatrac_template:
-            hatrac_template='/hatrac/%s/%s/{{#encode}}{{{Filename}}}{{/encode}}.{{{MD5}}}' % (sname, tname)
+        if hatrac_template is not None:
+            hatrac_template = '/hatrac/%s/%s/{{#encode}}{{{Filename}}}{{/encode}}.{{{MD5}}}' % (sname, tname)
 
         def add_asset_annotations(custom):
-            annotations =  {_ec.tag['table_display']: {'row_name': {'row_markdown_pattern': '{{{Filename}}}'}}}
+            annotations = {_ec.tag['table_display']: {'row_name': {'row_markdown_pattern': '{{{Filename}}}'}}}
             annotations.update(custom)
             return annotations
 
         def add_asset_columns(custom):
             return [
                        col_def
-                       for col_def in [
-                    Column.define('URL', builtin_types['text'],
-                                  nullok=False,
-                                  annotations={
-                                      _ec.tag.asset: {
-                                          'filename_column': 'Filename',
-                                          'byte_count_column': 'Length',
-                                          'url_pattern': hatrac_template,
-                                          'md5': 'MD5'
-                                      }
-                                  },
-                                  comment='URL to the asset'),
-                    Column.define('Filename', builtin_types['text'],
-                                  comment='Filename of the asset that was uploaded'),
-                    Column.define('Description', builtin_types['markdown'],
-                                  comment='Description of the asset'),
-                    Column.define('Length', builtin_types['int8'], nullok=False, comment='Asset length (bytes)'),
-                    Column.define('MD5', builtin_types['text'], nullok=False)
-                ]
+                       for col_def in [Column.define('URL', builtin_types['text'],
+                                                     nullok=False,
+                                                     annotations={
+                                                         _ec.tag.asset: {
+                                                             'filename_column': 'Filename',
+                                                             'byte_count_column': 'Length',
+                                                             'url_pattern': hatrac_template,
+                                                             'md5': 'MD5'
+                                                         }
+                                                     },
+                                                     comment='URL to the asset'),
+                                       Column.define('Filename', builtin_types['text'],
+                                                     comment='Filename of the asset that was uploaded'),
+                                       Column.define('Description', builtin_types['markdown'],
+                                                     comment='Description of the asset'),
+                                       Column.define('Length', builtin_types['int8'], nullok=False,
+                                                     comment='Asset length (bytes)'),
+                                       Column.define('MD5', builtin_types['text'], nullok=False)
+                                       ]
                        if col_def['name'] not in {c['name']: c for c in custom}
                    ] + custom
 
         def add_asset_keys(custom):
             def ktup(k):
                 return tuple(k['unique_columns'])
+
             return [
-                key_def
-                for key_def in [
-                        Key.define(['URL']),
+                       key_def
+                       for key_def in [
+                    Key.define(['URL']),
                 ]
-                if ktup(key_def) not in { ktup(kdef): kdef for kdef in custom }
-            ] + custom
+                       if ktup(key_def) not in {ktup(kdef): kdef for kdef in custom}
+                   ] + custom
 
         return cls.define(
             tname,
