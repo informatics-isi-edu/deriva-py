@@ -329,40 +329,40 @@ class Table (_ec.CatalogTable):
 
         def add_asset_columns(custom):
             return [
-                       col_def
-                       for col_def in [Column.define('URL', builtin_types['text'],
-                                                     nullok=False,
-                                                     annotations={
-                                                         _ec.tag.asset: {
-                                                             'filename_column': 'Filename',
-                                                             'byte_count_column': 'Length',
-                                                             'url_pattern': hatrac_template,
-                                                             'md5': 'MD5'
-                                                         }
-                                                     },
-                                                     comment='URL to the asset'),
-                                       Column.define('Filename', builtin_types['text'],
-                                                     comment='Filename of the asset that was uploaded'),
-                                       Column.define('Description', builtin_types['markdown'],
-                                                     comment='Description of the asset'),
-                                       Column.define('Length', builtin_types['int8'], nullok=False,
-                                                     comment='Asset length (bytes)'),
-                                       Column.define('MD5', builtin_types['text'], nullok=False)
-                                       ]
-                       if col_def['name'] not in {c['name']: c for c in custom}
-                   ] + custom
+                col_def
+                for col_def in [
+                        Column.define(
+                            'URL', builtin_types['text'],
+                            nullok=False,
+                            annotations={
+                                _ec.tag.asset: {
+                                    'filename_column': 'Filename',
+                                    'byte_count_column': 'Length',
+                                    'url_pattern': hatrac_template,
+                                    'md5': 'MD5',
+                                }
+                            },
+                            comment='URL to the asset',
+                        ),
+                        Column.define('Filename', builtin_types['text'], comment='Filename of the asset that was uploaded'),
+                        Column.define('Description', builtin_types['markdown'], comment='Description of the asset'),
+                        Column.define('Length', builtin_types['int8'], nullok=False, comment='Asset length (bytes)'),
+                        Column.define('MD5', builtin_types['text'], nullok=False, comment='Asset content MD5 checksum'),
+                ]
+                if col_def['name'] not in {c['name']: c for c in custom}
+            ] + custom
 
         def add_asset_keys(custom):
             def ktup(k):
                 return tuple(k['unique_columns'])
 
             return [
-                       key_def
-                       for key_def in [
+                key_def
+                for key_def in [
                     Key.define(['URL']),
                 ]
-                       if ktup(key_def) not in {ktup(kdef): kdef for kdef in custom}
-                   ] + custom
+                if ktup(key_def) not in {ktup(kdef): kdef for kdef in custom}
+            ] + custom
 
         return cls.define(
             tname,
