@@ -281,6 +281,111 @@ class Table (_ec.CatalogTable):
             provide_system
         )
 
+    @classmethod
+    def define_asset(cls,
+                     sname,
+                     tname,
+                     hatrac_template=None,
+                     column_defs=[],
+                     key_defs=[],
+                     fkey_defs=[],
+                     comment=None,
+                     acls={},
+                     acl_bindings={},
+                     annotations={},
+                     provide_system=True):
+        """Build an asset  table definition.
+
+          :param sname: the name of the schema for the asset table
+          :param tname: the name of the newly defined table
+          :param hatrac_template: template for the hatrac URL.  Will undergo substitution to template can include
+                 elmenents such at {{{MD5}}} or {{{Filename}}}. The default template puts files in
+                     /hatrac/schema_name/table_name/md5.filename
+                 where the filename and md5 value is computed on upload and the schema_name and table_name are the
+                 values of the provided arguments.  If value is set to False, no hatrac_template is used.
+          :param column_defs: a list of Column.define() results for extra or overridden column definitions
+          :param key_defs: a list of Key.define() results for extra or overridden key constraint definitions
+          :param fkey_defs: a list of ForeignKey.define() results for foreign key definitions
+          :param comment: a comment string for the table
+          :param acls: a dictionary of ACLs for specific access modes
+          :param acl_bindings: a dictionary of dynamic ACL bindings
+          :param annotations: a dictionary of annotations
+          :param provide_system: whether to inject standard system column definitions when missing from column_defs
+
+          These core asset table columns are generated automatically if
+          absent from the input column_defs.
+
+          - Filename: ermrest_curie, unique not null, default curie template "%s:{RID}" % curie_prefix
+          - URL: Location of the asset, unique not null.  Default template is:
+                    /hatrac/sname/tname/{{{MD5}}}.{{{Filename}}} where tname is the name of the asset table.
+          - Length: Length of the asset.
+          - MD5: text
+          - Description: markdown, not null
+
+          However, caller-supplied definitions override the default.
+
+          In addition to creating the columns, this function also creates an asset annotation on the URL column to
+          facilitate use of the table by Chaise.
+          """
+
+        if hatrac_template is None:
+            hatrac_template = '/hatrac/%s/%s/{{{MD5}}}.{{#encode}}{{{Filename}}}{{/encode}}' % (sname, tname)
+
+        def add_asset_annotations(custom):
+            annotations.update(custom)
+            return annotations
+
+        def add_asset_columns(custom):
+            asset_annotation = {
+                _ec.tag.asset: {
+                    'filename_column': 'Filename',
+                    'byte_count_column': 'Length',
+                    'md5': 'MD5',
+                }
+            }
+            if hatrac_template:
+                asset_annotation[_ec.tag.asset]['url_pattern'] = hatrac_template
+            return [
+                col_def
+                for col_def in [
+                        Column.define(
+                            'URL', builtin_types['text'],
+                            nullok=False,
+                            annotations=asset_annotation,
+                            comment='URL to the asset',
+                        ),
+                        Column.define('Filename', builtin_types['text'], comment='Filename of the asset that was uploaded'),
+                        Column.define('Description', builtin_types['markdown'], comment='Description of the asset'),
+                        Column.define('Length', builtin_types['int8'], nullok=False, comment='Asset length (bytes)'),
+                        Column.define('MD5', builtin_types['text'], nullok=False, comment='Asset content MD5 checksum'),
+                ]
+                if col_def['name'] not in {c['name']: c for c in custom}
+            ] + custom
+
+        def add_asset_keys(custom):
+            def ktup(k):
+                return tuple(k['unique_columns'])
+
+            return [
+                key_def
+                for key_def in [
+                    Key.define(['URL']),
+                ]
+                if ktup(key_def) not in {ktup(kdef): kdef for kdef in custom}
+            ] + custom
+
+        return cls.define(
+            tname,
+            add_asset_columns(column_defs),
+            add_asset_keys(key_defs),
+            fkey_defs,
+            comment if comment is not None else 'Asset table.',
+            acls,
+            acl_bindings,
+            add_asset_annotations(annotations),
+            provide_system
+        )
+
     def prejson(self, prune=True):
         d = super(Table, self).prejson(prune)
         d.update({
