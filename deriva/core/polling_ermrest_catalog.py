@@ -139,7 +139,7 @@ class PollingErmrestCatalog(ErmrestCatalog):
                 for result in polling_gen:
                     # ... and delay for up to coalesce_seconds to combine multiple notices into one wakeup
                     sys.stderr.write('Woke up on %s.\n' % ('change-notice' if result else 'poll timeout'))
-                    while coalesce_gen.next() is not None:
+                    while next(coalesce_gen)[0] is not None:
                         pass
 
                     # catch up on changes since last time we looked
