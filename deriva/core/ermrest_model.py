@@ -349,7 +349,7 @@ class Table (_ec.CatalogTable):
                 col_def
                 for col_def in [
                         Column.define(
-                            'URL', builtin_types['ermrest_uri'],
+                            'URL', builtin_types['text'],
                             nullok=False,
                             annotations=asset_annotation,
                             comment='URL to the asset',
