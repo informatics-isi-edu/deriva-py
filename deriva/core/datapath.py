@@ -456,20 +456,29 @@ class Table (object):
     def entities(self, *attributes, **renamed_attributes):
         return self.path._entities(attributes, renamed_attributes)
 
-    def insert(self, entities, defaults=None, add_system_defaults=True):
+    def insert(self, entities, defaults=set(), nondefaults=set(), add_system_defaults=True):
         """Inserts entities into the table.
         :param entities: an iterable collection of entities (i.e., rows) to be inserted into the table.
         :param defaults: optional, set of column names to be assigned the default expression value.
+        :param nondefaults: optional, set of columns names to override implicit system defaults
         :param add_system_defaults: flag to add system columns to the set of default columns.
         :return newly created entities.
         """
-        defaults_enc = {urlquote(cname) for cname in defaults} if defaults else set()
-        if add_system_defaults:
-            defaults_enc |= _system_defaults
+        options = []
+
+        if defaults or add_system_defaults:
+            defaults_enc = {urlquote(cname) for cname in defaults}
+            if add_system_defaults:
+                defaults_enc |= _system_defaults - nondefaults
+            options.append("defaults={cols}".format(cols=','.join(defaults_enc)))
+
+        if nondefaults:
+            nondefaults_enc = {urlquote(cname) for cname in nondefaults}
+            options.append("nondefaults={cols}".format(cols=','.join(nondefaults_enc)))
 
         path = '/entity/' + self.fqname
-        if defaults_enc:
-            path += "?defaults={cols}".format(cols=','.join(defaults_enc))
+        if options:
+            path += "?" + "&".join(options)
         logger.debug("Inserting entities to path: {path}".format(path=path))
 
         # JSONEncoder does not handle general iterable objects, so we have to make sure its an acceptable collection
