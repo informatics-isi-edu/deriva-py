@@ -12,11 +12,15 @@ class LoggingProcessor(BaseProcessor):
         super(LoggingProcessor, self).__init__(**kwargs)
 
     def process(self):
+        output = dict()
         if logger.isEnabledFor(logging.DEBUG):
             input_context = dict()
             for k, v in self.kwargs.items():
                 input_context[k] = v
             logger.debug("%s input context: %s" % (self.__class__.__name__, input_context))
 
-        return {}
+        processor_output = self.kwargs.get("processor_output")
+        if processor_output:
+            processor_output.update(output)
+        return output
 

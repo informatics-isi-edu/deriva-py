@@ -840,6 +840,7 @@ class DerivaUpload(object):
                         asset_mapping=asset_mapping,
                         match_groupdict=match_groupdict,
                         metadata=self.metadata,
+                        processor_output=self.processor_output,
                         **kwargs)
                     proc_class = processor.__class__.__module__
                     proc_name = processor.__class__.__name__
@@ -849,7 +850,6 @@ class DerivaUpload(object):
                     if isinstance(output, dict):
                         if logger.isEnabledFor(logging.DEBUG):
                             logger.debug("%s output context: %s" % (proc_name, output))
-                        self.processor_output.update(output)
                 except:
                     (etype, value, traceback) = sys.exc_info()
                     raise DerivaUploadError(format_exception(value))
