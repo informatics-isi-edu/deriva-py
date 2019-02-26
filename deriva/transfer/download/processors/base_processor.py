@@ -1,5 +1,4 @@
 import os
-import errno
 from deriva.core import urlquote
 from deriva.core.utils import mime_utils as mu, hash_utils as hu
 
@@ -56,15 +55,6 @@ class BaseProcessor(object):
             os.path.join(base_path, 'data' if is_bag else '', relpath))
 
         return relpath, abspath
-
-    @staticmethod
-    def make_dirs(path):
-        if not os.path.isdir(path):
-            try:
-                os.makedirs(path)
-            except OSError as error:
-                if error.errno != errno.EEXIST:
-                    raise
 
     @staticmethod
     def make_file_output_values(file_path, input_dict, make_file_hashes=True):

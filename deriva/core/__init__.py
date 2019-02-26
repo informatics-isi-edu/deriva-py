@@ -15,7 +15,7 @@ from collections import OrderedDict
 from distutils import util as du_util
 from importlib import import_module
 
-__version__ = "0.7.4"
+__version__ = "0.7.5"
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
@@ -171,25 +171,24 @@ def get_new_requests_session(url=None, session_config=DEFAULT_SESSION_CONFIG):
     return session
 
 
-def copy_config(src, dst):
-    config_dir = os.path.dirname(dst)
-    if not os.path.isdir(config_dir):
+def make_dirs(path, mode=0o777):
+    if not os.path.isdir(path):
         try:
-            os.makedirs(config_dir, mode=0o750)
+            os.makedirs(path, mode=mode)
         except OSError as error:
             if error.errno != errno.EEXIST:
                 raise
+
+
+def copy_config(src, dst):
+    config_dir = os.path.dirname(dst)
+    make_dirs(config_dir, mode=0o750)
     shutil.copy2(src, dst)
 
 
 def write_config(config_file=DEFAULT_CONFIG_FILE, config=DEFAULT_CONFIG):
     config_dir = os.path.dirname(config_file)
-    if not os.path.isdir(config_dir):
-        try:
-            os.makedirs(config_dir, mode=0o750)
-        except OSError as error:
-            if error.errno != errno.EEXIST:
-                raise
+    make_dirs(config_dir, mode=0o750)
     with io.open(config_file, 'w', newline='\n', encoding='utf-8') as cf:
         config_data = json.dumps(config, ensure_ascii=False, indent=2)
         if IS_PY2 and isinstance(config_data, str):
@@ -241,12 +240,7 @@ def lock_file(file_path, mode, exclusive=True):
 
 def write_credential(credential_file=DEFAULT_CREDENTIAL_FILE, credential=DEFAULT_CREDENTIAL):
     credential_dir = os.path.dirname(credential_file)
-    if not os.path.isdir(credential_dir):
-        try:
-            os.makedirs(credential_dir, mode=0o750)
-        except OSError as error:
-            if error.errno != errno.EEXIST:
-                raise
+    make_dirs(credential_dir, mode=0o750)
     with lock_file(credential_file, mode='w', exclusive=True) as cf:
         os.chmod(credential_file, 0o600)
         credential_data = json.dumps(credential, ensure_ascii=False, indent=2)

@@ -4,7 +4,7 @@ import certifi
 import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
-from deriva.core import urlsplit, get_new_requests_session, stob, DEFAULT_SESSION_CONFIG
+from deriva.core import urlsplit, get_new_requests_session, stob, make_dirs, DEFAULT_SESSION_CONFIG
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError, \
     DerivaDownloadAuthenticationError, DerivaDownloadAuthorizationError
 from deriva.transfer.download.processors.base_processor import BaseProcessor, LOCAL_PATH_KEY, SOURCE_URL_KEY
@@ -58,7 +58,7 @@ class BaseQueryProcessor(BaseProcessor):
     def catalogQuery(self, headers=HEADERS, as_file=True):
         if as_file:
             output_dir = os.path.dirname(self.output_abspath)
-            self.make_dirs(output_dir)
+            make_dirs(output_dir)
         try:
             if as_file:
                 return self.catalog.getAsFile(self.query, self.output_abspath, headers=headers)
