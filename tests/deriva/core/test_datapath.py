@@ -6,9 +6,11 @@
 #  DERIVA_PY_TEST_VERBOSE: set for verbose logging output to stdout
 
 import logging
+from operator import itemgetter
 import os
 import unittest
 from deriva.core import DerivaServer, get_credential, ermrest_model as _em
+from deriva.core.datapath import DataPathException
 
 try:
     from pandas import DataFrame
@@ -37,7 +39,9 @@ def define_test_schema(catalog):
     vocab = model.create_schema(catalog, _em.Schema.define("Vocab"))
     vocab.create_table(catalog, _em.Table.define_vocabulary("Experiment_Type", "TEST:{RID}"))
     isa = model.create_schema(catalog, _em.Schema.define("ISA"))
-    isa.create_table(catalog, _em.Table.define(
+
+    # create 'Experiment' table
+    table_def = _em.Table.define(
         "Experiment",
         column_defs=[
             _em.Column.define(cname, ctype) for (cname, ctype) in [
@@ -53,7 +57,12 @@ def define_test_schema(catalog):
         fkey_defs=[
             _em.ForeignKey.define(['Type'], 'Vocab', 'Experiment_Type', ['ID'])
         ]
-    ))
+    )
+    isa.create_table(catalog, table_def)
+
+    # create copy of 'Experiment' table
+    table_def['table_name'] = 'Experiment_Copy'
+    isa.create_table(catalog, table_def)
 
 
 def populate_test_catalog(catalog):
@@ -106,6 +115,14 @@ class DatapathTests (unittest.TestCase):
         self.paths = self.catalog.getPathBuilder()
         self.experiment = self.paths.schemas['ISA'].tables['Experiment']
         self.experiment_type = self.paths.schemas['Vocab'].tables['Experiment_Type']
+        self.experiment_copy = self.paths.schemas['ISA'].tables['Experiment_Copy']
+
+    def tearDown(self):
+        try:
+            self.experiment_copy.path.delete()
+        except DataPathException:
+            # suppresses 404 errors when the table is empty
+            pass
 
     def test_dir_model(self):
         self.assertIn('ISA', dir(self.paths))
@@ -214,3 +231,23 @@ class DatapathTests (unittest.TestCase):
         entities = self.experiment.entities()
         df = entities.dataframe
         self.assertEquals(len(df), TEST_EXP_MAX)
+
+    def test_nondefaults(self):
+        nondefaults = {'RID', 'RCB', 'RCT'}
+        entities = self.experiment.entities()
+        self.assertEquals(len(entities), TEST_EXP_MAX)
+        entities_copy = self.experiment_copy.insert(entities, nondefaults=nondefaults, add_system_defaults=False)
+        self.assertEqual(len(entities), len(entities_copy), 'entities not copied completely')
+        ig = itemgetter(*nondefaults)
+        for i in range(TEST_EXP_MAX):
+            self.assertEqual(ig(entities[i]), ig(entities_copy[i]), 'copied values do not match')
+
+    def test_nondefaults_w_add_sys_defaults(self):
+        nondefaults = {'RID', 'RCB', 'RCT'}
+        entities = self.experiment.entities()
+        self.assertEquals(len(entities), TEST_EXP_MAX)
+        entities_copy = self.experiment_copy.insert(entities, nondefaults=nondefaults)
+        self.assertEqual(len(entities), len(entities_copy), 'entities not copied completely')
+        ig = itemgetter(*nondefaults)
+        for i in range(TEST_EXP_MAX):
+            self.assertEqual(ig(entities[i]), ig(entities_copy[i]), 'copied values do not match')
