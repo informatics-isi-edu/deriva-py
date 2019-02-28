@@ -466,7 +466,6 @@ class Table (object):
         """
         # empty entities will be accepted but results are therefore an empty entity set
         if not entities:
-            logger.debug('no entities passed to update method')
             return EntitySet(self.path.uri, lambda ignore1, ignore2: [])
 
         options = []
@@ -521,7 +520,6 @@ class Table (object):
         """
         # empty entities will be accepted but results are therefore an empty entity set
         if not entities:
-            logger.debug('no entities passed to update method')
             return EntitySet(self.path.uri, lambda ignore1, ignore2: [])
 
         # JSONEncoder does not handle general iterable objects, so we have to make sure its an acceptable collection
