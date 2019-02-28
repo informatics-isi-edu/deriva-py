@@ -65,6 +65,24 @@ def define_test_schema(catalog):
     isa.create_table(catalog, table_def)
 
 
+def _generate_experiment_entities(types, count):
+    """Generates experiment entities (content only)
+
+    :param types: type entities to be referenced from entities
+    :param count: number of entities to return
+    :return: a list of dict objects (experiment entities)
+    """
+    return [
+        {
+            "Name": TEST_EXP_NAME_FORMAT.format(i),
+            "Amount": i,
+            "Time": "2018-01-{}T01:00:00.0".format(1 + (i % 31)),
+            "Type": types[i % 10]['ID']
+        }
+        for i in range(count)
+    ]
+
+
 def populate_test_catalog(catalog):
     """Populate the test catalog."""
     paths = catalog.getPathBuilder()
@@ -75,15 +93,7 @@ def populate_test_catalog(catalog):
     ], defaults=['ID', 'URI'])
     logger.debug("Inserting experiments")
     exp = paths.schemas['ISA'].tables['Experiment']
-    exp.insert([
-        {
-            "Name": TEST_EXP_NAME_FORMAT.format(i),
-            "Amount": i,
-            "Time": "2018-01-{}T01:00:00.0".format(1 + (i % 31)),
-            "Type": types[i % 10]['ID']
-        }
-        for i in range(TEST_EXP_MAX)
-    ])
+    exp.insert(_generate_experiment_entities(types, TEST_EXP_MAX))
 
 
 @unittest.skipUnless(hostname, "Test host not specified")
@@ -116,6 +126,7 @@ class DatapathTests (unittest.TestCase):
         self.experiment = self.paths.schemas['ISA'].tables['Experiment']
         self.experiment_type = self.paths.schemas['Vocab'].tables['Experiment_Type']
         self.experiment_copy = self.paths.schemas['ISA'].tables['Experiment_Copy']
+        self.types = list(self.experiment_type.entities())
 
     def tearDown(self):
         try:
@@ -231,6 +242,53 @@ class DatapathTests (unittest.TestCase):
         entities = self.experiment.entities()
         df = entities.dataframe
         self.assertEquals(len(df), TEST_EXP_MAX)
+
+    def test_insert_empty_entities(self):
+        entities = self.experiment_copy.insert(None)
+        self.assertEqual(len(entities), 0)
+        entities = self.experiment_copy.insert([])
+        self.assertEqual(len(entities), 0)
+
+    def test_insert_entities_not_iterable(self):
+        with self.assertRaises(ValueError):
+            self.experiment_type.insert(1)
+
+    def test_insert_entities0_not_dict(self):
+        with self.assertRaises(ValueError):
+            self.experiment_type.insert([1])
+        with self.assertRaises(ValueError):
+            self.experiment_type.insert('this is not a dict')
+
+    def test_insert(self):
+        entities = self.experiment_copy.insert(_generate_experiment_entities(self.types, 10))
+        self.assertEqual(len(entities), 10)
+
+    def test_update(self):
+        inserted = self.experiment_copy.insert(_generate_experiment_entities(self.types, 10))
+        self.assertEqual(len(inserted), 10)
+        # now change something in the first entity
+        updates = [dict(**inserted[0])]
+        updates[0]['Name'] = '**CHANGED**'
+        updated = self.experiment_copy.update(updates)
+        self.assertEqual(len(updated), 1)
+        self.assertEqual(inserted[0]['RID'], updated[0]['RID'])
+        self.assertNotEqual(inserted[0]['Name'], updated[0]['Name'])
+
+    def test_update_empty_entities(self):
+        entities = self.experiment_copy.update(None)
+        self.assertEqual(len(entities), 0)
+        entities = self.experiment_copy.update([])
+        self.assertEqual(len(entities), 0)
+
+    def test_update_entities_not_iterable(self):
+        with self.assertRaises(ValueError):
+            self.experiment_type.update(1)
+
+    def test_update_entities0_not_dict(self):
+        with self.assertRaises(ValueError):
+            self.experiment_type.update([1])
+        with self.assertRaises(ValueError):
+            self.experiment_type.update('this is not a dict')
 
     def test_nondefaults(self):
         nondefaults = {'RID', 'RCB', 'RCT'}

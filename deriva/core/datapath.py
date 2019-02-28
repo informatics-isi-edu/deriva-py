@@ -7,7 +7,7 @@ from requests import HTTPError
 logger = logging.getLogger(__name__)
 """Logger for this module"""
 
-_system_defaults = {'RID', 'RCT', 'RMT', 'RCB', 'RMT', 'RMB'}
+_system_defaults = {'RID', 'RCT', 'RCB', 'RMT', 'RMB'}
 """Set of system default column names"""
 
 
@@ -464,6 +464,11 @@ class Table (object):
         :param add_system_defaults: flag to add system columns to the set of default columns.
         :return newly created entities.
         """
+        # empty entities will be accepted but results are therefore an empty entity set
+        if not entities:
+            logger.debug('no entities passed to update method')
+            return EntitySet(self.path.uri, lambda ignore1, ignore2: [])
+
         options = []
 
         if defaults or add_system_defaults:
@@ -482,7 +487,14 @@ class Table (object):
         logger.debug("Inserting entities to path: {path}".format(path=path))
 
         # JSONEncoder does not handle general iterable objects, so we have to make sure its an acceptable collection
+        if not hasattr(entities, '__iter__'):
+            raise ValueError('entities is not iterable')
         entities = entities if isinstance(entities, (list, tuple)) else list(entities)
+
+        # test the first entity element to make sure that it looks like a dictionary
+        if not hasattr(entities[0], 'keys'):
+            raise ValueError('entities[0] does not look like a dictionary -- does not have a "keys()" method')
+
         try:
             resp = self.catalog.post(path, json=entities, headers={'Content-Type': 'application/json'})
             return EntitySet(self.path.uri, lambda ignore1, ignore2: resp.json())
@@ -507,8 +519,19 @@ class Table (object):
         :param targets: an iterable collection of column names used as the targets of the update operation.
         :return: EntitySet of updated entities as returned by the corresponding ERMrest interface.
         """
+        # empty entities will be accepted but results are therefore an empty entity set
+        if not entities:
+            logger.debug('no entities passed to update method')
+            return EntitySet(self.path.uri, lambda ignore1, ignore2: [])
+
         # JSONEncoder does not handle general iterable objects, so we have to make sure its an acceptable collection
+        if not hasattr(entities, '__iter__'):
+            raise ValueError('entities is not iterable')
         entities = entities if isinstance(entities, (list, tuple)) else list(entities)
+
+        # test the first entity element to make sure that it looks like a dictionary
+        if not hasattr(entities[0], 'keys'):
+            raise ValueError('entities[0] does not look like a dictionary -- does not have a "keys()" method')
 
         # Form the correlation keys and the targets
         correlation_cnames = {urlquote(str(c)) for c in correlation}
