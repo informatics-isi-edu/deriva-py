@@ -11,7 +11,7 @@ import platform
 from collections import OrderedDict, namedtuple
 from deriva.core import ErmrestCatalog, CatalogConfig, HatracStore, HatracJobAborted, HatracJobPaused, \
     HatracJobTimeout, urlquote, stob, format_exception, get_credential, read_config, write_config, copy_config, \
-    resource_path, IS_PY2, __version__ as VERSION
+    resource_path, DEFAULT_CHUNK_SIZE, IS_PY2, __version__ as VERSION
 from deriva.core.utils import hash_utils as hu, mime_utils as mu, version_utils as vu
 
 try:
@@ -545,7 +545,7 @@ class DerivaUpload(object):
                                sha256=self.metadata.get("sha256_base64"),
                                content_type=self.guessContentType(file_path),
                                content_disposition=self.metadata.get("content-disposition"),
-                               chunked=True,
+                               chunked=True if self.metadata["file_size"] > DEFAULT_CHUNK_SIZE else False,
                                create_parents=stob(hatrac_options.get("create_parents", True)),
                                allow_versioning=stob(hatrac_options.get("allow_versioning", True)),
                                callback=callback)
