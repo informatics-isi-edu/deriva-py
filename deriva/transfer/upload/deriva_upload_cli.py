@@ -71,7 +71,7 @@ class DerivaUploadCLI(BaseCLI):
                                    args.token,
                                    args.config_file,
                                    args.credential_file,
-                                   args.no_cfg_update)
+                                   args.no_config_update)
         except RuntimeError as e:
             sys.stderr.write(str(e))
             return 1
