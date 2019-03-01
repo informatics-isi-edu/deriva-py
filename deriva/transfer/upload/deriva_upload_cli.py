@@ -10,11 +10,10 @@ class DerivaUploadCLI(BaseCLI):
         if not issubclass(uploader, DerivaUpload):
             raise TypeError("DerivaUpload subclass required")
 
-        BaseCLI.__init__(self, description, epilog, uploader.getVersion())
-        self.remove_options(['--host'])
-        self.parser.add_argument('--no-cfg-update', action="store_true", help="Do not update local config from server.")
+        BaseCLI.__init__(self, description, epilog, uploader.getVersion(), hostname_required=True)
+        self.parser.add_argument('--no-config-update', action="store_true",
+                                 help="Do not check for (and download) an updated configuration from the server.")
         self.parser.add_argument("--catalog", default=1, metavar="<1>", help="Catalog number. Default: 1")
-        self.parser.add_argument('host', metavar='<host>', help="Fully qualified host name.")
         self.parser.add_argument("path", metavar="<dir>", help="Path to an input directory.")
         self.uploader = uploader
 
