@@ -121,7 +121,6 @@ class Export2Excel(object):
 
     def save_xlsx(self):
         self.wb.save(self._output_path_)
-
     def copy_cell(self, old_row_idx, old_col_idx, new_row_idx, new_col_idx,copy_style=True):
         cell = self.ws[self.cell_name(old_row_idx, old_col_idx)]
         new_cell = self.ws[self.cell_name(new_row_idx, new_col_idx)]
@@ -137,6 +136,7 @@ class Export2Excel(object):
 
 
 class Export2GEO(object):
+
     def __init__(self, input_file, output_excel_path):
         self.__name__ = 'export_geo_template'
         self.input_file = input_file
@@ -162,6 +162,7 @@ class Export2GEO(object):
                 logging.debug("Duplicate Data")
             elif len(data) == 1:
                 self.study = data[0].get('Study')[0]
+                self.pi = data[0].get('Principal_Investigator')[0]
                 self.experiments = data[0].get('Experiment')
                 self.experiment_settings = data[0].get('Experiment_Setting')
                 self.replicates = data[0].get('Replicate')
@@ -211,8 +212,8 @@ class Export2GEO(object):
         for col in range(2,13):
             for row in range(1,7):
                 self.excel.write_cell(row, col, '', Style.PREFACE)
-
     # write SERIES
+
     def export_series(self):
         self.excel.write_cell(self.current_row_idx, 1, 'SERIES', Style.SECTION)
         self.current_row_idx += 1
@@ -230,7 +231,7 @@ class Export2GEO(object):
         self.excel.write_cell(self.current_row_idx, 2, self.study.get('Overall_Design',''))
         self.current_row_idx += 1
         self.excel.write_cell(self.current_row_idx, 1, 'contributor', Style.FIELD)
-        self.excel.write_cell(self.current_row_idx, 2, self.study.get('Principal_Investigator_Name',''))
+        self.excel.write_cell(self.current_row_idx, 2, self.pi.get('Full_Name',''))
         self.current_row_idx += 1
 
         if len(self.study_files) >= 1 and self.study_files[0] is not None:
@@ -342,7 +343,6 @@ class Export2GEO(object):
                             self.excel.write_cell(self.current_row_idx, local_col_idx, e[p])
                             local_col_idx += 1
 
-                    # todo list all the characteristics properties
                     characteristic_list = ['Phenotype','Stage_ID','Stage_Detail','Genotype','Strain','Wild_Type']
                     foreign_item_list = ['Tissue','Source','Specimen_Cell_Type','Cell_Type']
                     characteristic_exist=[]
@@ -458,8 +458,7 @@ class Export2GEO(object):
                     self.excel.write_cell(self.current_row_idx, local_col_idx, sample_description)
                     local_col_idx += 1
 
-                    # writing processed file
-                    # todo: how to handle multi processed files for one sample
+                    # processed files are write to supplementary file
 
                     # writing raw file
                     for f in self.files:
@@ -560,10 +559,30 @@ class Export2GEO(object):
             processing_list = self.other_item_list['Data_Processing'][0].split('\n')
         else:
             processing_list = []
+
+        other_procession_set = {}
+        for es in self.experiment_settings:
+            if es is None or 'Experiment_RID' not in es.keys():
+                continue
+            else:
+                if other_procession_set:
+                    for k,v in es.items():
+                        if k in other_procession_set.keys() and v != other_procession_set[k]:
+                            del other_procession_set[k]
+                else:
+                    other_procession_set = es.copy()
+
+
         for step_row in processing_list:
             self.excel.write_cell(self.current_row_idx, 1, 'data processing step',Style.FIELD)
             self.excel.write_cell(self.current_row_idx, 2, step_row)
             self.current_row_idx += 1
+
+        for k, v in other_procession_set.items():
+            if v and k not in ['RCB','RCT','RID','RMB','RMT'] and len(v)>0:
+                self.excel.write_cell(self.current_row_idx, 1, 'data processing step', Style.FIELD)
+                self.excel.write_cell(self.current_row_idx, 2, k+' : '+v)
+                self.current_row_idx += 1
 
         if self.other_item_unique['Reference_Genome']:
             if len(self.other_item_list['Reference_Genome']) == 1:
@@ -636,6 +655,8 @@ class Export2GEO(object):
                 # Experiment_Settings.Protocol_Reference
                 for es in self.experiment_settings:
                     if es is None or 'Experiment_RID' not in es.keys():
+                        print('skipped?')
+                        print(es)
                         continue
                     elif es['Experiment_RID'] == pf['Experiment_RID']:
                         self.excel.write_cell(self.header_row_idx, current_col_idx, 'instrument model', Style.HEADER)
