@@ -12,11 +12,8 @@ from deriva.core import BaseCLI, KeyValuePairArgs, format_credential, urlparse, 
 class DerivaDownloadCLI(BaseCLI):
     def __init__(self, description, epilog):
 
-        BaseCLI.__init__(self, description, epilog, __version__)
-        self.remove_options(['--host', '--config-file'])
+        BaseCLI.__init__(self, description, epilog, __version__, hostname_required=True, config_file_required=True)
         self.parser.add_argument("--catalog", default=1, metavar="<1>", help="Catalog number. Default: 1")
-        self.parser.add_argument('host', default='localhost', metavar='<host>', help="Fully qualified host name.")
-        self.parser.add_argument('config', metavar='<config file>', help="Path to a configuration file.")
         self.parser.add_argument("path", metavar="<output dir>", help="Path to an output directory.")
         self.parser.add_argument("kwargs", metavar="[key=value key=value ...]",
                                  nargs=argparse.REMAINDER, action=KeyValuePairArgs,
@@ -70,7 +67,7 @@ class DerivaDownloadCLI(BaseCLI):
                                                     catalog=args.catalog,
                                                     token=args.token,
                                                     envars=args.kwargs,
-                                                    config_file=args.config,
+                                                    config_file=args.config_file,
                                                     credential_file=args.credential_file)
             sys.stdout.write("\n%s\n" % (json.dumps(downloaded)))
         except DerivaDownloadAuthenticationError:

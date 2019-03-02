@@ -15,9 +15,14 @@ __version__ = re.search(
     io.open('deriva/core/__init__.py', encoding='utf_8_sig').read()
     ).group(1)
 
+with io.open('README.md') as readme_file:
+    readme = readme_file.read()
+
 setup(
     name="deriva",
     description="DERIVA Python APIs",
+    long_description=readme,
+    long_description_content_type='text/markdown',
     url='https://github.com/informatics-isi-edu/deriva-py',
     maintainer='USC Information Sciences Institute ISR Division',
     maintainer_email='isrd-support@isi.edu',
@@ -36,17 +41,7 @@ setup(
         ]
     },
     requires=[
-        'os',
-        'sys',
-        'time',
-        'datetime',
-        'platform',
-        'logging',
-        'hashlib',
-        'base64',
-        'errno',
-        'json',
-        'mimetypes',
+        'setuptools',
         'scandir',
         'requests',
         'certifi',
