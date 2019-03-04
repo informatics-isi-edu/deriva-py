@@ -78,6 +78,7 @@ class DerivaUpload(object):
         self.transfer_state_fp = None
         self.cancelled = False
         self.metadata = dict()
+        self.catalog_metadata = {"table_metadata": {}}
 
         self.file_list = OrderedDict()
         self.file_status = OrderedDict()
@@ -752,6 +753,34 @@ class DerivaUpload(object):
                                       allow_versioning=allow_versioning,
                                       callback=callback)
 
+    def _get_catalog_table_columns(self, table):
+        table_columns = set()
+        catalog_table_metadata = self.catalog_metadata["table_metadata"]
+        table_metadata = catalog_table_metadata.get(table)
+        if table_metadata:
+            table_columns = table_metadata.get("table_columns")
+        if not table_columns:
+            table_columns = self.catalog.getTableColumns(table)
+            catalog_table_metadata.update({table: {"table_columns": table_columns}})
+        return table_columns
+
+    def _validate_catalog_row_columns(self, row, table):
+        return set(row.keys()) - self._get_catalog_table_columns(table)
+
+    def _get_catalog_default_columns(self, row, table, exclude=None, quote_url=True):
+        columns = self._get_catalog_table_columns(table)
+        if isinstance(exclude, list):
+            for col in exclude:
+                columns.remove(col)
+
+        defaults = []
+        supplied_columns = row.keys()
+        for col in columns:
+            if col not in supplied_columns:
+                defaults.append(urlquote(col, safe='') if quote_url else col)
+
+        return defaults
+
     def _catalogRecordCreate(self, catalog_table, row, default_columns=None):
         """
 
@@ -764,13 +793,13 @@ class DerivaUpload(object):
             return None
 
         try:
-            missing = self.catalog.validateRowColumns(row, catalog_table)
+            missing = self._validate_catalog_row_columns(row, catalog_table)
             if missing:
                 raise CatalogCreateError(
                     "Unable to update catalog entry because one or more specified columns do not exist in the "
                     "target table: [%s]" % ','.join(missing))
             if not default_columns:
-                default_columns = self.catalog.getDefaultColumns(row, catalog_table)
+                default_columns = self._get_catalog_default_columns(row, catalog_table)
             default_param = ('?defaults=%s' % ','.join(default_columns)) if len(default_columns) > 0 else ''
             # for default in default_columns:
             #    row[default] = None
