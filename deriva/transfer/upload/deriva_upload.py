@@ -11,7 +11,7 @@ import platform
 from collections import OrderedDict, namedtuple
 from deriva.core import ErmrestCatalog, CatalogConfig, HatracStore, HatracJobAborted, HatracJobPaused, \
     HatracJobTimeout, urlquote, stob, format_exception, get_credential, read_config, write_config, copy_config, \
-    resource_path, make_dirs, IS_PY2, __version__ as VERSION
+    resource_path, make_dirs, DEFAULT_CHUNK_SIZE, IS_PY2, __version__ as VERSION
 from deriva.core.utils import hash_utils as hu, mime_utils as mu, version_utils as vu
 from deriva.transfer.upload import *
 from deriva.transfer.upload.processors import find_processor
@@ -71,6 +71,7 @@ class DerivaUpload(object):
         self.transfer_state_fp = None
         self.cancelled = False
         self.metadata = dict()
+        self.catalog_metadata = {"table_metadata": {}}
         self.processor_output = dict()
 
         self.file_list = OrderedDict()
@@ -548,6 +549,7 @@ class DerivaUpload(object):
         # 6. Perform the Hatrac upload
         self._getFileHatracMetadata(asset_mapping)
         hatrac_options = asset_mapping.get("hatrac_options", {})
+        file_size = self.metadata["file_size"]
         versioned_uri = \
             self._hatracUpload(self.metadata["URI"],
                                file_path,
@@ -555,7 +557,7 @@ class DerivaUpload(object):
                                sha256=self.metadata.get("sha256_base64"),
                                content_type=self.guessContentType(file_path),
                                content_disposition=self.metadata.get("content-disposition"),
-                               chunked=True,
+                               chunked=True if (file_size > DEFAULT_CHUNK_SIZE or file_size == 0) else False,
                                create_parents=stob(hatrac_options.get("create_parents", True)),
                                allow_versioning=stob(hatrac_options.get("allow_versioning", True)),
                                callback=callback)
@@ -756,6 +758,34 @@ class DerivaUpload(object):
                                       allow_versioning=allow_versioning,
                                       callback=callback)
 
+    def _get_catalog_table_columns(self, table):
+        table_columns = set()
+        catalog_table_metadata = self.catalog_metadata["table_metadata"]
+        table_metadata = catalog_table_metadata.get(table)
+        if table_metadata:
+            table_columns = table_metadata.get("table_columns")
+        if not table_columns:
+            table_columns = self.catalog.getTableColumns(table)
+            catalog_table_metadata.update({table: {"table_columns": table_columns}})
+        return table_columns
+
+    def _validate_catalog_row_columns(self, row, table):
+        return set(row.keys()) - self._get_catalog_table_columns(table)
+
+    def _get_catalog_default_columns(self, row, table, exclude=None, quote_url=True):
+        columns = self._get_catalog_table_columns(table)
+        if isinstance(exclude, list):
+            for col in exclude:
+                columns.remove(col)
+
+        defaults = []
+        supplied_columns = row.keys()
+        for col in columns:
+            if col not in supplied_columns:
+                defaults.append(urlquote(col, safe='') if quote_url else col)
+
+        return defaults
+
     def _catalogRecordCreate(self, catalog_table, row, default_columns=None):
         """
 
@@ -768,13 +798,13 @@ class DerivaUpload(object):
             return None
 
         try:
-            missing = self.catalog.validateRowColumns(row, catalog_table)
+            missing = self._validate_catalog_row_columns(row, catalog_table)
             if missing:
                 raise ValueError(
                     "Unable to update catalog entry because one or more specified columns do not exist in the "
                     "target table: [%s]" % ','.join(missing))
             if not default_columns:
-                default_columns = self.catalog.getDefaultColumns(row, catalog_table)
+                default_columns = self._get_catalog_default_columns(row, catalog_table)
             default_param = ('?defaults=%s' % ','.join(default_columns)) if len(default_columns) > 0 else ''
             # for default in default_columns:
             #    row[default] = None

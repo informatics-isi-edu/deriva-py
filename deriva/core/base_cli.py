@@ -7,7 +7,7 @@ from .utils.version_utils import get_installed_version
 
 class BaseCLI(object):
 
-    def __init__(self, description, epilog, version=None):
+    def __init__(self, description, epilog, version=None, hostname_required=False, config_file_required=False):
         assert version, "A valid version string is required"
 
         self.version = get_installed_version(version)
@@ -24,12 +24,6 @@ class BaseCLI(object):
             '--debug', action="store_true", help="Enable debug logging output.")
 
         self.parser.add_argument(
-            '--host', metavar='<fqhn>', help="Optional fully qualified host name to connect to.")
-
-        self.parser.add_argument(
-            '--config-file', metavar='<file>', help="Optional path to a configuration file.")
-
-        self.parser.add_argument(
             '--credential-file', metavar='<file>', help="Optional path to a credential file.")
 
         self.parser.add_argument(
@@ -37,6 +31,13 @@ class BaseCLI(object):
 
         self.parser.add_argument(
             "--oauth2-token", metavar="<oauth2-token>", help="OAuth2 bearer token.")        
+
+        self.parser.add_argument(
+            'host' if hostname_required else '--host', metavar='<host>', help="Fully qualified host name.")
+
+        self.parser.add_argument(
+            'config_file' if config_file_required else '--config-file',
+            metavar='<file>', help="Path to a configuration file.")
 
     def remove_options(self, options):
         for option in options:
