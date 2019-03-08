@@ -1,14 +1,14 @@
-class DerivaUploadError (Exception):
+class DerivaUploadError (RuntimeError):
     pass
 
 
-class DerivaUploadConfigurationError (Exception):
+class DerivaUploadConfigurationError (ValueError):
     pass
 
 
-class DerivaUploadCatalogCreateError (Exception):
+class DerivaUploadCatalogCreateError (RuntimeError):
     pass
 
 
-class DerivaUploadCatalogUpdateError (Exception):
+class DerivaUploadCatalogUpdateError (RuntimeError):
     pass

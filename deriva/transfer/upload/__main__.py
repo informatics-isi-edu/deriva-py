@@ -7,7 +7,7 @@ INFO = "For more information see: https://github.com/informatics-isi-edu/deriva-
 
 def main():
     cli = DerivaUploadCLI(GenericUploader, DESC, INFO)
-    cli.main()
+    return cli.main()
 
 
 if __name__ == '__main__':

@@ -1,8 +1,9 @@
 import os
 import sys
 import traceback
-from deriva.transfer import DerivaUpload
-from deriva.core import BaseCLI, write_config, format_credential, urlparse
+from deriva.transfer import DerivaUpload, DerivaUploadError, DerivaUploadConfigurationError, \
+    DerivaUploadCatalogCreateError, DerivaUploadCatalogUpdateError
+from deriva.core import BaseCLI, write_config, format_credential, format_exception, urlparse
 
 
 class DerivaUploadCLI(BaseCLI):
@@ -56,12 +57,13 @@ class DerivaUploadCLI(BaseCLI):
         deriva_uploader.cleanup()
 
     def main(self):
-        sys.stderr.write("\n")
         args = self.parse_cli()
         if args.path is None:
             sys.stderr.write("\nError: Input directory not specified.\n")
             self.parser.print_usage()
             return 2
+        if not args.quiet:
+            sys.stderr.write("\n")
 
         try:
             DerivaUploadCLI.upload(self.uploader,
@@ -72,12 +74,14 @@ class DerivaUploadCLI(BaseCLI):
                                    args.config_file,
                                    args.credential_file,
                                    args.no_config_update)
-        except RuntimeError as e:
-            sys.stderr.write(str(e))
+        except (RuntimeError, DerivaUploadError, DerivaUploadConfigurationError, DerivaUploadCatalogCreateError,
+                DerivaUploadCatalogUpdateError) as e:
+            sys.stderr.write(("\n" if not args.quiet else "") + format_exception(e))
             return 1
         except:
             traceback.print_exc()
             return 1
         finally:
-            sys.stderr.write("\n\n")
+            if not args.quiet:
+                sys.stderr.write("\n\n")
         return 0

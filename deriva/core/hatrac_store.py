@@ -277,7 +277,7 @@ class HatracStore(DerivaBinding):
                     url = '%s;upload/%s/%d' % (path, job_id, chunk)
                     headers = {'Content-Type': 'application/octet-stream', 'Content-Length': '%d' % len(data)}
                     r = self.put(url, data=data, headers=headers)
-                    r.raise_for_status()
+                    self._response_raise_for_status(r)
                     total += len(data)
                     chunk += 1
                     if callback:
@@ -329,6 +329,7 @@ class HatracStore(DerivaBinding):
             obj['content-disposition'] = content_disposition
         obj['content-type'] = content_type if content_type else mu.guess_content_type(file_path)
         r = self.post(url, json=obj, headers={'Content-Type': 'application/json'})
+        self._response_raise_for_status(r)
         job_id = r.text.split('/')[-1][:-1]
         logging.debug('Created job_id "%s" for url "%s".' % (job_id,  url))
         return job_id

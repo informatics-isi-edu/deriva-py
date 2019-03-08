@@ -11,7 +11,7 @@ import platform
 from collections import OrderedDict, namedtuple
 from deriva.core import ErmrestCatalog, CatalogConfig, HatracStore, HatracJobAborted, HatracJobPaused, \
     HatracJobTimeout, urlquote, stob, format_exception, get_credential, read_config, write_config, copy_config, \
-    resource_path, make_dirs, DEFAULT_CHUNK_SIZE, IS_PY2, __version__ as VERSION
+    resource_path, make_dirs, lock_file, DEFAULT_CHUNK_SIZE, IS_PY2, __version__ as VERSION
 from deriva.core.utils import hash_utils as hu, mime_utils as mu, version_utils as vu
 from deriva.transfer.upload import *
 from deriva.transfer.upload.processors import find_processor
@@ -58,7 +58,7 @@ class DerivaUpload(object):
 
     DefaultConfigFileName = "config.json"
     DefaultServerListFileName = "servers.json"
-    DefaultTransferStateFileName = "transfers.json"
+    DefaultTransferStateFileName = ".deriva-upload-state.json"
 
     def __init__(self, config_file=None, credential_file=None, server=None):
         self.server_url = None
@@ -68,7 +68,8 @@ class DerivaUpload(object):
         self.credentials = None
         self.asset_mappings = None
         self.transfer_state = dict()
-        self.transfer_state_fp = None
+        self.transfer_state_fh = None
+        self.transfer_state_locks = dict()
         self.cancelled = False
         self.metadata = dict()
         self.catalog_metadata = {"table_metadata": {}}
@@ -121,9 +122,6 @@ class DerivaUpload(object):
             del self.store
         self.store = HatracStore(protocol, host, self.credentials, session_config=session_config)
 
-        # transfer state initialization
-        self.loadTransferState()
-
         """
          Configuration initialization - this is a bit complex because we allow for:
              1. Run-time overriding of the config file location.
@@ -164,13 +162,13 @@ class DerivaUpload(object):
         self.file_list.clear()
         self.file_status.clear()
         self.skipped_files.clear()
+        self.cleanupTransferState()
         self.cancelled = False
 
     def cleanup(self):
         self.reset()
         self.config = None
         self.credentials = None
-        self.cleanupTransferState()
 
     def setServer(self, server):
         cleanup = self.server != server
@@ -317,9 +315,10 @@ class DerivaUpload(object):
         return os.path.join(
             self.getDeployedConfigPath(), self.server.get('host', ''), self.DefaultConfigFileName)
 
-    def getDeployedTransferStateFilePath(self):
+    def getDeployedTransferStateFilePath(self, identifier=''):
         return os.path.join(
-            self.getDeployedConfigPath(), self.server.get('host', ''), self.DefaultTransferStateFileName)
+            self.getDeployedConfigPath(), self.server.get('host', ''),
+            os.path.join('state', identifier) if identifier else '', self.DefaultTransferStateFileName)
 
     def getRemoteConfig(self):
         catalog_config = CatalogConfig.fromcatalog(self.catalog)
@@ -389,11 +388,14 @@ class DerivaUpload(object):
         root = os.path.abspath(root)
         if not os.path.isdir(root):
             raise ValueError("Invalid directory specified: [%s]" % root)
+        self.loadTransferState(root)
 
         logger.info("Scanning files in directory [%s]..." % root)
         file_list = OrderedDict()
         for path, dirs, files in walk(root):
             for file_name in files:
+                if file_name == self.DefaultTransferStateFileName:
+                    continue
                 file_path = os.path.normpath(os.path.join(path, file_name))
                 file_entry = self.validateFile(root, path, file_name)
                 if not file_entry:
@@ -909,21 +911,95 @@ class DerivaUpload(object):
 
         return True
 
-    def loadTransferState(self):
-        transfer_state_file_path = self.getDeployedTransferStateFilePath()
-        transfer_state_dir = os.path.dirname(transfer_state_file_path)
+    @staticmethod
+    def hash_dir_path(path):
+        return hu.compute_hashes(BytesIO(os.path.normcase(path).encode("utf-8")))['md5'][0]
+
+    @staticmethod
+    def subdirs(path):
+        subdirs = set()
+        for entry, _, _, in walk(path, followlinks=True):
+            subdirs.add(os.path.realpath(os.path.normcase(entry)))
+        return subdirs
+
+    @staticmethod
+    def pardirs(path):
+        parents = set()
+        current = path
+        while True:
+            parent = os.path.dirname(current)
+            if parent == current:
+                break
+            parents.add(parent)
+            current = parent
+        return parents
+
+    @staticmethod
+    def dir_paths(path):
+        paths = set()
+        paths.update(DerivaUpload.pardirs(path))
+        paths.update(DerivaUpload.subdirs(path))
+        return paths
+
+    @staticmethod
+    def find_file_in_dir_hierarchy(filename, path):
+        """ Find all instances of a filename in the entire directory hierarchy specified by path.
+        """
+        file_paths = set()
+        # First, descend from the base path looking for filename in all sub dirs
+        for root, dirs, files in walk(path, followlinks=True):
+            if filename in files:
+                # found a file
+                found_path = os.path.join(root, filename)
+                file_paths.add(os.path.realpath(found_path))
+                continue
+
+        # Next, ascend from the base path looking for the same filename in all parent dirs
+        current = path
+        while True:
+            parent = os.path.dirname(current)
+            if parent == current:
+                break
+            for entry in scandir(parent):
+                if (entry.name == filename) and entry.is_file():
+                    file_paths.add(os.path.realpath(entry.path))
+            current = parent
+
+        return file_paths
+
+    def acquire_dependent_locks(self, directory):
+        for path in self.find_file_in_dir_hierarchy(self.DefaultTransferStateFileName, directory):
+            logger.info("Attempting to acquire a dependent lock in [%s]" % os.path.dirname(path))
+            try:
+                transfer_state_lock = lock_file(path, 'r+')
+                transfer_state_fh = transfer_state_lock.acquire(timeout=0, fail_when_locked=True)
+                self.transfer_state_locks.update({path: {"lock": transfer_state_lock, "handle": transfer_state_fh}})
+            except Exception as e:
+                raise DerivaUploadError("Unable to acquire resource lock for directory [%s]. "
+                                        "Multiple upload processes cannot operate within the same directory hierarchy. "
+                                        "%s" % (os.path.dirname(path), format_exception(e)))
+
+    def loadTransferState(self, directory):
+        transfer_state_file_path = os.path.join(directory, self.DefaultTransferStateFileName)
+        self.acquire_dependent_locks(directory)
         try:
-            make_dirs(transfer_state_dir)
             if not os.path.isfile(transfer_state_file_path):
-                with open(transfer_state_file_path, "w") as tsfp:
+                with lock_file(transfer_state_file_path, "w") as tsfp:
                     json.dump(self.transfer_state, tsfp)
 
-            self.transfer_state_fp = \
-                open(transfer_state_file_path, 'r+')
-            self.transfer_state = json.load(self.transfer_state_fp, object_pairs_hook=OrderedDict)
+            transfer_state_lock = self.transfer_state_locks.get(transfer_state_file_path)
+            if transfer_state_lock:
+                self.transfer_state_fh = transfer_state_lock["handle"]
+            else:
+                transfer_state_lock = lock_file(transfer_state_file_path, 'r+')
+                self.transfer_state_fh = transfer_state_lock.acquire(timeout=0, fail_when_locked=True)
+                self.transfer_state_locks.update(
+                    {directory: {"lock": transfer_state_lock, "handle": self.transfer_state_fh}})
+            self.transfer_state = json.load(self.transfer_state_fh, object_pairs_hook=OrderedDict)
         except Exception as e:
-            logger.warning("Unable to read transfer state file, transfer checkpointing will not be available. "
-                           "Error: %s" % format_exception(e))
+            raise DerivaUploadError("Unable to acquire resource lock for directory [%s]. "
+                                    "Multiple upload processes cannot operate within the same directory hierarchy. %s"
+                                    % (directory, format_exception(e)))
 
     def getTransferState(self, file_path):
         return self.transfer_state.get(file_path)
@@ -939,23 +1015,29 @@ class DerivaUpload(object):
         self.writeTransferState()
 
     def writeTransferState(self):
-        if not self.transfer_state_fp:
+        if not self.transfer_state_fh:
             return
         try:
-            self.transfer_state_fp.seek(0, 0)
-            self.transfer_state_fp.truncate()
-            json.dump(self.transfer_state, self.transfer_state_fp, indent=2)
-            self.transfer_state_fp.flush()
+            self.transfer_state_fh.seek(0, 0)
+            self.transfer_state_fh.truncate()
+            json.dump(self.transfer_state, self.transfer_state_fh, indent=2)
+            self.transfer_state_fh.flush()
         except Exception as e:
             logger.warning("Unable to write transfer state file: %s" % format_exception(e))
 
     def cleanupTransferState(self):
-        if self.transfer_state_fp and not self.transfer_state_fp.closed:
+        if self.transfer_state_fh and not self.transfer_state_fh.closed:
             try:
-                self.transfer_state_fp.flush()
-                self.transfer_state_fp.close()
+                self.transfer_state_fh.flush()
+                self.transfer_state_fh.close()
             except Exception as e:
                 logger.warning("Unable to flush/close transfer state file: %s" % format_exception(e))
+            finally:
+                for entry in self.transfer_state_locks.values():
+                    lock = entry.get("lock")
+                    if lock:
+                        lock.release()
+                self.transfer_state_fh = None
 
     def getTransferStateStatus(self, file_path):
         transfer_state = self.getTransferState(file_path)

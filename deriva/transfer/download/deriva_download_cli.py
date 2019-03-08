@@ -6,7 +6,7 @@ import argparse
 from deriva.transfer import GenericDownloader
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError, \
     DerivaDownloadAuthenticationError, DerivaDownloadAuthorizationError
-from deriva.core import BaseCLI, KeyValuePairArgs, format_credential, urlparse, __version__
+from deriva.core import BaseCLI, KeyValuePairArgs, format_credential, format_exception, urlparse, __version__
 
 
 class DerivaDownloadCLI(BaseCLI):
@@ -76,7 +76,7 @@ class DerivaDownloadCLI(BaseCLI):
                              "found for the specified host.")
             return 1
         except (DerivaDownloadError, DerivaDownloadConfigurationError, DerivaDownloadAuthorizationError) as e:
-            sys.stderr.write(("\n" if not args.quiet else "") + str(e))
+            sys.stderr.write(("\n" if not args.quiet else "") + format_exception(e))
             return 1
         except:
             traceback.print_exc()
