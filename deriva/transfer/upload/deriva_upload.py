@@ -58,7 +58,7 @@ class DerivaUpload(object):
 
     DefaultConfigFileName = "config.json"
     DefaultServerListFileName = "servers.json"
-    DefaultTransferStateFileName = ".deriva-upload-state.json"
+    DefaultTransferStateFileName = ".deriva-upload-state-%s.json"
 
     def __init__(self, config_file=None, credential_file=None, server=None):
         self.server_url = None
@@ -315,10 +315,8 @@ class DerivaUpload(object):
         return os.path.join(
             self.getDeployedConfigPath(), self.server.get('host', ''), self.DefaultConfigFileName)
 
-    def getDeployedTransferStateFilePath(self, identifier=''):
-        return os.path.join(
-            self.getDeployedConfigPath(), self.server.get('host', ''),
-            os.path.join('state', identifier) if identifier else '', self.DefaultTransferStateFileName)
+    def getTransferStateFileName(self):
+        return self.DefaultTransferStateFileName % self.server.get('host', 'localhost')
 
     def getRemoteConfig(self):
         catalog_config = CatalogConfig.fromcatalog(self.catalog)
@@ -394,7 +392,7 @@ class DerivaUpload(object):
         file_list = OrderedDict()
         for path, dirs, files in walk(root):
             for file_name in files:
-                if file_name == self.DefaultTransferStateFileName:
+                if file_name == self.getTransferStateFileName():
                     continue
                 file_path = os.path.normpath(os.path.join(path, file_name))
                 file_entry = self.validateFile(root, path, file_name)
@@ -912,36 +910,6 @@ class DerivaUpload(object):
         return True
 
     @staticmethod
-    def hash_dir_path(path):
-        return hu.compute_hashes(BytesIO(os.path.normcase(path).encode("utf-8")))['md5'][0]
-
-    @staticmethod
-    def subdirs(path):
-        subdirs = set()
-        for entry, _, _, in walk(path, followlinks=True):
-            subdirs.add(os.path.realpath(os.path.normcase(entry)))
-        return subdirs
-
-    @staticmethod
-    def pardirs(path):
-        parents = set()
-        current = path
-        while True:
-            parent = os.path.dirname(current)
-            if parent == current:
-                break
-            parents.add(parent)
-            current = parent
-        return parents
-
-    @staticmethod
-    def dir_paths(path):
-        paths = set()
-        paths.update(DerivaUpload.pardirs(path))
-        paths.update(DerivaUpload.subdirs(path))
-        return paths
-
-    @staticmethod
     def find_file_in_dir_hierarchy(filename, path):
         """ Find all instances of a filename in the entire directory hierarchy specified by path.
         """
@@ -968,7 +936,7 @@ class DerivaUpload(object):
         return file_paths
 
     def acquire_dependent_locks(self, directory):
-        for path in self.find_file_in_dir_hierarchy(self.DefaultTransferStateFileName, directory):
+        for path in self.find_file_in_dir_hierarchy(self.getTransferStateFileName(), directory):
             logger.info("Attempting to acquire a dependent lock in [%s]" % os.path.dirname(path))
             try:
                 transfer_state_lock = lock_file(path, 'r+')
@@ -980,11 +948,11 @@ class DerivaUpload(object):
                                         "%s" % (os.path.dirname(path), format_exception(e)))
 
     def loadTransferState(self, directory):
-        transfer_state_file_path = os.path.join(directory, self.DefaultTransferStateFileName)
+        transfer_state_file_path = os.path.join(directory, self.getTransferStateFileName())
         self.acquire_dependent_locks(directory)
         try:
             if not os.path.isfile(transfer_state_file_path):
-                with lock_file(transfer_state_file_path, "w") as tsfp:
+                with lock_file(transfer_state_file_path, mode="wb" if IS_PY2 else "w") as tsfp:
                     json.dump(self.transfer_state, tsfp)
 
             transfer_state_lock = self.transfer_state_locks.get(transfer_state_file_path)
