@@ -53,7 +53,7 @@ class MinidIdentifierPostProcessor(IdentifierPostProcessor):
                     "Invalid URLs: One or more location URLs must be specified when registering an identifier.")
             result = self.MINID.minid_client_api.register_entity(
                 server, checksum, email, code,
-                url=locations, title=self.parameters.get("title", ''),
+                url=locations, title=self.parameters.get("title", ""),
                 test=stob(self.parameters.get("test", "False")),
                 globus_auth_token=None, checksum_function=None)
             v[IDENTIFIER_KEY] = result
@@ -69,8 +69,8 @@ class GlobusIdentifierPostProcessor(IdentifierPostProcessor):
     GLOBUS_SDK = None
     GLOBUS_IDENTIFIER_CLIENT = None
     GLOBUS_IDENTIFIER_SERVICE = "https://identifiers.globus.org/"
-    TEST_IDENTIFIER_NAMESPACE = 'HHxPIZaVDh9u'
-    IDENTIFIER_NAMESPACE = 'kHAAfCby2zdn'
+    TEST_IDENTIFIER_NAMESPACE = "HHxPIZaVDh9u"
+    IDENTIFIER_NAMESPACE = "kHAAfCby2zdn"
 
     def __init__(self, envars=None, **kwargs):
         super(GlobusIdentifierPostProcessor, self).__init__(envars, **kwargs)
@@ -101,7 +101,7 @@ class GlobusIdentifierPostProcessor(IdentifierPostProcessor):
         token = entries[0].get("access_token") if entries else None
         ac = self.GLOBUS_SDK.AccessTokenAuthorizer(token) if token else None
         return self.GLOBUS_IDENTIFIER_CLIENT.identifiers_api.IdentifierClient(
-            'Identifier', base_url=self.GLOBUS_IDENTIFIER_SERVICE, app_name='DERIVA Export', authorizer=ac)
+            "Identifier", base_url=self.GLOBUS_IDENTIFIER_SERVICE, app_name="DERIVA Export", authorizer=ac)
 
     def process(self):
         ic = self.load_identifier_client()
@@ -113,27 +113,27 @@ class GlobusIdentifierPostProcessor(IdentifierPostProcessor):
             checksum = v[SHA256_KEY][0]
             title = self.parameters.get("title", "DERIVA Export: %s" % k)
             metadata = {"title": title}
+            visible_to = self.parameters.get("visible_to", ["public"])
             locations = v.get(REMOTE_PATHS_KEY)
             if not locations:
                 raise DerivaDownloadConfigurationError(
                     "Invalid URLs: One or more location URLs must be specified when registering an identifier.")
 
-            visible_to = ('public',)
             kwargs = {
-                'namespace': namespace,
-                'visible_to': json.dumps(visible_to),
-                'location': json.dumps(locations),
-                'checksums': json.dumps([{
-                    'function': 'sha256',
-                    'value': checksum
-                }]),
-                'metadata': json.dumps(metadata)
+                "namespace": namespace,
+                "visible_to": visible_to,
+                "location": locations,
+                "checksums": [{
+                    "function": "sha256",
+                    "value": checksum
+                }],
+                "metadata": metadata
             }
             try:
                 logging.info("Attempting to create identifier for file [%s] with locations: %s" %
                              (file_path, locations))
                 minid = ic.create_identifier(**kwargs)
-                identifier = minid['identifier']
+                identifier = minid["identifier"]
                 v[IDENTIFIER_KEY] = identifier
                 v[IDENTIFIER_LANDING_PAGE] = self.GLOBUS_IDENTIFIER_SERVICE + identifier
             except self.GLOBUS_IDENTIFIER_CLIENT.identifiers_api.IdentifierClientError as e:
