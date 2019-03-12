@@ -66,7 +66,6 @@ class DerivaClientContext (dict):
         self.set_defaults()
         self.prune()
         x = urlquote_dcctx(json.dumps(self, indent=None, separators=(',', ':')))
-        print('Dcctx: %s' % x)
         return x
 
     def merged(self, overrides):
@@ -268,7 +267,6 @@ class DerivaBinding (object):
         if headers is None:
             headers = {}
         url, headers, prev_response = self._pre_get(path, headers)
-        print('Running GET %s %s' % (path, headers))
         r = self._raise_for_status_304(
             self._session.get(url, headers=headers),
             prev_response,
