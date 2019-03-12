@@ -347,7 +347,7 @@ def get_transfer_summary(total_bytes, elapsed_time):
 
 
 from deriva.core.base_cli import BaseCLI, KeyValuePairArgs
-from deriva.core.deriva_binding import DerivaBinding, DerivaPathError
+from deriva.core.deriva_binding import DerivaBinding, DerivaPathError, DerivaClientContext
 from deriva.core.deriva_server import DerivaServer
 from deriva.core.ermrest_catalog import ErmrestCatalog, ErmrestSnapshot, ErmrestCatalogMutationError
 from deriva.core.ermrest_config import AttrDict, CatalogConfig
