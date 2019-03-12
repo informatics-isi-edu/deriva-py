@@ -32,6 +32,20 @@ class ErmrestCatalog(DerivaBinding):
              credentials: credential secrets, e.g. cookie
              caching: whether to retain a GET response cache
 
+           Deriva Client Context: You MAY mutate self.dcctx to
+           customize the context for this service endpoint prior to
+           invoking web requests.  E.g.:
+
+             self.dcctx['cid'] = 'my application name'
+
+           You MAY also supply custom per-request context by passing a
+           headers dict to web request methods, e.g. 
+
+             self.get(..., headers={'deriva-client-context': {'action': 'myapp/function1'}})
+
+           This custom header will be merged as override values with
+           the default context in self.dcctx in order to form the
+           complete context for the request.
         """
         super(ErmrestCatalog, self).__init__(scheme, server, credentials, caching, session_config)
         self._server_uri = "%s/ermrest/catalog/%s" % (
