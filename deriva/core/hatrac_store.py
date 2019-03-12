@@ -33,6 +33,20 @@ class HatracStore(DerivaBinding):
              server: server FQDN string
              credentials: credential secrets, e.g. cookie
 
+           Deriva Client Context: You MAY mutate self.dcctx to
+           customize the context for this service endpoint prior to
+           invoking web requests.  E.g.:
+
+             self.dcctx['cid'] = 'my application name'
+
+           You MAY also supply custom per-request context by passing a
+           headers dict to web request methods, e.g. 
+
+             self.get(..., headers={'deriva-client-context': {'action': 'myapp/function1'}})
+
+           This custom header will be merged as override values with
+           the default context in self.dcctx in order to form the
+           complete context for the request.
         """
         DerivaBinding.__init__(self, scheme, server, credentials, caching=False, session_config=session_config)
 
@@ -84,6 +98,8 @@ class HatracStore(DerivaBinding):
         else:
             destfile = None
             stream = False
+
+        headers['deriva-client-context'] = self.dcctx.merged(headers.get('deriva-client-context', {})).encoded()
 
         try:
             r = self._session.get(self._server_uri + path, headers=headers, stream=stream)
@@ -173,6 +189,8 @@ class HatracStore(DerivaBinding):
         # TODO: verify incoming hashes if supplied?
         headers['Content-MD5'] = md5
         headers['Content-SHA256'] = sha256
+
+        headers['deriva-client-context'] = self.dcctx.merged(headers.get('deriva-client-context', {})).encoded()
 
         url = self._server_uri + path
         url = '%s%s' % (url.rstrip("/") if url.endswith("/") else url,

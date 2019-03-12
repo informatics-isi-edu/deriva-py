@@ -15,7 +15,7 @@ from collections import OrderedDict
 from distutils import util as du_util
 from importlib import import_module
 
-__version__ = "0.7.5"
+__version__ = "0.7.6"
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
@@ -42,6 +42,15 @@ def urlquote(s, safe=''):
     """
     return _urlquote(s.encode('utf-8'), safe=safe)
 
+def urlquote_dcctx(s, safe='~{}",:'):
+    """Quote for use with Deriva-Client-Context or other HTTP headers.
+
+       Defaults to allow additional safe characters for less
+       aggressive encoding of JSON content for use in an HTTP header
+       value.
+
+    """
+    return urlquote(s, safe=safe)
 
 DEFAULT_HEADERS = {}
 
@@ -332,7 +341,7 @@ def get_transfer_summary(total_bytes, elapsed_time):
 
 
 from deriva.core.base_cli import BaseCLI, KeyValuePairArgs
-from deriva.core.deriva_binding import DerivaBinding, DerivaPathError
+from deriva.core.deriva_binding import DerivaBinding, DerivaPathError, DerivaClientContext
 from deriva.core.deriva_server import DerivaServer
 from deriva.core.ermrest_catalog import ErmrestCatalog, ErmrestSnapshot, ErmrestCatalogMutationError
 from deriva.core.ermrest_config import AttrDict, CatalogConfig
