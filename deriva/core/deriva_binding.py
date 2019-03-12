@@ -1,11 +1,81 @@
+
+import uuid
+import sys
+import os
+import json
 import requests
 from multiprocessing import Queue
-from . import get_new_requests_session, ConcurrentUpdate, NotModified, DEFAULT_HEADERS, DEFAULT_SESSION_CONFIG
+from . import get_new_requests_session, urlquote_dcctx, ConcurrentUpdate, NotModified, DEFAULT_HEADERS, DEFAULT_SESSION_CONFIG
 
+class DerivaClientContext (dict):
+    """Represent Deriva-Client-Context header content.
+
+    Well-known keys (originally defined for Chaise):
+    - cid: client application ID i.e. program name
+    - wid: window ID i.e. request stream ID
+    - pid: page ID i.e. sub-stream ID
+    - action: UX action embodied by request(s)
+    - table: table upon which application is focused (if any)
+    - uinit: True if request initiated by user action
+
+    Default values to use process-wide:
+    - cid: os.path.basename(sys.argv[0]) if available
+    - wid: a random UUID
+
+    The process-wide defaults MAY be customized by mutating
+    DerivaClientContext.defaults prior to constructing instances.
+
+    """
+    defaults = {
+        'cid': os.path.basename(sys.argv[0]) if len(sys.argv) > 0 and sys.argv[0] else None,
+        'wid': uuid.uuid4().hex,
+    }
+
+    def __init__(self, *args, **kwargs):
+        """Initialize DerivaClientContext from keywords or dict-like.
+
+           Class-wide defaults are used for fields not set explicitly during construction.
+        """
+        super(DerivaClientContext, self).__init__(*args, **kwargs)
+        self.set_defaults()
+        self.prune()
+
+    def set_defaults(self, defaults=None):
+        """Set default key-values in self if key not already set."""
+        if defaults is None:
+            defaults = self.defaults
+        for k, v in defaults.items():
+            if v is not None and (k not in self or self[k] is None):
+                self[k] = v
+
+    def prune(self):
+        """Prune redundant keys to shorten context representation.
+
+           Keys with None value or uinit=False are unnecessary as these
+           are implicitly assumed when absent.
+
+        """
+        for k, v in self.items():
+            if v is None:
+                del self[k]
+        if 'uinit' in self and not self['uinit']:
+            del self['uinit']
+
+    def encoded(self):
+        """Encode self as string suitable for Deriva-Client-Context HTTP header."""
+        self.set_defaults()
+        self.prune()
+        x = urlquote_dcctx(json.dumps(self, indent=None, separators=(',', ':')))
+        print('Dcctx: %s' % x)
+        return x
+
+    def merged(self, overrides):
+        c = DerivaClientContext(self)
+        c.update(overrides)
+        return c
 
 class DerivaPathError (ValueError):
     pass
-
 
 def _response_raise_for_status(self):
     """Raises requests.HTTPError if status code indicates an error.
@@ -40,6 +110,21 @@ class DerivaBinding (object):
              credentials: credential secrets, e.g. cookie
              caching: whether to retain a GET response cache
 
+           Deriva Client Context: You MAY mutate self.dcctx to
+           customize the context for this service endpoint prior to
+           invoking web requests.  E.g.:
+
+             self.dcctx['cid'] = 'my application name'
+
+           You MAY also supply custom per-request context by passing a
+           headers dict to web request methods, e.g. 
+
+             self.get(..., headers={'deriva-client-context': {'action': 'myapp/function1'}})
+
+           This custom header will be merged as override values with
+           the default context in self.dcctx in order to form the
+           complete context for the request.
+
         """
         self._base_server_uri = "%s://%s" % (
             scheme,
@@ -58,6 +143,8 @@ class DerivaBinding (object):
 
         self._response_raise_for_status = _response_raise_for_status
 
+        self.dcctx = DerivaClientContext()
+
     def get_server_uri(self):
         return self._server_uri
 
@@ -74,6 +161,7 @@ class DerivaBinding (object):
             headers['if-none-match'] = prev_response.headers['etag']
         else:
             prev_response = None
+        headers['deriva-client-context'] = self.dcctx.merged(headers.get('deriva-client-context', {})).encoded()
         return url, headers, prev_response
 
     def _pre_mutate(self, path, headers, guard_response=None):
@@ -82,6 +170,7 @@ class DerivaBinding (object):
         headers = headers.copy()
         if guard_response and 'etag' in guard_response.headers:
             headers['If-Match'] = guard_response.headers['etag']
+        headers['deriva-client-context'] = self.dcctx.merged(headers.get('deriva-client-context', {})).encoded()
         return url, headers
 
     @staticmethod
@@ -123,12 +212,14 @@ class DerivaBinding (object):
             self._session.headers.update({'Authorization' : 'Bearer {token}'.format(token=credentials['bearer-token'])})
 
     def get_authn_session(self):
-        r = self._session.get(self._base_server_uri + "/authn/session")
+        headers = { 'deriva-client-context': self.dcctx.encoded() }
+        r = self._session.get(self._base_server_uri + "/authn/session", headers=headers)
         _response_raise_for_status(r)
         return r
 
     def post_authn_session(self, credentials):
-        r = self._session.post(self._base_server_uri + "/authn/session", data=credentials)
+        headers = { 'deriva-client-context': self.dcctx.encoded() }
+        r = self._session.post(self._base_server_uri + "/authn/session", data=credentials, headers=headers)
         _response_raise_for_status(r)
         return r
 
@@ -177,6 +268,7 @@ class DerivaBinding (object):
         if headers is None:
             headers = {}
         url, headers, prev_response = self._pre_get(path, headers)
+        print('Running GET %s %s' % (path, headers))
         r = self._raise_for_status_304(
             self._session.get(url, headers=headers),
             prev_response,

@@ -42,6 +42,15 @@ def urlquote(s, safe=''):
     """
     return _urlquote(s.encode('utf-8'), safe=safe)
 
+def urlquote_dcctx(s, safe='~{}",:'):
+    """Quote for use with Deriva-Client-Context or other HTTP headers.
+
+       Defaults to allow additional safe characters for less
+       aggressive encoding of JSON content for use in an HTTP header
+       value.
+
+    """
+    return urlquote(s, safe=safe)
 
 DEFAULT_HEADERS = {}
 
