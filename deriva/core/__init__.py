@@ -164,6 +164,7 @@ def get_new_requests_session(url=None, session_config=DEFAULT_SESSION_CONFIG):
                         read=session_config['retry_read'],
                         backoff_factor=session_config['retry_backoff_factor'],
                         status_forcelist=session_config['retry_status_forcelist'],
+                        method_whitelist=False,
                         raise_on_status=True)
     else:
         # this is in case installed urllib3 is < 1.15 and raise_on_status is unavailable
