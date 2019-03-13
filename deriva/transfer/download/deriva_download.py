@@ -69,9 +69,19 @@ class DerivaDownload(object):
         self.store = HatracStore(
             protocol, self.hostname, self.credentials, session_config=session_config)
 
+        # init dcctx cid to a default
+        self.set_dcctx_cid(self.__class__.__name__)
+
         # process config file
         if config_file and os.path.isfile(config_file):
             self.config = read_config(config_file)
+
+    def set_dcctx_cid(self, cid):
+        assert cid, "A dcctx cid is required"
+        if self.catalog:
+            self.catalog.dcctx['cid'] = cid
+        if self.store:
+            self.store.dcctx['cid'] = cid
 
     def setConfig(self, config):
         self.config = config

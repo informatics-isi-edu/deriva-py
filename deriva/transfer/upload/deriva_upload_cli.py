@@ -47,6 +47,7 @@ class DerivaUploadCLI(BaseCLI):
             server["host"] = hostname
 
         deriva_uploader = uploader(config_file, credential_file, server)
+        deriva_uploader.set_dcctx_cid(__class__.__name__)
         if token:
             deriva_uploader.setCredentials(format_credential(token))
         if not config_file and not no_update:

@@ -123,6 +123,9 @@ class DerivaUpload(object):
             del self.store
         self.store = HatracStore(protocol, host, self.credentials, session_config=session_config)
 
+        # init dcctx cid to a default
+        self.set_dcctx_cid(self.__class__.__name__)
+
         """
          Configuration initialization - this is a bit complex because we allow for:
              1. Run-time overriding of the config file location.
@@ -146,6 +149,13 @@ class DerivaUpload(object):
                     write_config(config_file, DefaultConfig)
         # 5. Finally, read the resolved configuration file into a config object
         self._update_internal_config(read_config(config_file))
+
+    def set_dcctx_cid(self, cid):
+        assert cid, "A dcctx cid is required"
+        if self.catalog:
+            self.catalog.dcctx['cid'] = cid
+        if self.store:
+            self.store.dcctx['cid'] = cid
 
     def _update_internal_config(self, config):
         """This updates the internal state of the uploader based on the config.

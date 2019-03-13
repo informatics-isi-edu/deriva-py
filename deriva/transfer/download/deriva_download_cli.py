@@ -47,6 +47,7 @@ class DerivaDownloadCLI(BaseCLI):
                                        envars=envars,
                                        config_file=config_file,
                                        credential_file=credential_file)
+        downloader.set_dcctx_cid(__class__.__name__)
         if token:
             downloader.setCredentials(format_credential(token))
 
