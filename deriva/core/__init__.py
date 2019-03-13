@@ -15,7 +15,7 @@ from collections import OrderedDict
 from distutils import util as du_util
 from importlib import import_module
 
-__version__ = "0.7.6"
+__version__ = "0.7.7"
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
@@ -42,6 +42,7 @@ def urlquote(s, safe=''):
     """
     return _urlquote(s.encode('utf-8'), safe=safe)
 
+
 def urlquote_dcctx(s, safe='~{}",:'):
     """Quote for use with Deriva-Client-Context or other HTTP headers.
 
@@ -51,6 +52,7 @@ def urlquote_dcctx(s, safe='~{}",:'):
 
     """
     return urlquote(s, safe=safe)
+
 
 DEFAULT_HEADERS = {}
 
@@ -95,13 +97,13 @@ def add_logging_level(level_name, level_num, method_name=None):
         method_name = level_name.lower()
 
     if hasattr(logging, level_name):
-        logging.warn('{} already defined in logging module'.format(level_name))
+        logging.warning('{} already defined in logging module'.format(level_name))
         return
     if hasattr(logging, method_name):
-        logging.warn('{} already defined in logging module'.format(method_name))
+        logging.warning('{} already defined in logging module'.format(method_name))
         return
     if hasattr(logging.getLoggerClass(), method_name):
-        logging.warn('{} already defined in logger class'.format(method_name))
+        logging.warning('{} already defined in logger class'.format(method_name))
         return
 
     def log_for_level(self, message, *args, **kwargs):
@@ -164,6 +166,7 @@ def get_new_requests_session(url=None, session_config=DEFAULT_SESSION_CONFIG):
                         read=session_config['retry_read'],
                         backoff_factor=session_config['retry_backoff_factor'],
                         status_forcelist=session_config['retry_status_forcelist'],
+                        method_whitelist=False,
                         raise_on_status=True)
     else:
         # this is in case installed urllib3 is < 1.15 and raise_on_status is unavailable
@@ -180,25 +183,24 @@ def get_new_requests_session(url=None, session_config=DEFAULT_SESSION_CONFIG):
     return session
 
 
-def copy_config(src, dst):
-    config_dir = os.path.dirname(dst)
-    if not os.path.isdir(config_dir):
+def make_dirs(path, mode=0o777):
+    if not os.path.isdir(path):
         try:
-            os.makedirs(config_dir, mode=0o750)
+            os.makedirs(path, mode=mode)
         except OSError as error:
             if error.errno != errno.EEXIST:
                 raise
+
+
+def copy_config(src, dst):
+    config_dir = os.path.dirname(dst)
+    make_dirs(config_dir, mode=0o750)
     shutil.copy2(src, dst)
 
 
 def write_config(config_file=DEFAULT_CONFIG_FILE, config=DEFAULT_CONFIG):
     config_dir = os.path.dirname(config_file)
-    if not os.path.isdir(config_dir):
-        try:
-            os.makedirs(config_dir, mode=0o750)
-        except OSError as error:
-            if error.errno != errno.EEXIST:
-                raise
+    make_dirs(config_dir, mode=0o750)
     with io.open(config_file, 'w', newline='\n', encoding='utf-8') as cf:
         config_data = json.dumps(config, ensure_ascii=False, indent=2)
         if IS_PY2 and isinstance(config_data, str):
@@ -250,12 +252,7 @@ def lock_file(file_path, mode, exclusive=True):
 
 def write_credential(credential_file=DEFAULT_CREDENTIAL_FILE, credential=DEFAULT_CREDENTIAL):
     credential_dir = os.path.dirname(credential_file)
-    if not os.path.isdir(credential_dir):
-        try:
-            os.makedirs(credential_dir, mode=0o750)
-        except OSError as error:
-            if error.errno != errno.EEXIST:
-                raise
+    make_dirs(credential_dir, mode=0o750)
     with lock_file(credential_file, mode='w', exclusive=True) as cf:
         os.chmod(credential_file, 0o600)
         credential_data = json.dumps(credential, ensure_ascii=False, indent=2)

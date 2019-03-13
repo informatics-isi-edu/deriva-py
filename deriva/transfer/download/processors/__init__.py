@@ -62,7 +62,7 @@ def find_processor(processor_name, processor_type=None, defaults={}, **kwargs):
     except (ImportError, AttributeError):
         pass
     if not clazz:
-        raise DerivaDownloadConfigurationError("Unable to import specified processor class %s" % processor_type)
+        raise DerivaDownloadConfigurationError("Unable to import specified processor class: %s" % processor_type)
 
     if not issubclass(clazz, BaseProcessor):
         raise DerivaDownloadError(format_exception(NotImplementedError("The imported class %s is not a subclass of %s" %

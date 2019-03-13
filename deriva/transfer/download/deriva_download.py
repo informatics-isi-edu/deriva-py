@@ -12,7 +12,7 @@ from deriva.core.utils.version_utils import get_installed_version
 from deriva.transfer.download.processors import find_query_processor, find_transform_processor, find_post_processor
 from deriva.transfer.download.processors.base_processor import LOCAL_PATH_KEY, REMOTE_PATHS_KEY, SERVICE_URL_KEY
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError, \
-    DerivaDownloadAuthenticationError
+    DerivaDownloadAuthenticationError, DerivaDownloadAuthorizationError
 
 
 class DerivaDownload(object):

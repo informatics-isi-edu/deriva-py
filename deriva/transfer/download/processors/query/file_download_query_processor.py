@@ -5,7 +5,7 @@ import logging
 import requests
 import certifi
 from bdbag import bdbag_ro as ro
-from deriva.core import urlsplit, format_exception, get_transfer_summary, DEFAULT_CHUNK_SIZE
+from deriva.core import urlsplit, format_exception, get_transfer_summary, make_dirs, DEFAULT_CHUNK_SIZE
 from deriva.core.utils.mime_utils import parse_content_disposition
 from deriva.transfer.download.processors.query.base_query_processor import BaseQueryProcessor, LOCAL_PATH_KEY
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError
@@ -82,7 +82,7 @@ class FileDownloadQueryProcessor(BaseQueryProcessor):
                     file_path = os.path.abspath(os.path.join(
                         self.base_path, 'data' if self.is_bag else '', subdir, filename))
                     output_dir = os.path.dirname(file_path)
-                    self.make_dirs(output_dir)
+                    make_dirs(output_dir)
                     if store:
                         try:
                             resp = store.get_obj(url, self.HEADERS, file_path)
