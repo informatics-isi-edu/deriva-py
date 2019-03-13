@@ -15,7 +15,7 @@ from collections import OrderedDict
 from distutils import util as du_util
 from importlib import import_module
 
-__version__ = "0.7.6"
+__version__ = "0.7.7"
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
@@ -42,6 +42,7 @@ def urlquote(s, safe=''):
     """
     return _urlquote(s.encode('utf-8'), safe=safe)
 
+
 def urlquote_dcctx(s, safe='~{}",:'):
     """Quote for use with Deriva-Client-Context or other HTTP headers.
 
@@ -51,6 +52,7 @@ def urlquote_dcctx(s, safe='~{}",:'):
 
     """
     return urlquote(s, safe=safe)
+
 
 DEFAULT_HEADERS = {}
 
@@ -95,13 +97,13 @@ def add_logging_level(level_name, level_num, method_name=None):
         method_name = level_name.lower()
 
     if hasattr(logging, level_name):
-        logging.warn('{} already defined in logging module'.format(level_name))
+        logging.warning('{} already defined in logging module'.format(level_name))
         return
     if hasattr(logging, method_name):
-        logging.warn('{} already defined in logging module'.format(method_name))
+        logging.warning('{} already defined in logging module'.format(method_name))
         return
     if hasattr(logging.getLoggerClass(), method_name):
-        logging.warn('{} already defined in logger class'.format(method_name))
+        logging.warning('{} already defined in logger class'.format(method_name))
         return
 
     def log_for_level(self, message, *args, **kwargs):

@@ -58,7 +58,8 @@ class DerivaUpload(object):
 
     DefaultConfigFileName = "config.json"
     DefaultServerListFileName = "servers.json"
-    DefaultTransferStateFileName = ".deriva-upload-state-%s.json"
+    DefaultTransferStateBaseName = ".deriva-upload-state"
+    DefaultTransferStateFileName = "%s-%s.json"
 
     def __init__(self, config_file=None, credential_file=None, server=None):
         self.server_url = None
@@ -316,7 +317,8 @@ class DerivaUpload(object):
             self.getDeployedConfigPath(), self.server.get('host', ''), self.DefaultConfigFileName)
 
     def getTransferStateFileName(self):
-        return self.DefaultTransferStateFileName % self.server.get('host', 'localhost')
+        return self.DefaultTransferStateFileName % \
+               (self.DefaultTransferStateBaseName, self.server.get('host', 'localhost'))
 
     def getRemoteConfig(self):
         catalog_config = CatalogConfig.fromcatalog(self.catalog)
@@ -376,23 +378,24 @@ class DerivaUpload(object):
 
         return asset_group, asset_mapping, groupdict, file_path
 
-    def scanDirectory(self, root, abort_on_invalid_input=False):
+    def scanDirectory(self, root, abort_on_invalid_input=False, purge_state=False):
         """
 
         :param root:
         :param abort_on_invalid_input:
+        :param purge_state:
         :return:
         """
         root = os.path.abspath(root)
         if not os.path.isdir(root):
             raise ValueError("Invalid directory specified: [%s]" % root)
-        self.loadTransferState(root)
+        self.loadTransferState(root, purge=purge_state)
 
         logger.info("Scanning files in directory [%s]..." % root)
         file_list = OrderedDict()
         for path, dirs, files in walk(root):
             for file_name in files:
-                if file_name == self.getTransferStateFileName():
+                if file_name.startswith(self.DefaultTransferStateBaseName):
                     continue
                 file_path = os.path.normpath(os.path.join(path, file_name))
                 file_entry = self.validateFile(root, path, file_name)
@@ -935,6 +938,14 @@ class DerivaUpload(object):
 
         return file_paths
 
+    def delete_dependent_locks(self, directory):
+        for path in self.find_file_in_dir_hierarchy(self.getTransferStateFileName(), directory):
+            logger.info("Attempting to delete an existing transfer state file (dependent lock) at: [%s]" % path)
+            try:
+                os.remove(path)
+            except OSError as e:
+                logger.warning("Unable to delete transfer state file [%s]: %s" % (path, format_exception(e)))
+
     def acquire_dependent_locks(self, directory):
         for path in self.find_file_in_dir_hierarchy(self.getTransferStateFileName(), directory):
             logger.info("Attempting to acquire a dependent lock in [%s]" % os.path.dirname(path))
@@ -947,8 +958,10 @@ class DerivaUpload(object):
                                         "Multiple upload processes cannot operate within the same directory hierarchy. "
                                         "%s" % (os.path.dirname(path), format_exception(e)))
 
-    def loadTransferState(self, directory):
+    def loadTransferState(self, directory, purge=False):
         transfer_state_file_path = os.path.join(directory, self.getTransferStateFileName())
+        if purge:
+            self.delete_dependent_locks(directory)
         self.acquire_dependent_locks(directory)
         try:
             if not os.path.isfile(transfer_state_file_path):

@@ -14,6 +14,9 @@ class DerivaUploadCLI(BaseCLI):
         BaseCLI.__init__(self, description, epilog, uploader.getVersion(), hostname_required=True)
         self.parser.add_argument('--no-config-update', action="store_true",
                                  help="Do not check for (and download) an updated configuration from the server.")
+        self.parser.add_argument('--purge-state', action="store_true",
+                                 help="Purge (delete) any existing transfer state files found in the directory "
+                                      "hierarchy of the input path.")
         self.parser.add_argument("--catalog", default=1, metavar="<1>", help="Catalog number. Default: 1")
         self.parser.add_argument("path", metavar="<dir>", help="Path to an input directory.")
         self.uploader = uploader
@@ -26,7 +29,8 @@ class DerivaUploadCLI(BaseCLI):
                token=None,
                config_file=None,
                credential_file=None,
-               no_update=False):
+               no_update=False,
+               purge=False):
 
         if not issubclass(uploader, DerivaUpload):
             raise TypeError("DerivaUpload subclass required")
@@ -52,7 +56,7 @@ class DerivaUploadCLI(BaseCLI):
         if not deriva_uploader.isVersionCompatible():
             raise RuntimeError("Version incompatibility detected", "Current version: [%s], required version(s): %s." % (
                 deriva_uploader.getVersion(), deriva_uploader.getVersionCompatibility()))
-        deriva_uploader.scanDirectory(data_path, False)
+        deriva_uploader.scanDirectory(data_path, abort_on_invalid_input=False, purge_state=purge)
         deriva_uploader.uploadFiles(file_callback=deriva_uploader.defaultFileCallback)
         deriva_uploader.cleanup()
 
@@ -73,7 +77,8 @@ class DerivaUploadCLI(BaseCLI):
                                    args.token,
                                    args.config_file,
                                    args.credential_file,
-                                   args.no_config_update)
+                                   args.no_config_update,
+                                   args.purge_state)
         except (RuntimeError, DerivaUploadError, DerivaUploadConfigurationError, DerivaUploadCatalogCreateError,
                 DerivaUploadCatalogUpdateError) as e:
             sys.stderr.write(("\n" if not args.quiet else "") + format_exception(e))
