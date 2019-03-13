@@ -18,7 +18,7 @@ class DerivaUploadCLI(BaseCLI):
                                  help="Purge (delete) any existing transfer state files found in the directory "
                                       "hierarchy of the input path.")
         self.parser.add_argument("--catalog", default=1, metavar="<1>", help="Catalog number. Default: 1")
-        self.parser.add_argument("path", metavar="<dir>", help="Path to an input directory.")
+        self.parser.add_argument("path", metavar="<input dir>", help="Path to an input directory.")
         self.uploader = uploader
 
     @staticmethod

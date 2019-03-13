@@ -37,7 +37,7 @@ class BaseCLI(object):
 
         self.parser.add_argument(
             'config_file' if config_file_required else '--config-file',
-            metavar='<file>', help="Path to a configuration file.")
+            metavar='<config file>', help="Path to a configuration file.")
 
     def remove_options(self, options):
         for option in options:
