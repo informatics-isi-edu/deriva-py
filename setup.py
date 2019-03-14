@@ -58,7 +58,7 @@ setup(
         'portalocker',
         'portalocker>=1.2.1; platform_system == "Windows"',
         'scandir; python_version <= "2.7"',
-        'bdbag>=1.5.3'
+        'bdbag>=1.5.4'
     ],
     license='Apache 2.0',
     classifiers=[
