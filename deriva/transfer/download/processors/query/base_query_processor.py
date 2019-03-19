@@ -79,6 +79,7 @@ class BaseQueryProcessor(BaseProcessor):
                 r.raise_for_status()
             headers = r.headers
         else:
+            url = self.getExternalUrl(url)
             session = self.getExternalSession(urlsplit(url).hostname)
             r = session.head(url, headers=self.HEADERS)
             if raise_for_status:
@@ -107,12 +108,14 @@ class BaseQueryProcessor(BaseProcessor):
         urlparts = urlsplit(url)
         if urlparts.path.startswith(self.store_base):
             path_only = url.startswith(self.store_base)
-            serverURI = urlparts.scheme + "://" + urlparts.netloc
-            if serverURI == self.store.get_server_uri() or path_only:
+            server_uri = urlparts.scheme + "://" + urlparts.netloc
+            if server_uri == self.store.get_server_uri() or path_only:
                 url = ''.join([self.store.get_server_uri(), url]) if path_only else url
         else:
             if not (urlparts.scheme and urlparts.netloc):
-                url = ''.join([self.catalog.get_server_uri(), url])
+                urlparts = urlsplit(self.catalog.get_server_uri())
+                server_uri = urlparts.scheme + "://" + urlparts.netloc
+                url = ''.join([server_uri, url])
 
         return url
 

@@ -54,6 +54,7 @@ class BagFetchQueryProcessor(BaseQueryProcessor):
                 json.dumps(entry))
             return
 
+        ext_url = self.getExternalUrl(url)
         length = entry.get("length")
         md5 = entry.get("md5")
         sha256 = entry.get("sha256")
@@ -80,9 +81,9 @@ class BagFetchQueryProcessor(BaseQueryProcessor):
                     sha256 = decodeBase64toHex(sha256)
         # if content length or both hash values are missing, it is a fatal error
         if not length:
-            raise DerivaDownloadError("Could not determine Content-Length for %s" % url)
+            raise DerivaDownloadError("Could not determine Content-Length for %s" % ext_url)
         if not (md5 or sha256):
-            raise DerivaDownloadError("Could not locate an MD5 or SHA256 hash for %s" % url)
+            raise DerivaDownloadError("Could not locate an MD5 or SHA256 hash for %s" % ext_url)
         envvars = self.envars.copy()
         envvars.update(entry)
         subdir = self.sub_path.format(**envvars)
@@ -92,7 +93,7 @@ class BagFetchQueryProcessor(BaseQueryProcessor):
                 parse_content_disposition(content_disposition)
         output_path = ''.join([subdir, "/", filename]) if subdir else filename
 
-        manifest_entry['url'] = self.getExternalUrl(url)
+        manifest_entry['url'] = ext_url
         manifest_entry['length'] = int(length)
         manifest_entry['filename'] = output_path
         if md5:
