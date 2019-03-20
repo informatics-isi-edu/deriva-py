@@ -1,3 +1,4 @@
+
 import logging
 import datetime
 
@@ -262,6 +263,8 @@ class ErmrestCatalog(DerivaBinding):
         dst_model = dst_catalog.getCatalogModel()
 
         new_model = []
+        new_columns = [] # ERMrest does not currently allow bulk column creation
+        new_keys = [] # ERMrest does not currently allow bulk key creation
         clone_states = {}
         fkeys_deferred = {}
 
@@ -296,15 +299,44 @@ class ErmrestCatalog(DerivaBinding):
 
         def copy_tdef_fkeys(t):
             """Copy table fkeys structure."""
-            return [ prune_parts(d) for d in t.prejson().get('foreign_keys', []) ]
+            def check(fkdef):
+                for fkc in fkdef['referenced_columns']:
+                    if fkc['schema_name'] == 'public' \
+                       and fkc['table_name'] in {'ERMrest_Client', 'ERMrest_Group'} \
+                       and fkc['column_name'] == 'RID':
+                        raise ValueError("Cannot clone catalog with foreign key reference to %(schema_name)s:%(table_name)s:%(column_name)s" % fkc)
+                return fkdef
+            return [ prune_parts(check(d)) for d in t.prejson().get('foreign_keys', []) ]
+
+        def copy_cdef(c):
+            """Copy column definition with conditional parts."""
+            return (sname, tname, prune_parts(c.prejson()))
+
+        def check_column_compatibility(src, dst):
+            """Check compatibility of source and destination column definitions."""
+            def error(fieldname, sv, dv):
+                return ValueError("Source/dest column %s mismatch %s != %s for %s:%s:%s" % (
+                    fieldname,
+                    sv, dv,
+                    src.sname, src.tname, src.name
+                ))
+            if src.type.typename != dst.type.typename:
+                raise error("type", src.type.typename, dst.type.typename)
+            if src.nullok != dst.nullok:
+                raise error("nullok", src.nullok, dst.nullok)
+            if src.default != dst.default:
+                raise error("default", src.default, dst.default)
+
+        def copy_kdef(k):
+            return (sname, tname, prune_parts(k.prejson()))
 
         for sname, schema in src_model.schemas.items():
             if sname not in dst_model.schemas:
                 new_model.append(copy_sdef(schema))
 
             for tname, table in schema.tables.items():
-                if sname == 'public' and tname == 'ermrest_client':
-                    # skip this automagic table...
+                if table.kind != 'table':
+                    logging.warning('Skipping cloning of %s %s:%s' % (table.kind, sname, tname))
                     continue
 
                 if 'RID' not in table.column_definitions.elements:
@@ -315,9 +347,30 @@ class ErmrestCatalog(DerivaBinding):
                     clone_states[(sname, tname)] = 1 if copy_data else None
                     fkeys_deferred[(sname, tname)] = copy_tdef_fkeys(table)
                 else:
-                    if sorted([ c.name for c in table.column_definitions ]) \
-                       != sorted([ c.name for c in dst_model.schemas[sname].tables[tname].column_definitions ]):
-                        raise ValueError("Source table %s.%s conflicts with existing definition in destination catalog." % (sname, tname))
+                    src_columns = { c.name: c for c in table.column_definitions }
+                    dst_columns = { c.name: c for c in dst_model.schemas[sname].tables[tname].column_definitions }
+
+                    for cname in src_columns:
+                        if cname not in dst_columns:
+                            new_columns.append(copy_cdef(src_columns[cname]))
+                        else:
+                            check_column_compatibility(src_columns[cname], dst_columns[cname])
+
+                    for cname in dst_columns:
+                        if cname not in src_columns:
+                            raise ValueError("Destination column %s.%s.%s does not exist in source catalog." % (sname, tname, cname))
+
+                    src_keys = { tuple(sorted(key.unique_columns)): key for key in table.keys }
+                    dst_keys = { tuple(sorted(key.unique_columns)): key for key in dst_model.schemas[sname].tables[tname].keys }
+
+                    for utuple in src_keys:
+                        if utuple not in dst_keys:
+                            new_keys.append(copy_kdef(src_keys[utuple]))
+
+                    for utuple in dst_keys:
+                        if utuple not in src_keys:
+                            raise ValueError("Destination key %s.%s(%s) does not exist in source catalog." % (sname, tname, ', '.join(utuple)))
+
                     clone_states[(sname, tname)] = dst_model.schemas[sname].tables[tname].annotations.get(_clone_state_url)
                     if dst_model.schemas[sname].tables[tname].foreign_keys:
                         # assume that presence of any destination foreign keys means we already completed
@@ -329,13 +382,19 @@ class ErmrestCatalog(DerivaBinding):
         if new_model:
             dst_catalog.post("/schema", json=new_model).raise_for_status()
 
+        for sname, tname, cdef in new_columns:
+            dst_catalog.post("/schema/%s/table/%s/column" % (urlquote(sname), urlquote(tname)), json=cdef).raise_for_status()
+
+        for sname, tname, kdef in new_keys:
+            dst_catalog.post("/schema/%s/table/%s/key" % (urlquote(sname), urlquote(tname)), json=kdef).raise_for_status()
+
         # copy data in stage 2
         if copy_data:
             page_size = 10000
             for sname, tname in clone_states.keys():
+                tname_uri = "%s:%s" % (urlquote(sname), urlquote(tname))
                 if clone_states[(sname, tname)] == 1:
                     # determine current position in (partial?) copy
-                    tname_uri = "%s:%s" % (urlquote(sname), urlquote(tname))
                     r = dst_catalog.get("/entity/%s@sort(RID::desc::)?limit=1" % tname_uri).json()
                     if r:
                         last = r[0]['RID']
@@ -355,6 +414,54 @@ class ErmrestCatalog(DerivaBinding):
                             last = page[-1]['RID']
                         else:
                             break
+
+                    # record our progress on catalog in case we fail part way through
+                    dst_catalog.put(
+                        "/schema/%s/table/%s/annotation/%s" % (
+                            urlquote(sname),
+                            urlquote(tname),
+                            urlquote(_clone_state_url),
+                        ),
+                        json=2
+                    )
+                elif clone_states[(sname, tname)] is None and (sname, tname) in {
+                        ('public', 'ERMrest_Client'),
+                        ('public', 'ERMrest_Group'),
+                }:
+                    # special sync behavior for magic ermrest tables
+                    # HACK: these are assumed small enough to join via local merge of arrays
+                    want = sorted(self.get("/entity/%s?limit=none" % tname_uri).json(), key=lambda r: r['ID'])
+                    have = sorted(dst_catalog.get("/entity/%s?limit=none" % tname_uri).json(), key=lambda r: r['ID'])
+                    create = []
+                    update = []
+
+                    pos_want = 0
+                    pos_have = 0
+                    while pos_want < len(want):
+                        while pos_have < len(have) and have[pos_have]['ID'] < want[pos_want]['ID']:
+                            # dst-only rows will be retained as is
+                            pos_have += 1
+                        if pos_have >= len(have) or have[pos_have]['ID'] > want[pos_want]['ID']:
+                            # src-only rows will be inserted
+                            create.append(want[pos_want])
+                            pos_want += 1
+                        else:
+                            # overlapping rows will be updated
+                            update.append(want[pos_want])
+                            pos_want += 1
+
+                    dst_catalog.post("/entity/%s?nondefaults=RCT,RCB" % tname_uri, json=create)
+                    dst_catalog.put(
+                        "/attributegroup/%s/ID;%s" % (
+                            tname_uri,
+                            ",".join([
+                                urlquote(c.name)
+                                for c in src_model.schemas[sname].tables[tname].column_definitions
+                                if c.name not in {'RID', 'RMT', 'RMB', 'ID'}
+                            ])
+                        ),
+                        json=update
+                    )
 
                     # record our progress on catalog in case we fail part way through
                     dst_catalog.put(
