@@ -22,14 +22,20 @@ def get_readme_contents():
 
 
 url = "https://github.com/informatics-isi-edu/deriva-py"
+author = 'USC Information Sciences Institute, Informatics Systems Research Division'
+author_email = 'isrd-support@isi.edu'
+
+
 setup(
     name='deriva',
     description='Python APIs and CLIs (Command-Line Interfaces) for the DERIVA platform.',
     long_description='For further information, visit the project [homepage](%s).' % url,
     long_description_content_type='text/markdown',
     url=url,
-    maintainer='USC Information Sciences Institute, Informatics Systems Research Division',
-    maintainer_email='isrd-support@isi.edu',
+    author=author,
+    author_email=author_email,
+    maintainer=author,
+    maintainer_email=author_email,
     version=__version__,
     packages=find_packages(exclude=["tests"]),
     package_data={},

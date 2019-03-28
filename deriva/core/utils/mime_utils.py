@@ -15,7 +15,7 @@ def add_types(types):
 
 
 def guess_content_type(file_path):
-    mtype = mimetypes.guess_type(file_path)
+    mtype = mimetypes.guess_type(file_path, strict=False)
     content_type = 'application/octet-stream'
     if mtype[0] is not None and mtype[1] is not None:
         content_type = "+".join([mtype[0], mtype[1]])
