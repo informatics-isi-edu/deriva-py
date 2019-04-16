@@ -148,23 +148,23 @@ class DatapathTests (unittest.TestCase):
         self.assertIn('Experiment', dir(self.paths.ISA.Experiment.path))
 
     def test_describe_schema(self):
-        self.assert_(self.paths.schemas['ISA'].describe())
+        self.assertTrue(self.paths.schemas['ISA'].describe())
 
     def test_describe_table(self):
-        self.assert_(self.paths.schemas['ISA'].tables['Experiment'].describe())
+        self.assertTrue(self.paths.schemas['ISA'].tables['Experiment'].describe())
 
     def test_describe_column(self):
-        self.assert_(self.paths.schemas['ISA'].tables['Experiment'].column_definitions['Name'].describe())
+        self.assertTrue(self.paths.schemas['ISA'].tables['Experiment'].column_definitions['Name'].describe())
 
     def test_unfiltered_fetch(self):
         entities = self.experiment.entities()
-        self.assertEquals(len(entities), TEST_EXP_MAX)
+        self.assertEqual(len(entities), TEST_EXP_MAX)
 
     def test_fetch_with_limit(self):
         entities = self.experiment.entities()
         limit = TEST_EXP_MAX / 5
         entities.fetch(limit=limit)
-        self.assertEquals(len(entities), limit)
+        self.assertEqual(len(entities), limit)
 
     def test_attribute_projection(self):
         entities = self.experiment.entities(
@@ -245,38 +245,38 @@ class DatapathTests (unittest.TestCase):
 
     def test_link(self):
         entities = self.experiment.link(self.experiment_type).entities()
-        self.assertEquals(len(entities), TEST_EXPTYPE_MAX)
+        self.assertEqual(len(entities), TEST_EXPTYPE_MAX)
 
     def test_filter_equality(self):
         entities = self.experiment.filter(
             self.experiment.column_definitions['Name'] == TEST_EXP_NAME_FORMAT.format(1)
         ).entities()
-        self.assertEquals(len(entities), 1)
+        self.assertEqual(len(entities), 1)
 
     def test_filter_inequality(self):
         entities = self.experiment.filter(
             self.experiment.column_definitions['Amount'] < 10
         ).entities()
-        self.assertEquals(len(entities), 10)
+        self.assertEqual(len(entities), 10)
 
     def test_filter_ciregexp(self):
         entities = self.experiment.filter(
             self.experiment.column_definitions['Name'].ciregexp(TEST_EXP_NAME_FORMAT.format(0)[10:])
         ).entities()
-        self.assertEquals(len(entities), 1)
+        self.assertEqual(len(entities), 1)
 
     def test_filter_negation(self):
         entities = self.experiment.filter(
             ~ (self.experiment.column_definitions['Name'].ciregexp(TEST_EXP_NAME_FORMAT.format(0)[10:]))
         ).entities()
-        self.assertEquals(len(entities), TEST_EXP_MAX - 1)
+        self.assertEqual(len(entities), TEST_EXP_MAX - 1)
 
     def test_filter_conjunction(self):
         entities = self.experiment.filter(
             self.experiment.column_definitions['Name'].ciregexp(TEST_EXP_NAME_FORMAT.format(0)[10:])
             & (self.experiment.column_definitions['Amount'] == 0)
         ).entities()
-        self.assertEquals(len(entities), 1)
+        self.assertEqual(len(entities), 1)
 
     def test_attribute_rename(self):
         entities = self.experiment.entities(
@@ -290,7 +290,7 @@ class DatapathTests (unittest.TestCase):
     def test_context(self):
         path = self.experiment.link(self.experiment_type)
         entities = path.Experiment.entities()
-        self.assertEquals(len(entities), TEST_EXP_MAX)
+        self.assertEqual(len(entities), TEST_EXP_MAX)
 
     def test_path_project(self):
         path = self.experiment.link(self.experiment_type)
@@ -309,7 +309,7 @@ class DatapathTests (unittest.TestCase):
     def test_dataframe(self):
         entities = self.experiment.entities()
         df = entities.dataframe
-        self.assertEquals(len(df), TEST_EXP_MAX)
+        self.assertEqual(len(df), TEST_EXP_MAX)
 
     def test_insert_empty_entities(self):
         entities = self.experiment_copy.insert(None)
@@ -361,7 +361,7 @@ class DatapathTests (unittest.TestCase):
     def test_nondefaults(self):
         nondefaults = {'RID', 'RCB', 'RCT'}
         entities = self.experiment.entities()
-        self.assertEquals(len(entities), TEST_EXP_MAX)
+        self.assertEqual(len(entities), TEST_EXP_MAX)
         entities_copy = self.experiment_copy.insert(entities, nondefaults=nondefaults, add_system_defaults=False)
         self.assertEqual(len(entities), len(entities_copy), 'entities not copied completely')
         ig = itemgetter(*nondefaults)
@@ -371,7 +371,7 @@ class DatapathTests (unittest.TestCase):
     def test_nondefaults_w_add_sys_defaults(self):
         nondefaults = {'RID', 'RCB', 'RCT'}
         entities = self.experiment.entities()
-        self.assertEquals(len(entities), TEST_EXP_MAX)
+        self.assertEqual(len(entities), TEST_EXP_MAX)
         entities_copy = self.experiment_copy.insert(entities, nondefaults=nondefaults)
         self.assertEqual(len(entities), len(entities_copy), 'entities not copied completely')
         ig = itemgetter(*nondefaults)
