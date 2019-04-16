@@ -10,7 +10,7 @@ from operator import itemgetter
 import os
 import unittest
 from deriva.core import DerivaServer, get_credential, ermrest_model as _em
-from deriva.core.datapath import DataPathException
+from deriva.core.datapath import DataPathException, Min, Max, Avg, Cnt, CntD, Array, ArrayD
 
 try:
     from pandas import DataFrame
@@ -174,6 +174,74 @@ class DatapathTests (unittest.TestCase):
         entity = entities.fetch(limit=1)[0]
         self.assertIn('Name', entity)
         self.assertIn('Amount', entity)
+
+    def test_aggregate_w_invalid_attributes(self):
+        with self.assertRaises(ValueError):
+            self.experiment.entities(Min(self.experiment.column_definitions['Amount']))
+
+    def test_aggregate_w_invalid_renames(self):
+        with self.assertRaises(ValueError):
+            self.experiment.entities(
+                self.experiment.column_definitions['Name'],
+                Min(self.experiment.column_definitions['Amount'])
+            )
+
+    def test_aggregate_fns(self):
+        tests = [
+            ('min_amount',      Min,    0),
+            ('max_amount',      Max,    TEST_EXP_MAX-1),
+            ('avg_amount',      Avg,    sum(range(TEST_EXP_MAX))/TEST_EXP_MAX),
+            ('cnt_amount',      Cnt,    TEST_EXP_MAX),
+            ('cnt_d_amount',    CntD,   TEST_EXP_MAX),
+            ('array_amount',    Array,  list(range(TEST_EXP_MAX))),
+            ('array_d_amount',  ArrayD, list(range(TEST_EXP_MAX)))
+        ]
+        for name, Fn, value in tests:
+            with self.subTest(name=name):
+                entities = self.experiment.entities(**{name: Fn(self.experiment.column_definitions['Amount'])})
+                entity = entities.fetch()[0]
+                self.assertIn(name, entity)
+                self.assertEqual(entity[name], value)
+
+    def test_aggregate_w_2_fns(self):
+        entities = self.experiment.entities(
+            min_amount=Min(self.experiment.column_definitions['Amount']),
+            max_amount=Max(self.experiment.column_definitions['Amount'])
+        )
+        entity = entities.fetch()[0]
+        self.assertIn('min_amount', entity)
+        self.assertEqual(entity['min_amount'], 0)
+        self.assertIn('max_amount', entity)
+        self.assertEqual(entity['max_amount'], TEST_EXP_MAX-1)
+
+    def test_aggregate_fns_array_star(self):
+        path = self.experiment.path
+        tests = [
+            ('array_table_star',  Array,  self.experiment, self.experiment),
+            ('array_alias_star',  Array,  path,            path.Experiment),
+            ('arrayd_table_star', ArrayD, self.experiment, self.experiment),
+            ('arrayd_alias_star', ArrayD, path,            path.Experiment)
+        ]
+        for name, Fn, path, instance in tests:
+            entities = path.entities(arr=Fn(instance))
+            with self.subTest(name=name):
+                entity = entities.fetch()[0]
+                self.assertIn('arr', entity)
+                self.assertEqual(len(entity['arr']), TEST_EXP_MAX)
+                self.assertIn('Time', entity['arr'][0])
+
+    def test_aggregate_fns_cnt_star(self):
+        path = self.experiment.path
+        tests = [
+            ('cnt_table_star', Cnt, self.experiment, self.experiment),
+            ('cnt_alias_star', Cnt, path,            path.Experiment)
+        ]
+        for name, Fn, path, instance in tests:
+            entities = path.entities(cnt=Fn(instance))
+            with self.subTest(name=name):
+                entity = entities.fetch()[0]
+                self.assertIn('cnt', entity)
+                self.assertEqual(entity['cnt'], TEST_EXP_MAX)
 
     def test_link(self):
         entities = self.experiment.link(self.experiment_type).entities()

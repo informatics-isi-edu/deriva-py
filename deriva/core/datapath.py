@@ -249,10 +249,10 @@ class DataPath (object):
         """Returns the entity set computed by this data path.
         Optionally, caller may specify the attributes to be included in the entity set. The attributes may be from the
         current context of the path or from a linked table instance. Columns may be renamed in the output and will
-        take the name of the keyword parameter used. If no attributes are specified, the entity set will contain whole
-        entities of the type of the path's context.
+        take the name of the keyword parameter used. AggregateFunctions are supported in the renamed attributes list.
+        If no attributes are specified, the entity set will contain whole entities of the type of the path's context.
         :param attributes: a list of Columns.
-        :param renamed_attributes: a list of renamed Columns.
+        :param renamed_attributes: a list of renamed Columns or AggregateFunctions (but do not mix the two).
         :return: an entity set
         """
         return self._entities(attributes, renamed_attributes)
@@ -411,7 +411,7 @@ class Table (object):
 
     @property
     def instancename(self):
-        return ''
+        return '*'
 
     @property
     def fromname(self):
@@ -583,7 +583,7 @@ class TableAlias (Table):
 
     @property
     def instancename(self):
-        return self.uname
+        return self.uname + ":*"
 
     @property
     def fromname(self):
@@ -666,9 +666,8 @@ class Column (object):
 
     @property
     def instancename(self):
-        table_instancename = self._table.instancename
-        if len(table_instancename) > 0:
-            return "%s:%s" % (table_instancename, self.uname)
+        if isinstance(self._table, TableAlias):
+            return "%s:%s" % (self._table.uname, self.uname)
         else:
             return self.uname
 
@@ -848,22 +847,25 @@ class Project (PathOperator):
         super(Project, self).__init__(r)
         assert len(attributes) > 0 or len(renamed_attributes) > 0
         self._attrs = []
+        self._inferred_mode = 'attribute'
 
-        # Build up the list of project attributes
-        for attr in attributes:
-            if isinstance(attr, Table):
-                iname = attr.instancename
-                if len(iname) > 0:
-                    self._attrs.append(iname + ':*')
-                else:
-                    self._attrs.append('*')
-            else:
-                self._attrs.append(attr.instancename)
+        # Validate attributes, no aggregations allowed
+        if any([isinstance(elem, AggregateFunction) for elem in attributes]):
+            raise ValueError("Aggregate functions not allowed in attributes list, use renamed attributes instead.")
 
-        # Extend the list with renamed attributes (i.e., "out alias" named)
-        for new_name in renamed_attributes:
-            attr = renamed_attributes[new_name]
-            self._attrs.append("%s:=%s" % (new_name, attr.instancename))
+        # Validate generalized projection, if applicable
+        aggregates = [isinstance(elem, AggregateFunction) for elem in renamed_attributes.values()]
+        if any(aggregates):
+            if not all(aggregates):
+                raise ValueError("Aggregate functions must be used exclusively or not at all.")
+            self._inferred_mode = 'aggregate'
+
+        # Build the projection list
+        self._attrs = [
+            attr.instancename for attr in attributes
+        ] + [
+            "%s:=%s" % (out_alias, attr.instancename) for out_alias, attr in renamed_attributes.items()
+        ]
 
     @property
     def _path(self):
@@ -872,7 +874,7 @@ class Project (PathOperator):
 
     @property
     def _mode(self):
-        return 'attribute'
+        return self._inferred_mode
 
 
 class Link (PathOperator):
@@ -972,3 +974,65 @@ class NegationPredicate (Predicate):
 
     def __str__(self):
         return "!(%s)" % self._child
+
+
+class AggregateFunction (object):
+    """Base class of all aggregate functions."""
+    def __init__(self, name, operand):
+        """Initializes the aggregate function.
+
+        :param name: name of the function per ERMrest specification.
+        :param operand: single operand of the function; a Column, Table, or TableAlias object.
+        """
+        super(AggregateFunction, self).__init__()
+        self.name = name
+        self.operand = operand
+
+    def __str__(self):
+        return "%s(%s)" % (self.name, self.operand)
+
+    @property
+    def instancename(self):
+        return "%s(%s)" % (self.name, self.operand.instancename)
+
+
+class Min (AggregateFunction):
+    """Aggregate function for minimum non-NULL value."""
+    def __init__(self, operand):
+        super(Min, self).__init__('min', operand)
+
+
+class Max (AggregateFunction):
+    """Aggregate function for maximum non-NULL value."""
+    def __init__(self, operand):
+        super(Max, self).__init__('max', operand)
+
+
+class Avg (AggregateFunction):
+    """Aggregate function for average non-NULL value."""
+    def __init__(self, operand):
+        super(Avg, self).__init__('avg', operand)
+
+
+class Cnt (AggregateFunction):
+    """Aggregate function for count of non-NULL values."""
+    def __init__(self, operand):
+        super(Cnt, self).__init__('cnt', operand)
+
+
+class CntD (AggregateFunction):
+    """Aggregate function for count of distinct non-NULL values."""
+    def __init__(self, operand):
+        super(CntD, self).__init__('cnt_d', operand)
+
+
+class Array (AggregateFunction):
+    """Aggregate function for an array containing all values (including NULL)."""
+    def __init__(self, operand):
+        super(Array, self).__init__('array', operand)
+
+
+class ArrayD (AggregateFunction):
+    """Aggregate function for an array containing distinct values (including NULL)."""
+    def __init__(self, operand):
+        super(ArrayD, self).__init__('array_d', operand)
