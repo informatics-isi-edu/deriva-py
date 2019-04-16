@@ -188,7 +188,7 @@ class DataPath (object):
             logger.debug("Deleting: {p}".format(p=path))
             self._root.catalog.delete(path)
         except HTTPError as e:
-            logger.error(e.response.text)
+            logger.debug(e.response.text)
             if 400 <= e.response.status_code < 500:
                 raise DataPathException(_http_error_message(e), e)
             else:
@@ -285,7 +285,7 @@ class DataPath (object):
                 resp = catalog.get(path)
                 return resp.json()
             except HTTPError as e:
-                logger.error(e.response.text)
+                logger.debug(e.response.text)
                 if 400 <= e.response.status_code < 500:
                     raise DataPathException(_http_error_message(e), e)
                 else:
@@ -498,7 +498,7 @@ class Table (object):
             resp = self.catalog.post(path, json=entities, headers={'Content-Type': 'application/json'})
             return EntitySet(self.path.uri, lambda ignore1, ignore2: resp.json())
         except HTTPError as e:
-            logger.error(e.response.text)
+            logger.debug(e.response.text)
             if 400 <= e.response.status_code < 500:
                 raise DataPathException(_http_error_message(e), e)
             else:
@@ -550,7 +550,7 @@ class Table (object):
             resp = self.catalog.put(path, json=entities, headers={'Content-Type': 'application/json'})
             return EntitySet(self.path.uri, lambda ignore1, ignore2: resp.json())
         except HTTPError as e:
-            logger.error(e.response.text)
+            logger.debug(e.response.text)
             if 400 <= e.response.status_code < 500:
                 raise DataPathException(_http_error_message(e), e)
             else:
