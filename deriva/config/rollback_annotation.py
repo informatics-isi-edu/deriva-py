@@ -3,6 +3,9 @@ from deriva.core import get_credential, BaseCLI, DerivaServer, __version__
 
 
 def rollback_annotation(host, catalog_id, snaptime=None, prot='https', credential=None):
+    """
+    Rollback the entire annotation hierarchy for the specified catalog to a given point in time specified by snaptime.
+    """
     if not credential:
         credential = get_credential(host)
     server = DerivaServer(prot, host, credentials=credential)
@@ -65,13 +68,12 @@ def rollback_annotation(host, catalog_id, snaptime=None, prot='https', credentia
 
 
 def main():
-    cli = BaseCLI("annotation rollback tool", None, version=__version__)
-    cli.remove_options(['--host', '--config-file'])
+    cli = BaseCLI("annotation rollback tool", None, version=__version__, hostname_required=True)
     cli.parser.add_argument("--catalog", default=1, metavar="<1>", help="Catalog number. Default: 1")
-    cli.parser.add_argument('host', default=platform.node(), metavar='<host>', help="Fully qualified host name.")
+    cli.parser.add_argument("--snapshot", metavar="<snapshot ID", help="Catalog snapshot ID. Example: 2QG-VWP6-0YG0")
     args = cli.parse_cli()
     credential = get_credential(args.host, args.credential_file)
-    rollback_annotation(args.host, args.catalog, credential=credential)
+    rollback_annotation(args.host, args.catalog, snaptime=args.snapshot, credential=credential)
 
 
 if __name__ == '__main__':
