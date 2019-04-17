@@ -247,10 +247,76 @@ class DataPath (object):
 
     def entities(self, *attributes, **renamed_attributes):
         """Returns the entity set computed by this data path.
-        Optionally, caller may specify the attributes to be included in the entity set. The attributes may be from the
-        current context of the path or from a linked table instance. Columns may be renamed in the output and will
-        take the name of the keyword parameter used. AggregateFunctions are supported in the renamed attributes list.
-        If no attributes are specified, the entity set will contain whole entities of the type of the path's context.
+
+        Invocation of this method can take different forms:
+
+        1. Fetching whole entities.
+
+        In order to fetch whole entities; i.e., all accessible attributes of an entity for each entity in the entity
+        set), use this method without passing any arguments. The entity returned will be that of the current path's
+        _context_; i.e., the last table instance in the path.
+
+        ```
+        whole_entities = my_path.entities()
+        ```
+
+        2. Fetching a selection of attributes.
+
+        Callers can also fetch just some of the attributes for each entity in an entity set.
+
+        ```
+        some_attributes = my_path.entities(col1, col2)
+        ```
+
+        3. Fetching and renaming a selection of attributes.
+
+        Callers can rename attributes during the fetch.
+
+        ```
+        rename_attributes = my_path.entities(foo=col1, bar=col2)
+        ```
+
+        This form can be combined with the previous form such that some attributes are renamed while others are not.
+
+        ```
+        some_renamed_attributes = my_path.entities(col1, bar=col2)
+        ```
+
+        4. Aggregates of attributes in the entity set may be computed and fetched.
+
+        By using the built-in subclasses of the `AggregateFunction` class, including `Min`, `Max`, `Avg`, `Cnt`, `CntD`,
+        `Array`, and `ArrayD`, aggregates can be computed and fetched. These aggregates must be passed in the
+        `renamed_attributes` list as they must be given an _alias name_.
+
+        ```
+        aggregates = my_path.entities(min_col1=Min(col1), arr_col2=Array(col2))
+        aggregates = my_path.entities(Min(col1), Array(col2))  # Error! Aggregates must be named.
+        ```
+
+        Note that callers cannot mix aggregate functions with other columns.
+
+        ```
+        aggregates = my_path.entities(col1, arr_col2=Array(col2))  # Error! Cannot mix columns and aggregate functions.
+        ```
+
+        5. Attribute groups with aggregates may be computed and fetched.
+
+        Aggregates over groups, as specified by a `group_key`, can be computed and fetched. Note that the `group_key`
+        named parameter is therefore _reserved_ for any invocation of the `entities(...)` method. I.e., you cannot
+        rename any attributes or aggregates as "group_key."
+
+        ```
+        attribute_groups = my_path.entities(group_key=col1, min_col1=Min(col2), arr_col2=Array(col3))
+        ```
+
+        The `group_key` allows for a single column or a tuple or list of columns.
+
+        ```
+        attribute_groups = my_path.entities(group_key=(col1, col2), min_col1=Min(col3), arr_col2=Array(col4))
+        ```
+
+        As with aggregation, callers must not mix ordinary columns in with grouped aggregates.
+
         :param attributes: a list of Columns.
         :param renamed_attributes: a list of renamed Columns or AggregateFunctions (but do not mix the two).
         :return: an entity set
@@ -259,6 +325,7 @@ class DataPath (object):
 
     def _entities(self, attributes, renamed_attributes, context=None):
         """Returns the entity set computed by this data path from the perspective of the given 'context'.
+
         :param attributes: a list of Columns.
         :param renamed_attributes: a list of renamed Columns.
         :param context: optional context for the entities.
@@ -847,18 +914,32 @@ class Project (PathOperator):
         super(Project, self).__init__(r)
         assert len(attributes) > 0 or len(renamed_attributes) > 0
         self._attrs = []
+        self._group_key = []
         self._inferred_mode = 'attribute'
 
         # Validate attributes, no aggregations allowed
         if any([isinstance(elem, AggregateFunction) for elem in attributes]):
             raise ValueError("Aggregate functions not allowed in attributes list, use renamed attributes instead.")
 
+        # Validate group_key, if it exists
+        if 'group_key' in renamed_attributes:
+            group_key = renamed_attributes['group_key']
+            del renamed_attributes['group_key']
+            if isinstance(group_key, Column):
+                self._group_key = [group_key.instancename]
+            elif not all(isinstance(col, Column) for col in group_key):
+                raise ValueError("Group keys must be Column objects.")
+            else:
+                self._group_key = [col.instancename for col in group_key]
+            self._inferred_mode = 'attributegroup'
+
         # Validate generalized projection, if applicable
         aggregates = [isinstance(elem, AggregateFunction) for elem in renamed_attributes.values()]
         if any(aggregates):
             if not all(aggregates):
                 raise ValueError("Aggregate functions must be used exclusively or not at all.")
-            self._inferred_mode = 'aggregate'
+            if not self._group_key:
+                self._inferred_mode = 'aggregate'
 
         # Build the projection list
         self._attrs = [
@@ -870,7 +951,12 @@ class Project (PathOperator):
     @property
     def _path(self):
         assert isinstance(self._r, PathOperator)
-        return "%s/%s" % (self._r._path, ','.join(attr for attr in self._attrs))
+        grouping = ','.join(self._group_key)
+        projection = ','.join(self._attrs)
+        if grouping and projection:
+            return "%s/%s;%s" % (self._r._path, grouping, projection)
+        else:
+            return "%s/%s" % (self._r._path, grouping or projection)
 
     @property
     def _mode(self):
