@@ -521,6 +521,10 @@ class Table (object):
         return self._contextualized_path.link(right, on, join_type)
 
     def entities(self, *attributes, **renamed_attributes):
+        """Returns the entities for the Table.
+
+        See `DataPath.entities` for more information.
+        """
         return self.path._entities(attributes, renamed_attributes)
 
     def insert(self, entities, defaults=set(), nondefaults=set(), add_system_defaults=True):
