@@ -3,6 +3,7 @@ from datetime import date
 import logging
 import re
 from requests import HTTPError
+import warnings
 
 logger = logging.getLogger(__name__)
 """Logger for this module"""
@@ -246,90 +247,80 @@ class DataPath (object):
         return self
 
     def entities(self, *attributes, **renamed_attributes):
-        """Returns the entity set computed by this data path.
-
-        Invocation of this method can take different forms:
-
-        1. Fetching whole entities.
-
-        In order to fetch whole entities; i.e., all accessible attributes of an entity for each entity in the entity
-        set), use this method without passing any arguments. The entity returned will be that of the current path's
-        _context_; i.e., the last table instance in the path.
+        """Returns a results set of whole entities from this data path's current context.
 
         ```
-        whole_entities = my_path.entities()
+        results1 = my_path.entities()
+        results2 = my_path.entities(col1, col2)  # WARNING. Deprecated usage. Use the `attributes(...)` method instead.
         ```
 
-        2. Fetching a selection of attributes.
+        :param attributes: DEPRECATED.
+        :param renamed_attributes: DEPRECATED.
+        :return: a result set of entities where each element is a whole entity per the table definition and policy.
+        """
+        if attributes or renamed_attributes:
+            warnings.warn("Use of 'attributes' or 'renamed_attributes' in 'entities(...)' is deprecated. Use 'attributes(...)' instead.", DeprecationWarning)
+        return self._query(attributes, renamed_attributes)
 
-        Callers can also fetch just some of the attributes for each entity in an entity set.
-
-        ```
-        some_attributes = my_path.entities(col1, col2)
-        ```
-
-        3. Fetching and renaming a selection of attributes.
-
-        Callers can rename attributes during the fetch.
-
-        ```
-        rename_attributes = my_path.entities(foo=col1, bar=col2)
-        ```
-
-        This form can be combined with the previous form such that some attributes are renamed while others are not.
-
-        ```
-        some_renamed_attributes = my_path.entities(col1, bar=col2)
-        ```
-
-        4. Aggregates of attributes in the entity set may be computed and fetched.
+    def aggregates(self, **functions):
+        """Returns a results set of computed aggregates from this data path.
 
         By using the built-in subclasses of the `AggregateFunction` class, including `Min`, `Max`, `Avg`, `Cnt`, `CntD`,
-        `Array`, and `ArrayD`, aggregates can be computed and fetched. These aggregates must be passed in the
-        `renamed_attributes` list as they must be given an _alias name_.
+        `Array`, and `ArrayD`, aggregates can be computed and fetched. These aggregates must be passed as named
+        parameters since they require _alias names_.
 
         ```
-        aggregates = my_path.entities(min_col1=Min(col1), arr_col2=Array(col2))
-        aggregates = my_path.entities(Min(col1), Array(col2))  # Error! Aggregates must be named.
+        results1 = my_path.aggregates(min_col1=Min(col1), arr_col2=Array(col2))
+        results2 = my_path.aggregates(Min(col1), Array(col2))  # Error! Aggregates must be named.
+        results3 = my_path.aggregates(col1, arr_col2=Array(col2))  # Error! Cannot mix columns and aggregate functions.
         ```
 
-        Note that callers cannot mix aggregate functions with other columns.
+        :param functions: named parameters of type AggregateFunction
+        :return: a results set with a single row of results.
+        """
+        return self._query([], functions)
 
-        ```
-        aggregates = my_path.entities(col1, arr_col2=Array(col2))  # Error! Cannot mix columns and aggregate functions.
-        ```
-
-        5. Attribute groups with aggregates may be computed and fetched.
+    def attributegroups(self, group_key, **functions):
+        """Returns a results set of computed aggregates for groups of attributes from this data path.
 
         Aggregates over groups, as specified by a `group_key`, can be computed and fetched. Note that the `group_key`
-        named parameter is therefore _reserved_ for any invocation of the `entities(...)` method. I.e., you cannot
-        rename any attributes or aggregates as "group_key."
+        named parameter is therefore _reserved_ for any invocation of the `attributegroups(...)` method.
 
         ```
-        attribute_groups = my_path.entities(group_key=col1, min_col1=Min(col2), arr_col2=Array(col3))
-        ```
-
-        The `group_key` allows for a single column or a tuple or list of columns.
-
-        ```
-        attribute_groups = my_path.entities(group_key=(col1, col2), min_col1=Min(col3), arr_col2=Array(col4))
+        results1 = my_path.entities(group_key=col1, min_col1=Min(col2), arr_col2=Array(col3))  # 1 group key
+        results2 = my_path.entities(group_key=(col1, col2), min_col1=Min(col3), arr_col2=Array(col4))  # >1 group keys
         ```
 
         As with aggregation, callers must not mix ordinary columns in with grouped aggregates.
 
-        :param attributes: a list of Columns.
-        :param renamed_attributes: a list of renamed Columns or AggregateFunctions (but do not mix the two).
-        :return: an entity set
+        :param group_key: a Column or a set of Columns to be used as the group key for grouping the computations on.
+        :param functions: named parameters of type AggregateFunction
+        :return: a results set with a row of results for each group.
         """
-        return self._entities(attributes, renamed_attributes)
+        return self._query([], {**dict(group_key=group_key), **functions})
 
-    def _entities(self, attributes, renamed_attributes, context=None):
-        """Returns the entity set computed by this data path from the perspective of the given 'context'.
+    def attributes(self, *attributes, **renamed_attributes):
+        """Returns a results set of attributes projected and optionally renamed from this data path.
+
+        ```
+        results1 = my_path.attributes(col1, col2)  # fetch a subset of attributes of the path
+        results2 = my_path.attributes(foo=col1, bar=col2)  # fetch and rename the attributes
+        results3 = my_path.attributes(col1, bar=col2)  # rename some but not others
+        ```
 
         :param attributes: a list of Columns.
         :param renamed_attributes: a list of renamed Columns.
-        :param context: optional context for the entities.
-        :return: an entity set
+        :return: a results set of the projected attributes from this data path.
+        """
+        return self._query(attributes, renamed_attributes)
+
+    def _query(self, attributes, renamed_attributes, context=None):
+        """Internal method for querying the data path from the perspective of the given 'context'.
+
+        :param attributes: a list of Columns.
+        :param renamed_attributes: a list of renamed Columns or AggregateFunctions
+        :param context: optional context for the query.
+        :return: a results set.
         """
         assert context is None or isinstance(context, TableAlias)
         catalog = self._root.catalog
@@ -358,17 +349,18 @@ class DataPath (object):
                 else:
                     raise e
 
-        return EntitySet(self._base_uri + base_path, fetcher)
+        return ResultSet(self._base_uri + base_path, fetcher)
 
 
-class EntitySet (object):
-    """A set of entities.
-    The EntitySet is produced by a path. The results may be explicitly fetched. The EntitySet behaves like a
-    container. If the EntitySet has not been fetched explicitly, on first use of container operations, it will
+class ResultSet (object):
+    """A set of results for various queries or data manipulations.
+
+    The ResultSet is produced by a path. The results may be explicitly fetched. The ResultSet behaves like a
+    container. If the ResultSet has not been fetched explicitly, on first use of container operations, it will
     be implicitly fetched from the catalog.
     """
     def __init__(self, uri, fetcher_fn):
-        """Initializes the EntitySet.
+        """Initializes the ResultSet.
         :param uri: the uri for the entity set in the catalog.
         :param fetcher_fn: a function that fetches the entities from the catalog.
         """
@@ -406,8 +398,9 @@ class EntitySet (object):
         return iter(self._results)
 
     def fetch(self, limit=None, sort=None):
-        """Fetches the entities from the catalog.
-        :param limit: maximum number of entities to fetch from the catalog.
+        """Fetches the results from the catalog.
+
+        :param limit: maximum number of results to fetch from the catalog.
         :param sort: collection of columns to use for sorting.
         :return: self
         """
@@ -520,12 +513,39 @@ class Table (object):
     def link(self, right, on=None, join_type=''):
         return self._contextualized_path.link(right, on, join_type)
 
-    def entities(self, *attributes, **renamed_attributes):
-        """Returns the entities for the Table.
+    def _query(self, attributes, renamed_attributes):
+        """Invokes query on the path for this table."""
+        return self.path._query(attributes, renamed_attributes)
 
-        See `DataPath.entities` for more information.
+    def entities(self, *attributes, **renamed_attributes):
+        """Returns a results set of whole entities from this data path's current context.
+
+        See the docs for this method in `DataPath` for more information.
         """
-        return self.path._entities(attributes, renamed_attributes)
+        if attributes or renamed_attributes:
+            warnings.warn("Use of 'attributes' or 'renamed_attributes' in 'entities(...)' is deprecated. Use 'attributes(...)' instead.", DeprecationWarning)
+        return self._query(attributes, renamed_attributes)
+
+    def aggregates(self, **functions):
+        """Returns a results set of computed aggregates from this data path.
+
+        See the docs for this method in `DataPath` for more information.
+        """
+        return self._query([], functions)
+
+    def attributegroups(self, group_key, **functions):
+        """Returns a results set of computed aggregates for groups of attributes from this data path.
+
+        See the docs for this method in `DataPath` for more information.
+        """
+        return self._query([], {**dict(group_key=group_key), **functions})
+
+    def attributes(self, *attributes, **renamed_attributes):
+        """Returns a results set of attributes projected and optionally renamed from this data path.
+
+        See the docs for this method in `DataPath` for more information.
+        """
+        return self._query(attributes, renamed_attributes)
 
     def insert(self, entities, defaults=set(), nondefaults=set(), add_system_defaults=True):
         """Inserts entities into the table.
@@ -533,11 +553,11 @@ class Table (object):
         :param defaults: optional, set of column names to be assigned the default expression value.
         :param nondefaults: optional, set of columns names to override implicit system defaults
         :param add_system_defaults: flag to add system columns to the set of default columns.
-        :return newly created entities.
+        :return a ResultSet of newly created entities.
         """
         # empty entities will be accepted but results are therefore an empty entity set
         if not entities:
-            return EntitySet(self.path.uri, lambda ignore1, ignore2: [])
+            return ResultSet(self.path.uri, lambda ignore1, ignore2: [])
 
         options = []
 
@@ -567,7 +587,7 @@ class Table (object):
 
         try:
             resp = self.catalog.post(path, json=entities, headers={'Content-Type': 'application/json'})
-            return EntitySet(self.path.uri, lambda ignore1, ignore2: resp.json())
+            return ResultSet(self.path.uri, lambda ignore1, ignore2: resp.json())
         except HTTPError as e:
             logger.debug(e.response.text)
             if 400 <= e.response.status_code < 500:
@@ -587,11 +607,11 @@ class Table (object):
         :param correlation: an iterable collection of column names used to correlate input set to the set of rows to be
         updated in the catalog. E.g., `{'col name'}` or `{mytable.mycolumn}` will work if you pass a Column object.
         :param targets: an iterable collection of column names used as the targets of the update operation.
-        :return: EntitySet of updated entities as returned by the corresponding ERMrest interface.
+        :return: a ResultSet of updated entities as returned by the corresponding ERMrest interface.
         """
         # empty entities will be accepted but results are therefore an empty entity set
         if not entities:
-            return EntitySet(self.path.uri, lambda ignore1, ignore2: [])
+            return ResultSet(self.path.uri, lambda ignore1, ignore2: [])
 
         # JSONEncoder does not handle general iterable objects, so we have to make sure its an acceptable collection
         if not hasattr(entities, '__iter__'):
@@ -619,7 +639,7 @@ class Table (object):
 
         try:
             resp = self.catalog.put(path, json=entities, headers={'Content-Type': 'application/json'})
-            return EntitySet(self.path.uri, lambda ignore1, ignore2: resp.json())
+            return ResultSet(self.path.uri, lambda ignore1, ignore2: resp.json())
         except HTTPError as e:
             logger.debug(e.response.text)
             if 400 <= e.response.status_code < 500:
@@ -690,8 +710,9 @@ class TableAlias (Table):
     def uri(self):
         return self.path._contextualized_uri(self)
 
-    def entities(self, *attributes, **renamed_attributes):
-        return self.path._entities(attributes, renamed_attributes, self)
+    def _query(self, attributes, renamed_attributes):
+        """Overridden method to set context of query to this table instance."""
+        return self.path._query(attributes, renamed_attributes, self)
 
 
 class Column (object):
