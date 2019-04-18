@@ -77,7 +77,7 @@ def _generate_experiment_entities(types, count):
             "Name": TEST_EXP_NAME_FORMAT.format(i),
             "Amount": i,
             "Time": "2018-01-{}T01:00:00.0".format(1 + (i % 31)),
-            "Type": types[i % 10]['ID']
+            "Type": types[i % TEST_EXPTYPE_MAX]['ID']
         }
         for i in range(count)
     ]
@@ -242,6 +242,27 @@ class DatapathTests (unittest.TestCase):
                 entity = entities.fetch()[0]
                 self.assertIn('cnt', entity)
                 self.assertEqual(entity['cnt'], TEST_EXP_MAX)
+
+    def test_attributegroup_fns(self):
+        group_key = self.experiment.column_definitions['Type']
+        tests = [
+            ('min_amount',      Min,    0),
+            ('max_amount',      Max,    TEST_EXP_MAX-TEST_EXPTYPE_MAX),
+            ('avg_amount',      Avg,    sum(range(0, TEST_EXP_MAX, TEST_EXPTYPE_MAX))/TEST_EXPTYPE_MAX),
+            ('cnt_amount',      Cnt,    TEST_EXPTYPE_MAX),
+            ('cnt_d_amount',    CntD,   TEST_EXPTYPE_MAX),
+            ('array_amount',    Array,  list(range(0, TEST_EXP_MAX, TEST_EXPTYPE_MAX))),
+            ('array_d_amount',  ArrayD, list(range(0, TEST_EXP_MAX, TEST_EXPTYPE_MAX)))
+        ]
+        for name, Fn, value in tests:
+            with self.subTest(name=name):
+                entities = self.experiment.entities(group_key=self.experiment.column_definitions['Type'],
+                                                    **{name: Fn(self.experiment.column_definitions['Amount'])}
+                                                    ).fetch(sort=[group_key])
+                entity = entities[0]
+                self.assertIn(group_key.name, entity)
+                self.assertIn(name, entity)
+                self.assertEqual(entity[name], value)
 
     def test_link(self):
         entities = self.experiment.link(self.experiment_type).entities()
