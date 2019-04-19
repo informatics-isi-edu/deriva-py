@@ -301,7 +301,8 @@ class DataPath (object):
         :param functions: named parameters of type AggregateFunction
         :return: a results set with a row of results for each group.
         """
-        return self._query([], {**dict(group_key=group_key), **functions})
+        functions['group_key'] = group_key
+        return self._query([], functions)
 
     def attributes(self, *attributes, **renamed_attributes):
         """Returns a results set of attributes projected and optionally renamed from this data path.
@@ -542,7 +543,8 @@ class Table (object):
 
         See the docs for this method in `DataPath` for more information.
         """
-        return self._query([], {**dict(group_key=group_key), **functions})
+        functions['group_key'] = group_key
+        return self._query([], functions)
 
     def attributes(self, *attributes, **renamed_attributes):
         """Returns a results set of attributes projected and optionally renamed from this data path.

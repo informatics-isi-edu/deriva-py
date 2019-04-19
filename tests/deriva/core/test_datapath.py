@@ -9,8 +9,15 @@ import logging
 from operator import itemgetter
 import os
 import unittest
+import sys
 from deriva.core import DerivaServer, get_credential, ermrest_model as _em
 from deriva.core.datapath import DataPathException, Min, Max, Avg, Cnt, CntD, Array, ArrayD
+
+# unittests did not support 'subTests' until 3.4
+if sys.version_info[0] < 3 or sys.version_info[1] < 4:
+    HAS_SUBTESTS = False
+else:
+    HAS_SUBTESTS = True
 
 try:
     from pandas import DataFrame
@@ -186,6 +193,7 @@ class DatapathTests (unittest.TestCase):
                 Min(self.experiment.column_definitions['Amount'])
             )
 
+    @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
     def test_aggregate_fns(self):
         tests = [
             ('min_amount',      Min,    0),
@@ -214,6 +222,7 @@ class DatapathTests (unittest.TestCase):
         self.assertIn('max_amount', result)
         self.assertEqual(result['max_amount'], TEST_EXP_MAX-1)
 
+    @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
     def test_aggregate_fns_array_star(self):
         path = self.experiment.path
         tests = [
@@ -230,6 +239,7 @@ class DatapathTests (unittest.TestCase):
                 self.assertEqual(len(result['arr']), TEST_EXP_MAX)
                 self.assertIn('Time', result['arr'][0])
 
+    @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
     def test_aggregate_fns_cnt_star(self):
         path = self.experiment.path
         tests = [
@@ -243,6 +253,7 @@ class DatapathTests (unittest.TestCase):
                 self.assertIn('cnt', result)
                 self.assertEqual(result['cnt'], TEST_EXP_MAX)
 
+    @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
     def test_attributegroup_fns(self):
         group_key = self.experiment.column_definitions['Type']
         tests = [
