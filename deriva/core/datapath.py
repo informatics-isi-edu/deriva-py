@@ -145,6 +145,10 @@ class DataPath (object):
             return getattr(super(DataPath, self), a)
 
     @property
+    def table_instances(self):
+        return self._table_instances
+
+    @property
     def context(self):
         return self._context
 

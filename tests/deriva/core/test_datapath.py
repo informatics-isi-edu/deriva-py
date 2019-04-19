@@ -313,6 +313,11 @@ class DatapathTests (unittest.TestCase):
         results = path.Experiment.entities()
         self.assertEqual(len(results), TEST_EXP_MAX)
 
+    def test_path_table_instances(self):
+        path = self.experiment.link(self.experiment_type)
+        results = path.table_instances['Experiment'].entities()
+        self.assertEqual(len(results), TEST_EXP_MAX)
+
     def test_path_project(self):
         path = self.experiment.link(self.experiment_type)
         results = path.Experiment.attributes(
