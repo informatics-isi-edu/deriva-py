@@ -3,6 +3,7 @@ from datetime import date
 import logging
 import re
 from requests import HTTPError
+import warnings
 
 logger = logging.getLogger(__name__)
 """Logger for this module"""
@@ -144,6 +145,10 @@ class DataPath (object):
             return getattr(super(DataPath, self), a)
 
     @property
+    def table_instances(self):
+        return self._table_instances
+
+    @property
     def context(self):
         return self._context
 
@@ -188,7 +193,7 @@ class DataPath (object):
             logger.debug("Deleting: {p}".format(p=path))
             self._root.catalog.delete(path)
         except HTTPError as e:
-            logger.error(e.response.text)
+            logger.debug(e.response.text)
             if 400 <= e.response.status_code < 500:
                 raise DataPathException(_http_error_message(e), e)
             else:
@@ -246,23 +251,81 @@ class DataPath (object):
         return self
 
     def entities(self, *attributes, **renamed_attributes):
-        """Returns the entity set computed by this data path.
-        Optionally, caller may specify the attributes to be included in the entity set. The attributes may be from the
-        current context of the path or from a linked table instance. Columns may be renamed in the output and will
-        take the name of the keyword parameter used. If no attributes are specified, the entity set will contain whole
-        entities of the type of the path's context.
-        :param attributes: a list of Columns.
-        :param renamed_attributes: a list of renamed Columns.
-        :return: an entity set
-        """
-        return self._entities(attributes, renamed_attributes)
+        """Returns a results set of whole entities from this data path's current context.
 
-    def _entities(self, attributes, renamed_attributes, context=None):
-        """Returns the entity set computed by this data path from the perspective of the given 'context'.
+        ```
+        results1 = my_path.entities()
+        results2 = my_path.entities(col1, col2)  # WARNING. Deprecated usage. Use the `attributes(...)` method instead.
+        ```
+
+        :param attributes: DEPRECATED.
+        :param renamed_attributes: DEPRECATED.
+        :return: a result set of entities where each element is a whole entity per the table definition and policy.
+        """
+        if attributes or renamed_attributes:
+            warnings.warn("Use of 'attributes' or 'renamed_attributes' in 'entities(...)' is deprecated. Use 'attributes(...)' instead.", DeprecationWarning)
+        return self._query(attributes, renamed_attributes)
+
+    def aggregates(self, **functions):
+        """Returns a results set of computed aggregates from this data path.
+
+        By using the built-in subclasses of the `AggregateFunction` class, including `Min`, `Max`, `Avg`, `Cnt`, `CntD`,
+        `Array`, and `ArrayD`, aggregates can be computed and fetched. These aggregates must be passed as named
+        parameters since they require _alias names_.
+
+        ```
+        results1 = my_path.aggregates(min_col1=Min(col1), arr_col2=Array(col2))
+        results2 = my_path.aggregates(Min(col1), Array(col2))  # Error! Aggregates must be named.
+        results3 = my_path.aggregates(col1, arr_col2=Array(col2))  # Error! Cannot mix columns and aggregate functions.
+        ```
+
+        :param functions: named parameters of type AggregateFunction
+        :return: a results set with a single row of results.
+        """
+        return self._query([], functions)
+
+    def attributegroups(self, group_key, **functions):
+        """Returns a results set of computed aggregates for groups of attributes from this data path.
+
+        Aggregates over groups, as specified by a `group_key`, can be computed and fetched. Note that the `group_key`
+        named parameter is therefore _reserved_ for any invocation of the `attributegroups(...)` method.
+
+        ```
+        results1 = my_path.entities(group_key=col1, min_col1=Min(col2), arr_col2=Array(col3))  # 1 group key
+        results2 = my_path.entities(group_key=(col1, col2), min_col1=Min(col3), arr_col2=Array(col4))  # >1 group keys
+        ```
+
+        As with aggregation, callers must not mix ordinary columns in with grouped aggregates.
+
+        :param group_key: a Column or a set of Columns to be used as the group key for grouping the computations on.
+        :param functions: named parameters of type AggregateFunction
+        :return: a results set with a row of results for each group.
+        """
+        functions['group_key'] = group_key
+        return self._query([], functions)
+
+    def attributes(self, *attributes, **renamed_attributes):
+        """Returns a results set of attributes projected and optionally renamed from this data path.
+
+        ```
+        results1 = my_path.attributes(col1, col2)  # fetch a subset of attributes of the path
+        results2 = my_path.attributes(foo=col1, bar=col2)  # fetch and rename the attributes
+        results3 = my_path.attributes(col1, bar=col2)  # rename some but not others
+        ```
+
         :param attributes: a list of Columns.
         :param renamed_attributes: a list of renamed Columns.
-        :param context: optional context for the entities.
-        :return: an entity set
+        :return: a results set of the projected attributes from this data path.
+        """
+        return self._query(attributes, renamed_attributes)
+
+    def _query(self, attributes, renamed_attributes, context=None):
+        """Internal method for querying the data path from the perspective of the given 'context'.
+
+        :param attributes: a list of Columns.
+        :param renamed_attributes: a list of renamed Columns or AggregateFunctions
+        :param context: optional context for the query.
+        :return: a results set.
         """
         assert context is None or isinstance(context, TableAlias)
         catalog = self._root.catalog
@@ -285,23 +348,24 @@ class DataPath (object):
                 resp = catalog.get(path)
                 return resp.json()
             except HTTPError as e:
-                logger.error(e.response.text)
+                logger.debug(e.response.text)
                 if 400 <= e.response.status_code < 500:
                     raise DataPathException(_http_error_message(e), e)
                 else:
                     raise e
 
-        return EntitySet(self._base_uri + base_path, fetcher)
+        return ResultSet(self._base_uri + base_path, fetcher)
 
 
-class EntitySet (object):
-    """A set of entities.
-    The EntitySet is produced by a path. The results may be explicitly fetched. The EntitySet behaves like a
-    container. If the EntitySet has not been fetched explicitly, on first use of container operations, it will
+class ResultSet (object):
+    """A set of results for various queries or data manipulations.
+
+    The ResultSet is produced by a path. The results may be explicitly fetched. The ResultSet behaves like a
+    container. If the ResultSet has not been fetched explicitly, on first use of container operations, it will
     be implicitly fetched from the catalog.
     """
     def __init__(self, uri, fetcher_fn):
-        """Initializes the EntitySet.
+        """Initializes the ResultSet.
         :param uri: the uri for the entity set in the catalog.
         :param fetcher_fn: a function that fetches the entities from the catalog.
         """
@@ -339,8 +403,9 @@ class EntitySet (object):
         return iter(self._results)
 
     def fetch(self, limit=None, sort=None):
-        """Fetches the entities from the catalog.
-        :param limit: maximum number of entities to fetch from the catalog.
+        """Fetches the results from the catalog.
+
+        :param limit: maximum number of results to fetch from the catalog.
         :param sort: collection of columns to use for sorting.
         :return: self
         """
@@ -411,7 +476,7 @@ class Table (object):
 
     @property
     def instancename(self):
-        return ''
+        return '*'
 
     @property
     def fromname(self):
@@ -453,8 +518,40 @@ class Table (object):
     def link(self, right, on=None, join_type=''):
         return self._contextualized_path.link(right, on, join_type)
 
+    def _query(self, attributes, renamed_attributes):
+        """Invokes query on the path for this table."""
+        return self.path._query(attributes, renamed_attributes)
+
     def entities(self, *attributes, **renamed_attributes):
-        return self.path._entities(attributes, renamed_attributes)
+        """Returns a results set of whole entities from this data path's current context.
+
+        See the docs for this method in `DataPath` for more information.
+        """
+        if attributes or renamed_attributes:
+            warnings.warn("Use of 'attributes' or 'renamed_attributes' in 'entities(...)' is deprecated. Use 'attributes(...)' instead.", DeprecationWarning)
+        return self._query(attributes, renamed_attributes)
+
+    def aggregates(self, **functions):
+        """Returns a results set of computed aggregates from this data path.
+
+        See the docs for this method in `DataPath` for more information.
+        """
+        return self._query([], functions)
+
+    def attributegroups(self, group_key, **functions):
+        """Returns a results set of computed aggregates for groups of attributes from this data path.
+
+        See the docs for this method in `DataPath` for more information.
+        """
+        functions['group_key'] = group_key
+        return self._query([], functions)
+
+    def attributes(self, *attributes, **renamed_attributes):
+        """Returns a results set of attributes projected and optionally renamed from this data path.
+
+        See the docs for this method in `DataPath` for more information.
+        """
+        return self._query(attributes, renamed_attributes)
 
     def insert(self, entities, defaults=set(), nondefaults=set(), add_system_defaults=True):
         """Inserts entities into the table.
@@ -462,11 +559,11 @@ class Table (object):
         :param defaults: optional, set of column names to be assigned the default expression value.
         :param nondefaults: optional, set of columns names to override implicit system defaults
         :param add_system_defaults: flag to add system columns to the set of default columns.
-        :return newly created entities.
+        :return a ResultSet of newly created entities.
         """
         # empty entities will be accepted but results are therefore an empty entity set
         if not entities:
-            return EntitySet(self.path.uri, lambda ignore1, ignore2: [])
+            return ResultSet(self.path.uri, lambda ignore1, ignore2: [])
 
         options = []
 
@@ -496,9 +593,9 @@ class Table (object):
 
         try:
             resp = self.catalog.post(path, json=entities, headers={'Content-Type': 'application/json'})
-            return EntitySet(self.path.uri, lambda ignore1, ignore2: resp.json())
+            return ResultSet(self.path.uri, lambda ignore1, ignore2: resp.json())
         except HTTPError as e:
-            logger.error(e.response.text)
+            logger.debug(e.response.text)
             if 400 <= e.response.status_code < 500:
                 raise DataPathException(_http_error_message(e), e)
             else:
@@ -516,11 +613,11 @@ class Table (object):
         :param correlation: an iterable collection of column names used to correlate input set to the set of rows to be
         updated in the catalog. E.g., `{'col name'}` or `{mytable.mycolumn}` will work if you pass a Column object.
         :param targets: an iterable collection of column names used as the targets of the update operation.
-        :return: EntitySet of updated entities as returned by the corresponding ERMrest interface.
+        :return: a ResultSet of updated entities as returned by the corresponding ERMrest interface.
         """
         # empty entities will be accepted but results are therefore an empty entity set
         if not entities:
-            return EntitySet(self.path.uri, lambda ignore1, ignore2: [])
+            return ResultSet(self.path.uri, lambda ignore1, ignore2: [])
 
         # JSONEncoder does not handle general iterable objects, so we have to make sure its an acceptable collection
         if not hasattr(entities, '__iter__'):
@@ -548,9 +645,9 @@ class Table (object):
 
         try:
             resp = self.catalog.put(path, json=entities, headers={'Content-Type': 'application/json'})
-            return EntitySet(self.path.uri, lambda ignore1, ignore2: resp.json())
+            return ResultSet(self.path.uri, lambda ignore1, ignore2: resp.json())
         except HTTPError as e:
-            logger.error(e.response.text)
+            logger.debug(e.response.text)
             if 400 <= e.response.status_code < 500:
                 raise DataPathException(_http_error_message(e), e)
             else:
@@ -583,7 +680,7 @@ class TableAlias (Table):
 
     @property
     def instancename(self):
-        return self.uname
+        return self.uname + ":*"
 
     @property
     def fromname(self):
@@ -619,8 +716,9 @@ class TableAlias (Table):
     def uri(self):
         return self.path._contextualized_uri(self)
 
-    def entities(self, *attributes, **renamed_attributes):
-        return self.path._entities(attributes, renamed_attributes, self)
+    def _query(self, attributes, renamed_attributes):
+        """Overridden method to set context of query to this table instance."""
+        return self.path._query(attributes, renamed_attributes, self)
 
 
 class Column (object):
@@ -666,9 +764,8 @@ class Column (object):
 
     @property
     def instancename(self):
-        table_instancename = self._table.instancename
-        if len(table_instancename) > 0:
-            return "%s:%s" % (table_instancename, self.uname)
+        if isinstance(self._table, TableAlias):
+            return "%s:%s" % (self._table.uname, self.uname)
         else:
             return self.uname
 
@@ -848,31 +945,53 @@ class Project (PathOperator):
         super(Project, self).__init__(r)
         assert len(attributes) > 0 or len(renamed_attributes) > 0
         self._attrs = []
+        self._group_key = []
+        self._inferred_mode = 'attribute'
 
-        # Build up the list of project attributes
-        for attr in attributes:
-            if isinstance(attr, Table):
-                iname = attr.instancename
-                if len(iname) > 0:
-                    self._attrs.append(iname + ':*')
-                else:
-                    self._attrs.append('*')
+        # Validate attributes, no aggregations allowed
+        if any([isinstance(elem, AggregateFunction) for elem in attributes]):
+            raise ValueError("Aggregate functions not allowed in attributes list, use renamed attributes instead.")
+
+        # Validate group_key, if it exists
+        if 'group_key' in renamed_attributes:
+            group_key = renamed_attributes['group_key']
+            del renamed_attributes['group_key']
+            if isinstance(group_key, Column):
+                self._group_key = [group_key.instancename]
+            elif not all(isinstance(col, Column) for col in group_key):
+                raise ValueError("Group keys must be Column objects.")
             else:
-                self._attrs.append(attr.instancename)
+                self._group_key = [col.instancename for col in group_key]
+            self._inferred_mode = 'attributegroup'
 
-        # Extend the list with renamed attributes (i.e., "out alias" named)
-        for new_name in renamed_attributes:
-            attr = renamed_attributes[new_name]
-            self._attrs.append("%s:=%s" % (new_name, attr.instancename))
+        # Validate generalized projection, if applicable
+        aggregates = [isinstance(elem, AggregateFunction) for elem in renamed_attributes.values()]
+        if any(aggregates):
+            if not all(aggregates):
+                raise ValueError("Aggregate functions must be used exclusively or not at all.")
+            if not self._group_key:
+                self._inferred_mode = 'aggregate'
+
+        # Build the projection list
+        self._attrs = [
+            attr.instancename for attr in attributes
+        ] + [
+            "%s:=%s" % (out_alias, attr.instancename) for out_alias, attr in renamed_attributes.items()
+        ]
 
     @property
     def _path(self):
         assert isinstance(self._r, PathOperator)
-        return "%s/%s" % (self._r._path, ','.join(attr for attr in self._attrs))
+        grouping = ','.join(self._group_key)
+        projection = ','.join(self._attrs)
+        if grouping and projection:
+            return "%s/%s;%s" % (self._r._path, grouping, projection)
+        else:
+            return "%s/%s" % (self._r._path, grouping or projection)
 
     @property
     def _mode(self):
-        return 'attribute'
+        return self._inferred_mode
 
 
 class Link (PathOperator):
@@ -972,3 +1091,65 @@ class NegationPredicate (Predicate):
 
     def __str__(self):
         return "!(%s)" % self._child
+
+
+class AggregateFunction (object):
+    """Base class of all aggregate functions."""
+    def __init__(self, name, operand):
+        """Initializes the aggregate function.
+
+        :param name: name of the function per ERMrest specification.
+        :param operand: single operand of the function; a Column, Table, or TableAlias object.
+        """
+        super(AggregateFunction, self).__init__()
+        self.name = name
+        self.operand = operand
+
+    def __str__(self):
+        return "%s(%s)" % (self.name, self.operand)
+
+    @property
+    def instancename(self):
+        return "%s(%s)" % (self.name, self.operand.instancename)
+
+
+class Min (AggregateFunction):
+    """Aggregate function for minimum non-NULL value."""
+    def __init__(self, operand):
+        super(Min, self).__init__('min', operand)
+
+
+class Max (AggregateFunction):
+    """Aggregate function for maximum non-NULL value."""
+    def __init__(self, operand):
+        super(Max, self).__init__('max', operand)
+
+
+class Avg (AggregateFunction):
+    """Aggregate function for average non-NULL value."""
+    def __init__(self, operand):
+        super(Avg, self).__init__('avg', operand)
+
+
+class Cnt (AggregateFunction):
+    """Aggregate function for count of non-NULL values."""
+    def __init__(self, operand):
+        super(Cnt, self).__init__('cnt', operand)
+
+
+class CntD (AggregateFunction):
+    """Aggregate function for count of distinct non-NULL values."""
+    def __init__(self, operand):
+        super(CntD, self).__init__('cnt_d', operand)
+
+
+class Array (AggregateFunction):
+    """Aggregate function for an array containing all values (including NULL)."""
+    def __init__(self, operand):
+        super(Array, self).__init__('array', operand)
+
+
+class ArrayD (AggregateFunction):
+    """Aggregate function for an array containing distinct values (including NULL)."""
+    def __init__(self, operand):
+        super(ArrayD, self).__init__('array_d', operand)

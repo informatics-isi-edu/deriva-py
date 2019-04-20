@@ -9,8 +9,15 @@ import logging
 from operator import itemgetter
 import os
 import unittest
+import sys
 from deriva.core import DerivaServer, get_credential, ermrest_model as _em
-from deriva.core.datapath import DataPathException
+from deriva.core.datapath import DataPathException, Min, Max, Avg, Cnt, CntD, Array, ArrayD
+
+# unittests did not support 'subTests' until 3.4
+if sys.version_info[0] < 3 or sys.version_info[1] < 4:
+    HAS_SUBTESTS = False
+else:
+    HAS_SUBTESTS = True
 
 try:
     from pandas import DataFrame
@@ -77,7 +84,7 @@ def _generate_experiment_entities(types, count):
             "Name": TEST_EXP_NAME_FORMAT.format(i),
             "Amount": i,
             "Time": "2018-01-{}T01:00:00.0".format(1 + (i % 31)),
-            "Type": types[i % 10]['ID']
+            "Type": types[i % TEST_EXPTYPE_MAX]['ID']
         }
         for i in range(count)
     ]
@@ -148,106 +155,204 @@ class DatapathTests (unittest.TestCase):
         self.assertIn('Experiment', dir(self.paths.ISA.Experiment.path))
 
     def test_describe_schema(self):
-        self.assert_(self.paths.schemas['ISA'].describe())
+        self.assertTrue(self.paths.schemas['ISA'].describe())
 
     def test_describe_table(self):
-        self.assert_(self.paths.schemas['ISA'].tables['Experiment'].describe())
+        self.assertTrue(self.paths.schemas['ISA'].tables['Experiment'].describe())
 
     def test_describe_column(self):
-        self.assert_(self.paths.schemas['ISA'].tables['Experiment'].column_definitions['Name'].describe())
+        self.assertTrue(self.paths.schemas['ISA'].tables['Experiment'].column_definitions['Name'].describe())
 
     def test_unfiltered_fetch(self):
-        entities = self.experiment.entities()
-        self.assertEquals(len(entities), TEST_EXP_MAX)
+        results = self.experiment.entities()
+        self.assertEqual(len(results), TEST_EXP_MAX)
 
     def test_fetch_with_limit(self):
-        entities = self.experiment.entities()
+        results = self.experiment.entities()
         limit = TEST_EXP_MAX / 5
-        entities.fetch(limit=limit)
-        self.assertEquals(len(entities), limit)
+        results.fetch(limit=limit)
+        self.assertEqual(len(results), limit)
 
     def test_attribute_projection(self):
-        entities = self.experiment.entities(
+        results = self.experiment.attributes(
             self.experiment.column_definitions['Name'],
             self.experiment.column_definitions['Amount']
         )
-        entity = entities.fetch(limit=1)[0]
-        self.assertIn('Name', entity)
-        self.assertIn('Amount', entity)
+        result = results.fetch(limit=1)[0]
+        self.assertIn('Name', result)
+        self.assertIn('Amount', result)
+
+    def test_aggregate_w_invalid_attributes(self):
+        with self.assertRaises(TypeError):
+            self.experiment.aggregates(Min(self.experiment.column_definitions['Amount']))
+
+    def test_aggregate_w_invalid_renames(self):
+        with self.assertRaises(TypeError):
+            self.experiment.aggregates(
+                self.experiment.column_definitions['Name'],
+                Min(self.experiment.column_definitions['Amount'])
+            )
+
+    @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
+    def test_aggregate_fns(self):
+        tests = [
+            ('min_amount',      Min,    0),
+            ('max_amount',      Max,    TEST_EXP_MAX-1),
+            ('avg_amount',      Avg,    sum(range(TEST_EXP_MAX))/TEST_EXP_MAX),
+            ('cnt_amount',      Cnt,    TEST_EXP_MAX),
+            ('cnt_d_amount',    CntD,   TEST_EXP_MAX),
+            ('array_amount',    Array,  list(range(TEST_EXP_MAX))),
+            ('array_d_amount',  ArrayD, list(range(TEST_EXP_MAX)))
+        ]
+        for name, Fn, value in tests:
+            with self.subTest(name=name):
+                results = self.experiment.aggregates(**{name: Fn(self.experiment.column_definitions['Amount'])})
+                result = results.fetch()[0]
+                self.assertIn(name, result)
+                self.assertEqual(result[name], value)
+
+    def test_aggregate_w_2_fns(self):
+        results = self.experiment.aggregates(
+            min_amount=Min(self.experiment.column_definitions['Amount']),
+            max_amount=Max(self.experiment.column_definitions['Amount'])
+        )
+        result = results.fetch()[0]
+        self.assertIn('min_amount', result)
+        self.assertEqual(result['min_amount'], 0)
+        self.assertIn('max_amount', result)
+        self.assertEqual(result['max_amount'], TEST_EXP_MAX-1)
+
+    @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
+    def test_aggregate_fns_array_star(self):
+        path = self.experiment.path
+        tests = [
+            ('array_table_star',  Array,  self.experiment, self.experiment),
+            ('array_alias_star',  Array,  path,            path.Experiment),
+            ('arrayd_table_star', ArrayD, self.experiment, self.experiment),
+            ('arrayd_alias_star', ArrayD, path,            path.Experiment)
+        ]
+        for name, Fn, path, instance in tests:
+            results = path.aggregates(arr=Fn(instance))
+            with self.subTest(name=name):
+                result = results.fetch()[0]
+                self.assertIn('arr', result)
+                self.assertEqual(len(result['arr']), TEST_EXP_MAX)
+                self.assertIn('Time', result['arr'][0])
+
+    @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
+    def test_aggregate_fns_cnt_star(self):
+        path = self.experiment.path
+        tests = [
+            ('cnt_table_star', Cnt, self.experiment, self.experiment),
+            ('cnt_alias_star', Cnt, path,            path.Experiment)
+        ]
+        for name, Fn, path, instance in tests:
+            results = path.aggregates(cnt=Fn(instance))
+            with self.subTest(name=name):
+                result = results.fetch()[0]
+                self.assertIn('cnt', result)
+                self.assertEqual(result['cnt'], TEST_EXP_MAX)
+
+    @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
+    def test_attributegroup_fns(self):
+        group_key = self.experiment.column_definitions['Type']
+        tests = [
+            ('min_amount',      Min,    0),
+            ('max_amount',      Max,    TEST_EXP_MAX-TEST_EXPTYPE_MAX),
+            ('avg_amount',      Avg,    sum(range(0, TEST_EXP_MAX, TEST_EXPTYPE_MAX))/TEST_EXPTYPE_MAX),
+            ('cnt_amount',      Cnt,    TEST_EXPTYPE_MAX),
+            ('cnt_d_amount',    CntD,   TEST_EXPTYPE_MAX),
+            ('array_amount',    Array,  list(range(0, TEST_EXP_MAX, TEST_EXPTYPE_MAX))),
+            ('array_d_amount',  ArrayD, list(range(0, TEST_EXP_MAX, TEST_EXPTYPE_MAX)))
+        ]
+        for name, Fn, value in tests:
+            with self.subTest(name=name):
+                results = self.experiment.attributegroups(group_key=self.experiment.column_definitions['Type'],
+                                                    **{name: Fn(self.experiment.column_definitions['Amount'])}
+                                                    ).fetch(sort=[group_key])
+                result = results[0]
+                self.assertIn(group_key.name, result)
+                self.assertIn(name, result)
+                self.assertEqual(result[name], value)
 
     def test_link(self):
-        entities = self.experiment.link(self.experiment_type).entities()
-        self.assertEquals(len(entities), TEST_EXPTYPE_MAX)
+        results = self.experiment.link(self.experiment_type).entities()
+        self.assertEqual(len(results), TEST_EXPTYPE_MAX)
 
     def test_filter_equality(self):
-        entities = self.experiment.filter(
+        results = self.experiment.filter(
             self.experiment.column_definitions['Name'] == TEST_EXP_NAME_FORMAT.format(1)
         ).entities()
-        self.assertEquals(len(entities), 1)
+        self.assertEqual(len(results), 1)
 
     def test_filter_inequality(self):
-        entities = self.experiment.filter(
+        results = self.experiment.filter(
             self.experiment.column_definitions['Amount'] < 10
         ).entities()
-        self.assertEquals(len(entities), 10)
+        self.assertEqual(len(results), 10)
 
     def test_filter_ciregexp(self):
-        entities = self.experiment.filter(
+        results = self.experiment.filter(
             self.experiment.column_definitions['Name'].ciregexp(TEST_EXP_NAME_FORMAT.format(0)[10:])
         ).entities()
-        self.assertEquals(len(entities), 1)
+        self.assertEqual(len(results), 1)
 
     def test_filter_negation(self):
-        entities = self.experiment.filter(
+        results = self.experiment.filter(
             ~ (self.experiment.column_definitions['Name'].ciregexp(TEST_EXP_NAME_FORMAT.format(0)[10:]))
         ).entities()
-        self.assertEquals(len(entities), TEST_EXP_MAX - 1)
+        self.assertEqual(len(results), TEST_EXP_MAX - 1)
 
     def test_filter_conjunction(self):
-        entities = self.experiment.filter(
+        results = self.experiment.filter(
             self.experiment.column_definitions['Name'].ciregexp(TEST_EXP_NAME_FORMAT.format(0)[10:])
             & (self.experiment.column_definitions['Amount'] == 0)
         ).entities()
-        self.assertEquals(len(entities), 1)
+        self.assertEqual(len(results), 1)
 
     def test_attribute_rename(self):
-        entities = self.experiment.entities(
+        results = self.experiment.entities(
             self.experiment.column_definitions['Name'],
             howmuch=self.experiment.column_definitions['Amount']
         )
-        entity = entities.fetch(limit=1)[0]
-        self.assertIn('Name', entity)
-        self.assertIn('howmuch', entity)
+        result = results.fetch(limit=1)[0]
+        self.assertIn('Name', result)
+        self.assertIn('howmuch', result)
 
     def test_context(self):
         path = self.experiment.link(self.experiment_type)
-        entities = path.Experiment.entities()
-        self.assertEquals(len(entities), TEST_EXP_MAX)
+        results = path.Experiment.entities()
+        self.assertEqual(len(results), TEST_EXP_MAX)
+
+    def test_path_table_instances(self):
+        path = self.experiment.link(self.experiment_type)
+        results = path.table_instances['Experiment'].entities()
+        self.assertEqual(len(results), TEST_EXP_MAX)
 
     def test_path_project(self):
         path = self.experiment.link(self.experiment_type)
-        entities = path.Experiment.entities(
+        results = path.Experiment.attributes(
             path.Experiment,
             path.Experiment_Type.column_definitions['URI'],
             exptype=path.Experiment_Type.column_definitions['Name']
         )
-        entity = entities.fetch(limit=1)[0]
-        self.assertIn('Experiment:Name', entity)
-        self.assertIn('Experiment:Time', entity)
-        self.assertIn('URI', entity)
-        self.assertIn('exptype', entity)
+        result = results.fetch(limit=1)[0]
+        self.assertIn('Experiment:Name', result)
+        self.assertIn('Experiment:Time', result)
+        self.assertIn('URI', result)
+        self.assertIn('exptype', result)
 
     @unittest.skipUnless(HAS_PANDAS, "pandas library not available")
     def test_dataframe(self):
-        entities = self.experiment.entities()
-        df = entities.dataframe
-        self.assertEquals(len(df), TEST_EXP_MAX)
+        results = self.experiment.entities()
+        df = results.dataframe
+        self.assertEqual(len(df), TEST_EXP_MAX)
 
     def test_insert_empty_entities(self):
-        entities = self.experiment_copy.insert(None)
-        self.assertEqual(len(entities), 0)
-        entities = self.experiment_copy.insert([])
-        self.assertEqual(len(entities), 0)
+        results = self.experiment_copy.insert(None)
+        self.assertEqual(len(results), 0)
+        results = self.experiment_copy.insert([])
+        self.assertEqual(len(results), 0)
 
     def test_insert_entities_not_iterable(self):
         with self.assertRaises(ValueError):
@@ -260,13 +365,13 @@ class DatapathTests (unittest.TestCase):
             self.experiment_type.insert('this is not a dict')
 
     def test_insert(self):
-        entities = self.experiment_copy.insert(_generate_experiment_entities(self.types, 10))
-        self.assertEqual(len(entities), 10)
+        results = self.experiment_copy.insert(_generate_experiment_entities(self.types, 10))
+        self.assertEqual(len(results), 10)
 
     def test_update(self):
         inserted = self.experiment_copy.insert(_generate_experiment_entities(self.types, 10))
         self.assertEqual(len(inserted), 10)
-        # now change something in the first entity
+        # now change something in the first result
         updates = [dict(**inserted[0])]
         updates[0]['Name'] = '**CHANGED**'
         updated = self.experiment_copy.update(updates)
@@ -275,10 +380,10 @@ class DatapathTests (unittest.TestCase):
         self.assertNotEqual(inserted[0]['Name'], updated[0]['Name'])
 
     def test_update_empty_entities(self):
-        entities = self.experiment_copy.update(None)
-        self.assertEqual(len(entities), 0)
-        entities = self.experiment_copy.update([])
-        self.assertEqual(len(entities), 0)
+        results = self.experiment_copy.update(None)
+        self.assertEqual(len(results), 0)
+        results = self.experiment_copy.update([])
+        self.assertEqual(len(results), 0)
 
     def test_update_entities_not_iterable(self):
         with self.assertRaises(ValueError):
@@ -292,20 +397,20 @@ class DatapathTests (unittest.TestCase):
 
     def test_nondefaults(self):
         nondefaults = {'RID', 'RCB', 'RCT'}
-        entities = self.experiment.entities()
-        self.assertEquals(len(entities), TEST_EXP_MAX)
-        entities_copy = self.experiment_copy.insert(entities, nondefaults=nondefaults, add_system_defaults=False)
-        self.assertEqual(len(entities), len(entities_copy), 'entities not copied completely')
+        results = self.experiment.entities()
+        self.assertEqual(len(results), TEST_EXP_MAX)
+        entities_copy = self.experiment_copy.insert(results, nondefaults=nondefaults, add_system_defaults=False)
+        self.assertEqual(len(results), len(entities_copy), 'entities not copied completely')
         ig = itemgetter(*nondefaults)
         for i in range(TEST_EXP_MAX):
-            self.assertEqual(ig(entities[i]), ig(entities_copy[i]), 'copied values do not match')
+            self.assertEqual(ig(results[i]), ig(entities_copy[i]), 'copied values do not match')
 
     def test_nondefaults_w_add_sys_defaults(self):
         nondefaults = {'RID', 'RCB', 'RCT'}
-        entities = self.experiment.entities()
-        self.assertEquals(len(entities), TEST_EXP_MAX)
-        entities_copy = self.experiment_copy.insert(entities, nondefaults=nondefaults)
-        self.assertEqual(len(entities), len(entities_copy), 'entities not copied completely')
+        results = self.experiment.entities()
+        self.assertEqual(len(results), TEST_EXP_MAX)
+        entities_copy = self.experiment_copy.insert(results, nondefaults=nondefaults)
+        self.assertEqual(len(results), len(entities_copy), 'entities not copied completely')
         ig = itemgetter(*nondefaults)
         for i in range(TEST_EXP_MAX):
-            self.assertEqual(ig(entities[i]), ig(entities_copy[i]), 'copied values do not match')
+            self.assertEqual(ig(results[i]), ig(entities_copy[i]), 'copied values do not match')
