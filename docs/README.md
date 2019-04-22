@@ -8,17 +8,17 @@ programmatic interface to ERMrest.
 - Build ERMrest "data path" URLs with a Pythonic interface
 - Covers the essentials for data retrieval: link tables, filter on attributes, select attributes, alias tables
 - Retrieve entity sets; all or limited numbers of entities
+- Fetch computed aggregates or grouped aggregates
 - Convert entity sets to Pandas DataFrames
 - Insert and update entities of a table
 - Delete entities identified by a (potentially, complex) data path
 
 ### Limitations
 
-- Only supports `entity` and `attribute` resources
-- Only supports `application/json` CONTENT-TYPE (i.e., protocol could be made more efficient)
-- The `EntitySet` interface is a thin wrapper over a dictionary of a list of results
+- Only supports `application/json` CONTENT-TYPE (i.e., protocol could be made more efficient).
+- The `ResultSet` interface is a thin wrapper over a dictionary of a list of results.
 - Many user errors are caught by Python `assert` statements rather than checking for "invalid paramters" and throwing
-  custom `Exception` objects
+  custom `Exception` objects.
   
 ### Tutorials
 
