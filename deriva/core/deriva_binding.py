@@ -135,14 +135,14 @@ class DerivaBinding (object):
             session_config = DEFAULT_SESSION_CONFIG
         self._get_new_session(session_config)
 
-        self.set_credentials(credentials, server)
-
         self._caching = caching
         self._cache = {}
 
         self._response_raise_for_status = _response_raise_for_status
 
         self.dcctx = DerivaClientContext()
+
+        self.set_credentials(credentials, server)
 
     def get_server_uri(self):
         return self._server_uri
