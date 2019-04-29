@@ -79,11 +79,15 @@ class PollingErmrestCatalog(ErmrestCatalog):
         # listening channel for ermrest change notifications
         self.notice_channel = self.amqp_connection.channel()
         try:
-            self.notice_channel.exchange_declare(exchange=self.notice_exchange, type='fanout')
+            # newer pika API
+            self.notice_channel.exchange_declare(self.notice_exchange, exchange_type='fanout')
+            self.notice_queue_name = self.notice_channel.queue_declare('', exclusive=True).method.queue
+            self.notice_channel.queue_bind(self.notice_queue_name, self.notice_exchange)
         except TypeError as te:
-            self.notice_channel.exchange_declare(exchange=self.notice_exchange, exchange_type='fanout')
-        self.notice_queue_name = self.notice_channel.queue_declare(exclusive=True).method.queue
-        self.notice_channel.queue_bind(exchange=self.notice_exchange, queue=self.notice_queue_name)
+            # try older API as fallback
+            self.notice_channel.exchange_declare(exchange=self.notice_exchange, type='fanout')
+            self.notice_queue_name = self.notice_channel.queue_declare(exclusive=True).method.queue
+            self.notice_channel.queue_bind(exchange=self.notice_exchange, queue=self.notice_queue_name)
         sys.stderr.write('ERMrest change-notice channel open.\n')
 
     @staticmethod
