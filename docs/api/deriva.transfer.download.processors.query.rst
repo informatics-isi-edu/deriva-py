@@ -20,13 +20,6 @@ deriva.transfer.download.processors.query.base\_query\_processor module
     :undoc-members:
     :show-inheritance:
 
-deriva.transfer.download.processors.query.fasta\_output\_query\_processor module
---------------------------------------------------------------------------------
-
-.. automodule:: deriva.transfer.download.processors.query.fasta_output_query_processor
-    :members:
-    :undoc-members:
-    :show-inheritance:
 
 deriva.transfer.download.processors.query.file\_download\_query\_processor module
 ---------------------------------------------------------------------------------
