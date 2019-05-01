@@ -56,6 +56,10 @@ class ErmrestCatalog(DerivaBinding):
         self._scheme, self._server, self._catalog_id, self._credentials, self._caching, self._session_config = \
             scheme, server, catalog_id, credentials, caching, session_config
 
+    @property
+    def catalog_id(self):
+        return self._catalog_id
+
     def exists(self):
         """Simple boolean test for catalog existence.
 
