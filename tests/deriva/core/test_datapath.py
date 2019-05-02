@@ -19,6 +19,12 @@ if sys.version_info[0] < 3 or sys.version_info[1] < 4:
 else:
     HAS_SUBTESTS = True
 
+# unittests did not support 'assertWarns' until 3.2
+if sys.version_info[0] < 3 or sys.version_info[1] < 2:
+    HAS_ASSERTWARNS = False
+else:
+    HAS_ASSERTWARNS = True
+
 try:
     from pandas import DataFrame
     HAS_PANDAS = True
@@ -197,6 +203,14 @@ class DatapathTests (unittest.TestCase):
         self.assertIn('Name', result)
         self.assertIn('Amount', result)
 
+    @unittest.skipUnless(HAS_ASSERTWARNS, "This tests is not available unless running python 3.2+")
+    def test_deprecated_entities_projection(self):
+        with self.assertWarns(DeprecationWarning):
+            self.experiment.entities(
+                self.experiment.column_definitions['Name'],
+                self.experiment.column_definitions['Amount']
+            )
+
     def test_aggregate_w_invalid_attributes(self):
         with self.assertRaises(TypeError):
             self.experiment.aggregates(Min(self.experiment.column_definitions['Amount']))
@@ -326,7 +340,7 @@ class DatapathTests (unittest.TestCase):
         self.assertEqual(len(results), 1)
 
     def test_attribute_rename(self):
-        results = self.experiment.entities(
+        results = self.experiment.attributes(
             self.experiment.column_definitions['Name'],
             howmuch=self.experiment.column_definitions['Amount']
         )
