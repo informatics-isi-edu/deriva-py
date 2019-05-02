@@ -142,14 +142,29 @@ class DatapathTests (unittest.TestCase):
             # suppresses 404 errors when the table is empty
             pass
 
-    def test_dir_model(self):
-        self.assertIn('ISA', dir(self.paths))
+    def test_catalog_dir_base(self):
+        self.assertIn('schemas', dir(self.paths))
 
-    def test_dir_schema(self):
+    def test_schema_dir_base(self):
+        self.assertLess({'name', 'tables', 'describe'}, set(dir(self.paths.schemas['ISA'])))
+
+    def test_datapath_dir_base(self):
+        self.assertLess({'aggregates', 'attributegroups', 'attributes', 'context', 'delete', 'entities', 'filter',
+                         'link', 'table_instances', 'uri'}, set(dir(self.paths.schemas['ISA'].tables['Experiment'].path)))
+
+    def test_table_dir_base(self):
+        self.assertLess({'aggregates', 'alias', 'attributegroups', 'attributes', 'catalog', 'describe', 'entities',
+                         'filter', 'fqname', 'fromname', 'insert', 'instancename', 'link', 'name', 'path', 'sname',
+                         'uname', 'update', 'uri'}, set(dir(self.paths.schemas['ISA'].tables['Experiment'])))
+
+    def test_catalog_dir_with_schemas(self):
+        self.assertLess({'ISA', 'Vocab'}, set(dir(self.paths)))
+
+    def test_schema_dir_with_tables(self):
         self.assertIn('Experiment', dir(self.paths.ISA))
 
-    def test_dir_table(self):
-        self.assertIn('Name', dir(self.paths.ISA.Experiment))
+    def test_table_dir_with_columns(self):
+        self.assertLess({'Name', 'Amount', 'Time', 'Type'}, set(dir(self.paths.ISA.Experiment)))
 
     def test_dir_path(self):
         self.assertIn('Experiment', dir(self.paths.ISA.Experiment.path))
