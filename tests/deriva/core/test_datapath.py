@@ -19,6 +19,12 @@ if sys.version_info[0] < 3 or sys.version_info[1] < 4:
 else:
     HAS_SUBTESTS = True
 
+# unittests did not support 'assertWarns' until 3.2
+if sys.version_info[0] < 3 or sys.version_info[1] < 2:
+    HAS_ASSERTWARNS = False
+else:
+    HAS_ASSERTWARNS = True
+
 try:
     from pandas import DataFrame
     HAS_PANDAS = True
@@ -142,14 +148,29 @@ class DatapathTests (unittest.TestCase):
             # suppresses 404 errors when the table is empty
             pass
 
-    def test_dir_model(self):
-        self.assertIn('ISA', dir(self.paths))
+    def test_catalog_dir_base(self):
+        self.assertIn('schemas', dir(self.paths))
 
-    def test_dir_schema(self):
+    def test_schema_dir_base(self):
+        self.assertLess({'name', 'tables', 'describe'}, set(dir(self.paths.schemas['ISA'])))
+
+    def test_datapath_dir_base(self):
+        self.assertLess({'aggregates', 'attributegroups', 'attributes', 'context', 'delete', 'entities', 'filter',
+                         'link', 'table_instances', 'uri'}, set(dir(self.paths.schemas['ISA'].tables['Experiment'].path)))
+
+    def test_table_dir_base(self):
+        self.assertLess({'aggregates', 'alias', 'attributegroups', 'attributes', 'catalog', 'describe', 'entities',
+                         'filter', 'fqname', 'fromname', 'insert', 'instancename', 'link', 'name', 'path', 'sname',
+                         'uname', 'update', 'uri'}, set(dir(self.paths.schemas['ISA'].tables['Experiment'])))
+
+    def test_catalog_dir_with_schemas(self):
+        self.assertLess({'ISA', 'Vocab'}, set(dir(self.paths)))
+
+    def test_schema_dir_with_tables(self):
         self.assertIn('Experiment', dir(self.paths.ISA))
 
-    def test_dir_table(self):
-        self.assertIn('Name', dir(self.paths.ISA.Experiment))
+    def test_table_dir_with_columns(self):
+        self.assertLess({'Name', 'Amount', 'Time', 'Type'}, set(dir(self.paths.ISA.Experiment)))
 
     def test_dir_path(self):
         self.assertIn('Experiment', dir(self.paths.ISA.Experiment.path))
@@ -181,6 +202,14 @@ class DatapathTests (unittest.TestCase):
         result = results.fetch(limit=1)[0]
         self.assertIn('Name', result)
         self.assertIn('Amount', result)
+
+    @unittest.skipUnless(HAS_ASSERTWARNS, "This tests is not available unless running python 3.2+")
+    def test_deprecated_entities_projection(self):
+        with self.assertWarns(DeprecationWarning):
+            self.experiment.entities(
+                self.experiment.column_definitions['Name'],
+                self.experiment.column_definitions['Amount']
+            )
 
     def test_aggregate_w_invalid_attributes(self):
         with self.assertRaises(TypeError):
@@ -311,7 +340,7 @@ class DatapathTests (unittest.TestCase):
         self.assertEqual(len(results), 1)
 
     def test_attribute_rename(self):
-        results = self.experiment.entities(
+        results = self.experiment.attributes(
             self.experiment.column_definitions['Name'],
             howmuch=self.experiment.column_definitions['Amount']
         )
