@@ -34,6 +34,7 @@ deriva.core.deriva\_binding module
     :members:
     :undoc-members:
     :show-inheritance:
+    :exclude-members: defaults
 
 deriva.core.deriva\_server module
 ---------------------------------

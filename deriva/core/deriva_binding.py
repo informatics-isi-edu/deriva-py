@@ -7,23 +7,32 @@ import requests
 from multiprocessing import Queue
 from . import get_new_requests_session, urlquote_dcctx, ConcurrentUpdate, NotModified, DEFAULT_HEADERS, DEFAULT_SESSION_CONFIG
 
+
 class DerivaClientContext (dict):
     """Represent Deriva-Client-Context header content.
 
     Well-known keys (originally defined for Chaise):
-    - cid: client application ID i.e. program name
-    - wid: window ID i.e. request stream ID
-    - pid: page ID i.e. sub-stream ID
-    - action: UX action embodied by request(s)
-    - table: table upon which application is focused (if any)
-    - uinit: True if request initiated by user action
+
+    - `cid`: client application ID i.e. program name
+
+    - `wid`: window ID i.e. request stream ID
+
+    - `pid`: page ID i.e. sub-stream ID
+
+    - `action`: UX action embodied by request(s)
+
+    - `table`: table upon which application is focused (if any)
+
+    - `uinit`: True if request initiated by user action
 
     Default values to use process-wide:
-    - cid: os.path.basename(sys.argv[0]) if available
-    - wid: a random UUID
+
+    - `cid`:code:: os.path.basename(sys.argv[0]) if available
+
+    - `wid`:code:: a random UUID
 
     The process-wide defaults MAY be customized by mutating
-    DerivaClientContext.defaults prior to constructing instances.
+    `DerivaClientContext.defaults`:code: prior to constructing instances.
 
     """
     defaults = {

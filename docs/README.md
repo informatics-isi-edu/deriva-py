@@ -17,8 +17,8 @@ programmatic interface to ERMrest.
 
 - Only supports `application/json` CONTENT-TYPE (i.e., protocol could be made more efficient).
 - The `ResultSet` interface is a thin wrapper over a dictionary of a list of results.
-- Many user errors are caught by Python `assert` statements rather than checking for "invalid paramters" and throwing
-  custom `Exception` objects.
+- Many user errors are caught by Python `assert` statements rather than checking for "invalid parameters" and throwing 
+custom `Exception` objects.
   
 ### Tutorials
 
