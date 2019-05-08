@@ -245,7 +245,7 @@ class DataPath (object):
         """
         if not isinstance(right, Table):
             raise ValueError("'right' must be a 'Table' instance")
-        if on and not isinstance(on, FilterPredicate):
+        if on and not isinstance(on, ComparisonPredicate):
             raise ValueError("'on' must be a comparison or conjuctive predicate")
         if join_type and on is None:
             raise ValueError("'on' must be specified for outer joins")
@@ -806,9 +806,9 @@ class Column (object):
         :return: a filter predicate object
         """
         if other is None:
-            return FilterPredicate(self, "::null::", '')
+            return ComparisonPredicate(self, "::null::", '')
         else:
-            return FilterPredicate(self, "=", other)
+            return ComparisonPredicate(self, "=", other)
         # TODO: accept Column in 'other' for join comparison
 
     __eq__ = eq
@@ -819,7 +819,7 @@ class Column (object):
         :param other: a literal value.
         :return: a filter predicate object
         """
-        return FilterPredicate(self, "::lt::", other)
+        return ComparisonPredicate(self, "::lt::", other)
 
     __lt__ = lt
 
@@ -829,7 +829,7 @@ class Column (object):
         :param other: a literal value.
         :return: a filter predicate object
         """
-        return FilterPredicate(self, "::leq::", other)
+        return ComparisonPredicate(self, "::leq::", other)
 
     __le__ = le
 
@@ -839,7 +839,7 @@ class Column (object):
         :param other: a literal value.
         :return: a filter predicate object
         """
-        return FilterPredicate(self, "::gt::", other)
+        return ComparisonPredicate(self, "::gt::", other)
 
     __gt__ = gt
 
@@ -849,7 +849,7 @@ class Column (object):
         :param other: a literal value.
         :return: a filter predicate object
         """
-        return FilterPredicate(self, "::geq::", other)
+        return ComparisonPredicate(self, "::geq::", other)
 
     __ge__ = ge
 
@@ -861,7 +861,7 @@ class Column (object):
         """
         if not isinstance(other, str):
             logger.warning("'regexp' method comparison only supports string literals.")
-        return FilterPredicate(self, "::regexp::", other)
+        return ComparisonPredicate(self, "::regexp::", other)
 
     def ciregexp(self, other):
         """Returns a 'case-insensitive regular expression' comparison predicate.
@@ -871,7 +871,7 @@ class Column (object):
         """
         if not isinstance(other, str):
             logger.warning("'ciregexp' method comparison only supports string literals.")
-        return FilterPredicate(self, "::ciregexp::", other)
+        return ComparisonPredicate(self, "::ciregexp::", other)
 
     def ts(self, other):
         """Returns a 'text search' comparison predicate.
@@ -881,7 +881,7 @@ class Column (object):
         """
         if not isinstance(other, str):
             logger.warning("'ts' method comparison only supports string literals.")
-        return FilterPredicate(self, "::ts::", other)
+        return ComparisonPredicate(self, "::ts::", other)
 
 
 class SortDescending (object):
@@ -1020,9 +1020,9 @@ class Project (PathOperator):
 class Link (PathOperator):
     def __init__(self, r, on, as_=None, join_type=''):
         super(Link, self).__init__(r)
-        assert isinstance(on, FilterPredicate) or isinstance(on, Table)
+        assert isinstance(on, ComparisonPredicate) or isinstance(on, Table)
         assert as_ is None or isinstance(as_, TableAlias)
-        assert join_type == '' or (join_type in ('left', 'right', 'full') and isinstance(on, FilterPredicate))
+        assert join_type == '' or (join_type in ('left', 'right', 'full') and isinstance(on, ComparisonPredicate))
         self._on = on
         self._as = as_
         self._join_type = join_type
@@ -1071,9 +1071,9 @@ class Predicate (object):
     __invert__ = negate
 
 
-class FilterPredicate (Predicate):
+class ComparisonPredicate (Predicate):
     def __init__(self, lop, op, rop):
-        super(FilterPredicate, self).__init__()
+        super(ComparisonPredicate, self).__init__()
         assert isinstance(lop, Column)
         assert isinstance(rop, Column) or isinstance(rop, int) or \
             isinstance(rop, float) or isinstance(rop, str) or \
