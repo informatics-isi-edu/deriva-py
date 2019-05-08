@@ -210,25 +210,49 @@ class DataPath (object):
 
     def link(self, right, on=None, join_type=''):
         """Links this path with another table.
-        At present, the implementation only supports single column keys.
+
+        To link a table with an unambigious relationship where table A is related to table B via a single foreign key
+        reference, the `on` clause is not.
+
+        ```
+        # let A and B be variables for tables from the catalog
+        path = A.link(B)
+        ```
+
+        To link tables with more than one foreign key reference between them, use explicit `on` clause.
+
+        ```
+        # let A.c1 be a column that is a simple foreign key to B.c1 that is a simple key in B
+        path = A.link(B, on=(A.c1 == B.c1))
+        ```
+
+        To link tables with foreign keys on composite keys, use a conjunction of 2 or more equality comparisons in the
+        `on` clause.
+
+        ```
+        # let A.c1, A.c2 be columns that form a foreign key to B.c1, B.c2 that are a composite key in B
+        path = A.link(B, on=(A.c1 == B.c1 & A.c2 == B.c2))
+        ```
+
+        By default links use inner join semantics on the foreign key / key equality comparison. The `join_type`
+        parameter can be used to specify `left`, `right`, or `full` outer join semantics.
+
         :param right: the right hand table of the link expression
-        :param on: an equality comparison between keys and foreign keys
+        :param on: an equality comparison between key and foreign key columns or a conjunction of such comparisons
         :param join_type: the join type of this link which may be 'left', 'right', 'full' outer joins or '' for inner
         join link by default.
         :return: self
         """
-        assert isinstance(right, Table)
-        assert on is None or isinstance(on, FilterPredicate)
-        assert join_type == '' or on is not None
-
+        if not isinstance(right, Table):
+            raise ValueError("'right' must be a 'Table' instance")
+        if on and not isinstance(on, FilterPredicate):
+            raise ValueError("'on' must be a comparison or conjuctive predicate")
+        if join_type and on is None:
+            raise ValueError("'on' must be specified for outer joins")
         if right.catalog != self._root.catalog:
-            raise Exception("Cannot link across catalogs.")
-
-        if isinstance(right, TableAlias):
-            # Validate that alias has not been used
-            if right.name in self._table_instances:
-                raise Exception("Table instance is already linked. "
-                                "Consider aliasing it if you want to link another instance of the base table.")
+            raise ValueError("'right' is from a different catalog. Cannot link across catalogs.")
+        if isinstance(right, TableAlias) and right.name in self._table_instances:
+            raise ValueError("'right' is a table alias that has already been used.")
         else:
             # Generate an unused alias name for the table
             table_name = right.name
@@ -785,6 +809,7 @@ class Column (object):
             return FilterPredicate(self, "::null::", '')
         else:
             return FilterPredicate(self, "=", other)
+        # TODO: accept Column in 'other' for join comparison
 
     __eq__ = eq
 
