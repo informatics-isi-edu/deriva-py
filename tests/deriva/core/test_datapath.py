@@ -304,9 +304,16 @@ class DatapathTests (unittest.TestCase):
                 self.assertIn(name, result)
                 self.assertEqual(result[name], value)
 
-    def test_link(self):
+    def test_link_implicit(self):
         results = self.experiment.link(self.experiment_type).entities()
-        self.assertEqual(len(results), TEST_EXPTYPE_MAX)
+        self.assertEqual(TEST_EXPTYPE_MAX, len(results))
+
+    def test_link_explicit_single_column(self):
+        results = self.experiment.link(
+            self.experiment_type,
+            on=(self.experiment.Type == self.experiment_type.ID)
+        ).entities()
+        self.assertEqual(TEST_EXPTYPE_MAX, len(results))
 
     def test_filter_equality(self):
         results = self.experiment.filter(
