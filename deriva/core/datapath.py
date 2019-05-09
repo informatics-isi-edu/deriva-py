@@ -166,6 +166,7 @@ class DataPath (object):
 
     def _contextualized_uri(self, context):
         """Returns a path uri for the specified context.
+
         :param context: a table instance that is bound to this path
         :return: string representation of the path uri
         """
@@ -201,6 +202,7 @@ class DataPath (object):
 
     def filter(self, filter_expression):
         """Filters the path based on the specified formula.
+
         :param filter_expression: should be a valid Predicate object
         :return: self
         """
@@ -521,6 +523,7 @@ class Table (object):
     @property
     def _contextualized_path(self):
         """Returns the path as contextualized for this table instance.
+
         Conditionally updates the context of the path to which this table instance is bound.
         """
         return self.path
@@ -536,9 +539,11 @@ class Table (object):
         return TableAlias(self, alias_name)
 
     def filter(self, filter_expression):
+        """See the docs for this method in `DataPath` for more information."""
         return self._contextualized_path.filter(filter_expression)
 
     def link(self, right, on=None, join_type=''):
+        """See the docs for this method in `DataPath` for more information."""
         return self._contextualized_path.link(right, on, join_type)
 
     def _query(self, attributes, renamed_attributes):
@@ -682,6 +687,7 @@ class TableAlias (Table):
     """
     def __init__(self, base_table, alias_name):
         """Initializes the table alias.
+
         :param base_table: the base table to be given an alias name
         :param alias_name: the alias name
         """
@@ -728,6 +734,7 @@ class TableAlias (Table):
     @property
     def _contextualized_path(self):
         """Returns the path as contextualized for this table instance.
+
         Conditionally updates the context of the path to which this table instance is bound.
         """
         path = self.path
