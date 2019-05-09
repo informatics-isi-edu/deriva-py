@@ -166,6 +166,7 @@ class DataPath (object):
 
     def _contextualized_uri(self, context):
         """Returns a path uri for the specified context.
+
         :param context: a table instance that is bound to this path
         :return: string representation of the path uri
         """
@@ -201,6 +202,7 @@ class DataPath (object):
 
     def filter(self, filter_expression):
         """Filters the path based on the specified formula.
+
         :param filter_expression: should be a valid Predicate object
         :return: self
         """
@@ -210,25 +212,50 @@ class DataPath (object):
 
     def link(self, right, on=None, join_type=''):
         """Links this path with another table.
-        At present, the implementation only supports single column keys.
+
+        To link a table with an unambigious relationship where table A is related to table B via a single foreign key
+        reference, the `on` clause is not.
+
+        ```
+        # let A and B be variables for tables from the catalog
+        path = A.link(B)
+        ```
+
+        To link tables with more than one foreign key reference between them, use explicit `on` clause.
+
+        ```
+        # let A.c1 be a column that is a simple foreign key to B.c1 that is a simple key in B
+        path = A.link(B, on=(A.c1 == B.c1))
+        ```
+
+        To link tables with foreign keys on composite keys, use a conjunction of 2 or more equality comparisons in the
+        `on` clause.
+
+        ```
+        # let A.c1, A.c2 be columns that form a foreign key to B.c1, B.c2 that are a composite key in B
+        path = A.link(B, on=((A.c1 == B.c1) & (A.c2 == B.c2)))
+        ```
+
+        By default links use inner join semantics on the foreign key / key equality comparison. The `join_type`
+        parameter can be used to specify `left`, `right`, or `full` outer join semantics.
+
         :param right: the right hand table of the link expression
-        :param on: an equality comparison between keys and foreign keys
+        :param on: an equality comparison between key and foreign key columns or a conjunction of such comparisons
         :param join_type: the join type of this link which may be 'left', 'right', 'full' outer joins or '' for inner
         join link by default.
         :return: self
         """
-        assert isinstance(right, Table)
-        assert on is None or isinstance(on, FilterPredicate)
-        assert join_type == '' or on is not None
-
+        if not isinstance(right, Table):
+            raise ValueError("'right' must be a 'Table' instance")
+        if on and not (isinstance(on, ComparisonPredicate) or (isinstance(on, ConjunctionPredicate) and
+                                                               on.is_valid_join_condition)):
+            raise ValueError("'on' must be a comparison or conjuction of comparisons")
+        if join_type and on is None:
+            raise ValueError("'on' must be specified for outer joins")
         if right.catalog != self._root.catalog:
-            raise Exception("Cannot link across catalogs.")
-
-        if isinstance(right, TableAlias):
-            # Validate that alias has not been used
-            if right.name in self._table_instances:
-                raise Exception("Table instance is already linked. "
-                                "Consider aliasing it if you want to link another instance of the base table.")
+            raise ValueError("'right' is from a different catalog. Cannot link across catalogs.")
+        if isinstance(right, TableAlias) and right.name in self._table_instances:
+            raise ValueError("'right' is a table alias that has already been used.")
         else:
             # Generate an unused alias name for the table
             table_name = right.name
@@ -496,6 +523,7 @@ class Table (object):
     @property
     def _contextualized_path(self):
         """Returns the path as contextualized for this table instance.
+
         Conditionally updates the context of the path to which this table instance is bound.
         """
         return self.path
@@ -511,9 +539,11 @@ class Table (object):
         return TableAlias(self, alias_name)
 
     def filter(self, filter_expression):
+        """See the docs for this method in `DataPath` for more information."""
         return self._contextualized_path.filter(filter_expression)
 
     def link(self, right, on=None, join_type=''):
+        """See the docs for this method in `DataPath` for more information."""
         return self._contextualized_path.link(right, on, join_type)
 
     def _query(self, attributes, renamed_attributes):
@@ -657,6 +687,7 @@ class TableAlias (Table):
     """
     def __init__(self, base_table, alias_name):
         """Initializes the table alias.
+
         :param base_table: the base table to be given an alias name
         :param alias_name: the alias name
         """
@@ -703,6 +734,7 @@ class TableAlias (Table):
     @property
     def _contextualized_path(self):
         """Returns the path as contextualized for this table instance.
+
         Conditionally updates the context of the path to which this table instance is bound.
         """
         path = self.path
@@ -782,9 +814,9 @@ class Column (object):
         :return: a filter predicate object
         """
         if other is None:
-            return FilterPredicate(self, "::null::", '')
+            return ComparisonPredicate(self, "::null::", '')
         else:
-            return FilterPredicate(self, "=", other)
+            return ComparisonPredicate(self, "=", other)
 
     __eq__ = eq
 
@@ -794,7 +826,7 @@ class Column (object):
         :param other: a literal value.
         :return: a filter predicate object
         """
-        return FilterPredicate(self, "::lt::", other)
+        return ComparisonPredicate(self, "::lt::", other)
 
     __lt__ = lt
 
@@ -804,7 +836,7 @@ class Column (object):
         :param other: a literal value.
         :return: a filter predicate object
         """
-        return FilterPredicate(self, "::leq::", other)
+        return ComparisonPredicate(self, "::leq::", other)
 
     __le__ = le
 
@@ -814,7 +846,7 @@ class Column (object):
         :param other: a literal value.
         :return: a filter predicate object
         """
-        return FilterPredicate(self, "::gt::", other)
+        return ComparisonPredicate(self, "::gt::", other)
 
     __gt__ = gt
 
@@ -824,7 +856,7 @@ class Column (object):
         :param other: a literal value.
         :return: a filter predicate object
         """
-        return FilterPredicate(self, "::geq::", other)
+        return ComparisonPredicate(self, "::geq::", other)
 
     __ge__ = ge
 
@@ -836,7 +868,7 @@ class Column (object):
         """
         if not isinstance(other, str):
             logger.warning("'regexp' method comparison only supports string literals.")
-        return FilterPredicate(self, "::regexp::", other)
+        return ComparisonPredicate(self, "::regexp::", other)
 
     def ciregexp(self, other):
         """Returns a 'case-insensitive regular expression' comparison predicate.
@@ -846,7 +878,7 @@ class Column (object):
         """
         if not isinstance(other, str):
             logger.warning("'ciregexp' method comparison only supports string literals.")
-        return FilterPredicate(self, "::ciregexp::", other)
+        return ComparisonPredicate(self, "::ciregexp::", other)
 
     def ts(self, other):
         """Returns a 'text search' comparison predicate.
@@ -856,7 +888,7 @@ class Column (object):
         """
         if not isinstance(other, str):
             logger.warning("'ts' method comparison only supports string literals.")
-        return FilterPredicate(self, "::ts::", other)
+        return ComparisonPredicate(self, "::ts::", other)
 
 
 class SortDescending (object):
@@ -995,9 +1027,10 @@ class Project (PathOperator):
 class Link (PathOperator):
     def __init__(self, r, on, as_=None, join_type=''):
         super(Link, self).__init__(r)
-        assert isinstance(on, FilterPredicate) or isinstance(on, Table)
+        assert isinstance(on, ComparisonPredicate) or isinstance(on, Table) or (
+                isinstance(on, ConjunctionPredicate) and on.is_valid_join_condition)
         assert as_ is None or isinstance(as_, TableAlias)
-        assert join_type == '' or (join_type in ('left', 'right', 'full') and isinstance(on, FilterPredicate))
+        assert join_type == '' or (join_type in ('left', 'right', 'full') and isinstance(on, Predicate))
         self._on = on
         self._as = as_
         self._join_type = join_type
@@ -1006,13 +1039,19 @@ class Link (PathOperator):
     def _path(self):
         assert isinstance(self._r, PathOperator)
         assign = '' if self._as is None else "%s:=" % self._as.uname
-        cond = self._on.fqname if isinstance(self._on, Table) else str(self._on)
+        if isinstance(self._on, Table):
+            cond = self._on.fqname
+        elif isinstance(self._on, ComparisonPredicate):
+            cond = str(self._on)
+        elif isinstance(self._on, ConjunctionPredicate):
+            cond = self._on.as_join_condition
+        else:
+            raise DataPathException("Invalid join condition: " + str(self._on))
         return "%s/%s%s%s" % (self._r._path, assign, self._join_type, cond)
 
 
 class Predicate (object):
-    def __init__(self):
-        pass
+    """Common base class for all predicate types."""
 
     def and_(self, other):
         """Returns a conjunction predicate.
@@ -1020,7 +1059,9 @@ class Predicate (object):
         :param other: a predicate object.
         :return: a junction predicate object.
         """
-        return JunctionPredicate(self, "&", other)
+        if not isinstance(other, Predicate):
+            raise ValueError("Invalid comparison with object that is not a Predicate instance.")
+        return ConjunctionPredicate([self, other])
 
     __and__ = and_
 
@@ -1030,7 +1071,9 @@ class Predicate (object):
         :param other: a predicate object.
         :return: a junction predicate object.
         """
-        return JunctionPredicate(self, ";", other)
+        if not isinstance(other, Predicate):
+            raise ValueError("Invalid comparison with object that is not a Predicate instance.")
+        return DisjunctionPredicate([self, other])
 
     __or__ = or_
 
@@ -1046,9 +1089,9 @@ class Predicate (object):
     __invert__ = negate
 
 
-class FilterPredicate (Predicate):
+class ComparisonPredicate (Predicate):
     def __init__(self, lop, op, rop):
-        super(FilterPredicate, self).__init__()
+        super(ComparisonPredicate, self).__init__()
         assert isinstance(lop, Column)
         assert isinstance(rop, Column) or isinstance(rop, int) or \
             isinstance(rop, float) or isinstance(rop, str) or \
@@ -1058,27 +1101,77 @@ class FilterPredicate (Predicate):
         self._op = op
         self._rop = rop
 
+    @property
+    def is_equality(self):
+        return self._op == '='
+
+    @property
+    def left(self):
+        return self._lop
+
+    @property
+    def right(self):
+        return self._rop
+
     def __str__(self):
         if isinstance(self._rop, Column):
-            # The only valid circumstance for a Column rop is in a link 'on' predicate
-            # TODO: ultimately, this should be a Column Set equality comparison
+            # The only valid circumstance for a Column rop is in a link 'on' predicate for simple key/fkey joins
             return "(%s)=(%s)" % (self._lop.instancename, self._rop.fqname)
         else:
+            # All other comparisons are serialized per the usual form
             return "%s%s%s" % (self._lop.instancename, self._op, urlquote(str(self._rop)))
 
 
 class JunctionPredicate (Predicate):
-    def __init__(self, left, op, right):
+    def __init__(self, op, operands):
         super(JunctionPredicate, self).__init__()
-        assert isinstance(left, Predicate)
-        assert isinstance(right, Predicate)
+        assert operands and hasattr(operands, '__iter__') and len(operands) > 1
+        assert all(isinstance(operand, Predicate) for operand in operands)
         assert isinstance(op, str)
-        self._left = left
+        self._operands = operands
         self._op = op
-        self._right = right
 
     def __str__(self):
-        return "(%s)%s(%s)" % (self._left, self._op, self._right)
+        return self._op.join(["(%s)" % operand for operand in self._operands])
+
+
+class ConjunctionPredicate (JunctionPredicate):
+    def __init__(self, operands):
+        super(ConjunctionPredicate, self).__init__('&', operands)
+
+    def and_(self, other):
+        return ConjunctionPredicate(self._operands + [other])
+
+    @property
+    def is_valid_join_condition(self):
+        """Tests if this conjunction is a valid join condition."""
+        return all(isinstance(o, ComparisonPredicate) and o.is_equality for o in self._operands)
+
+    @property
+    def as_join_condition(self):
+        """Returns the conjunction in the 'join condition' serialized format."""
+        lhs = []
+        rhs = []
+
+        for operand in self._operands:
+            assert isinstance(operand, ComparisonPredicate) and operand.is_equality
+            assert isinstance(operand.left, Column)
+            assert isinstance(operand.right, Column)
+            lhs.append(operand.left)
+            rhs.append(operand.right)
+
+        return "({left})=({right})".format(
+            left=",".join(lop.instancename for lop in lhs),
+            right=",".join(rop.fqname for rop in rhs)
+        )
+
+
+class DisjunctionPredicate (JunctionPredicate):
+    def __init__(self, operands):
+        super(DisjunctionPredicate, self).__init__(';', operands)
+
+    def or_(self, other):
+        return DisjunctionPredicate(self._operands + [other])
 
 
 class NegationPredicate (Predicate):

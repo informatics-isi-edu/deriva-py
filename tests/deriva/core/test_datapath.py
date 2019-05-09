@@ -34,6 +34,9 @@ except ImportError:
 TEST_EXP_MAX = 100
 TEST_EXPTYPE_MAX = 10
 TEST_EXP_NAME_FORMAT = "experiment-{}"
+TEST_PROJ_MAX = 1
+TEST_PROJ_INVESTIGATOR = "Smith"
+TEST_PROJ_NUM = 1
 
 hostname = os.getenv("DERIVA_PY_TEST_HOSTNAME")
 logger = logging.getLogger(__name__)
@@ -53,6 +56,21 @@ def define_test_schema(catalog):
     vocab.create_table(catalog, _em.Table.define_vocabulary("Experiment_Type", "TEST:{RID}"))
     isa = model.create_schema(catalog, _em.Schema.define("ISA"))
 
+    # create 'Project' table
+    table_def = _em.Table.define(
+        "Project",
+        column_defs=[
+            _em.Column.define(cname, ctype) for (cname, ctype) in [
+                ('Investigator', _em.builtin_types.text),
+                ('Num', _em.builtin_types.int4)
+            ]
+        ],
+        key_defs=[
+            _em.Key.define(['Investigator', 'Num'])
+        ]
+    )
+    isa.create_table(catalog, table_def)
+
     # create 'Experiment' table
     table_def = _em.Table.define(
         "Experiment",
@@ -61,14 +79,17 @@ def define_test_schema(catalog):
                 ('Name', _em.builtin_types.text),
                 ('Amount', _em.builtin_types.int4),
                 ('Time', _em.builtin_types.timestamptz),
-                ('Type', _em.builtin_types.text)
+                ('Type', _em.builtin_types.text),
+                ('Project_Investigator', _em.builtin_types.text),
+                ('Project_Num', _em.builtin_types.int4)
             ]
         ],
         key_defs=[
             _em.Key.define(['Name'])
         ],
         fkey_defs=[
-            _em.ForeignKey.define(['Type'], 'Vocab', 'Experiment_Type', ['ID'])
+            _em.ForeignKey.define(['Type'], 'Vocab', 'Experiment_Type', ['ID']),
+            _em.ForeignKey.define(['Project_Investigator', 'Project_Num'], 'ISA', 'Project', ['Investigator', 'Num'])
         ]
     )
     isa.create_table(catalog, table_def)
@@ -90,7 +111,9 @@ def _generate_experiment_entities(types, count):
             "Name": TEST_EXP_NAME_FORMAT.format(i),
             "Amount": i,
             "Time": "2018-01-{}T01:00:00.0".format(1 + (i % 31)),
-            "Type": types[i % TEST_EXPTYPE_MAX]['ID']
+            "Type": types[i % TEST_EXPTYPE_MAX]['ID'],
+            "Project_Investigator": TEST_PROJ_INVESTIGATOR,
+            "Project_Num": TEST_PROJ_NUM
         }
         for i in range(count)
     ]
@@ -99,12 +122,17 @@ def _generate_experiment_entities(types, count):
 def populate_test_catalog(catalog):
     """Populate the test catalog."""
     paths = catalog.getPathBuilder()
-    logger.debug("Insert experiment types")
+    logger.debug("Inserting project...")
+    logger.debug("Inserting experiment types...")
+    proj_table = paths.schemas['ISA'].tables['Project']
+    proj_table.insert([
+        {"Investigator": TEST_PROJ_INVESTIGATOR, "Num": TEST_PROJ_NUM}
+    ])
     type_table = paths.schemas['Vocab'].tables['Experiment_Type']
     types = type_table.insert([
         {"Name": "{}".format(name), "Description": "NA"} for name in range(TEST_EXPTYPE_MAX)
     ], defaults=['ID', 'URI'])
-    logger.debug("Inserting experiments")
+    logger.debug("Inserting experiments...")
     exp = paths.schemas['ISA'].tables['Experiment']
     exp.insert(_generate_experiment_entities(types, TEST_EXP_MAX))
 
@@ -136,6 +164,7 @@ class DatapathTests (unittest.TestCase):
 
     def setUp(self):
         self.paths = self.catalog.getPathBuilder()
+        self.project = self.paths.schemas['ISA'].tables['Project']
         self.experiment = self.paths.schemas['ISA'].tables['Experiment']
         self.experiment_type = self.paths.schemas['Vocab'].tables['Experiment_Type']
         self.experiment_copy = self.paths.schemas['ISA'].tables['Experiment_Copy']
@@ -304,9 +333,27 @@ class DatapathTests (unittest.TestCase):
                 self.assertIn(name, result)
                 self.assertEqual(result[name], value)
 
-    def test_link(self):
+    def test_link_implicit(self):
         results = self.experiment.link(self.experiment_type).entities()
-        self.assertEqual(len(results), TEST_EXPTYPE_MAX)
+        self.assertEqual(TEST_EXPTYPE_MAX, len(results))
+
+    def test_link_explicit_simple_key(self):
+        results = self.experiment.link(
+            self.experiment_type,
+            on=(self.experiment.Type == self.experiment_type.ID)
+        ).entities()
+        self.assertEqual(TEST_EXPTYPE_MAX, len(results))
+
+    def test_link_explicit_composite_key(self):
+        path = self.experiment.link(
+            self.project,
+            on=(
+                    (self.experiment.Project_Investigator == self.project.Investigator) &
+                    (self.experiment.Project_Num == self.project.Num)
+            )
+        )
+        results = path.entities()
+        self.assertEqual(TEST_PROJ_MAX, len(results))
 
     def test_filter_equality(self):
         results = self.experiment.filter(
