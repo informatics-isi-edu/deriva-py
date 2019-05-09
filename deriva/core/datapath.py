@@ -231,7 +231,7 @@ class DataPath (object):
 
         ```
         # let A.c1, A.c2 be columns that form a foreign key to B.c1, B.c2 that are a composite key in B
-        path = A.link(B, on=(A.c1 == B.c1 & A.c2 == B.c2))
+        path = A.link(B, on=((A.c1 == B.c1) & (A.c2 == B.c2)))
         ```
 
         By default links use inner join semantics on the foreign key / key equality comparison. The `join_type`
@@ -245,8 +245,9 @@ class DataPath (object):
         """
         if not isinstance(right, Table):
             raise ValueError("'right' must be a 'Table' instance")
-        if on and not isinstance(on, ComparisonPredicate):
-            raise ValueError("'on' must be a comparison or conjuctive predicate")
+        if on and not (isinstance(on, ComparisonPredicate) or (isinstance(on, ConjunctionPredicate) and
+                                                               on.is_valid_join_condition)):
+            raise ValueError("'on' must be a comparison or conjuction of comparisons")
         if join_type and on is None:
             raise ValueError("'on' must be specified for outer joins")
         if right.catalog != self._root.catalog:
@@ -809,7 +810,6 @@ class Column (object):
             return ComparisonPredicate(self, "::null::", '')
         else:
             return ComparisonPredicate(self, "=", other)
-        # TODO: accept Column in 'other' for join comparison
 
     __eq__ = eq
 
@@ -1020,9 +1020,10 @@ class Project (PathOperator):
 class Link (PathOperator):
     def __init__(self, r, on, as_=None, join_type=''):
         super(Link, self).__init__(r)
-        assert isinstance(on, ComparisonPredicate) or isinstance(on, Table)
+        assert isinstance(on, ComparisonPredicate) or isinstance(on, Table) or (
+                isinstance(on, ConjunctionPredicate) and on.is_valid_join_condition)
         assert as_ is None or isinstance(as_, TableAlias)
-        assert join_type == '' or (join_type in ('left', 'right', 'full') and isinstance(on, ComparisonPredicate))
+        assert join_type == '' or (join_type in ('left', 'right', 'full') and isinstance(on, Predicate))
         self._on = on
         self._as = as_
         self._join_type = join_type
@@ -1031,13 +1032,19 @@ class Link (PathOperator):
     def _path(self):
         assert isinstance(self._r, PathOperator)
         assign = '' if self._as is None else "%s:=" % self._as.uname
-        cond = self._on.fqname if isinstance(self._on, Table) else str(self._on)
+        if isinstance(self._on, Table):
+            cond = self._on.fqname
+        elif isinstance(self._on, ComparisonPredicate):
+            cond = str(self._on)
+        elif isinstance(self._on, ConjunctionPredicate):
+            cond = self._on.as_join_condition
+        else:
+            raise DataPathException("Invalid join condition: " + str(self._on))
         return "%s/%s%s%s" % (self._r._path, assign, self._join_type, cond)
 
 
 class Predicate (object):
-    def __init__(self):
-        pass
+    """Common base class for all predicate types."""
 
     def and_(self, other):
         """Returns a conjunction predicate.
@@ -1045,7 +1052,9 @@ class Predicate (object):
         :param other: a predicate object.
         :return: a junction predicate object.
         """
-        return JunctionPredicate(self, "&", other)
+        if not isinstance(other, Predicate):
+            raise ValueError("Invalid comparison with object that is not a Predicate instance.")
+        return ConjunctionPredicate([self, other])
 
     __and__ = and_
 
@@ -1055,7 +1064,9 @@ class Predicate (object):
         :param other: a predicate object.
         :return: a junction predicate object.
         """
-        return JunctionPredicate(self, ";", other)
+        if not isinstance(other, Predicate):
+            raise ValueError("Invalid comparison with object that is not a Predicate instance.")
+        return DisjunctionPredicate([self, other])
 
     __or__ = or_
 
@@ -1083,27 +1094,77 @@ class ComparisonPredicate (Predicate):
         self._op = op
         self._rop = rop
 
+    @property
+    def is_equality(self):
+        return self._op == '='
+
+    @property
+    def left(self):
+        return self._lop
+
+    @property
+    def right(self):
+        return self._rop
+
     def __str__(self):
         if isinstance(self._rop, Column):
-            # The only valid circumstance for a Column rop is in a link 'on' predicate
-            # TODO: ultimately, this should be a Column Set equality comparison
+            # The only valid circumstance for a Column rop is in a link 'on' predicate for simple key/fkey joins
             return "(%s)=(%s)" % (self._lop.instancename, self._rop.fqname)
         else:
+            # All other comparisons are serialized per the usual form
             return "%s%s%s" % (self._lop.instancename, self._op, urlquote(str(self._rop)))
 
 
 class JunctionPredicate (Predicate):
-    def __init__(self, left, op, right):
+    def __init__(self, op, operands):
         super(JunctionPredicate, self).__init__()
-        assert isinstance(left, Predicate)
-        assert isinstance(right, Predicate)
+        assert operands and hasattr(operands, '__iter__') and len(operands) > 1
+        assert all(isinstance(operand, Predicate) for operand in operands)
         assert isinstance(op, str)
-        self._left = left
+        self._operands = operands
         self._op = op
-        self._right = right
 
     def __str__(self):
-        return "(%s)%s(%s)" % (self._left, self._op, self._right)
+        return self._op.join(["(%s)" % operand for operand in self._operands])
+
+
+class ConjunctionPredicate (JunctionPredicate):
+    def __init__(self, operands):
+        super(ConjunctionPredicate, self).__init__('&', operands)
+
+    def and_(self, other):
+        return ConjunctionPredicate(self._operands + [other])
+
+    @property
+    def is_valid_join_condition(self):
+        """Tests if this conjunction is a valid join condition."""
+        return all(isinstance(o, ComparisonPredicate) and o.is_equality for o in self._operands)
+
+    @property
+    def as_join_condition(self):
+        """Returns the conjunction in the 'join condition' serialized format."""
+        lhs = []
+        rhs = []
+
+        for operand in self._operands:
+            assert isinstance(operand, ComparisonPredicate) and operand.is_equality
+            assert isinstance(operand.left, Column)
+            assert isinstance(operand.right, Column)
+            lhs.append(operand.left)
+            rhs.append(operand.right)
+
+        return "({left})=({right})".format(
+            left=",".join(lop.instancename for lop in lhs),
+            right=",".join(rop.fqname for rop in rhs)
+        )
+
+
+class DisjunctionPredicate (JunctionPredicate):
+    def __init__(self, operands):
+        super(DisjunctionPredicate, self).__init__(';', operands)
+
+    def or_(self, other):
+        return DisjunctionPredicate(self._operands + [other])
 
 
 class NegationPredicate (Predicate):

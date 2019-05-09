@@ -344,13 +344,16 @@ class DatapathTests (unittest.TestCase):
         ).entities()
         self.assertEqual(TEST_EXPTYPE_MAX, len(results))
 
-    # def test_link_explicit_composite_key(self):
-    #     results = self.experiment.link(
-    #         self.experiment_type,
-    #         on=(self.experiment.Project_Investigator == self.project.Investigator &
-    #             self.experiment.Project_Num == self.project.Num)
-    #     ).entities()
-    #     self.assertEqual(TEST_PROJ_MAX, len(results))
+    def test_link_explicit_composite_key(self):
+        path = self.experiment.link(
+            self.project,
+            on=(
+                    (self.experiment.Project_Investigator == self.project.Investigator) &
+                    (self.experiment.Project_Num == self.project.Num)
+            )
+        )
+        results = path.entities()
+        self.assertEqual(TEST_PROJ_MAX, len(results))
 
     def test_filter_equality(self):
         results = self.experiment.filter(
