@@ -223,6 +223,50 @@ class DatapathTests (unittest.TestCase):
         results.fetch(limit=limit)
         self.assertEqual(len(results), limit)
 
+    def test_fetch_with_sort(self):
+        results = self.experiment.entities()
+        results.fetch(sort=[self.experiment.column_definitions['Amount']])
+        self.assertEqual(results[0]['Amount'], 0)
+
+    def test_fetch_attributes_with_sort(self):
+        results = self.experiment.attributes(self.experiment.RID, self.experiment.Amount)
+        results.fetch(sort=[self.experiment.Amount])
+        self.assertEqual(results[0]['Amount'], 0)
+
+    def test_fetch_all_attributes_with_sort(self):
+        results = self.experiment.attributes(self.experiment)
+        results.fetch(sort=[self.experiment.Amount])
+        self.assertEqual(results[0]['Amount'], 0)
+
+    def test_fetch_all_attributes_with_sort_desc(self):
+        results = self.experiment.attributes(self.experiment)
+        results.fetch(sort=[self.experiment.Amount.desc])
+        self.assertEqual(results[0]['Amount'], TEST_EXP_MAX-1)
+
+    def test_fetch_from_path_attributes_with_sort_on_alias(self):
+        path = self.experiment.path
+        results = path.Experiment.attributes(path.Experiment.RID, path.Experiment.Amount)
+        results.fetch(sort=[path.Experiment.Amount])
+        self.assertEqual(results[0]['Amount'], 0)
+
+    def test_fetch_from_path_attributes_with_sort_on_alias_desc(self):
+        path = self.experiment.path
+        results = path.Experiment.attributes(path.Experiment.RID, path.Experiment.Amount)
+        results.fetch(sort=[path.Experiment.Amount.desc])
+        self.assertEqual(results[0]['Amount'], TEST_EXP_MAX-1)
+
+    def test_fetch_from_path_all_attributes_with_sort_on_alias(self):
+        path = self.experiment.path
+        results = path.Experiment.attributes(*path.Experiment.column_definitions.values())
+        results.fetch(sort=[path.Experiment.Amount])
+        self.assertEqual(results[0]['Amount'], 0)
+
+    def test_fetch_from_path_all_attributes_with_sort_on_alias_desc(self):
+        path = self.experiment.path
+        results = path.Experiment.attributes(*path.Experiment.column_definitions.values())
+        results.fetch(sort=[path.Experiment.Amount.desc])
+        self.assertEqual(results[0]['Amount'], TEST_EXP_MAX-1)
+
     def test_attribute_projection(self):
         results = self.experiment.attributes(
             self.experiment.column_definitions['Name'],

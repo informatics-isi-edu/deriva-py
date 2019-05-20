@@ -433,7 +433,8 @@ class ResultSet (object):
         """Fetches the results from the catalog.
 
         :param limit: maximum number of results to fetch from the catalog.
-        :param sort: collection of columns to use for sorting.
+        :param sort: collection of columns to use for sorting. Note that if using the `attributes(...)` query interface,
+        the columns in the sort list _must_ be explicitly listed in the `attributes(...)` call.
         :return: self
         """
         limit = int(limit) if limit else None
