@@ -47,7 +47,8 @@ setup(
             'deriva-acl-config = deriva.config.acl_config:main',
             'deriva-annotation-config = deriva.config.annotation_config:main',
             'deriva-annotation-dump = deriva.config.dump_catalog_annotations:main',
-            'deriva-annotation-rollback = deriva.config.rollback_annotation:main'
+            'deriva-annotation-rollback = deriva.config.rollback_annotation:main',
+            'deriva-sitemap-cli = deriva.seo.sitemap_cli:main'
         ]
     },
     requires=[

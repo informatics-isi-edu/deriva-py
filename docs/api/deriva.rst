@@ -9,6 +9,7 @@ Subpackages
     deriva.config
     deriva.core
     deriva.transfer
+    deriva.seo
 
 Module contents
 ---------------

@@ -1,0 +1,603 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>deriva.seo package &mdash; deriva-py 0.8.4 documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+  <script type="text/javascript" src="../_static/js/modernizr.min.js"></script>
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
+        <script type="text/javascript" src="../_static/jquery.js"></script>
+        <script type="text/javascript" src="../_static/underscore.js"></script>
+        <script type="text/javascript" src="../_static/doctools.js"></script>
+        <script type="text/javascript" src="../_static/language_data.js"></script>
+    
+    <script type="text/javascript" src="../_static/js/theme.js"></script>
+
+    
+
+  
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="../index.html" class="icon icon-home"> deriva-py
+          
+
+          
+          </a>
+
+          
+            
+            
+              <div class="version">
+                0.8.4
+              </div>
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <p class="caption"><span class="caption-text">Installing</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../install.html">Installing</a></li>
+</ul>
+<p class="caption"><span class="caption-text">API Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../README.html">DataPath</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../README.html#features">Features</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../README.html#limitations">Limitations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../README.html#tutorials">Tutorials</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../README.html#ermrest-model-management">ERMrest Model Management</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../README.html#id1">Features</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../README.html#id2">Limitations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../README.html#examples">Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../README.html#add-table-to-schema">Add Table to Schema</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../README.html#add-a-vocabulary-term-table">Add a Vocabulary Term Table</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../README.html#add-column-to-table">Add Column to Table</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../README.html#remove-a-column-from-a-table">Remove a Column from a Table</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../README.html#ermrestcatalog">ErmrestCatalog</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../README.html#catalog-binding">Catalog Binding</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../README.html#client-credentials">Client Credentials</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../README.html#high-level-api-factories">High-Level API Factories</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../README.html#low-level-http-methods">Low-Level HTTP Methods</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../README.html#http-caching">HTTP Caching</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="deriva.html">deriva package</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="deriva.html#subpackages">Subpackages</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="deriva.config.html">deriva.config package</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="deriva.config.html#submodules">Submodules</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deriva.config.html#module-deriva.config.acl_config">deriva.config.acl_config module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deriva.config.html#module-deriva.config.annotation_config">deriva.config.annotation_config module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deriva.config.html#module-deriva.config.base_config">deriva.config.base_config module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deriva.config.html#module-deriva.config.dump_catalog_annotations">deriva.config.dump_catalog_annotations module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deriva.config.html#module-deriva.config">Module contents</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="deriva.core.html">deriva.core package</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="deriva.core.html#subpackages">Subpackages</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deriva.core.html#submodules">Submodules</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deriva.core.html#module-deriva.core.base_cli">deriva.core.base_cli module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deriva.core.html#module-deriva.core.datapath">deriva.core.datapath module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deriva.core.html#module-deriva.core.deriva_binding">deriva.core.deriva_binding module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deriva.core.html#module-deriva.core.deriva_server">deriva.core.deriva_server module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deriva.core.html#module-deriva.core.ermrest_catalog">deriva.core.ermrest_catalog module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deriva.core.html#module-deriva.core.ermrest_config">deriva.core.ermrest_config module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deriva.core.html#module-deriva.core.ermrest_model">deriva.core.ermrest_model module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deriva.core.html#module-deriva.core.hatrac_cli">deriva.core.hatrac_cli module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deriva.core.html#module-deriva.core.hatrac_store">deriva.core.hatrac_store module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deriva.core.html#module-deriva.core.polling_ermrest_catalog">deriva.core.polling_ermrest_catalog module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deriva.core.html#module-deriva.core">Module contents</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="deriva.transfer.html">deriva.transfer package</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="deriva.transfer.html#subpackages">Subpackages</a></li>
+<li class="toctree-l4"><a class="reference internal" href="deriva.transfer.html#module-deriva.transfer">Module contents</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="deriva.html#module-deriva">Module contents</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption"><span class="caption-text">Command Line Interfaces</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli/deriva-acl-config.html">deriva-acl-config</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../cli/deriva-acl-config.html#using-deriva-acl-config-to-configure-acls">Using deriva-acl-config to configure ACLs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/deriva-acl-config.html#config-file-format">Config file format</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-acl-config.html#the-groups-stanza">The groups stanza</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-acl-config.html#the-group-list-table-stanza">The group_list_table stanza</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-acl-config.html#the-acl-definitions-stanza">The acl_definitions stanza</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-acl-config.html#the-acl-bindings-stanza">The acl_bindings stanza</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-acl-config.html#the-catalog-acls-stanza">The catalog_acls stanza</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-acl-config.html#the-schema-acls-stanza">The schema_acls stanza</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-acl-config.html#the-table-acls-stanza">The table_acls stanza</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-acl-config.html#the-column-acls-stanza">The column_acls stanza</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-acl-config.html#the-foreign-key-acls-stanza">The foreign_key_acls stanza</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/deriva-acl-config.html#security-considerations">Security Considerations</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../cli/deriva-annotation-config.html">deriva-annotation-config</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../cli/deriva-annotation-config.html#using-deriva-annotation-config-to-configure-annotations">Using deriva-annotation-config to configure annotations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/deriva-annotation-config.html#config-file-format">Config file format</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-annotation-config.html#the-known-attributes-stanza">The <code class="docutils literal notranslate"><span class="pre">known_attributes</span></code> stanza</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-annotation-config.html#the-schema-annotations-stanza">The schema_annotations stanza</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-annotation-config.html#the-table-annotations-stanza">The table_annotations stanza</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-annotation-config.html#the-column-annotations-stanza">The column_annotations stanza</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-annotation-config.html#the-foreign-key-annotations-stanza">The foreign_key_annotations stanza</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../cli/deriva-hatrac-cli.html">deriva-hatrac-cli</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../cli/deriva-hatrac-cli.html#features">Features</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/deriva-hatrac-cli.html#common-options">Common options</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-hatrac-cli.html#hostname">Hostname</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-hatrac-cli.html#authentication">Authentication</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/deriva-hatrac-cli.html#namespace-operation-examples">Namespace operation examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-hatrac-cli.html#list">List</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-hatrac-cli.html#create-namespace">Create Namespace</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-hatrac-cli.html#delete-namespace">Delete Namespace</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/deriva-hatrac-cli.html#object-operation-examples">Object operation examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-hatrac-cli.html#put-an-object">Put an object</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-hatrac-cli.html#get-an-object">Get an object</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-hatrac-cli.html#delete-an-object">Delete an object</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/deriva-hatrac-cli.html#acl-operation-examples">ACL operation examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-hatrac-cli.html#get-acls">Get ACLs</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-hatrac-cli.html#set-acls">Set ACLs</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-hatrac-cli.html#delete-acls">Delete ACLs</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../cli/deriva-download-cli.html">deriva-download-cli</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../cli/deriva-download-cli.html#features">Features</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/deriva-download-cli.html#command-line-options">Command-Line options</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-download-cli.html#positional-arguments">Positional arguments:</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../cli/deriva-download-cli.html#host"><code class="docutils literal notranslate"><span class="pre">&lt;host&gt;</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../cli/deriva-download-cli.html#config-file"><code class="docutils literal notranslate"><span class="pre">&lt;config</span> <span class="pre">file&gt;</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../cli/deriva-download-cli.html#output-dir"><code class="docutils literal notranslate"><span class="pre">&lt;output</span> <span class="pre">dir&gt;</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-download-cli.html#optional-arguments">Optional arguments:</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../cli/deriva-download-cli.html#token"><code class="docutils literal notranslate"><span class="pre">--token</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../cli/deriva-download-cli.html#credential-file"><code class="docutils literal notranslate"><span class="pre">--credential-file</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../cli/deriva-download-cli.html#catalog"><code class="docutils literal notranslate"><span class="pre">--catalog</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/deriva-download-cli.html#configuration-file-format">Configuration file format</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-download-cli.html#configuration-file-element-catalog">Configuration file element: <code class="docutils literal notranslate"><span class="pre">catalog</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-download-cli.html#configuration-file-element-bag">Configuration file element: <code class="docutils literal notranslate"><span class="pre">bag</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-download-cli.html#configuration-file-element-env">Configuration file element: <code class="docutils literal notranslate"><span class="pre">env</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/deriva-download-cli.html#supported-processors">Supported processors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/deriva-download-cli.html#processor-details">Processor details</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-download-cli.html#env"><code class="docutils literal notranslate"><span class="pre">env</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-download-cli.html#csv"><code class="docutils literal notranslate"><span class="pre">csv</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-download-cli.html#json"><code class="docutils literal notranslate"><span class="pre">json</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-download-cli.html#json-stream"><code class="docutils literal notranslate"><span class="pre">json-stream</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-download-cli.html#download"><code class="docutils literal notranslate"><span class="pre">download</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../cli/deriva-download-cli.html#fetch"><code class="docutils literal notranslate"><span class="pre">fetch</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">deriva-py</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="../index.html">Docs</a> &raquo;</li>
+        
+      <li>deriva.seo package</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+            
+            <a href="../_sources/api/deriva.seo.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  
+<style>
+/* CSS overrides for sphinx_rtd_theme */
+
+/* 24px margin */
+.nbinput.nblast,
+.nboutput.nblast {
+    margin-bottom: 19px;  /* padding has already 5px */
+}
+
+/* ... except between code cells! */
+.nblast + .nbinput {
+    margin-top: -19px;
+}
+
+.admonition > p:before {
+    margin-right: 4px;  /* make room for the exclamation icon */
+}
+
+/* Fix math alignment, see https://github.com/rtfd/sphinx_rtd_theme/pull/686 */
+.math {
+    text-align: unset;
+}
+</style>
+<div class="section" id="deriva-seo-package">
+<h1>deriva.seo package<a class="headerlink" href="#deriva-seo-package" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="module-deriva.seo.sitemap_builder">
+<span id="submodules"></span><h2>Submodules<a class="headerlink" href="#module-deriva.seo.sitemap_builder" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="deriva.seo.sitemap_builder.SitemapBuilder">
+<em class="property">class </em><code class="descclassname">deriva.seo.sitemap_builder.</code><code class="descname">SitemapBuilder</code><span class="sig-paren">(</span><em>protocol</em>, <em>host</em>, <em>catalog_id</em>, <em>license_url=None</em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/deriva/seo/sitemap_builder.html#SitemapBuilder"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#deriva.seo.sitemap_builder.SitemapBuilder" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.7)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Class to build sitemaps from deriva catalogs.</p>
+<ul>
+<li><p class="first">Typical usage is:</p>
+<blockquote>
+<div><ol class="arabic simple">
+<li>Create a SiteMapBuilder class</li>
+<li>For each table to include in the sitemap, create a table spec and populate it with the
+table’s data. Typically, the creating and populating for a table is done by a single
+call to add_table_spec.</li>
+<li>Call write_sitemap to write out the site map</li>
+</ol>
+</div></blockquote>
+</li>
+<li><p class="first">In the simplest case, this would create a sitemap with two tables:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">sb</span> <span class="o">=</span> <span class="n">SitemapBuilder</span><span class="p">(</span><span class="s2">&quot;https&quot;</span><span class="p">,</span> <span class="s2">&quot;myhost.org&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+<span class="n">sb</span><span class="o">.</span><span class="n">add_table_spec</span><span class="p">(</span><span class="s2">&quot;schema1&quot;</span><span class="p">,</span> <span class="s2">&quot;table1&quot;</span><span class="p">)</span>
+<span class="n">sb</span><span class="o">.</span><span class="n">add_table_spec</span><span class="p">(</span><span class="s2">&quot;schema2&quot;</span><span class="p">,</span> <span class="s2">&quot;table2&quot;</span><span class="p">)</span>
+<span class="n">sb</span><span class="o">.</span><span class="n">write_sitemap</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="p">)</span>
+</pre></div>
+</div>
+</li>
+<li><p class="first">If you want to include only a subset of rows of a table, you can pass a datapath to add_table_spec:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pb</span> <span class="o">=</span> <span class="n">catalog</span><span class="o">.</span><span class="n">getPathBuilder</span><span class="p">()</span>
+<span class="n">path</span><span class="o">=</span><span class="n">pb</span><span class="o">.</span><span class="n">schema3</span><span class="o">.</span><span class="n">table3</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">pb</span><span class="o">.</span><span class="n">schema3</span><span class="o">.</span><span class="n">table3</span><span class="o">.</span><span class="n">Species</span><span class="o">==</span><span class="s2">&quot;Homo sapiens&quot;</span><span class="p">)</span>
+<span class="n">sb</span><span class="o">.</span><span class="n">add_table_spec</span><span class="p">(</span><span class="s2">&quot;schema3&quot;</span><span class="p">,</span> <span class="s2">&quot;table3&quot;</span><span class="p">,</span> <span class="n">datapath</span><span class="o">=</span><span class="n">path</span><span class="p">)</span>
+</pre></div>
+</div>
+</li>
+<li><p class="first">If you want to do something more customizable, you can populate the spec yourself:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">rows</span> <span class="o">=</span> <span class="n">do_something_complicated</span><span class="p">()</span>
+<span class="n">spec</span> <span class="o">=</span> <span class="n">sb</span><span class="o">.</span><span class="n">add_table_spec</span><span class="p">(</span><span class="s2">&quot;schema4&quot;</span><span class="p">,</span> <span class="s2">&quot;table4&quot;</span><span class="p">,</span> <span class="n">populate</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="n">sb</span><span class="o">.</span><span class="n">set_table_spec_data</span><span class="p">(</span><span class="n">rows</span><span class="p">)</span>
+<span class="n">sb</span><span class="o">.</span><span class="n">add_fkey_times</span><span class="p">(</span><span class="n">spec</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Note: if add_table_spec populates the spec for you, it will set the modification time based on
+the times in the table and on all single-valued incoming foreign keys (because those are the
+most likely to affect a Chaise record page). If you’re populating the spec yourself (i.e., if
+you called add_table_spec with populate=False), you can call add_fkey_times to make those time
+adjustments.</p>
+</li>
+</ul>
+<blockquote>
+<div><dl class="docutils">
+<dt>Limitations:</dt>
+<dd><p class="first">Sitemaps should be no more than 50MB in size and should contain no more
+than 50,000 URLS (<a class="reference external" href="https://www.sitemaps.org/faq.html#faq_sitemap_size">https://www.sitemaps.org/faq.html#faq_sitemap_size</a>),
+but this class doesn’t enforce those limits. (Note: A site can have
+multiple sitemaps).</p>
+<p>A URL element should have no more than 1000 images associated with it
+(<a class="reference external" href="https://support.google.com/webmasters/answer/178636?hl=en">https://support.google.com/webmasters/answer/178636?hl=en</a>), but this
+class doesn’t enforce that limit.</p>
+<p class="last">This class assumes that all images in a catalog will have the same
+license.</p>
+</dd>
+</dl>
+</div></blockquote>
+<dl class="method">
+<dt id="deriva.seo.sitemap_builder.SitemapBuilder.add_fkey_times">
+<code class="descname">add_fkey_times</code><span class="sig-paren">(</span><em>spec</em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/deriva/seo/sitemap_builder.html#SitemapBuilder.add_fkey_times"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#deriva.seo.sitemap_builder.SitemapBuilder.add_fkey_times" title="Permalink to this definition">¶</a></dt>
+<dd><p>Replace the RMT in each row with the greatest value of
+the row’s RMT and the RMTs of all single-column-fkey-linked
+tables.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>spec</strong> – a populated spec</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="deriva.seo.sitemap_builder.SitemapBuilder.add_table_spec">
+<code class="descname">add_table_spec</code><span class="sig-paren">(</span><em>schema</em>, <em>table</em>, <em>datapath=None</em>, <em>populate=True</em>, <em>priority=None</em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/deriva/seo/sitemap_builder.html#SitemapBuilder.add_table_spec"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#deriva.seo.sitemap_builder.SitemapBuilder.add_table_spec" title="Permalink to this definition">¶</a></dt>
+<dd><p>Create a table spec and add it to the sitemap.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>schema</strong> – the name of the table’s schema</li>
+<li><strong>table</strong> – the table name</li>
+<li><strong>datapath</strong> – a datapath to use to populate the table (regardless of the value
+of “populate”)</li>
+<li><strong>populate</strong> – an indication of whether or not the spec should be populated.
+If pouplate==True, the table spec’s data will be populated with the results 
+from the query specified by “datapath” (if non-None) or all the rows of the table.
+If populate==False (and datapath is not set), the table spec’s data will
+need to be set via a call to set_table_spec_data()</li>
+<li><strong>priority</strong> – the priority to assign to sitemap entries created from this table
+(see <a class="reference external" href="https://www.sitemaps.org/protocol.html">https://www.sitemaps.org/protocol.html</a> for a discussion of priorities)</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="staticmethod">
+<dt id="deriva.seo.sitemap_builder.SitemapBuilder.ermrest_time_to_float">
+<em class="property">static </em><code class="descname">ermrest_time_to_float</code><span class="sig-paren">(</span><em>ermrest_time</em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/deriva/seo/sitemap_builder.html#SitemapBuilder.ermrest_time_to_float"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#deriva.seo.sitemap_builder.SitemapBuilder.ermrest_time_to_float" title="Permalink to this definition">¶</a></dt>
+<dd><p>Converts a time string as returned by ermrest to a floating-point number</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="deriva.seo.sitemap_builder.SitemapBuilder.find_incoming_fkeys">
+<code class="descname">find_incoming_fkeys</code><span class="sig-paren">(</span><em>target_table</em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/deriva/seo/sitemap_builder.html#SitemapBuilder.find_incoming_fkeys"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#deriva.seo.sitemap_builder.SitemapBuilder.find_incoming_fkeys" title="Permalink to this definition">¶</a></dt>
+<dd><p>Find single-column fkeys pointing to the target table. The expectation
+is that these are likely to show up in chaise record pages.
+:param target_table: the target table.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="deriva.seo.sitemap_builder.SitemapBuilder.get_column">
+<code class="descname">get_column</code><span class="sig-paren">(</span><em>table</em>, <em>column_name</em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/deriva/seo/sitemap_builder.html#SitemapBuilder.get_column"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#deriva.seo.sitemap_builder.SitemapBuilder.get_column" title="Permalink to this definition">¶</a></dt>
+<dd><p>Gets a datapath column</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="deriva.seo.sitemap_builder.SitemapBuilder.get_table">
+<code class="descname">get_table</code><span class="sig-paren">(</span><em>sname</em>, <em>tname</em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/deriva/seo/sitemap_builder.html#SitemapBuilder.get_table"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#deriva.seo.sitemap_builder.SitemapBuilder.get_table" title="Permalink to this definition">¶</a></dt>
+<dd><p>Gets a datapath table</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="deriva.seo.sitemap_builder.SitemapBuilder.populate_spec">
+<code class="descname">populate_spec</code><span class="sig-paren">(</span><em>spec</em>, <em>datapath</em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/deriva/seo/sitemap_builder.html#SitemapBuilder.populate_spec"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#deriva.seo.sitemap_builder.SitemapBuilder.populate_spec" title="Permalink to this definition">¶</a></dt>
+<dd><p>Add data to a spec</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>spec</strong> – the spec to populate</li>
+<li><strong>datapath</strong> – optional datapth to use (if None, all records
+from the spec table will be incuded)</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="deriva.seo.sitemap_builder.SitemapBuilder.set_table_spec_data">
+<code class="descname">set_table_spec_data</code><span class="sig-paren">(</span><em>spec</em>, <em>rows</em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/deriva/seo/sitemap_builder.html#SitemapBuilder.set_table_spec_data"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#deriva.seo.sitemap_builder.SitemapBuilder.set_table_spec_data" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Add data to a table spec. This should be used if you want to associate</dt>
+<dd>image data with the rows of this table, or if you want to include
+only a subset of the table’s rows in the sitemap. Otherwise, you can
+just use populate=True in your call to add_table_spec().</dd>
+</dl>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>spec</strong> – a table spec returned by add_table_spec()</li>
+<li><strong>rows</strong> – <p>an array of dictionary objects corresponding to the rows
+of the table. Each row MUST have RID and RMT elements and MAY have
+an “images” element. If “images” is present, each entry should have:</p>
+<blockquote>
+<div>”image_url” : the absolute URL of the image (jpeg, etc.)
+“image_caption” : a caption for the image (optional)
+“image_title” : a title for the image (optional)</div></blockquote>
+<p>for example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">[</span>
+   <span class="p">{</span>
+      <span class="s2">&quot;RID&quot;</span><span class="p">:</span> <span class="s1">&#39;1-2345&#39;</span><span class="p">,</span>
+      <span class="s2">&quot;RMT&quot;</span><span class="p">:</span> <span class="s1">&#39;018-12-03T18:29:38.348231-08:00&#39;</span><span class="p">},</span>
+   <span class="p">{</span>
+      <span class="s2">&quot;RID&quot;</span><span class="p">:</span> <span class="s1">&#39;1-2346&#39;</span><span class="p">,</span>
+      <span class="s2">&quot;RMT&quot;</span><span class="p">:</span> <span class="s1">&#39;018-12-03T18:29:38.348231-08:00&#39;</span><span class="p">,</span>
+      <span class="s2">&quot;images&quot;</span><span class="p">:</span> <span class="p">[</span>
+          <span class="p">{</span>
+             <span class="s2">&quot;image_url&quot;</span><span class="p">:</span> <span class="s2">&quot;https://myhost.org/hatrac/images/image1.jpg&quot;</span><span class="p">,</span>
+             <span class="s2">&quot;image_title&quot;</span><span class="p">:</span> <span class="s2">&quot;MyProject Image 2-3456: An Awesome Image&quot;</span><span class="p">,</span>
+             <span class="s2">&quot;image_caption&quot;</span><span class="p">:</span> <span class="s2">&quot;This is an awesome image&quot;</span>
+          <span class="p">},</span>
+          <span class="p">{</span>
+             <span class="s2">&quot;image_url&quot;</span><span class="p">:</span> <span class="s2">&quot;https://myhost.org/hatrac/images/image2.jpg&quot;</span><span class="p">,</span>
+          <span class="p">}</span>
+      <span class="p">]</span>
+   <span class="p">}</span>
+<span class="p">]</span>
+</pre></div>
+</div>
+</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="deriva.seo.sitemap_builder.SitemapBuilder.write_sitemap">
+<code class="descname">write_sitemap</code><span class="sig-paren">(</span><em>file</em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/deriva/seo/sitemap_builder.html#SitemapBuilder.write_sitemap"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#deriva.seo.sitemap_builder.SitemapBuilder.write_sitemap" title="Permalink to this definition">¶</a></dt>
+<dd><p>Write out the sitemap</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>file</strong> – The file to write to</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+</div>
+
+
+           </div>
+           
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2018, USC Information Sciences Institute, Informatics Systems Research Division
+
+    </p>
+  </div>
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>
