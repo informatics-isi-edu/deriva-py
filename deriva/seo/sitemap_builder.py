@@ -1,7 +1,7 @@
 from xml.dom.minidom import getDOMImplementation
 from deriva.core import DerivaServer, get_credential, BaseCLI
 import time
-
+import sys
 
 class SitemapBuilder:
 
@@ -63,6 +63,8 @@ class SitemapBuilder:
         :param license_url: the url to the license used for images in this catalog
         """
 
+        if sys.version_info[0] < 3:
+            raise NotImplementedError("SitemapBuilder is only supported for Python 3.x")
         self.protocol = protocol
         self.host = host
         self.catalog_id = catalog_id
