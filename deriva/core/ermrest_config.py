@@ -31,6 +31,7 @@ tag = AttrDict({
     'asset':              'tag:isrd.isi.edu,2017:asset',
     'bulk_upload':        'tag:isrd.isi.edu,2017:bulk-upload',
     'export':             'tag:isrd.isi.edu,2016:export',
+    'chaise_config':      'tag:isrd.isi.edu,2019:chaise-config',
 })
 
 def presence_annotation(tag_uri):
