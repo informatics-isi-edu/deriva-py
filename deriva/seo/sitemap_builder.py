@@ -3,12 +3,13 @@ from deriva.core import DerivaServer, get_credential, BaseCLI
 import time
 import sys
 
+
 class SitemapBuilder:
 
     """Class to build sitemaps from deriva catalogs.
 
       - Typical usage is:
-       
+
          1. Create a SiteMapBuilder class
          2. For each table to include in the sitemap, create a table spec and populate it with the
             table's data. Typically, the creating and populating for a table is done by a single
@@ -85,7 +86,7 @@ class SitemapBuilder:
         :param datapath: a datapath to use to populate the table (regardless of the value
                          of "populate")
         :param populate: an indication of whether or not the spec should be populated.
-                         If pouplate==True, the table spec's data will be populated with the results 
+                         If populate==True, the table spec's data will be populated with the results
                          from the query specified by "datapath" (if non-None) or all the rows of the table.
                          If populate==False (and datapath is not set), the table spec's data will
                          need to be set via a call to set_table_spec_data()
@@ -95,6 +96,7 @@ class SitemapBuilder:
         """
         spec = {
             "table": self.get_table(schema, table),
+            "incoming_fkeys": self.model.table(schema, table).referenced_by,
             "url":
             "{protocol}://{host}/chaise/record/?{catalog_id}/{schema}:{table}/RID="
             .format(
@@ -123,7 +125,6 @@ class SitemapBuilder:
             self._add_spec_records(spec)
 
         self.doc.writexml(file, encoding="UTF-8", newl="\n", addindent="  ")
-
 
     def _create_xml_tree(self):
         """Create empty xml tree"""
@@ -199,7 +200,6 @@ class SitemapBuilder:
                         url_node.appendChild(image_node)
             self.tree.appendChild(url_node)
 
-
     def populate_spec(self, spec, datapath):
         """Add data to a spec
 
@@ -224,13 +224,16 @@ class SitemapBuilder:
         """
         rows = spec["data"]
         ref_table = spec["table"]
-        fkeys = self.find_incoming_fkeys(ref_table)
+        fkeys = spec["incoming_fkeys"]
         rdict = dict()
         if len(fkeys) > 0:
             for r in rows:
                 rdict[r.get("RID")] = {"row": r}
         for fkey in fkeys:
-            self._apply_fkey(ref_table, rdict, fkey)
+            if len(fkey.referenced_columns) == 1:
+                # Assume that if a related table is visible in chaise,
+                # a single-valued fkey exists.
+                self._apply_fkey(ref_table, rdict, fkey)
 
     def _apply_fkey(self, ref_table, rdict, fkey):
         fkc = fkey.foreign_key_columns[0]
@@ -308,23 +311,3 @@ class SitemapBuilder:
               ]
         """
         spec["data"] = rows
-
-    def find_incoming_fkeys(self, target_table):
-        """Find single-column fkeys pointing to the target table. The expectation
-           is that these are likely to show up in chaise record pages.
-           :param target_table: the target table.
-        """
-        fkeys = []
-        for schema in self.model.schemas.values():
-            for table in schema.tables.values():
-                if table.kind == "table":
-                    for fkey in table.foreign_keys.elements.values():
-                        if len(fkey.referenced_columns) == 1:
-                            # Assume that if a related table is visible in chaise,
-                            # a single-valued fkey exists.
-                            for refcol in fkey.referenced_columns:
-                                if refcol.get("schema_name") == target_table.sname\
-                                   and refcol.get("table_name") == target_table.name:
-                                    fkeys.append(fkey)
-        return fkeys
-
