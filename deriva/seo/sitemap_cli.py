@@ -1,4 +1,4 @@
-from deriva.core import BaseCLI
+from deriva.core import BaseCLI, __version__
 from deriva.seo import SitemapBuilder
 import sys
 import json
@@ -9,7 +9,7 @@ def main():
     logger.setLevel("WARNING")
     cli = BaseCLI(__name__,
                   "Create a sitemap from a table specified on the command line or a set of tables from a config file",
-                  1, hostname_required=True)
+                  __version__, hostname_required=True)
     cli.remove_options(["--credential-file", "--token", "--oauth2-token"])
     cli.parser.add_argument("--catalog", default=1, metavar="<1>", help="Catalog number")
     cli.parser.add_argument("-p", "--priority", type=float,
