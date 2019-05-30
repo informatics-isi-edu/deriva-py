@@ -439,6 +439,21 @@ class DatapathTests (unittest.TestCase):
         self.assertIn('Name', result)
         self.assertIn('howmuch', result)
 
+    def test_attribute_rename_special_chars(self):
+        # first test with only the `:` character present which would trigger a lexical error from ermrest
+        special_character_out_alias = self.experiment.name + ':' + self.experiment.column_definitions['Name'].name
+        renames = {special_character_out_alias: self.experiment.column_definitions['Name']}
+        results = self.experiment.attributes(**renames)
+        result = results.fetch(limit=1)[0]
+        self.assertIn(special_character_out_alias, result)
+
+        # second test with url unsafe characters present which would trigger a bad request from the web server
+        special_character_out_alias = '`~!@#$%^&*()_+-={}|[]\\;:"\',./<>?'
+        renames = {special_character_out_alias: self.experiment.column_definitions['Name']}
+        results = self.experiment.attributes(**renames)
+        result = results.fetch(limit=1)[0]
+        self.assertIn(special_character_out_alias, result)
+
     def test_context(self):
         path = self.experiment.link(self.experiment_type)
         results = path.Experiment.entities()

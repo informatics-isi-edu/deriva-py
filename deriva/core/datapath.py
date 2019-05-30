@@ -1007,7 +1007,7 @@ class Project (PathOperator):
         self._attrs = [
             attr.instancename for attr in attributes
         ] + [
-            "%s:=%s" % (out_alias, attr.instancename) for out_alias, attr in renamed_attributes.items()
+            "%s:=%s" % (urlquote(out_alias), attr.instancename) for out_alias, attr in renamed_attributes.items()
         ]
 
     @property
