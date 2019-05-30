@@ -979,9 +979,24 @@ class Project (PathOperator):
         self._group_key = []
         self._inferred_mode = 'attribute'
 
-        # Validate attributes, no aggregations allowed
-        if any([isinstance(elem, AggregateFunction) for elem in attributes]):
-            raise ValueError("Aggregate functions not allowed in attributes list, use renamed attributes instead.")
+        # Validate attributes
+        for elem in attributes:
+            if not (isinstance(elem, Column) or isinstance(elem, Table)):
+                message = "Invalid value in attributes: %s." % str(elem)
+                if isinstance(elem, AggregateFunction):
+                    message += " Aggregate functions not allowed in attributes list, use renamed attributes instead."
+                elif isinstance(elem, str):
+                    message += " Try using the explicit syntax of \"path_or_table.column_definitions['your_column_name']\"."
+                raise ValueError(message)
+
+        # Validate renamed attributes
+        for key in renamed_attributes:
+            elem = renamed_attributes[key]
+            if not (isinstance(elem, Column) or isinstance(elem, AggregateFunction)):
+                message = "Invalid value in renamed attributes: %s=%s." % (str(key), str(elem))
+                if isinstance(elem, str):
+                    message += " Try using the explicit syntax of \"%s=path_or_table.column_definitions['your_column_name']\"." % key
+                raise ValueError(message)
 
         # Validate group_key, if it exists
         if 'group_key' in renamed_attributes:

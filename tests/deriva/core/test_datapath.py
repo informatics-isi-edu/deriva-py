@@ -276,6 +276,18 @@ class DatapathTests (unittest.TestCase):
         self.assertIn('Name', result)
         self.assertIn('Amount', result)
 
+    def test_attribute_err_table_attr(self):
+        table_attr = ['name', 'sname', 'catalog']
+        for attr in table_attr:
+            with self.assertRaises(ValueError):
+                self.experiment.attributes(getattr(self.experiment, attr))
+
+    def test_attribute_rename_err_table_attr(self):
+        table_attr = ['name', 'sname', 'catalog']
+        for attr in table_attr:
+            with self.assertRaises(ValueError):
+                self.experiment.attributes(**{attr: getattr(self.experiment, attr)})
+
     @unittest.skipUnless(HAS_ASSERTWARNS, "This tests is not available unless running python 3.2+")
     def test_deprecated_entities_projection(self):
         with self.assertWarns(DeprecationWarning):
