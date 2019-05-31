@@ -9,6 +9,8 @@ from deriva.transfer.download.processors.transform.base_transform_processor impo
     LOCAL_PATH_KEY, SOURCE_URL_KEY
 
 
+# this processor transforms sequence data in RBK to excel file of GEO format
+# https://www.ncbi.nlm.nih.gov/geo/info/seq.html
 class GeoExportTransformProcessor(BaseTransformProcessor):
     def __init__(self, envars=None, **kwargs):
         super(GeoExportTransformProcessor, self).__init__(envars, **kwargs)
@@ -17,6 +19,8 @@ class GeoExportTransformProcessor(BaseTransformProcessor):
     def process(self):
         logging.info("Transforming input file [%s] into output file [%s]" %
                      (self.input_abspath, self.output_abspath))
+        # input_abspath: the json file containing raw data retrieved from DB
+        # output_abspath: the excel file of GEO format
         geo = Export2GEO(self.input_abspath, self.output_abspath)
         geo.export_all()
 
@@ -24,6 +28,7 @@ class GeoExportTransformProcessor(BaseTransformProcessor):
         return self.outputs
 
 
+# used for setting background color
 class Style(Enum):
     DEFAULT = 0
     INSTRUCTION = 1
@@ -33,6 +38,7 @@ class Style(Enum):
     PREFACE = 5
 
 
+# handling excel operations
 class Export2Excel(object):
     OPENPYXL = None
 
@@ -58,7 +64,8 @@ class Export2Excel(object):
         # Open an xlsx
         self.wb = self.OPENPYXL.Workbook()
         self.ws = self.wb.create_sheet(index=0, title=self.sheet_name)
-        #remove the default sheet
+
+        # remove the default sheet
         self.wb.remove(self.wb['Sheet'])
 
         fgColor0 = self.OPENPYXL.styles.colors.Color(indexed=10, type='indexed')
@@ -85,8 +92,13 @@ class Export2Excel(object):
         self.ws.column_dimensions['H'].width = 24.0
         self.ws.column_dimensions['I'].width = 24.0
         self.ws.column_dimensions['J'].width = 24.0
+        self.ws.column_dimensions['K'].width = 24.0
+        self.ws.column_dimensions['L'].width = 24.0
+        self.ws.column_dimensions['M'].width = 24.0
+        self.ws.column_dimensions['N'].width = 24.0
 
     @staticmethod
+    # row id and column id to excel cell location
     def cell_name(row_num, col_num):
         string = ""
         while col_num > 0:
@@ -100,20 +112,21 @@ class Export2Excel(object):
     def delete_row(self, idx, row_amt):
         self.ws.delete_rows(idx=idx, amount=row_amt)
 
+    # writing value into cell with some style
     def write_cell(self, row_idx, col_idx, content, export_style=Style.DEFAULT):
         cell_loc = self.cell_name(row_idx, col_idx)
         cell = self.ws[cell_loc]
         cell.value = content
-        if(export_style == Style.INSTRUCTION):
+        if (export_style == Style.INSTRUCTION):
             cell.fill = self.fill_green
-        elif(export_style == Style.HEADER):
+        elif (export_style == Style.HEADER):
             cell.fill = self.fill_yellow
             cell.font = self.font_blue
-        elif(export_style == Style.FIELD):
+        elif (export_style == Style.FIELD):
             cell.font = self.font_blue
-        elif(export_style == Style.SECTION):
+        elif (export_style == Style.SECTION):
             cell.font = self.font_red
-        elif(export_style == Style.PREFACE):
+        elif (export_style == Style.PREFACE):
             cell.fill = self.fill_green
             cell.font = self.font_bond
         else:
@@ -121,7 +134,8 @@ class Export2Excel(object):
 
     def save_xlsx(self):
         self.wb.save(self._output_path_)
-    def copy_cell(self, old_row_idx, old_col_idx, new_row_idx, new_col_idx,copy_style=True):
+
+    def copy_cell(self, old_row_idx, old_col_idx, new_row_idx, new_col_idx, copy_style=True):
         cell = self.ws[self.cell_name(old_row_idx, old_col_idx)]
         new_cell = self.ws[self.cell_name(new_row_idx, new_col_idx)]
         new_cell.value = cell.value
@@ -143,6 +157,7 @@ class Export2GEO(object):
         self.output_excel_path = output_excel_path
         self.current_row_idx = 0
         self.header_row_idx = 0
+        # all types of protocols
         self.protocol_type = ['Isolation_Protocol', 'Growth_Protocol', 'Treatment_Protocol', 'Extract_Protocol',
                               'Construction_Protocol', 'Label_Protocol', 'Hybridization_Protocol', 'Scan_Protocol']
         self.protocol_unique = {}
@@ -161,6 +176,7 @@ class Export2GEO(object):
             elif len(data) > 1:
                 logging.debug("Duplicate Data")
             elif len(data) == 1:
+                # get parameters from json file
                 self.study = data[0].get('Study')[0]
                 self.pi = data[0].get('Principal_Investigator')[0]
                 self.experiments = data[0].get('Experiment')
@@ -180,6 +196,7 @@ class Export2GEO(object):
 
     def export_all(self):
         if self.study is not None:
+            # export data for different sections such as series,samples etc.
             self.export_start()
             self.export_preface()
             self.export_series()
@@ -192,67 +209,82 @@ class Export2GEO(object):
             self.export_paired_end()
             self.export_finish()
 
+    # export preface sections in GEO template excel
+    # words may need update if GEO template update
+    # https://www.ncbi.nlm.nih.gov/geo/info/seq.html#metadata
     def export_preface(self):
         self.current_row_idx = 1
-        self.excel.write_cell(self.current_row_idx, 1, '# High-throughput sequencing metadata template (version 2.1).',Style.PREFACE)
+        self.excel.write_cell(self.current_row_idx, 1, '# High-throughput sequencing metadata template (version 2.1).',
+                              Style.PREFACE)
         self.current_row_idx += 1
-        self.excel.write_cell(self.current_row_idx, 1, '# All fields in this template must be completed.',Style.PREFACE)
+        self.excel.write_cell(self.current_row_idx, 1, '# All fields in this template must be completed.',
+                              Style.PREFACE)
         self.current_row_idx += 1
-        self.excel.write_cell(self.current_row_idx, 1, '# Templates containing example data are found in the METADATA EXAMPLES spreadsheet tabs at the foot of this page.',Style.PREFACE)
+        self.excel.write_cell(self.current_row_idx, 1,
+                              '# Templates containing example data are found in the METADATA EXAMPLES spreadsheet tabs at the foot of this page.',
+                              Style.PREFACE)
         self.current_row_idx += 1
-        self.excel.write_cell(self.current_row_idx, 1, '# Field names (in blue on this page) should not be edited. Hover over cells containing field names to view field content guidelines.',Style.PREFACE)
+        self.excel.write_cell(self.current_row_idx, 1,
+                              '# Field names (in blue on this page) should not be edited. Hover over cells containing field names to view field content guidelines.',
+                              Style.PREFACE)
         self.current_row_idx += 1
-        self.excel.write_cell(self.current_row_idx, 1, ('# Human data. If there are patient privacy concerns regarding making data fully public through GEO, '
-        'please submit to NCBI''s dbGaP (http://www.ncbi.nlm.nih.gov/gap/) database. dbGaP has controlled access'
-        'mechanisms and is an appropriate resource for hosting sensitive patient data.'),Style.PREFACE)
+        self.excel.write_cell(self.current_row_idx, 1, (
+            '# Human data. If there are patient privacy concerns regarding making data fully public through GEO, '
+            'please submit to NCBI''s dbGaP (http://www.ncbi.nlm.nih.gov/gap/) database. dbGaP has controlled access'
+            'mechanisms and is an appropriate resource for hosting sensitive patient data.'), Style.PREFACE)
         self.current_row_idx += 1
-        self.excel.write_cell(self.current_row_idx, 1, '',Style.PREFACE)
+        self.excel.write_cell(self.current_row_idx, 1, '', Style.PREFACE)
         self.current_row_idx += 1
 
-        for col in range(2,13):
-            for row in range(1,7):
+        for col in range(2, 13):
+            for row in range(1, 7):
                 self.excel.write_cell(row, col, '', Style.PREFACE)
-    # write SERIES
 
+    # export SERIES(study)
     def export_series(self):
         self.excel.write_cell(self.current_row_idx, 1, 'SERIES', Style.SECTION)
         self.current_row_idx += 1
-        self.excel.write_cell(self.current_row_idx, 1, '# This section describes the overall experiment.', Style.INSTRUCTION)
-        for col in range(2,13):
+        self.excel.write_cell(self.current_row_idx, 1, '# This section describes the overall experiment.',
+                              Style.INSTRUCTION)
+        for col in range(2, 13):
             self.excel.write_cell(self.current_row_idx, col, '', Style.INSTRUCTION)
         self.current_row_idx += 1
         self.excel.write_cell(self.current_row_idx, 1, 'title', Style.FIELD)
-        self.excel.write_cell(self.current_row_idx, 2, self.study.get('Title',''))
+        self.excel.write_cell(self.current_row_idx, 2, self.study.get('Title', ''))
         self.current_row_idx += 1
         self.excel.write_cell(self.current_row_idx, 1, 'summary', Style.FIELD)
-        self.excel.write_cell(self.current_row_idx, 2, self.study.get('Summary',''))
+        self.excel.write_cell(self.current_row_idx, 2, self.study.get('Summary', ''))
         self.current_row_idx += 1
         self.excel.write_cell(self.current_row_idx, 1, 'overall design', Style.FIELD)
-        self.excel.write_cell(self.current_row_idx, 2, self.study.get('Overall_Design',''))
+        self.excel.write_cell(self.current_row_idx, 2, self.study.get('Overall_Design', ''))
         self.current_row_idx += 1
         self.excel.write_cell(self.current_row_idx, 1, 'contributor', Style.FIELD)
-        self.excel.write_cell(self.current_row_idx, 2, self.pi.get('Full_Name',''))
+        self.excel.write_cell(self.current_row_idx, 2, self.pi.get('Full_Name', ''))
         self.current_row_idx += 1
 
+        # one line for each study file
         if len(self.study_files) >= 1 and self.study_files[0] is not None:
             self.excel.write_cell(self.current_row_idx, 1, 'supplementary file', Style.FIELD)
-            self.excel.write_cell(self.current_row_idx, 2, self.study_files[0].get('File_Name',''))
+            self.excel.write_cell(self.current_row_idx, 2, self.study_files[0].get('File_Name', ''))
             self.current_row_idx += 1
             for i in range(len(self.study_files) - 1):
                 self.excel.write_cell(self.current_row_idx, 1, 'supplementary file', Style.FIELD)
-                self.excel.write_cell(self.current_row_idx, 2, self.study_files[i + 1].get('File_Name',''))
+                self.excel.write_cell(self.current_row_idx, 2, self.study_files[i + 1].get('File_Name', ''))
                 self.current_row_idx += 1
         else:
             self.excel.write_cell(self.current_row_idx, 2, '')
             logging.debug('No study file')
 
+    # prepare the data for sample export
     def export_sample_prepare(self):
         # check self.protocol unique
         for p in self.protocol_type:
             # protocols which are applicable to only a subset of Samples should be included
             # as additional columns of the SAMPLES section instead.
-            # this dictionary is used to handle dynamic headers related to protocol
+            # this dictionary stores if containing unique content for each protocol type or not
+            # used to handle dynamic headers related to the protocols
             self.protocol_unique[p] = True
+            # initialize list of items for each protocol type
             self.protocol_list[p] = []
 
         for i in self.other_item:
@@ -266,12 +298,16 @@ class Export2GEO(object):
                 if p not in e.keys():
                     continue
                 elif len(self.protocol_list[p]) == 0 and e[p] is not None and e[p] != 'None':
+                    # add first protocol for this protocol type
                     self.protocol_list[p].append(e[p])
                 elif e[p] not in self.protocol_list[p] and e[p] is not None and e[p] != 'None':
+                    # add other protocols for this protocol type
                     self.protocol_list[p].append(e[p])
+                    # and this protocol type doesn't have unique value
                     self.protocol_unique[p] = False
             i = 'Data_Processing'
             if i in e.keys():
+                # include experiment parameters in data processing part
                 if len(self.other_item_list[i]) == 0 and e[i] is not None and e[i] != 'None':
                     self.other_item_list[i].append(e[i])
                 elif e[i] not in self.other_item_list[i] and e[i] is not None and e[i] != 'None':
@@ -289,23 +325,29 @@ class Export2GEO(object):
                     self.other_item_list[i].append(e[i])
                     self.other_item_unique[i] = False
 
+    # export data of all the samples in one study
     def export_sample(self):
         self.current_row_idx += 1
         self.excel.write_cell(self.current_row_idx, 1, 'SAMPLES', Style.SECTION)
         self.current_row_idx += 1
-        self.excel.write_cell(self.current_row_idx, 1, ('# This section lists and describes each of the biological Samples under investgation,'
-        'as well as any protocols that are specific to individual Samples.'), Style.INSTRUCTION)
-        for col in range(2,13):
+        self.excel.write_cell(self.current_row_idx, 1,
+                              ('# This section lists and describes each of the biological Samples under investgation,'
+                               'as well as any protocols that are specific to individual Samples.'), Style.INSTRUCTION)
+        # write some blank cells to make words of last cell showing expanded.
+        for col in range(2, 13):
             self.excel.write_cell(self.current_row_idx, col, '', Style.INSTRUCTION)
         self.current_row_idx += 1
-        self.excel.write_cell(self.current_row_idx, 1, '# Additional "processed data file" or "raw file" columns may be included.', Style.INSTRUCTION)
-
-        for col in range(2,13):
+        self.excel.write_cell(self.current_row_idx, 1,
+                              '# Additional "processed data file" or "raw file" columns may be included.',
+                              Style.INSTRUCTION)
+        # write some blank cells to make words of last cell showing expanded.
+        for col in range(2, 13):
             self.excel.write_cell(self.current_row_idx, col, '', Style.INSTRUCTION)
         self.header_row_idx = self.current_row_idx + 1
         self.current_row_idx += 1
 
         # write SAMPLES
+        # experiment by experiment
         for e in self.experiments:
             if e is None or 'RID' not in e.keys():
                 continue
@@ -315,13 +357,14 @@ class Export2GEO(object):
                 elif r['Experiment_RID'] == e['RID']:
                     local_col_idx = 1
                     self.current_row_idx += 1
-                    sample_name = e.get('Internal_ID','') + '_' + str(r.get('Biological_Replicate_Number','')) + '_' + str(
-                        r.get('Technical_Replicate_Number',''))
-                    sample_title = e.get('Name','') + '_' + str(r.get('Biological_Replicate_Number','')) + '_' + str(
-                        r.get('Technical_Replicate_Number',''))
-                    sample_source_name = e.get('Anatomy','')
-                    sample_organism = e.get('Species','')
-                    sample_molecule = e.get('Molecule_Type','')
+                    # construct sample_name using internal_ID,Biological_Replicate_Number and Technical_Replicate_Number
+                    sample_name = e.get('Internal_ID', '') + '_' + str(
+                        r.get('Biological_Replicate_Number', '')) + '_' + str(
+                        r.get('Technical_Replicate_Number', ''))
+                    sample_title = e.get('Name', '') + '_' + str(r.get('Biological_Replicate_Number', '')) + '_' + str(
+                        r.get('Technical_Replicate_Number', ''))
+                    sample_organism = e.get('Species', '')
+                    sample_molecule = e.get('Molecule_Type', '')
                     sample_description = r.get('Notes', '')
 
                     self.excel.write_cell(self.header_row_idx, local_col_idx, 'Sample name', Style.HEADER)
@@ -330,30 +373,36 @@ class Export2GEO(object):
                     self.excel.write_cell(self.header_row_idx, local_col_idx, 'title', Style.HEADER)
                     self.excel.write_cell(self.current_row_idx, local_col_idx, sample_title)
                     local_col_idx += 1
-                    self.excel.write_cell(self.header_row_idx, local_col_idx, 'source name', Style.HEADER)
-                    self.excel.write_cell(self.current_row_idx, local_col_idx, sample_source_name)
-                    local_col_idx += 1
                     self.excel.write_cell(self.header_row_idx, local_col_idx, 'organism', Style.HEADER)
                     self.excel.write_cell(self.current_row_idx, local_col_idx, sample_organism)
                     local_col_idx += 1
 
                     for p in self.protocol_type:
+                        # if different contents for protocol_type, need to add column for this protocol_type
+                        # then different samples may has different content to write
                         if not self.protocol_unique[p]:
-                            self.excel.write_cell(self.header_row_idx, local_col_idx, (p.replace('_', ' ').lower()),Style.HEADER)
+                            self.excel.write_cell(self.header_row_idx, local_col_idx, (p.replace('_', ' ').lower()),
+                                                  Style.HEADER)
                             self.excel.write_cell(self.current_row_idx, local_col_idx, e[p])
                             local_col_idx += 1
 
-                    characteristic_list = ['Phenotype','Stage_ID','Stage_Detail','Genotype','Strain','Wild_Type']
-                    foreign_item_list = ['Tissue','Source','Specimen_Cell_Type','Cell_Type']
-                    characteristic_exist=[]
+                    # the characteristic should show as one column in sample section, if samples has value it
+                    characteristic_list = ['Phenotype', 'Stage_ID', 'Stage_Detail', 'Genotype', 'Strain', 'Wild_Type'
+                        ,'Cell_Line','Passage','Assay_Type','Sex']
+                    # foreign_item_list = ['Tissue', 'Source', 'Specimen_Cell_Type', 'Cell_Type']
+                    characteristic_exist = []
                     for s in self.specimen:
                         for c in characteristic_list:
-                            characteristic = s.get(c,'')
-                            if characteristic is not None and len(characteristic)>0 and c not in characteristic_exist:
+                            characteristic = s.get(c, '')
+                            if characteristic is not None and len(characteristic) > 0 and c not in characteristic_exist:
+                                # get a list of existing characteristics
                                 characteristic_exist.append(c)
                             else:
                                 continue
 
+
+                    # check specimen tissue , if exist, add source
+                    #/Src:=left(Tissue)=(Vocabulary:Anatomy:ID)
                     for f in self.source_type:
                         if f is None:
                             continue
@@ -367,6 +416,7 @@ class Export2GEO(object):
                             characteristic_exist.append('Cell_Type')
                             break
 
+                    # consolidated stage column
                     if 'Stage_ID' in characteristic_exist and 'Stage_Detail' in characteristic_exist:
                         characteristic_exist.remove('Stage_ID')
                         characteristic_exist.remove('Stage_Detail')
@@ -381,9 +431,9 @@ class Export2GEO(object):
                     for s in self.specimen:
                         if s is None or 'REPLICATE_RID' not in s.keys():
                             continue
-                        elif s['REPLICATE_RID'] == r['RID']:
+                        elif s['RID'] == r['Specimen_RID']:
                             for c in characteristic_exist:
-                                #handling characteristic source_type
+                                # handling source name
                                 if c == "Source":
                                     source_type = ''
                                     for p in self.tissue:
@@ -391,12 +441,12 @@ class Export2GEO(object):
                                             if p is None or q is None:
                                                 continue
                                             elif s['RID'] == p['Specimen_RID'] and p['Tissue'] == q['ID']:
-                                                source_type = source_type + q['Name']+','
+                                                source_type = source_type + q['Name'] + ','
                                             else:
                                                 continue
-                                    characteristic = source_type[:-1] if len(source_type)>0 else ''
+                                    characteristic = source_type[:-1] if len(source_type) > 0 else ''
                                     self.excel.write_cell(self.header_row_idx, local_col_idx,
-                                                          'characteristics: Source',
+                                                          'source name',
                                                           Style.HEADER)
                                     self.excel.write_cell(self.current_row_idx, local_col_idx, characteristic)
                                     local_col_idx += 1
@@ -407,11 +457,11 @@ class Export2GEO(object):
                                         for q in self.cell_type:
                                             if p is None or q is None:
                                                 continue
-                                            elif s['RID'] == p['Specimen'] and p['Cell_Type']==q['Name']:
+                                            elif s['RID'] == p['Specimen'] and p['Cell_Type'] == q['Name']:
                                                 cell_type = cell_type + q['Name'] + ','
                                             else:
                                                 continue
-                                    characteristic = cell_type[:-1] if len(cell_type)>0 else ''
+                                    characteristic = cell_type[:-1] if len(cell_type) > 0 else ''
                                     self.excel.write_cell(self.header_row_idx, local_col_idx,
                                                           'characteristics: Cell_Type',
                                                           Style.HEADER)
@@ -437,20 +487,21 @@ class Export2GEO(object):
                                     if get_stage == 0:
                                         characteristic = s.get('Stage_Detail', '')
                                         self.excel.write_cell(self.header_row_idx, local_col_idx,
-                                                              'characteristics: ' + 'Stage',
+                                                              'characteristics: ' + 'Age',
                                                               Style.HEADER)
                                         self.excel.write_cell(self.current_row_idx, local_col_idx, characteristic)
                                         local_col_idx += 1
                                 else:
                                     characteristic = s.get(c, '')
-                                    self.excel.write_cell(self.header_row_idx, local_col_idx, 'characteristics: '+c,
+                                    self.excel.write_cell(self.header_row_idx, local_col_idx, 'characteristics: ' + c,
                                                           Style.HEADER)
                                     self.excel.write_cell(self.current_row_idx, local_col_idx, characteristic)
                                     local_col_idx += 1
                         else:
                             continue
 
-                    self.excel.write_cell(self.header_row_idx, local_col_idx, 'molecule',Style.HEADER)
+
+                    self.excel.write_cell(self.header_row_idx, local_col_idx, 'molecule', Style.HEADER)
                     self.excel.write_cell(self.current_row_idx, local_col_idx, sample_molecule)
                     local_col_idx += 1
 
@@ -458,28 +509,32 @@ class Export2GEO(object):
                     self.excel.write_cell(self.current_row_idx, local_col_idx, sample_description)
                     local_col_idx += 1
 
-                    # processed files are write to supplementary file
+                    # processed files in template are write to supplementary file
 
-                    # writing raw file
+                    # writing raw file names
                     for f in self.files:
                         if f is None or 'Replicate_RID' not in f.keys():
                             continue
                         elif f['Replicate_RID'] == r['RID']:
                             self.excel.write_cell(self.header_row_idx, local_col_idx, 'raw file', Style.HEADER)
-                            self.excel.write_cell(self.current_row_idx, local_col_idx, f.get('File_Name',''))
+                            self.excel.write_cell(self.current_row_idx, local_col_idx, f.get('File_Name', ''))
                             local_col_idx += 1
                         else:
                             continue
                 else:
                     continue
 
+    # export data for protocol section
     def export_protocol(self):
         self.current_row_idx = self.current_row_idx + 2
         self.excel.write_cell(self.current_row_idx, 1, 'PROTOCOLS', Style.SECTION)
         self.current_row_idx += 1
-        self.excel.write_cell(self.current_row_idx, 1, ('# Any of the protocols below which are applicable to only a subset of '
-        'Samples should be included as additional columns of the SAMPLES section instead.'), Style.INSTRUCTION)
-        for col in range(2,13):
+        self.excel.write_cell(self.current_row_idx, 1,
+                              ('# Any of the protocols below which are applicable to only a subset of '
+                               'Samples should be included as additional columns of the SAMPLES section instead.'),
+                              Style.INSTRUCTION)
+        # write some blank cells to make words of last cell showing expanded.
+        for col in range(2, 13):
             self.excel.write_cell(self.current_row_idx, col, '', Style.INSTRUCTION)
         self.current_row_idx += 1
 
@@ -525,63 +580,79 @@ class Export2GEO(object):
 
         for p in self.protocol_type:
             if p not in ['Growth_Protocol', 'Treatment_Protocol', 'Extract_Protocol', 'Construction_Protocol']:
+                # only write protocol_types of unique content for all the samples in the same study
+                # as protocl_types of non-unique content are already exported in sample section
                 if self.protocol_unique[p] and len(self.protocol_list[p]) == 1:
-                    self.excel.write_cell(self.current_row_idx, 1, (p.replace('_', ' ').lower()),Style.FIELD)
+                    self.excel.write_cell(self.current_row_idx, 1, (p.replace('_', ' ').lower()), Style.FIELD)
                     self.excel.write_cell(self.current_row_idx, 2, self.protocol_list[p][0])
                     self.current_row_idx += 1
 
-        self.excel.write_cell(self.current_row_idx, 1, 'library strategy',Style.FIELD)
-        # todo: fixed value for now.
-        self.excel.write_cell(self.current_row_idx, 2, 'RNA-seq')
+        self.excel.write_cell(self.current_row_idx, 1, 'library strategy', Style.FIELD)
 
+        library_type_list = []
+        for es in self.experiment_settings:
+            if es is None or 'Experiment_RID' not in es.keys():
+                continue
+            else:
+                if es['Library_Type'] not in library_type_list:
+                    library_type_list.append(es['Library_Type'])
+
+        self.excel.write_cell(self.current_row_idx, 2, ','.join(library_type_list))
+
+    # export data processing pipline information
     def export_data_processing(self):
         # DATA PROCESSING PIPELINE
         self.current_row_idx = self.current_row_idx + 2
 
         self.excel.write_cell(self.current_row_idx, 1, 'DATA PROCESSING PIPELINE', Style.SECTION)
         self.current_row_idx += 1
-        self.excel.write_cell(self.current_row_idx, 1, ('# Data processing steps include base-calling, alignment, filtering,'
-'peak-calling, generation of normalized abundance measurements etc'), Style.INSTRUCTION)
-        for col in range(2,13):
+        self.excel.write_cell(self.current_row_idx, 1,
+                              ('# Data processing steps include base-calling, alignment, filtering,'
+                               'peak-calling, generation of normalized abundance measurements etc'), Style.INSTRUCTION)
+        for col in range(2, 13):
             self.excel.write_cell(self.current_row_idx, col, '', Style.INSTRUCTION)
         self.current_row_idx += 1
-        self.excel.write_cell(self.current_row_idx, 1, ('# For each step provide a description, as well as software name,'
-        'version, parameters, if applicable.'), Style.INSTRUCTION)
-        for col in range(2,13):
+        self.excel.write_cell(self.current_row_idx, 1,
+                              ('# For each step provide a description, as well as software name,'
+                               'version, parameters, if applicable.'), Style.INSTRUCTION)
+        for col in range(2, 13):
             self.excel.write_cell(self.current_row_idx, col, '', Style.INSTRUCTION)
         self.current_row_idx += 1
         self.excel.write_cell(self.current_row_idx, 1, '# Include additional steps, as necessary.', Style.INSTRUCTION)
-        for col in range(2,13):
+        for col in range(2, 13):
             self.excel.write_cell(self.current_row_idx, col, '', Style.INSTRUCTION)
         self.current_row_idx += 1
+
 
         if len(self.other_item_list['Data_Processing']) == 1:
             processing_list = self.other_item_list['Data_Processing'][0].split('\n')
         else:
             processing_list = []
 
+        # include experiment setting parameters into data processing section
         other_procession_set = {}
         for es in self.experiment_settings:
             if es is None or 'Experiment_RID' not in es.keys():
                 continue
             else:
                 if other_procession_set:
-                    for k,v in es.items():
+                    for k, v in es.items():
                         if k in other_procession_set.keys() and v != other_procession_set[k]:
                             del other_procession_set[k]
                 else:
                     other_procession_set = es.copy()
 
-
         for step_row in processing_list:
-            self.excel.write_cell(self.current_row_idx, 1, 'data processing step',Style.FIELD)
+            self.excel.write_cell(self.current_row_idx, 1, 'data processing step', Style.FIELD)
             self.excel.write_cell(self.current_row_idx, 2, step_row)
             self.current_row_idx += 1
 
         for k, v in other_procession_set.items():
-            if v and k not in ['RCB','RCT','RID','RMB','RMT'] and len(v)>0:
+            if v and k not in ['RCB', 'RCT', 'RID', 'RMB', 'RMT'] and len(v) > 0:
+                if k in ['Library','Visualization','Alignment','Sequencing_Method','Quantification'] and 'detail' in v:
+                    continue
                 self.excel.write_cell(self.current_row_idx, 1, 'data processing step', Style.FIELD)
-                self.excel.write_cell(self.current_row_idx, 2, k+' : '+v)
+                self.excel.write_cell(self.current_row_idx, 2, k + ' : ' + v)
                 self.current_row_idx += 1
 
         if self.other_item_unique['Reference_Genome']:
@@ -595,92 +666,124 @@ class Export2GEO(object):
 
         self.current_row_idx += 1
 
-        self.excel.write_cell(self.current_row_idx, 1, 'processed data files format and content',Style.FIELD)
+        self.excel.write_cell(self.current_row_idx, 1, 'processed data files format and content', Style.FIELD)
         self.excel.write_cell(self.current_row_idx, 2, 'processed data file format')
         self.current_row_idx += 1
 
+        # export processed datafile names of this study
     def export_processed_datafiles(self):
-        # PROCESSED DATA FILES
         self.current_row_idx += 1
-        self.excel.write_cell(self.current_row_idx, 1, ('# For each file listed in the "processed data file" columns of '
-        'the SAMPLES section, provide additional information below.'), Style.INSTRUCTION)
-        for col in range(2,13):
+        self.excel.write_cell(self.current_row_idx, 1,
+                              ('# For each file listed in the "processed data file" columns of '
+                               'the SAMPLES section, provide additional information below.'), Style.INSTRUCTION)
+        for col in range(2, 13):
             self.excel.write_cell(self.current_row_idx, col, '', Style.INSTRUCTION)
         self.current_row_idx += 1
         self.excel.write_cell(self.current_row_idx, 1, 'PROCESSED DATA FILES', Style.SECTION)
         self.header_row_idx = self.current_row_idx + 1
         self.current_row_idx += 2
 
+
+        # 1. set flagWhitelist to False then all the files will pass
+        # 2. set flagWhitelist to True and fileEndingList to [] then no file will pass
+        # 3. set flagWhitelist to True and fileEndingList to [xxx,yyy] then only files ending with xxx,yyy will pass
+        flagWhitelist = True
+        fileTypeWhiteList = [".csv",".csv.gz",".txt.gz",".txt",".tsv",".tsv.gz",".xls",".xlsx",".mtx",".pdf"]
+
         for pf in self.study_files:
+            validFile = False
             if pf is None:
                 continue
+            elif flagWhitelist:
+                for str in fileTypeWhiteList:
+                    if pf.get('File_Name', '').lower().endswith(str):
+                        validFile = True
             else:
+                # if flagWhitelist == False then all the files are valid
+                validFile = True
+            if validFile:
                 local_col_idx = 1
                 self.excel.write_cell(self.header_row_idx, local_col_idx, 'file name', Style.HEADER)
-                self.excel.write_cell(self.current_row_idx, local_col_idx, pf.get('File_Name',''))
+                self.excel.write_cell(self.current_row_idx, local_col_idx, pf.get('File_Name', ''))
                 local_col_idx += 1
                 self.excel.write_cell(self.header_row_idx, local_col_idx, 'file type', Style.HEADER)
-                self.excel.write_cell(self.current_row_idx, local_col_idx, pf.get('File_Type',''))
+                self.excel.write_cell(self.current_row_idx, local_col_idx, pf.get('File_Type', ''))
                 local_col_idx += 1
                 self.excel.write_cell(self.header_row_idx, local_col_idx, 'file checksum', Style.HEADER)
-                self.excel.write_cell(self.current_row_idx, local_col_idx, pf.get('MD5',''))
+                self.excel.write_cell(self.current_row_idx, local_col_idx, pf.get('MD5', ''))
                 self.current_row_idx += 1
 
+    # export raw datafile names of this study
     def export_raw_datafiles(self):
-        # RAW FILES
         self.current_row_idx += 1
         self.excel.write_cell(self.current_row_idx, 1, ('# For each file listed in the "raw file" columns of'
-        'the SAMPLES section, provide additional information below.'), Style.INSTRUCTION)
-        for col in range(2,13):
+                                                        'the SAMPLES section, provide additional information below.'),
+                              Style.INSTRUCTION)
+        for col in range(2, 13):
             self.excel.write_cell(self.current_row_idx, col, '', Style.INSTRUCTION)
         self.current_row_idx += 1
         self.excel.write_cell(self.current_row_idx, 1, 'RAW FILES', Style.SECTION)
         self.header_row_idx = self.current_row_idx + 1
         self.current_row_idx += 2
 
+        # 1. set flagWhitelist to False then all the files will pass
+        # 2. set flagWhitelist to True and fileEndingList to [] then no file will pass
+        # 3. set flagWhitelist to True and fileEndingList to [xxx,yyy] then only files ending with xxx,yyy will pass
+        flagWhitelist = True
+        fileTypeWhiteList = [".bam",".fastq",".fastq.gz",".bai"]
         for pf in self.files:
+            validFile = False
             if pf is None or 'Experiment_RID' not in pf.keys():
                 continue
+            elif flagWhitelist:
+                for str in fileTypeWhiteList:
+                    if pf.get('File_Name', '').lower().endswith(str):
+                        validFile = True
             else:
+                # if flagWhitelist == False then all the files are valid
+                validFile = True
+            if validFile:
                 current_col_idx = 1
                 self.excel.write_cell(self.header_row_idx, current_col_idx, 'file name', Style.HEADER)
-                self.excel.write_cell(self.current_row_idx, current_col_idx, pf.get('File_Name',''))
+                self.excel.write_cell(self.current_row_idx, current_col_idx, pf.get('File_Name', ''))
                 current_col_idx += 1
                 self.excel.write_cell(self.header_row_idx, current_col_idx, 'file type', Style.HEADER)
-                self.excel.write_cell(self.current_row_idx, current_col_idx, pf.get('File_Type',''))
+                self.excel.write_cell(self.current_row_idx, current_col_idx, pf.get('File_Type', ''))
                 current_col_idx += 1
                 self.excel.write_cell(self.header_row_idx, current_col_idx, 'file checksum', Style.HEADER)
-                self.excel.write_cell(self.current_row_idx, current_col_idx, pf.get('MD5',''))
+                self.excel.write_cell(self.current_row_idx, current_col_idx, pf.get('MD5', ''))
                 current_col_idx += 1
                 # Experiment_Settings.Protocol_Reference
                 for es in self.experiment_settings:
                     if es is None or 'Experiment_RID' not in es.keys():
-                        print('skipped?')
-                        print(es)
                         continue
                     elif es['Experiment_RID'] == pf['Experiment_RID']:
                         self.excel.write_cell(self.header_row_idx, current_col_idx, 'instrument model', Style.HEADER)
-                        self.excel.write_cell(self.current_row_idx, current_col_idx, es.get('Sequencing_Platform',''))
+                        self.excel.write_cell(self.current_row_idx, current_col_idx, es.get('Sequencing_Platform', ''))
                         current_col_idx += 1
                         self.excel.write_cell(self.header_row_idx, current_col_idx, 'read length', Style.HEADER)
-                        self.excel.write_cell(self.current_row_idx, current_col_idx, es.get('Read_Length',''))
+                        self.excel.write_cell(self.current_row_idx, current_col_idx, es.get('Read_Length', ''))
                         current_col_idx += 1
-                        if 'pair' in str(es.get('Paired_End','')).lower():
+                        if 'pair' in es.get('Paired_End', '').lower():
                             single_or_paired = 'paired-end'
                         else:
                             single_or_paired = 'single'
-                        self.excel.write_cell(self.header_row_idx, current_col_idx, 'single or paired-end', Style.HEADER)
+                        self.excel.write_cell(self.header_row_idx, current_col_idx, 'single or paired-end',
+                                              Style.HEADER)
                         self.excel.write_cell(self.current_row_idx, current_col_idx, single_or_paired)
                         current_col_idx += 1
-            self.current_row_idx += 1
+                self.current_row_idx += 1
 
     def export_paired_end(self):
         # PAIRED-END EXPERIMENTS
         # todo need check what's paired-end data look like
+        # currently, we haven't seen paired-end data
         self.current_row_idx += 1
-        self.excel.write_cell(self.current_row_idx, 1, ('# For paired-end experiments, list the 2 associated raw files, and provide average insert size and standard deviation,'
-        'if known. For SOLiD experiments, list the 4 file names (include "file name 3" and "file name 4" columns).'), Style.INSTRUCTION)
-        for col in range(2,13):
+        self.excel.write_cell(self.current_row_idx, 1, (
+            '# For paired-end experiments, list the 2 associated raw files, and provide average insert size and standard deviation,'
+            'if known. For SOLiD experiments, list the 4 file names (include "file name 3" and "file name 4" columns).'),
+                              Style.INSTRUCTION)
+        for col in range(2, 13):
             self.excel.write_cell(self.current_row_idx, col, '', Style.INSTRUCTION)
         self.current_row_idx += 1
         self.excel.write_cell(self.current_row_idx, 1, 'PAIRED-END EXPERIMENTS', Style.SECTION)
