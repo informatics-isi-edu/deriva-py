@@ -688,7 +688,7 @@ class Export2GEO(object):
         # 2. set flagWhitelist to True and fileEndingList to [] then no file will pass
         # 3. set flagWhitelist to True and fileEndingList to [xxx,yyy] then only files ending with xxx,yyy will pass
         flagWhitelist = True
-        fileTypeWhiteList = [".csv",".csv.gz",".txt.gz",".txt",".tsv",".tsv.gz",".xls",".xlsx",".mtx",".pdf"]
+        fileTypeWhiteList = [".csv",".csv.gz",".txt.gz",".txt",".tsv",".tsv.gz",".xls",".xlsx",".mtx"]
 
         for pf in self.study_files:
             validFile = False
