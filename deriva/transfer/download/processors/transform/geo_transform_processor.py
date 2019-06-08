@@ -696,7 +696,7 @@ class Export2GEO(object):
                 continue
             elif flagWhitelist:
                 for str in fileTypeWhiteList:
-                    if pf.get('File_Name', '').lower().endswith(str):
+                    if pf.get('File_Name') is not None and pf.get('File_Name').lower().endswith(str):
                         validFile = True
             else:
                 # if flagWhitelist == False then all the files are valid
@@ -737,7 +737,7 @@ class Export2GEO(object):
                 continue
             elif flagWhitelist:
                 for str in fileTypeWhiteList:
-                    if pf.get('File_Name', '').lower().endswith(str):
+                    if pf.get('File_Name') is not None and pf.get('File_Name').lower().endswith(str):
                         validFile = True
             else:
                 # if flagWhitelist == False then all the files are valid
@@ -764,7 +764,7 @@ class Export2GEO(object):
                         self.excel.write_cell(self.header_row_idx, current_col_idx, 'read length', Style.HEADER)
                         self.excel.write_cell(self.current_row_idx, current_col_idx, es.get('Read_Length', ''))
                         current_col_idx += 1
-                        if 'pair' in es.get('Paired_End', '').lower():
+                        if es.get('Paired_End') is not None and 'pair' in es.get('Paired_End').lower():
                             single_or_paired = 'paired-end'
                         else:
                             single_or_paired = 'single'
