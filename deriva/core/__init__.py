@@ -120,15 +120,19 @@ def add_logging_level(level_name, level_num, method_name=None):
 
 
 def init_logging(level=logging.INFO,
-                 log_format="%(asctime)s - %(levelname)s - %(message)s",
+                 log_format=None,
                  file_path=None,
+                 file_mode='w',
                  capture_warnings=True):
     add_logging_level("TRACE", logging.DEBUG-5)
     logging.captureWarnings(capture_warnings)
     # this will suppress potentially numerous INFO-level "Resetting dropped connection" messages from requests
     logging.getLogger("requests.packages.urllib3.connectionpool").setLevel(logging.WARNING)
+    if log_format is None:
+        log_format = "[%(asctime)s - %(levelname)s - %(filename)s:%(lineno)s:%(funcName)s()] %(message)s" \
+            if level <= logging.DEBUG else "%(asctime)s - %(levelname)s - %(message)s"
     if file_path:
-        logging.basicConfig(filename=file_path, level=level, format=log_format)
+        logging.basicConfig(filename=file_path, filemode=file_mode, level=level, format=log_format)
     else:
         logging.basicConfig(level=level, format=log_format)
 
