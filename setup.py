@@ -66,7 +66,8 @@ setup(
         'requests',
         'certifi',
         'pika',
-        'portalocker',
+        'urllib3>=1.1.5',
+        'portalocker>=1.2.0',
         'portalocker>=1.2.1; platform_system == "Windows"',
         'scandir; python_version <= "2.7"',
         'bdbag>=1.5.4'

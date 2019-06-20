@@ -73,8 +73,11 @@ class DerivaDownload(object):
         self.set_dcctx_cid(self.__class__.__name__)
 
         # process config file
-        if config_file and os.path.isfile(config_file):
-            self.config = read_config(config_file)
+        if config_file:
+            try:
+                self.config = read_config(config_file)
+            except Exception as e:
+                raise DerivaDownloadConfigurationError(e)
 
     def set_dcctx_cid(self, cid):
         assert cid, "A dcctx cid is required"

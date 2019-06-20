@@ -7,15 +7,14 @@ import json
 import platform
 import logging
 import requests
-import inspect
+import portalocker
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 from requests.packages.urllib3.exceptions import MaxRetryError
 from collections import OrderedDict
 from distutils import util as du_util
-from importlib import import_module
 
-__version__ = "0.8.4"
+__version__ = "0.8.5"
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
@@ -126,8 +125,6 @@ def init_logging(level=logging.INFO,
                  capture_warnings=True):
     add_logging_level("TRACE", logging.DEBUG-5)
     logging.captureWarnings(capture_warnings)
-    # this will suppress potentially numerous INFO-level "Resetting dropped connection" messages from requests
-    logging.getLogger("requests.packages.urllib3.connectionpool").setLevel(logging.WARNING)
     if log_format is None:
         log_format = "[%(asctime)s - %(levelname)s - %(filename)s:%(lineno)s:%(funcName)s()] %(message)s" \
             if level <= logging.DEBUG else "%(asctime)s - %(levelname)s - %(message)s"
@@ -164,20 +161,12 @@ DEFAULT_CREDENTIAL = {}
 
 def get_new_requests_session(url=None, session_config=DEFAULT_SESSION_CONFIG):
     session = requests.session()
-    inspect_retry = inspect.getargspec(Retry.__init__)
-    if "raise_on_status" in inspect_retry.args:
-        retries = Retry(connect=session_config['retry_connect'],
-                        read=session_config['retry_read'],
-                        backoff_factor=session_config['retry_backoff_factor'],
-                        status_forcelist=session_config['retry_status_forcelist'],
-                        method_whitelist=False,
-                        raise_on_status=True)
-    else:
-        # this is in case installed urllib3 is < 1.15 and raise_on_status is unavailable
-        retries = Retry(connect=session_config['retry_connect'],
-                        read=session_config['retry_read'],
-                        backoff_factor=session_config['retry_backoff_factor'],
-                        status_forcelist=session_config['retry_status_forcelist'])
+    retries = Retry(connect=session_config['retry_connect'],
+                    read=session_config['retry_read'],
+                    backoff_factor=session_config['retry_backoff_factor'],
+                    status_forcelist=session_config['retry_status_forcelist'],
+                    method_whitelist=False,
+                    raise_on_status=True)
     if url:
         session.mount(url, HTTPAdapter(max_retries=retries))
     else:
@@ -233,25 +222,9 @@ def read_config(config_file=DEFAULT_CONFIG_FILE, create_default=False, default=D
     return json.loads(config, object_pairs_hook=OrderedDict)
 
 
-PORTALOCKER = None
-try:
-    PORTALOCKER = import_module("portalocker")
-except ImportError:
-    pass
-
-
 def lock_file(file_path, mode, exclusive=True):
-    global PORTALOCKER
-    if PORTALOCKER and os.path.isfile(file_path):
-        portalocker_argspec = inspect.getargspec(PORTALOCKER.Lock.__init__)
-        if "truncate" not in portalocker_argspec.args:
-            return PORTALOCKER.Lock(file_path, mode, timeout=60,
-                                    flags=PORTALOCKER.LOCK_EX if exclusive else PORTALOCKER.LOCK_SH)
-        else:
-            return PORTALOCKER.Lock(file_path, mode, timeout=60,
-                                    flags=PORTALOCKER.LOCK_EX if exclusive else PORTALOCKER.LOCK_SH, truncate=None)
-    else:
-        return io.open(file_path, mode)
+    return portalocker.Lock(file_path, mode, timeout=60,
+                            flags=portalocker.LOCK_EX if exclusive else portalocker.LOCK_SH)
 
 
 def write_credential(credential_file=DEFAULT_CREDENTIAL_FILE, credential=DEFAULT_CREDENTIAL):
