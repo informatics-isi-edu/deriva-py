@@ -213,7 +213,7 @@ def read_config(config_file=DEFAULT_CONFIG_FILE, create_default=False, default=D
         except Exception as e:
             logging.warning("Unable to create configuration file %s. Using internal defaults. %s" %
                             (config_file, format_exception(e)))
-            config = default
+            config = json.dumps(default, ensure_ascii=False)
 
     if not config:
         with open(config_file) as cf:
@@ -249,9 +249,9 @@ def read_credential(credential_file=DEFAULT_CREDENTIAL_FILE, create_default=Fals
         try:
             write_credential(credential_file, default)
         except Exception as e:
-            logging.warning("Unable to create configuration file %s. Using internal defaults. %s" %
+            logging.warning("Unable to create credential file %s. Using internal defaults. %s" %
                             (credential_file, format_exception(e)))
-            credential = default
+            credential = json.dumps(default, ensure_ascii=False)
 
     if not credential:
         with lock_file(credential_file, mode='r') as cf:
