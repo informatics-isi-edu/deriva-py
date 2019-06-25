@@ -288,6 +288,11 @@ class DatapathTests (unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.experiment.attributes(**{attr: getattr(self.experiment, attr)})
 
+    def test_attribute_err_no_targets(self):
+        entities = [{'RID': 1234}]
+        with self.assertRaises(ValueError):
+            self.experiment.update(entities)
+
     @unittest.skipUnless(HAS_ASSERTWARNS, "This tests is not available unless running python 3.2+")
     def test_deprecated_entities_projection(self):
         with self.assertWarns(DeprecationWarning):
