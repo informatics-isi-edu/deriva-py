@@ -665,6 +665,11 @@ class Table (object):
             exclusions = correlation_cnames | _system_defaults
             target_cnames = {urlquote(str(t)) for t in entities[0].keys() if urlquote(str(t)) not in exclusions}
 
+        # test if there are any targets after excluding for correlation keys and system columns
+        if not target_cnames:
+            raise ValueError('No "targets" for the update. There must be at least one column as a target of the update,'
+                             ' and targets cannot overlap with "correlation" keys and system columns.')
+
         # Form the path
         path = '/attributegroup/{table}/{correlation};{targets}'.format(
             table=self.fqname,
