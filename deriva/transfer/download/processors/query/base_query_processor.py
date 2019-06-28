@@ -61,7 +61,7 @@ class BaseQueryProcessor(BaseProcessor):
             make_dirs(output_dir)
         try:
             if as_file:
-                return self.catalog.getAsFile(self.query, self.output_abspath, headers=headers)
+                return self.catalog.getAsFile(self.query, self.output_abspath, headers=headers, delete_if_empty=True)
             else:
                 return self.catalog.get(self.query, headers=headers).json()
         except requests.HTTPError as e:
@@ -69,7 +69,11 @@ class BaseQueryProcessor(BaseProcessor):
                 raise DerivaDownloadAuthenticationError(e)
             if e.response.status_code == 403:
                 raise DerivaDownloadAuthorizationError(e)
+            os.remove(self.output_abspath)
             raise DerivaDownloadError("Error executing catalog query: %s" % e)
+        except Exception:
+            os.remove(self.output_abspath)
+            raise
 
     def headForHeaders(self, url, raise_for_status=False):
         store = self.getHatracStore(url)

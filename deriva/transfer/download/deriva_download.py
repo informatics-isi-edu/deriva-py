@@ -223,7 +223,7 @@ class DerivaDownload(object):
                              if (remote_file_manifest and os.path.getsize(remote_file_manifest) > 0) else None,
                              update=True)
             except Exception as e:
-                logging.fatal("Exception while updating bag manifests: %s", format_exception(e))
+                logging.fatal("Exception while updating bag manifests: %s" % format_exception(e))
                 bdb.cleanup_bag(bag_path)
                 raise
             finally:
@@ -238,7 +238,7 @@ class DerivaDownload(object):
                     bdb.cleanup_bag(bag_path)
                     outputs = {os.path.basename(archive): {LOCAL_PATH_KEY: archive}}
                 except Exception as e:
-                    logging.error("Exception while creating data bag archive:", format_exception(e))
+                    logging.error("Exception while creating data bag archive: %s" % format_exception(e))
                     raise
             else:
                 outputs = {os.path.basename(bag_path): {LOCAL_PATH_KEY: bag_path}}

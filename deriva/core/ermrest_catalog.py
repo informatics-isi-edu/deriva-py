@@ -1,8 +1,10 @@
-
+import os
 import logging
 import datetime
+import codecs
+import csv
 
-from . import urlquote, datapath, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, Megabyte, get_transfer_summary
+from . import urlquote, datapath, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, Megabyte, Kilobyte, get_transfer_summary, IS_PY2
 from .deriva_binding import DerivaBinding
 from .ermrest_config import CatalogConfig
 from . import ermrest_model
@@ -154,11 +156,14 @@ class ErmrestCatalog(DerivaBinding):
             return None
         return entity[0], entity[1]
 
-    def getAsFile(self, path, destfilename, headers=DEFAULT_HEADERS, callback=None):
+    def getAsFile(self, path, destfilename, headers=DEFAULT_HEADERS, callback=None, delete_if_empty=False):
         """
            Retrieve catalog data streamed to destination file.
            Caller is responsible to clean up file even on error, when the file may or may not be exist.
-
+           If "delete_if_empty" is True, the file will be inspected for "empty" content. In the case of
+           json/json-stream content, the presence of a single empty JSON object will be tested for. In the case of
+           CSV content, the file will be parsed with CSV reader to determine that only a single header line and now row
+           data is present.
         """
         self.check_path(path)
 
@@ -169,6 +174,7 @@ class ErmrestCatalog(DerivaBinding):
         try:
             r = self._session.get(self._server_uri + path, headers=headers, stream=True)
             self._response_raise_for_status(r)
+            content_type = r.headers.get("Content-Type")
 
             total = 0
             start = datetime.datetime.now()
@@ -180,15 +186,44 @@ class ErmrestCatalog(DerivaBinding):
                     if not callback(progress="Downloading: %.2f MB transferred" % (float(total) / float(Megabyte))):
                         destfile.close()
                         return None
+            destfile.flush()
             elapsed = datetime.datetime.now() - start
             summary = get_transfer_summary(total, elapsed)
-            logging.info("File [%s] transfer successful. %s" % (destfilename, summary))
+
+            # perform automatic file deletion on detected "empty" content, if requested
+            delete_file = True if total == 0 else False
+            if delete_if_empty and total > 0:
+                destfile.seek(0)
+                if content_type == "application/json" or content_type == "application/x-json-stream":
+                    buf = destfile.read(16)
+                    if buf == b"[]\n" or buf == b"{}\n":
+                        delete_file = True
+                elif content_type == "text/csv":
+                    reader = csv.reader(codecs.iterdecode(destfile, 'utf-8') if not IS_PY2 else destfile)
+                    rowcount = 0
+                    for row in reader:
+                        rowcount += 1
+                        if rowcount > 1:
+                            break
+                    if rowcount <= 1:
+                        delete_file = True
+
+                if delete_file:
+                    destfile.close()
+                    os.remove(destfilename)
+                    destfile = None
+
+            log_msg = "File [%s] transfer successful. %s %s" % \
+                      (destfilename, summary,
+                       "File was automatically deleted due to empty content." if delete_file else "")
+            logging.info(log_msg)
             if callback:
-                callback(summary=summary, file_path=destfilename)
+                callback(summary=log_msg, file_path=destfilename)
 
             return r
         finally:
-            destfile.close()
+            if destfile:
+                destfile.close()
 
     def delete(self, path, headers=DEFAULT_HEADERS, guard_response=None):
         """Perform DELETE request, returning response object.
