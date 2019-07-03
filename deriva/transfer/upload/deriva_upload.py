@@ -637,7 +637,7 @@ class DerivaUpload(object):
             raise DerivaUploadConfigurationError("Record query template substitution error: %s" % format_exception(e))
         result = self.catalog.get(path).json()
         if result:
-            self._updateFileMetadata(result[0])
+            self._updateFileMetadata(result[0], no_overwrite=True)
             return self.pruneDict(result[0], column_map)
         else:
             row = self.interpolateDict(self.metadata, column_map)
@@ -666,16 +666,22 @@ class DerivaUpload(object):
 
         self._urlEncodeMetadata(asset_mapping.get("url_encoding_safe_overrides"))
 
-    def _updateFileMetadata(self, src, strict=False):
+    def _updateFileMetadata(self, src, strict=False, no_overwrite=False):
         if not (isinstance(src, dict)):
             ValueError("Invalid input parameter type(s): (src = %s), expected (dict)" % type(src).__name__)
-        if strict:
-            for k in src.keys():
+        dst = src.copy()
+        for k in src.keys():
+            if strict:
                 if k in UploadMetadataReservedKeyNames:
                     logger.warning("Context metadata update specified reserved key name [%s], "
                                    "ignoring value: %s " % (k, src[k]))
-                    del src[k]
-        self.metadata.update(src)
+                    del dst[k]
+                    continue
+            # dont overwrite any existing metadata field
+            if no_overwrite:
+                if k in self.metadata:
+                    del dst[k]
+        self.metadata.update(dst)
 
     def _queryFileMetadata(self, asset_mapping):
         """
