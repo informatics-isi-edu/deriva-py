@@ -424,8 +424,10 @@ class HatracStore(DerivaBinding):
         url = resource_name + ';acl'
         if access:
             url += '/' + urlquote(access)
-        if role:
-            url += '/' + urlquote(role)
+            if role:
+                url += '/' + urlquote(role)
+        elif role:
+            raise ValueError('Do not specify "role" if "access" mode is not specified.')
         resp = self.get(url, headers)
         if resp.status_code == requests.codes.ok:
             if role:
@@ -444,7 +446,8 @@ class HatracStore(DerivaBinding):
         if 'add_role' is True, the operation will add a single role to the ACL, else it will attempt to replace
         all of the ACL's roles. This option is only valid when a list of one role is given.
         """
-        assert not add_role or len(roles) == 1, "Cannot 'add' more than one role at a time"
+        if add_role and len(roles) > 1:
+            raise ValueError("Cannot add more than one role at a time.")
         headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
         url = "%(resource_name)s;acl/%(access)s" % {'resource_name': resource_name, 'access': urlquote(access)}
         roles_obj = None
