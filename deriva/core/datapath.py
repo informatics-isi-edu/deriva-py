@@ -318,8 +318,8 @@ class DataPath (object):
         named parameter is therefore _reserved_ for any invocation of the `attributegroups(...)` method.
 
         ```
-        results1 = my_path.entities(group_key=col1, min_col1=Min(col2), arr_col2=Array(col3))  # 1 group key
-        results2 = my_path.entities(group_key=(col1, col2), min_col1=Min(col3), arr_col2=Array(col4))  # >1 group keys
+        results1 = my_path.attributegroups(group_key=col1, min_col1=Min(col2), arr_col2=Array(col3))  # 1 group key
+        results2 = my_path.attributegroups(group_key=(col1, col2), min_col1=Min(col3), arr_col2=Array(col4))  # >1 group keys
         ```
 
         As with aggregation, callers must not mix ordinary columns in with grouped aggregates.
