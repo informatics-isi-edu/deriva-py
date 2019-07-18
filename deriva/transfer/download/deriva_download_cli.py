@@ -6,50 +6,41 @@ import argparse
 from deriva.transfer import GenericDownloader
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError, \
     DerivaDownloadAuthenticationError, DerivaDownloadAuthorizationError
-from deriva.core import BaseCLI, KeyValuePairArgs, format_credential, format_exception, urlparse, __version__
+from deriva.core import BaseCLI, KeyValuePairArgs, format_credential, format_exception, urlparse
 
 
 class DerivaDownloadCLI(BaseCLI):
-    def __init__(self, description, epilog):
+    def __init__(self, description, epilog, **kwargs):
 
-        BaseCLI.__init__(self, description, epilog, __version__, hostname_required=True, config_file_required=True)
+        BaseCLI.__init__(self, description, epilog, **kwargs)
         self.parser.add_argument("--catalog", default=1, metavar="<1>", help="Catalog number. Default: 1")
-        self.parser.add_argument("path", metavar="<output dir>", help="Path to an output directory.")
-        self.parser.add_argument("kwargs", metavar="[key=value key=value ...]",
-                                 nargs=argparse.REMAINDER, action=KeyValuePairArgs,
+        self.parser.add_argument("output_dir", metavar="<output dir>", help="Path to an output directory.")
+        self.parser.add_argument("envars", metavar="[key=value key=value ...]",
+                                 nargs=argparse.REMAINDER, action=KeyValuePairArgs, default={},
                                  help="Variable length of whitespace-delimited key=value pair arguments used for "
                                       "string interpolation in specific parts of the configuration file. "
                                       "For example: key1=value1 key2=value2")
 
-    @staticmethod
-    def download(
-               output_path,
-               hostname,
-               catalog=1,
-               token=None,
-               envars=None,
-               config_file=None,
-               credential_file=None):
+    @classmethod
+    def get_downloader(cls, *args, **kwargs):
+        return GenericDownloader(*args, **kwargs)
 
-        assert hostname, "A hostname is required!"
+    @classmethod
+    def download(cls, args):
+
+        assert args.host, "A hostname is required!"
         server = dict()
-        server["catalog_id"] = catalog
-        if hostname.startswith("http"):
-            url = urlparse(hostname)
+        server["catalog_id"] = args.catalog
+        if args.host.startswith("http"):
+            url = urlparse(args.host)
             server["protocol"] = url.scheme
             server["host"] = url.netloc
         else:
             server["protocol"] = "https"
-            server["host"] = hostname
+            server["host"] = args.host
 
-        downloader = GenericDownloader(server,
-                                       output_dir=output_path,
-                                       envars=envars,
-                                       config_file=config_file,
-                                       credential_file=credential_file)
+        downloader = cls.get_downloader(server, **vars(args))
         downloader.set_dcctx_cid(downloader.__class__.__name__)
-        if token:
-            downloader.setCredentials(format_credential(token))
 
         return downloader.download()
 
@@ -63,13 +54,7 @@ class DerivaDownloadCLI(BaseCLI):
             sys.stderr.write("\n")
 
         try:
-            downloaded = DerivaDownloadCLI.download(output_path=os.path.abspath(args.path),
-                                                    hostname=args.host,
-                                                    catalog=args.catalog,
-                                                    token=args.token,
-                                                    envars=args.kwargs,
-                                                    config_file=args.config_file,
-                                                    credential_file=args.credential_file)
+            downloaded = self.download(args)
             sys.stdout.write("\n%s\n" % (json.dumps(downloaded)))
         except DerivaDownloadAuthenticationError:
             sys.stderr.write(("\n" if not args.quiet else "") +

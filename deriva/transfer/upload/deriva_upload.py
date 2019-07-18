@@ -61,7 +61,7 @@ class DerivaUpload(object):
     DefaultTransferStateBaseName = ".deriva-upload-state"
     DefaultTransferStateFileName = "%s-%s.json"
 
-    def __init__(self, config_file=None, credential_file=None, server=None):
+    def __init__(self, config_file=None, credential_file=None, server=None, dcctx_id=None):
         self.server_url = None
         self.catalog = None
         self.store = None
@@ -82,6 +82,7 @@ class DerivaUpload(object):
         self.override_config_file = config_file
         self.override_credential_file = credential_file
         self.server = self.getDefaultServer() if not server else server
+        self.dcctx_id = dcctx_id if dcctx_id else self.__class__.__name__
         self.initialize()
 
     def __del__(self):
@@ -124,7 +125,7 @@ class DerivaUpload(object):
         self.store = HatracStore(protocol, host, self.credentials, session_config=session_config)
 
         # init dcctx cid to a default
-        self.set_dcctx_cid(self.__class__.__name__)
+        self.set_dcctx_cid(self.dcctx_id)
 
         """
          Configuration initialization - this is a bit complex because we allow for:
@@ -192,6 +193,17 @@ class DerivaUpload(object):
         self.catalog.set_credentials(self.credentials, host)
         self.store.set_credentials(self.credentials, host)
 
+    def setConfig(self, config_file):
+        if not config_file:
+            config = self.getUpdatedConfig()
+            if config:
+                write_config(self.getDeployedConfigFilePath(), config)
+        else:
+            self._update_internal_config(read_config(config_file))
+        if not self.isVersionCompatible():
+            raise DerivaRestoreError("Upload version incompatibility detected",
+                                     "Current version: [%s], required version(s): %s." %
+                                     (self.getVersion(), self.getVersionCompatibility()))
     @classmethod
     def getDefaultServer(cls):
         servers = cls.getServers()
@@ -1047,7 +1059,7 @@ class DerivaUpload(object):
 class GenericUploader(DerivaUpload):
 
     def __init__(self, config_file=None, credential_file=None, server=None):
-        DerivaUpload.__init__(self, config_file, credential_file, server)
+        DerivaUpload.__init__(self, config_file=config_file, credential_file=credential_file, server=server)
 
     @classmethod
     def getVersion(cls):

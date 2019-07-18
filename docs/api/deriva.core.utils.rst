@@ -4,6 +4,14 @@ deriva.core.utils package
 Submodules
 ----------
 
+deriva.core.utils.core\_utils module
+------------------------------------
+
+.. automodule:: deriva.core.utils.core_utils
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 deriva.core.utils.hash\_utils module
 ------------------------------------
 

@@ -19,22 +19,18 @@ class DerivaDownload(object):
     """
 
     """
-    def __init__(self, server,
-                 output_dir=None,
-                 envars=None,
-                 config=None,
-                 config_file=None,
-                 credentials=None,
-                 credential_file=None):
+    def __init__(self, server, **kwargs):
         self.server = server
         self.hostname = None
-        self.output_dir = output_dir if output_dir else "."
-        self.envars = envars if envars else dict()
         self.catalog = None
         self.store = None
-        self.config = config
         self.cancelled = False
-        self.credentials = credentials if credentials else dict()
+        self.output_dir = os.path.abspath(kwargs.get("output_dir", "."))
+        self.envars = kwargs.get("envars", dict())
+        self.config = kwargs.get("config")
+        self.credentials = kwargs.get("credentials", dict())
+        config_file = kwargs.get("config_file")
+        credential_file = kwargs.get("credential_file")
         self.metadata = dict()
         self.sessions = dict()
 
@@ -56,8 +52,17 @@ class DerivaDownload(object):
         session_config = self.server.get('session')
 
         # credential initialization
+        token = kwargs.get("token")
+        oauth2_token = kwargs.get("oauth2_token")
+        username = kwargs.get("username")
+        password = kwargs.get("password")
         if credential_file:
             self.credentials = get_credential(self.hostname, credential_file)
+        elif token or oauth2_token or (username and password):
+            self.set_credentials(format_credential(token=token,
+                                                   oauth2_token=oauth2_token,
+                                                   username=username,
+                                                   password=password))
 
         # catalog and file store initialization
         if self.catalog:
@@ -86,10 +91,10 @@ class DerivaDownload(object):
         if self.store:
             self.store.dcctx['cid'] = cid
 
-    def setConfig(self, config):
+    def set_config(self, config):
         self.config = config
 
-    def setCredentials(self, credentials):
+    def set_credentials(self, credentials):
         self.catalog.set_credentials(credentials, self.hostname)
         self.store.set_credentials(credentials, self.hostname)
         self.credentials = credentials
@@ -117,7 +122,7 @@ class DerivaDownload(object):
         if not identity:
             try:
                 if not self.credentials:
-                    self.setCredentials(get_credential(self.hostname))
+                    self.set_credentials(get_credential(self.hostname))
                 logging.info("Validating credentials for host: %s" % self.hostname)
                 attributes = self.catalog.get_authn_session().json()
                 identity = attributes["client"]
@@ -271,5 +276,5 @@ class GenericDownloader(DerivaDownload):
     REMOTE_PATHS_KEY = REMOTE_PATHS_KEY
     SERVICE_URL_KEY = SERVICE_URL_KEY
 
-    def __init__(self, server, **kwargs):
-        DerivaDownload.__init__(self, server, **kwargs)
+    def __init__(self, *args, **kwargs):
+        DerivaDownload.__init__(self, *args, **kwargs)

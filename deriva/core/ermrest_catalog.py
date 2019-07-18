@@ -256,7 +256,13 @@ class ErmrestCatalog(DerivaBinding):
         else:
             raise ValueError('Catalog deletion refused when really is %s.' % really)
 
-    def clone_catalog(self, dst_catalog=None, copy_data=True, copy_annotations=True, copy_policy=True, truncate_after=True):
+    def clone_catalog(self,
+                      dst_catalog=None,
+                      copy_data=True,
+                      copy_annotations=True,
+                      copy_policy=True,
+                      truncate_after=True,
+                      exclude_schemas=None):
         """Clone this catalog's content into dest_catalog, creating a new catalog if needed.
 
         :param dst_catalog: Destination catalog or None to request creation of new destination (default).
@@ -264,6 +270,7 @@ class ErmrestCatalog(DerivaBinding):
         :param copy_annotations: Copy annotations when True (default).
         :param copy_policy: Copy access-control policies when True (default).
         :param truncate_after: Truncate destination history after cloning when True (default).
+        :param exclude_schemas: A list of schema names to exclude from the cloning process.
 
         When dest_catalog is provided, attempt an idempotent clone,
         assuming content MAY be partially cloned already using the
@@ -306,6 +313,7 @@ class ErmrestCatalog(DerivaBinding):
         new_keys = [] # ERMrest does not currently allow bulk key creation
         clone_states = {}
         fkeys_deferred = {}
+        exclude_schemas = [] if exclude_schemas is None else exclude_schemas
 
         def prune_parts(d):
             if not copy_annotations and 'annotations' in d:
@@ -370,6 +378,8 @@ class ErmrestCatalog(DerivaBinding):
             return (sname, tname, prune_parts(k.prejson()))
 
         for sname, schema in src_model.schemas.items():
+            if sname in exclude_schemas:
+                continue
             if sname not in dst_model.schemas:
                 new_model.append(copy_sdef(schema))
 

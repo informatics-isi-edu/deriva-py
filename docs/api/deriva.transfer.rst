@@ -8,6 +8,8 @@ Subpackages
 
     deriva.transfer.download
     deriva.transfer.upload
+    deriva.transfer.backup
+    deriva.transfer.restore
 
 Module contents
 ---------------

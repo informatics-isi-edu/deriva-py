@@ -1,12 +1,12 @@
 import sys
-from deriva.transfer import DerivaDownloadCLI
+from deriva.transfer import DerivaBackupCLI
 
-DESC = "Deriva Data Download Utility - CLI"
+DESC = "Deriva Catalog Backup Utility - CLI"
 INFO = "For more information see: https://github.com/informatics-isi-edu/deriva-py"
 
 
 def main():
-    cli = DerivaDownloadCLI(DESC, INFO, hostname_required=True, config_file_required=True)
+    cli = DerivaBackupCLI(DESC, INFO, hostname_required=True, config_file_required=False)
     return cli.main()
 
 
