@@ -43,6 +43,8 @@ class DerivaRestore:
         self.restore_annotations = not kwargs.get("no_annotations", False)
         self.restore_policy = not kwargs.get("no_policy", False)
         self.restore_assets = not kwargs.get("no_assets", False)
+        self.strict_bag_validation = not kwargs.get("weak_bag_validation", True)
+        self.no_bag_materialize = kwargs.get("no_bag_materialize", False)
         self.upload_config = kwargs.get("asset_config")
         self.truncate_after = True
         self.envars = kwargs.get("envars", dict())
@@ -214,16 +216,49 @@ class DerivaRestore:
             yield chunk
 
     def restore(self, **kwargs):
+        """
+        Perform the catalog restore operation. The restore process is broken up into six phases:
+
+        1. Pre-process the input path.
+            - If the input path is a file, it is assumed that it is a compressed archive file that can be extracted
+            into an input directory via a supported codec: `tar`,`tgz`,`bz2`, or `zip`.
+            - If the input directory is a valid _bag_ directory structure, the bag will be materialized.
+        2. The catalog schema will be restored first. The schema is restored from a ERMRest JSON schema document file.
+            The schema document file must be named `catalog-schema.json` and must appear at the root of the input
+            directory. The restore process can be configured to exclude the restoration of an enumerated set both
+            schema and tables.
+        3. The catalog table data will be restored, if present. The table date restoration process is resilient to
+            interruption and may be restarted. However, if the catalog schema or data is mutated outside of the scope of
+            the restore function in-between such restarts, the restored catalog's consistency cannot be guaranteed.
+            The restore process can be configured to exclude the restoration of table data for a set of tables.
+        4. The catalog foreign keys will be restored.
+        5. The catalog assets will be restored, if present.
+        6. On success, the restore state marker annotations will be deleted and the catalog history will be truncated.
+
+        :param kwargs:
+        :return:
+        """
         success = True
         start = datetime.datetime.now()
 
         # pre-process input
         logging.info("Processing input: %s" % self.input_path)
         if os.path.isfile(self.input_path):
-            logging.info("The input path %s is a file. Assuming input file is an archive and extracting..." %
+            logging.info("The input path %s is a file. Assuming input file is a directory archive and extracting..." %
                          self.input_path)
             self.input_path = bdb.extract_bag(self.input_path)
         is_bag = bdb.is_bag(self.input_path)
+        if is_bag:
+            try:
+                if not self.no_bag_materialize:
+                    bdb.materialize(self.input_path)
+            except bdb.bdbagit.BagValidationError as e:
+                if self.strict_bag_validation:
+                    raise DerivaRestoreError(format_exception(e))
+                else:
+                    logging.warning("Input bag validation failed and strict validation mode is disabled. %s" %
+                                    format_exception(e))
+
         src_schema_file = os.path.abspath(
             os.path.join(self.input_path, "data" if is_bag else "", "catalog-schema.json"))
         src_model = Model.fromfile(src_schema_file)

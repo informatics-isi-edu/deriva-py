@@ -27,5 +27,7 @@ Python Command-line Clients and API (deriva-py)
    cli/deriva-annotation-config
    cli/deriva-hatrac-cli
    cli/deriva-download-cli
-   cli/deriva-sitemap-cli   
+   cli/deriva-sitemap-cli
+   cli/deriva-backup-cli
+   cli/deriva-restore-cli
 

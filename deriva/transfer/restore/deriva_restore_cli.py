@@ -28,6 +28,9 @@ class DerivaRestoreCLI(BaseCLI):
                                  help="Do not restore access policy and ACLs.")
         self.parser.add_argument("--no-bag-materialize", action="store_true",
                                  help="If the input format is a bag, do not materialize prior to restore.")
+        self.parser.add_argument("--weak-bag-validation", action="store_true",
+                                 help="If the input format is a bag, "
+                                      "do not abort the restore if the bag fails validation.")
         self.parser.add_argument("--exclude-object", type=lambda s: [item for item in s.split(',')],
                                  metavar="<schema>, <schema:table>, ...",
                                  help="List of comma-delimited schema-name and/or schema-name/table-name to "

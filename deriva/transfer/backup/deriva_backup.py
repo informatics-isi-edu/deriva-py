@@ -30,6 +30,9 @@ class DerivaBackup(DerivaDownload):
     def __init__(self, *args, **kwargs):
         DerivaDownload.__init__(self, *args, **kwargs)
 
+        self.config_file = kwargs.get("config_file")
+        self.annotation_config = None
+
         if not self.config:
             self.config = copy.deepcopy(self.BASE_CONFIG)
 
@@ -89,7 +92,11 @@ class DerivaBackup(DerivaDownload):
                     query_proc["processor_params"] = {"query_path": query_path, "output_path": output_path}
                     self.config["catalog"]["query_processors"].append(query_proc)
 
-                    # TODO: Configure asset data download query processors
+        self.generate_asset_configs()
+
+    def generate_asset_configs(self):
+        # TODO: Generate asset data download query processor configuration entries
+        pass
 
     def download(self, **kwargs):
         logging.info("Backing up catalog: %s" % self.catalog.get_server_uri())
