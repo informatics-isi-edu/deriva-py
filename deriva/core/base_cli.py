@@ -1,14 +1,13 @@
 import argparse
 import logging
 
-from . import init_logging
+from . import init_logging, __version__
 from .utils.version_utils import get_installed_version
 
 
 class BaseCLI(object):
 
-    def __init__(self, description, epilog, version=None, hostname_required=False, config_file_required=False):
-        assert version, "A valid version string is required"
+    def __init__(self, description, epilog, version=__version__, hostname_required=False, config_file_required=False):
 
         self.version = get_installed_version(version)
 
@@ -26,10 +25,12 @@ class BaseCLI(object):
         self.parser.add_argument(
             '--credential-file', metavar='<file>', help="Optional path to a credential file.")
 
-        self.parser.add_argument(
+        token_group = self.parser.add_mutually_exclusive_group()
+
+        token_group.add_argument(
             "--token", metavar="<auth-token>", help="Authorization bearer token.")
 
-        self.parser.add_argument(
+        token_group.add_argument(
             "--oauth2-token", metavar="<oauth2-token>", help="OAuth2 bearer token.")        
 
         self.parser.add_argument(

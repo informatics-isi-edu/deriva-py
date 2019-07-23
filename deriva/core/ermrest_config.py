@@ -1,4 +1,5 @@
-
+import json
+from collections import OrderedDict
 from . import urlquote
 
 
@@ -334,6 +335,14 @@ class CatalogConfig (NodeConfigAcl):
     def fromcatalog(cls, catalog):
         """Retrieve catalog config as a CatalogConfig management object."""
         return cls(catalog.get("/schema").json())
+
+    @classmethod
+    def fromfile(cls, schema_file):
+        """Deserialize a JSON schema file as a CatalogConfig management object."""
+        with open(schema_file) as sf:
+            schema = sf.read()
+
+        return cls(json.loads(schema, object_pairs_hook=OrderedDict))
 
     def apply(self, catalog, existing=None):
         """Apply catalog configuration to catalog unless existing already matches.

@@ -48,7 +48,9 @@ setup(
             'deriva-annotation-config = deriva.config.annotation_config:main',
             'deriva-annotation-dump = deriva.config.dump_catalog_annotations:main',
             'deriva-annotation-rollback = deriva.config.rollback_annotation:main',
-            'deriva-sitemap-cli = deriva.seo.sitemap_cli:main'
+            'deriva-sitemap-cli = deriva.seo.sitemap_cli:main',
+            'deriva-backup-cli = deriva.transfer.backup.__main__:main',
+            'deriva-restore-cli = deriva.transfer.restore.__main__:main'
         ]
     },
     requires=[
