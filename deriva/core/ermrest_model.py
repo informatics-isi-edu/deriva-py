@@ -172,7 +172,6 @@ class Table (_ec.CatalogTable):
         super(Table, self).__init__(sname, tname, table_doc, **_kwargs(**kwargs))
         self.comment = table_doc.get('comment')
         self.kind = table_doc.get('kind')
-        self.referenced_by = _ec.MultiKeyedList([])
 
     @classmethod
     def system_column_defs(cls, custom=[]):
@@ -492,6 +491,11 @@ class Table (_ec.CatalogTable):
         if 'schema_name' in changes:
             del self.schema.tables[self.name]
             self.schema = self.schema.model.schemas[changed['schema_name']]
+            for fkey in self.foreign_keys:
+                if fkey.constraint_schema:
+                    del fkey.constraint_schema[fkey.constraint_name]
+                    fkey.constraint_schema = self.schema
+                    fkey.constraint_schema[fkey.constraint_name] = fkey
             self.schema.tables[self.name] = self
 
         if 'comment' in changes:
@@ -623,18 +627,14 @@ class Column (_ec.CatalogColumn):
         :param name: Replacement column name (default nochange)
         :param comment: Replacement comment (default nochange)
         :param acls: Replacement ACL configuration (default nochange)
+        :param acl_bindings: Replacement ACL bindings (default nochange)
+        :param annotations: Replacement annotations (default nochange)
 
         A change of schema name is a transfer of the existing table to
         an existing destination schema (not a rename of the current
         containing schema).
 
         Returns self (to allow for optional chained access).
-
-        Partially updates self as side-effect to reflect changes
-        successfully acknowledged by server. For complete
-        synchronization, discard existing client-side model
-        information and retrieve catalog.getCatalogModel() with
-        authoritative copy from server.
 
         """
         changes = strip_nochange({
@@ -721,6 +721,49 @@ class Key (_ec.CatalogKey):
             'annotations': annotations,
         }
 
+    def alter(
+            self,
+            catalog,
+            constraint_name=nochange,
+            comment=nochange,
+            annotations=nochange
+    ):
+        """Alter existing schema definition.
+
+        :param catalog: ErmrestCatalog instance
+        :param constraint_name: Unqualified constraint name string
+        :param comment: Replacement comment (default nochange)
+        :param annotations: Replacement annotations (default nochange)
+
+        Returns self (to allow for optional chained access).
+
+        """
+        changes = strip_nochange({
+            'comment': comment,
+            'annotations': annotations,
+        })
+        if constraint_name is not nochange:
+            changes['names'] = [[
+                self.constraint_schema.name if self.constraint_schema else '',
+                constraint_name
+            ]]
+
+        r = self.catalog.put(self.uri_path, json=changes)
+        r.raise_for_status()
+        changed = r.json() # use changed vs changes to get server-digested values
+
+        if 'names' in changes:
+            self.constraint_name = changed['names'][0][1]
+
+        if 'comment' in changes:
+            self._comment = changed['comment']
+
+        if 'annotations' in changes:
+            self.annotations.clear()
+            self.annotations.update(changed['annotations'])
+
+        return self
+
     def prejson(self, prune=True):
         d = super(Key, self).prejson(prune)
         d.update({
@@ -775,6 +818,71 @@ class ForeignKey (_ec.CatalogForeignKey):
             'acl_bindings': acl_bindings,
             'annotations': annotations,
         }
+
+    def alter(
+            self,
+            catalog,
+            constraint_name=nochange,
+            comment=nochange,
+            acls=nochange,
+            acl_bindings=nochange,
+            annotations=nochange
+    ):
+        """Alter existing schema definition.
+
+        :param catalog: ErmrestCatalog instance
+        :param constraint_name: Replacement constraint name string
+        :param comment: Replacement comment (default nochange)
+        :param acls: Replacement ACL configuration (default nochange)
+        :param acl_bindings: Replacement ACL bindings (default nochange)
+        :param annotations: Replacement annotations (default nochange)
+
+        Returns self (to allow for optional chained access).
+
+        """
+        changes = strip_nochange({
+            'comment': comment,
+            'acls': acls,
+            'acl_bindings': acl_bindings,
+            'annotations': annotations,
+        })
+        if constraint_name is not nochange:
+            changes['names'] = [[
+                self.constraint_schema.name if self.constraint_schema else '',
+                constraint_name
+            ]]
+
+        r = self.catalog.put(self.uri_path, json=changes)
+        r.raise_for_status()
+        changed = r.json() # use changed vs changes to get server-digested values
+
+        if 'names' in changes:
+            if self.constraint_schema:
+                del self.constraint_schema._fkeys[self.constraint_name]
+            else:
+                del self.fk_table.schema.model._pseudo_fkeys[self.constraint_name]
+            self.constraint_name = changed['names'][0][1]
+            if self.constraint_schema:
+                self.constraint_schema._fkeys[self.constraint_name] = self
+            else:
+                self.fk_table.schema.model._pseudo_fkeys[self.constraint_name] = self
+
+        if 'comment' in changes:
+            self._comment = changed['comment']
+
+        if 'annotations' in changes:
+            self.annotations.clear()
+            self.annotations.update(changed['annotations'])
+
+        if 'acls' in changes:
+            self.acls.clear()
+            self.acls.update(changed['acls'])
+
+        if 'acls_bindings' in changes:
+            self.acl_bindings.clear()
+            self.acl_bindings.update(changed['acls'])
+
+        return self
 
     def prejson(self, prune=True):
         d = super(ForeignKey, self).prejson(prune)

@@ -339,6 +339,7 @@ class CatalogConfig (NodeConfigAcl):
             for sname, sdoc in model_doc.get('schemas', {}).items()
         }
         self.digest_fkeys()
+        self._pseudo_fkeys = {}
 
     def digest_fkeys(self):
         """Finish second-pass digestion of foreign key definitions using full model w/ all schemas and tables.
@@ -411,6 +412,14 @@ class CatalogConfig (NodeConfigAcl):
         """Return column configuration for column with given name."""
         return self.table(sname, tname).column_definitions[cname]
 
+    def fkey(self, constraint_name_pair):
+        """Return configuration for foreign key with given name pair."""
+        sname, cname = constraint_name_pair
+        if sname != '':
+            return self.schemas[sname]._fkeys[cname]
+        else:
+            return self._pseudo_fkeys[cname]
+
     @object_annotation(tag.bulk_upload)
     def bulk_upload(self): pass
 
@@ -441,6 +450,7 @@ class CatalogSchema (NodeConfigAcl):
             tname: kwargs.get('table_class', CatalogTable)(self, tname, tdoc, **kwargs)
             for tname, tdoc in schema_doc.get('tables', {}).items()
         }
+        self._fkeys = {}
 
     @property
     def uri_path(self):
@@ -518,39 +528,6 @@ class KeyedList (list):
         list.append(self, e)
         self.elements[e.name] = e
 
-class MultiKeyedList (list):
-    """Multi-keyed list."""
-    def __init__(self, l):
-        list.__init__(self, l)
-        self.elements = {
-            tuple(name): e
-            for e in l
-            for name in e.names
-        }
-
-    def __getitem__(self, idx):
-        """Get element by key or by list index or slice."""
-        if isinstance(idx, (tuple, list)):
-            return self.elements[idx]
-        else:
-            return list.__getitem__(self, idx)
-
-    def __delitem__(self, idx):
-        """Delete element by key or by list index."""
-        item = self[idx]
-        list.__delitem__(self, self.index(item))
-        for name in item.names:
-            del self.elements[name]
-
-    def append(self, e):
-        """Append element to list and record its keys."""
-        for name in e.names:
-            if name in self.elements:
-                raise ValueError('Element name %s already exists.' % e.names)
-        list.append(self, e)
-        for name in e.names:
-            self.elements[name] = e
-
 class CatalogTable (NodeConfigAclBinding):
     """Table-level configuration management.
 
@@ -577,14 +554,15 @@ class CatalogTable (NodeConfigAclBinding):
             kwargs.get('column_class', CatalogColumn)(self, cdoc, **kwargs)
             for cdoc in table_doc.get('column_definitions', [])
         ])
-        self.keys = MultiKeyedList([
+        self.keys = KeyedList([
             kwargs.get('key_class', CatalogKey)(self, kdoc, **kwargs)
             for kdoc in table_doc.get('keys', [])
         ])
-        self.foreign_keys = MultiKeyedList([
+        self.foreign_keys = KeyedList([
             kwargs.get('foreign_key_class', CatalogForeignKey)(self, fkdoc, **kwargs)
             for fkdoc in table_doc.get('foreign_keys', [])
         ])
+        self.referenced_by = KeyedList([])
 
     @property
     def uri_path(self):
@@ -608,9 +586,9 @@ class CatalogTable (NodeConfigAclBinding):
         for col in self.column_definitions:
             col.apply(catalog, existing.column_definitions[col.name] if existing else None)
         for key in self.keys:
-            key.apply(catalog, existing.keys[key.names[0]] if existing else None)
+            key.apply(catalog, existing.keys[key.name] if existing else None)
         for fkey in self.foreign_keys:
-            fkey.apply(catalog, existing.foreign_keys[fkey.names[0]] if existing else None)
+            fkey.apply(catalog, existing.foreign_keys[fkey.name] if existing else None)
 
     def clear(self):
         """Clear all configuration in table and children."""
@@ -701,6 +679,20 @@ class CatalogColumn (NodeConfigAclBinding):
     @object_annotation(tag.column_display)
     def column_display(self): pass
 
+def _constraint_name_parts(constraint, doc):
+    # modern systems should have 0 or 1 names here
+    names = doc.get('names', [])[0:1]
+    if not names:
+        raise ValueError('Unexpected constraint without any name.')
+    if names[0][0] == '':
+        constraint_schema = None
+    elif names[0][0] = constraint.table.schema.name:
+        constraint_schema = constraint.table.schema
+    else:
+        raise ValueError('Unexpected schema name in constraint %s' % (names[0],))
+    constraint_name = names[0][1]
+    return (constraint_schema, constraint_name)
+
 class CatalogKey (NodeConfig):
     """Key-level configuration management.
 
@@ -710,7 +702,7 @@ class CatalogKey (NodeConfig):
     def __init__(self, table, key_doc, **kwargs):
         NodeConfig.__init__(self, key_doc)
         self.table = table
-        self.names = [ tuple(name) for name in key_doc['names'] ]
+        self.constraint_schema, self.constraint_name = _constraint_name_parts(self, keydoc)
         self.unique_columns = [
             table.column_definition[cname]
             for cname in key_doc['unique_columns']
@@ -723,6 +715,16 @@ class CatalogKey (NodeConfig):
             self.table.uri_path,
             ','.join([ urlquote(c.name) for c in self.unique_columns ])
         )
+
+    @property
+    def name(self):
+        """Constraint name (schemaobj, name_str) used in API dictionaries."""
+        return (self.constraint_schema, self.constraint_name)
+
+    @property
+    def names(self):
+        """Constraint names field as seen in JSON document."""
+        return [ [self.constraint_schema.name if self.constraint_schema else '', self.constraint_name] ]
 
     def prejson(self, prune=True):
         """Produce a representation of configuration as generic Python data structures"""
@@ -751,7 +753,11 @@ class CatalogForeignKey (NodeConfigAclBinding):
         )
         self.fk_table = fk_table
         self.pk_table = None
-        self.names = [ tuple(name) for name in fkey_doc['names'] ]
+        self.constraint_schema, self.constraint_name = _constraint_name_parts(self, fkeydoc)
+        if self.constraint_schema:
+            self.constraint_schema._fkeys[self.constraint_name] = self
+        else:
+            self.fk_table.schema.model._pseudo_fkeys[self.constraint_name] = self
         self.foreign_key_columns = [
             fk_table.column_definitions[coldoc['column_name']]
             for coldoc in fkey_doc['foreign_key_columns']
@@ -782,6 +788,16 @@ class CatalogForeignKey (NodeConfigAclBinding):
             urlquote(self.pk_table.name),
             ','.join([ urlquote(c.name) for c in self.referenced_columns ]),
         )
+
+    @property
+    def name(self):
+        """Constraint name (schemaobj, name_str) used in API dictionaries."""
+        return (self.constraint_schema, self.constraint_name)
+
+    @property
+    def names(self):
+        """Constraint names field as seen in JSON document."""
+        return [ [self.constraint_schema.name if self.constraint_schema else '', self.constraint_name] ]
 
     def prejson(self, prune=True):
         """Produce a representation of configuration as generic Python data structures"""
