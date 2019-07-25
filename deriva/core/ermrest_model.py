@@ -14,6 +14,18 @@ def _kwargs(**kwargs):
     kwargs2.update(kwargs)
     return kwargs2
 
+class NoChange (object):
+    """Special class used to distinguish no-change default arguments to methods.
+
+       Values for no-change are distinct from all valid values for
+    these arguments.
+
+    """
+    pass
+
+# singletone to use in APIs below
+nochange = NoChange()
+
 class Model (_ec.CatalogConfig):
     """Top-level catalog model.
     """
@@ -57,6 +69,13 @@ class Model (_ec.CatalogConfig):
         self.schemas[sname] = newschema
         return newschema
 
+def strip_unchanged(d):
+    return {
+        k: v
+        for k, v in d.items()
+        if v is not nochange
+    }
+
 class Schema (_ec.CatalogSchema):
     """Named schema.
     """
@@ -81,6 +100,63 @@ class Schema (_ec.CatalogSchema):
             'comment': self.comment,
         })
         return d
+
+    def alter(self, catalog, schema_name=nochange, comment=nochange, acls=nochange, annotations=nochange):
+        """Alter existing schema definition.
+
+        :param catalog: ErmrestCatalog instance
+        :param schema_name: Replacement schema name (default nochange)
+        :param comment: Replacement comment (default nochange)
+        :param acls: Replacement ACL configuration (default nochange)
+
+        Returns self (to allow for optional chained access).
+
+        Partially updates self as side-effect to reflect changes
+        successfully acknowledged by server. For complete
+        synchronization, discard existing client-side model
+        information and retrieve catalog.getCatalogModel() with
+        authoritative copy from server.
+
+        """
+        changes = strip_nochange({
+            'schema_name': schema_name,
+            'comment': comment,
+            'acls': acls,
+            'annotations': nochange,
+        })
+
+        r = self.catalog.put("/schema/%s" % (self.name,), json=changes)
+        r.raise_for_status()
+        changed = r.json() # use changed vs changes to get server-digested values
+
+        if 'schema_name' in changes:
+            self.name = changed['schema_name']
+            for table in self.tables.values():
+                table.sname = self.name
+                for column in table.column_definitions:
+                    column.sname = self.name
+                for key in table.keys:
+                    key.sname = self.name
+                for fkr in table.foreign_keys:
+                    fkr.sname = self.name
+                    for fkcol in fkr.foreign_key_columns:
+                        fkr['schema_name'] = self.name
+                for fkr in table.referenced_by:
+                    for fkcol in fkr.referenced_columns:
+                        fkr['schema_name'] = self.name
+
+        if 'comment' in changes:
+            self._comment = changed['comment']
+
+        if 'acls' in changes:
+            self.acls.clear()
+            self.acls.update(changed['acls'])
+
+        if 'annotations' in changes:
+            self.annotations.clear()
+            self.annotations.update(changed['annotations'])
+
+        return self
 
     def create_table(self, catalog, table_def):
         """Add a new table to this schema in the remote database based on table_def.
@@ -393,6 +469,96 @@ class Table (_ec.CatalogTable):
         })
         return d
 
+    def alter(
+            self,
+            catalog,
+            schema_name=nochange,
+            table_name=nochange,
+            comment=nochange,
+            acls=nochange,
+            acl_bindings=nochange,
+            annotations=nochange
+    ):
+        """Alter existing schema definition.
+
+        :param catalog: ErmrestCatalog instance
+        :param schema_name: Destination schema name (default nochange)
+        :param table_name: Replacement table name (default nochange)
+        :param comment: Replacement comment (default nochange)
+        :param acls: Replacement ACL configuration (default nochange)
+
+        A change of schema name is a transfer of the existing table to
+        an existing destination schema (not a rename of the current
+        containing schema).
+
+        Returns self (to allow for optional chained access).
+
+        Partially updates self as side-effect to reflect changes
+        successfully acknowledged by server. For complete
+        synchronization, discard existing client-side model
+        information and retrieve catalog.getCatalogModel() with
+        authoritative copy from server.
+
+        """
+        changes = strip_nochange({
+            'schema_name': schema_name,
+            'table_name': table_name,
+            'comment': comment,
+            'acls': acls,
+            'acl_bindings': acl_bindings,
+            'annotations': annotations,
+        })
+
+        r = self.catalog.put("/schema/%s" % (self.name,), json=changes)
+        r.raise_for_status()
+        changed = r.json() # use changed vs changes to get server-digested values
+
+        if 'schema_name' in changes:
+            self.sname = changed['schema_name']
+            # TODO BUG: need access to source and dest schema objects to move table!
+            for column in self.column_definitions:
+                column.sname = self.sname
+            for key in self.keys:
+                key.sname = self.sname
+            for fkr in self.foreign_keys:
+                fkr.sname = self.sname
+                for fkcol in fkr.foreign_key_columns:
+                    fkr['schema_name'] = self.sname
+            for fkr in self.referenced_by:
+                for fkcol in fkr.referenced_columns:
+                    fkr['schema_name'] = self.sname
+
+        if 'table_name' in changes:
+            self.name = changed['table_name']
+            for column in self.column_definitions:
+                column.tname = self.name
+            for key in self.keys:
+                key.tname = self.name
+            for fkr in self.foreign_keys:
+                fkr.tname = self.name
+                for fkcol in fkr.foreign_key_columns:
+                    fkr['table_name'] = self.name
+            for fkr in self.referenced_by:
+                for fkcol in fkr.referenced_columns:
+                    fkr['table_name'] = self.name
+
+        if 'comment' in changes:
+            self._comment = changed['comment']
+
+        if 'acls' in changes:
+            self.acls.clear()
+            self.acls.update(changed['acls'])
+
+        if 'acls_bindings' in changes:
+            self.acl_bindings.clear()
+            self.acl_bindings.update(changed['acls'])
+
+        if 'annotations' in changes:
+            self.annotations.clear()
+            self.annotations.update(changed['annotations'])
+
+        return self
+
     def _create_table_part(self, catalog, subapi, registerfunc, constructor, doc):
         r = catalog.post(
             '%s/%s' % (self.uri_path, subapi),
@@ -490,6 +656,81 @@ class Column (_ec.CatalogColumn):
             'acl_bindings': acl_bindings,
             'annotations': annotations,
         }
+
+    def alter(
+            self,
+            catalog,
+            name=nochange,
+            type=nochange,
+            nullok=nochange,
+            default=nochange,
+            comment=nochange,
+            acls=nochange,
+            acl_bindings=nochange,
+            annotations=nochange
+    ):
+        """Alter existing schema definition.
+
+        :param catalog: ErmrestCatalog instance
+        :param name: Replacement column name (default nochange)
+        :param comment: Replacement comment (default nochange)
+        :param acls: Replacement ACL configuration (default nochange)
+
+        A change of schema name is a transfer of the existing table to
+        an existing destination schema (not a rename of the current
+        containing schema).
+
+        Returns self (to allow for optional chained access).
+
+        Partially updates self as side-effect to reflect changes
+        successfully acknowledged by server. For complete
+        synchronization, discard existing client-side model
+        information and retrieve catalog.getCatalogModel() with
+        authoritative copy from server.
+
+        """
+        changes = strip_nochange({
+            'schema_name': schema_name,
+            'table_name': table_name,
+            'comment': comment,
+            'acls': acls,
+            'acl_bindings': acl_bindings,
+            'annotations': annotations,
+        })
+
+        r = self.catalog.put("/schema/%s" % (self.name,), json=changes)
+        r.raise_for_status()
+        changed = r.json() # use changed vs changes to get server-digested values
+
+        if 'name' in changes:
+            self.name = changed['name']
+            # TODO BUG: need access to model to update references to this name
+
+        if 'type' in changes:
+            self.type = make_type(changed['type'])
+
+        if 'nullok' in changes:
+            self.nullok = changed['nullok']
+
+        if 'default' in changes:
+            self.default = changed['default']
+
+        if 'comment' in changes:
+            self._comment = changed['comment']
+
+        if 'acls' in changes:
+            self.acls.clear()
+            self.acls.update(changed['acls'])
+
+        if 'acls_bindings' in changes:
+            self.acl_bindings.clear()
+            self.acl_bindings.update(changed['acls'])
+
+        if 'annotations' in changes:
+            self.annotations.clear()
+            self.annotations.update(changed['annotations'])
+
+        return self
 
     def prejson(self, prune=True):
         d = super(Column, self).prejson(prune)
