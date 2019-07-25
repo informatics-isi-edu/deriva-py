@@ -94,14 +94,9 @@ class Schema (_ec.CatalogSchema):
         :param schema_name: Replacement schema name (default nochange)
         :param comment: Replacement comment (default nochange)
         :param acls: Replacement ACL configuration (default nochange)
+        :param annotations: Replacement annotations (default nochange)
 
         Returns self (to allow for optional chained access).
-
-        Partially updates self as side-effect to reflect changes
-        successfully acknowledged by server. For complete
-        synchronization, discard existing client-side model
-        information and retrieve catalog.getCatalogModel() with
-        authoritative copy from server.
 
         """
         changes = strip_nochange({
@@ -456,18 +451,14 @@ class Table (_ec.CatalogTable):
         :param table_name: Replacement table name (default nochange)
         :param comment: Replacement comment (default nochange)
         :param acls: Replacement ACL configuration (default nochange)
+        :param acl_bindings: Replacement ACL bindings (default nochange)
+        :param annotations: Replacement annotations (default nochange)
 
         A change of schema name is a transfer of the existing table to
         an existing destination schema (not a rename of the current
         containing schema).
 
         Returns self (to allow for optional chained access).
-
-        Partially updates self as side-effect to reflect changes
-        successfully acknowledged by server. For complete
-        synchronization, discard existing client-side model
-        information and retrieve catalog.getCatalogModel() with
-        authoritative copy from server.
 
         """
         changes = strip_nochange({
@@ -625,21 +616,24 @@ class Column (_ec.CatalogColumn):
 
         :param catalog: ErmrestCatalog instance
         :param name: Replacement column name (default nochange)
+        :param type: Replacement Type instance (default nochange)
+        :param nullok: Replacement nullok value (default nochange)
+        :param default: Replacement default value (default nochange)
         :param comment: Replacement comment (default nochange)
         :param acls: Replacement ACL configuration (default nochange)
         :param acl_bindings: Replacement ACL bindings (default nochange)
         :param annotations: Replacement annotations (default nochange)
 
-        A change of schema name is a transfer of the existing table to
-        an existing destination schema (not a rename of the current
-        containing schema).
-
         Returns self (to allow for optional chained access).
 
         """
+        if type is not nochange and not isinstance(type, Type):
+            raise TypeError('Parameter "type" %s should be an instance of Type.' % (type,))
         changes = strip_nochange({
-            'schema_name': schema_name,
-            'table_name': table_name,
+            'name': name,
+            'type': type,
+            'nullok': nullok,
+            'default': default,
             'comment': comment,
             'acls': acls,
             'acl_bindings': acl_bindings,
