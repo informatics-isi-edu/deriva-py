@@ -31,21 +31,6 @@ class Model (_ec.CatalogConfig):
     """
     def __init__(self, model_doc, **kwargs):
         super(Model, self).__init__(model_doc, **_kwargs(**kwargs))
-        self.update_referenced_by()
-
-    def update_referenced_by(self):
-        """Introspects the 'foreign_keys' and updates the 'referenced_by' properties on the 'Table' objects.
-        :param model: an ERMrest model object
-        """
-        for schema in self.schemas.values():
-            for referer in schema.tables.values():
-                for fkey in referer.foreign_keys:
-                    referenced = self.schemas[
-                        fkey.referenced_columns[0]['schema_name']
-                    ].tables[
-                        fkey.referenced_columns[0]['table_name']
-                    ]
-                    referenced.referenced_by.append(fkey)
 
     def create_schema(self, catalog, schema_def):
         """Add a new schema to this model in the remote database based on schema_def.
@@ -125,25 +110,14 @@ class Schema (_ec.CatalogSchema):
             'annotations': nochange,
         })
 
-        r = self.catalog.put("/schema/%s" % (self.name,), json=changes)
+        r = self.catalog.put(self.uri_path, json=changes)
         r.raise_for_status()
         changed = r.json() # use changed vs changes to get server-digested values
 
         if 'schema_name' in changes:
+            del self.model.schemas[self.name]
             self.name = changed['schema_name']
-            for table in self.tables.values():
-                table.sname = self.name
-                for column in table.column_definitions:
-                    column.sname = self.name
-                for key in table.keys:
-                    key.sname = self.name
-                for fkr in table.foreign_keys:
-                    fkr.sname = self.name
-                    for fkcol in fkr.foreign_key_columns:
-                        fkr['schema_name'] = self.name
-                for fkr in table.referenced_by:
-                    for fkcol in fkr.referenced_columns:
-                        fkr['schema_name'] = self.name
+            self.model.schemas[self.name] = self
 
         if 'comment' in changes:
             self._comment = changed['comment']
@@ -509,38 +483,19 @@ class Table (_ec.CatalogTable):
             'annotations': annotations,
         })
 
-        r = self.catalog.put("/schema/%s" % (self.name,), json=changes)
+        r = self.catalog.put(self.uri_path, json=changes)
         r.raise_for_status()
         changed = r.json() # use changed vs changes to get server-digested values
 
-        if 'schema_name' in changes:
-            self.sname = changed['schema_name']
-            # TODO BUG: need access to source and dest schema objects to move table!
-            for column in self.column_definitions:
-                column.sname = self.sname
-            for key in self.keys:
-                key.sname = self.sname
-            for fkr in self.foreign_keys:
-                fkr.sname = self.sname
-                for fkcol in fkr.foreign_key_columns:
-                    fkr['schema_name'] = self.sname
-            for fkr in self.referenced_by:
-                for fkcol in fkr.referenced_columns:
-                    fkr['schema_name'] = self.sname
-
         if 'table_name' in changes:
+            del self.schema.tables[self.name]
             self.name = changed['table_name']
-            for column in self.column_definitions:
-                column.tname = self.name
-            for key in self.keys:
-                key.tname = self.name
-            for fkr in self.foreign_keys:
-                fkr.tname = self.name
-                for fkcol in fkr.foreign_key_columns:
-                    fkr['table_name'] = self.name
-            for fkr in self.referenced_by:
-                for fkcol in fkr.referenced_columns:
-                    fkr['table_name'] = self.name
+            self.schema.tables[self.name] = self
+
+        if 'schema_name' in changes:
+            del self.schema.tables[self.name]
+            self.schema = self.schema.model.schemas[changed['schema_name']]
+            self.schema.tables[self.name] = self
 
         if 'comment' in changes:
             self._comment = changed['comment']
@@ -698,13 +653,14 @@ class Column (_ec.CatalogColumn):
             'annotations': annotations,
         })
 
-        r = self.catalog.put("/schema/%s" % (self.name,), json=changes)
+        r = self.catalog.put(self.uri_path, json=changes)
         r.raise_for_status()
         changed = r.json() # use changed vs changes to get server-digested values
 
         if 'name' in changes:
+            del self.table.column_definitions.elements[self.name]
             self.name = changed['name']
-            # TODO BUG: need access to model to update references to this name
+            self.table.column_definitions.elements[self.name] = self
 
         if 'type' in changes:
             self.type = make_type(changed['type'])

@@ -139,12 +139,21 @@ class NodeConfig (object):
          self.generated: treat tag.generated as a boolean
          self.immutable: treat tag.immutable as a boolean
     """
-    def __init__(self, uri_path, node_doc):
-        self.uri_path = uri_path
-        self.update_uri_path = uri_path
+    def __init__(self, node_doc):
         self.annotations = dict(node_doc.get('annotations', {}))
         self._supports_comment = True
         self._comment = node_doc.get('comment')
+
+    @property
+    def uri_path(self):
+        """URI to this model resource."""
+        raise NotImplementedError('Subclasses need their own URI path properties.')
+
+    @property
+    def update_uri_path(self):
+        """URI to use as base for sub-resources ./comment ./annotation etc."""
+        # normally this is the same as uri_path, but a subclass may need to override
+        return self.uri_path
 
     def apply(self, catalog, existing=None):
         """Apply configuration to corresponding node in catalog unless existing already matches.
@@ -230,8 +239,8 @@ class NodeConfigAcl (NodeConfig):
          self.generated: treat tag.generated as a boolean
          self.immutable: treat tag.immutable as a boolean
     """
-    def __init__(self, uri_path, node_doc):
-        NodeConfig.__init__(self, uri_path, node_doc)
+    def __init__(self, node_doc):
+        NodeConfig.__init__(self, node_doc)
         self.acls = AttrDict(node_doc.get('acls', {}))
 
     def apply(self, catalog, existing=None):
@@ -279,8 +288,8 @@ class NodeConfigAclBinding (NodeConfigAcl):
          self.generated: treat tag.generated as a boolean
          self.immutable: treat tag.immutable as a boolean
     """
-    def __init__(self, uri_path, node_doc):
-        NodeConfigAcl.__init__(self, uri_path, node_doc)
+    def __init__(self, node_doc):
+        NodeConfigAcl.__init__(self, node_doc)
         self.acl_bindings = AttrDict(node_doc.get('acl_bindings', {}))
 
     def apply(self, catalog, existing=None):
@@ -314,7 +323,6 @@ class NodeConfigAclBinding (NodeConfigAcl):
             d["acl_bindings"] = self.acl_bindings
         return d
 
-
 class CatalogConfig (NodeConfigAcl):
     """Top-level catalog configuration management.
 
@@ -323,18 +331,39 @@ class CatalogConfig (NodeConfigAcl):
        schemas: all schemas in catalog, by name
     """
     def __init__(self, model_doc, **kwargs):
-        NodeConfigAcl.__init__(self, "/schema", model_doc)
+        NodeConfigAcl.__init__(self, model_doc)
         self._supports_comment = False
         self.update_uri_path = ""
         self.schemas = {
-            sname: kwargs.get('schema_class', CatalogSchema)(sname, sdoc, **kwargs)
+            sname: kwargs.get('schema_class', CatalogSchema)(self, sname, sdoc, **kwargs)
             for sname, sdoc in model_doc.get('schemas', {}).items()
         }
+        self.digest_fkeys()
+
+    def digest_fkeys(self):
+        """Finish second-pass digestion of foreign key definitions using full model w/ all schemas and tables.
+        """
+        for schema in self.schemas.values():
+            for referer in schema.tables.values():
+                for fkey in referer.foreign_keys:
+                    fkey.digest_referenced_columns(self)
+
+    @property
+    def uri_path(self):
+        """URI to this model resource."""
+        return "/schema"
+
+    @property
+    def update_uri_path(self):
+        """URI to use as base for sub-resources ./acl ./annotation etc."""
+        # we get whole catalog schema at /schema
+        # but we get whole catalog sub-resources at /acl etc.
+        return ""
 
     @classmethod
     def fromcatalog(cls, catalog):
         """Retrieve catalog config as a CatalogConfig management object."""
-        return cls(catalog.get("/schema").json())
+        return cls(catalog.get(self.uri_path).json())
 
     @classmethod
     def fromfile(cls, schema_file):
@@ -404,17 +433,19 @@ class CatalogSchema (NodeConfigAcl):
        Convenience access for common annotations:
          self.display: access mutable tag.display object
     """
-    def __init__(self, sname, schema_doc, **kwargs):
-        NodeConfigAcl.__init__(
-            self,
-            "/schema/%s" % urlquote(sname),
-            schema_doc
-        )
+    def __init__(self, model, sname, schema_doc, **kwargs):
+        NodeConfigAcl.__init__(self, schema_doc)
+        self.model = model
         self.name = sname
         self.tables = {
-            tname: kwargs.get('table_class', CatalogTable)(sname, tname, tdoc, **kwargs)
+            tname: kwargs.get('table_class', CatalogTable)(self, tname, tdoc, **kwargs)
             for tname, tdoc in schema_doc.get('tables', {}).items()
         }
+
+    @property
+    def uri_path(self):
+        """URI to this model resource."""
+        return "/schema/%s" % urlquote(self.name)
 
     def apply(self, catalog, existing=None):
         """Apply schema configuration to catalog unless existing already matches.
@@ -447,7 +478,6 @@ class CatalogSchema (NodeConfigAcl):
             for tname, table in self.tables.items()
         }
         return d
-
 
 class KeyedList (list):
     """Keyed list."""
@@ -539,26 +569,27 @@ class CatalogTable (NodeConfigAclBinding):
          self.visible_foreign_keys: tag.visible_foreign_keys object
     """
 
-    def __init__(self, sname, tname, table_doc, **kwargs):
-        NodeConfigAclBinding.__init__(
-            self,
-            "/schema/%s/table/%s" % (urlquote(sname), urlquote(tname)),
-            table_doc
-        )
-        self.sname = sname
+    def __init__(self, schema, tname, table_doc, **kwargs):
+        NodeConfigAclBinding.__init__(self, table_doc)
+        self.schema = schema
         self.name = tname
         self.column_definitions = KeyedList([
-            kwargs.get('column_class', CatalogColumn)(sname, tname, cdoc, **kwargs)
+            kwargs.get('column_class', CatalogColumn)(self, cdoc, **kwargs)
             for cdoc in table_doc.get('column_definitions', [])
         ])
         self.keys = MultiKeyedList([
-            kwargs.get('key_class', CatalogKey)(sname, tname, kdoc, **kwargs)
+            kwargs.get('key_class', CatalogKey)(self, kdoc, **kwargs)
             for kdoc in table_doc.get('keys', [])
         ])
         self.foreign_keys = MultiKeyedList([
-            kwargs.get('foreign_key_class', CatalogForeignKey)(sname, tname, fkdoc, **kwargs)
+            kwargs.get('foreign_key_class', CatalogForeignKey)(self, fkdoc, **kwargs)
             for fkdoc in table_doc.get('foreign_keys', [])
         ])
+
+    @property
+    def uri_path(self):
+        """URI to this model element."""
+        return "%s/table/%s" % (self.schema.uri_path, urlquote(self.name))
 
     def apply(self, catalog, existing=None):
         """Apply table configuration to catalog unless existing already matches.
@@ -594,20 +625,22 @@ class CatalogTable (NodeConfigAclBinding):
     def prejson(self, prune=True):
         """Produce a representation of configuration as generic Python data structures"""
         d = NodeConfigAclBinding.prejson(self)
-        d["schema_name"] = self.sname
-        d["table_name"] = self.name
-        d["column_definitions"] = [
-            column.prejson()
-            for column in self.column_definitions
-        ]
-        d["keys"] = [
-            key.prejson()
-            for key in self.keys
-        ]
-        d["foreign_keys"] = [
-            fkey.prejson()
-            for fkey in self.foreign_keys
-        ]
+        d.update({
+            "schema_name": self.schema.name,
+            "table_name": self.name,
+            "column_definitions": [
+                c.prejson()
+                for c in self.column_definitions
+            ],
+            "keys": [
+                key.prejson()
+                for key in self.keys
+            ],
+            "foreign_keys": [
+                fkey.prejson()
+                for fkey in self.foreign_keys
+            ]
+        })
         return d
 
     @object_annotation(tag.table_alternatives)
@@ -638,16 +671,23 @@ class CatalogColumn (NodeConfigAclBinding):
          self.immutable: treat tag.immutable as a boolean
     """
 
-    def __init__(self, sname, tname, column_doc, **kwargs):
+    def __init__(self, table, column_doc, **kwargs):
         cname = column_doc['name']
-        NodeConfigAclBinding.__init__(
-            self,
-            "/schema/%s/table/%s/column/%s" % (urlquote(sname), urlquote(tname), urlquote(cname)),
-            column_doc
-        )
-        self.sname = sname
-        self.tname = tname
+        NodeConfigAclBinding.__init__(self, column_doc)
+        self.table = table
         self.name = cname
+
+    @property
+    def uri_path(self):
+        """URI to this model resource."""
+        return "%s/column/%s" % (self.table.uri_path, urlquote(self.name))
+
+    def prejson_colref(self):
+        return {
+            "schema_name": self.table.schema.name,
+            "table_name": self.table.name,
+            "column_name": self.name,
+        }
 
     def prejson(self, prune=True):
         """Produce a representation of configuration as generic Python data structures"""
@@ -667,28 +707,34 @@ class CatalogKey (NodeConfig):
        annotations: column-level annotations
        names: name(s) of key constraint
     """
-    def __init__(self, sname, tname, key_doc, **kwargs):
-        NodeConfig.__init__(
-            self,
-            '/schema/%s/table/%s/key/%s' % (
-                urlquote(sname),
-                urlquote(tname),
-                ','.join([ urlquote(cname) for cname in key_doc['unique_columns'] ])
-            ),
-            key_doc
-        )
-        self.sname = sname
-        self.tname = tname
+    def __init__(self, table, key_doc, **kwargs):
+        NodeConfig.__init__(self, key_doc)
+        self.table = table
         self.names = [ tuple(name) for name in key_doc['names'] ]
-        self.unique_columns = key_doc['unique_columns']
+        self.unique_columns = [
+            table.column_definition[cname]
+            for cname in key_doc['unique_columns']
+        ]
+
+    @property
+    def uri_path(self):
+        """URI to this model resource."""
+        return '%s/key/%s' % (
+            self.table.uri_path,
+            ','.join([ urlquote(c.name) for c in self.unique_columns ])
+        )
 
     def prejson(self, prune=True):
         """Produce a representation of configuration as generic Python data structures"""
         d = NodeConfig.prejson(self)
-        d['unique_columns'] = self.unique_columns
-        d['names'] = self.names
+        d.update({
+            'unique_columns': [
+                c.name
+                for c in self.unique_columns
+            ],
+            'names': self.names,
+        })
         return d
-
 
 class CatalogForeignKey (NodeConfigAclBinding):
     """Foreign key-level configuration management.
@@ -697,26 +743,46 @@ class CatalogForeignKey (NodeConfigAclBinding):
        acls: foreign key-level acls
        annotations: foreign key-level annotations
     """
-    def __init__(self, sname, tname, fkey_doc, **kwargs):
+    def __init__(self, fk_table, fkey_doc, **kwargs):
         refcols = fkey_doc['referenced_columns']
         NodeConfigAclBinding.__init__(
             self,
-            '/schema/%s/table/%s/foreignkey/%s/reference/%s:%s/%s' % (
-                urlquote(sname),
-                urlquote(tname),
-                ','.join([ urlquote(col['column_name']) for col in fkey_doc['foreign_key_columns'] ]),
-                urlquote(refcols[0]['schema_name']),
-                urlquote(refcols[0]['table_name']),
-                ','.join([ urlquote(col['column_name']) for col in refcols ]),
-            ),
             fkey_doc
         )
-        self.sname = sname
-        self.tname = tname
+        self.fk_table = fk_table
+        self.pk_table = None
         self.names = [ tuple(name) for name in fkey_doc['names'] ]
-        self.foreign_key_columns = fkey_doc['foreign_key_columns']
-        self.referenced_columns = fkey_doc['referenced_columns']
-    
+        self.foreign_key_columns = [
+            fk_table.column_definitions[coldoc['column_name']]
+            for coldoc in fkey_doc['foreign_key_columns']
+        ]
+        self._referenced_columns_doc = fkey_doc['referenced_columns']
+        self.referenced_columns = None
+
+    def digest_referenced_columns(self, model):
+        """Finish construction deferred until model is known with all tables."""
+        if self.referenced_columns is None:
+            pk_sname = self._referenced_columns_doc[0]['schema_name']
+            pk_tname = self._referenced_columns_doc[0]['table_name']
+            self.pk_table = model.schemas[pk_sname].tables[pk_tname]
+            self.referenced_columns = [
+                self.pk_table.column_definitions[coldoc['column_name']]
+                for coldoc in self._referenced_columns_doc
+            ]
+            self._referenced_columns_doc = None
+            self.pk_table.referenced_by.append(self)
+
+    @property
+    def uri_path(self):
+        """URI to this model resource."""
+        return '%s/foreignkey/%s/reference/%s:%s/%s' % (
+            self.fk_table.uri_path,
+            ','.join([ urlquote(c.name) for c in self.foreign_key_columns ]),
+            urlquote(self.pk_table.schema.name),
+            urlquote(self.pk_table.name),
+            ','.join([ urlquote(c.name) for c in self.referenced_columns ]),
+        )
+
     def prejson(self, prune=True):
         """Produce a representation of configuration as generic Python data structures"""
         def expand(c):
@@ -724,12 +790,17 @@ class CatalogForeignKey (NodeConfigAclBinding):
             c['table_name'] = self.tname
             return c
         d = NodeConfig.prejson(self)
-        d['foreign_key_columns'] = [
-            expand(c)
-            for c in self.foreign_key_columns
-        ]
-        d['referenced_columns'] = self.referenced_columns
-        d['names'] = self.names
+        d.update({
+            'foreign_key_columns': [
+                c.prejson_colref()
+                for c in self.foreign_key_columns
+            ],
+            'referenced_columns': [
+                c.prejson_colref()
+                for c in self.referenced_columns
+            ],
+            'names': self.names,
+        })
         return d
 
     @object_annotation(tag.foreign_key)
