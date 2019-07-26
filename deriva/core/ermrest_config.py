@@ -333,7 +333,6 @@ class CatalogConfig (NodeConfigAcl):
     def __init__(self, model_doc, **kwargs):
         NodeConfigAcl.__init__(self, model_doc)
         self._supports_comment = False
-        self.update_uri_path = ""
         self.schemas = {
             sname: kwargs.get('schema_class', CatalogSchema)(self, sname, sdoc, **kwargs)
             for sname, sdoc in model_doc.get('schemas', {}).items()
@@ -364,7 +363,7 @@ class CatalogConfig (NodeConfigAcl):
     @classmethod
     def fromcatalog(cls, catalog):
         """Retrieve catalog config as a CatalogConfig management object."""
-        return cls(catalog.get(self.uri_path).json())
+        return cls(catalog.get("/schema").json())
 
     @classmethod
     def fromfile(cls, schema_file):
@@ -446,11 +445,11 @@ class CatalogSchema (NodeConfigAcl):
         NodeConfigAcl.__init__(self, schema_doc)
         self.model = model
         self.name = sname
+        self._fkeys = {}
         self.tables = {
             tname: kwargs.get('table_class', CatalogTable)(self, tname, tdoc, **kwargs)
             for tname, tdoc in schema_doc.get('tables', {}).items()
         }
-        self._fkeys = {}
 
     @property
     def uri_path(self):
@@ -586,9 +585,9 @@ class CatalogTable (NodeConfigAclBinding):
         for col in self.column_definitions:
             col.apply(catalog, existing.column_definitions[col.name] if existing else None)
         for key in self.keys:
-            key.apply(catalog, existing.keys[key.name] if existing else None)
+            key.apply(catalog, existing.keys[key.name_in_model(existing.schema.model)] if existing else None)
         for fkey in self.foreign_keys:
-            fkey.apply(catalog, existing.foreign_keys[fkey.name] if existing else None)
+            fkey.apply(catalog, existing.foreign_keys[fkey.name_in_model(existing.schema.model)] if existing else None)
 
     def clear(self):
         """Clear all configuration in table and children."""
@@ -686,7 +685,7 @@ def _constraint_name_parts(constraint, doc):
         raise ValueError('Unexpected constraint without any name.')
     if names[0][0] == '':
         constraint_schema = None
-    elif names[0][0] = constraint.table.schema.name:
+    elif names[0][0] == constraint.table.schema.name:
         constraint_schema = constraint.table.schema
     else:
         raise ValueError('Unexpected schema name in constraint %s' % (names[0],))
@@ -702,9 +701,9 @@ class CatalogKey (NodeConfig):
     def __init__(self, table, key_doc, **kwargs):
         NodeConfig.__init__(self, key_doc)
         self.table = table
-        self.constraint_schema, self.constraint_name = _constraint_name_parts(self, keydoc)
+        self.constraint_schema, self.constraint_name = _constraint_name_parts(self, key_doc)
         self.unique_columns = [
-            table.column_definition[cname]
+            table.column_definitions[cname]
             for cname in key_doc['unique_columns']
         ]
 
@@ -720,6 +719,19 @@ class CatalogKey (NodeConfig):
     def name(self):
         """Constraint name (schemaobj, name_str) used in API dictionaries."""
         return (self.constraint_schema, self.constraint_name)
+
+    def name_in_model(self, model):
+        """Constraint name (schemaobj, name_str) used in API dictionaries fetching schema from model.
+
+        While self.name works as a key within the same model tree,
+        self.name_in_model(dstmodel) works in dstmodel tree by finding
+        the equivalent schemaobj in that model via schema name lookup.
+
+        """
+        return (
+            model.schemas[self.constraint_schema.name] if self.constraint_schema else None,
+            self.constraint_name
+        )
 
     @property
     def names(self):
@@ -745,21 +757,21 @@ class CatalogForeignKey (NodeConfigAclBinding):
        acls: foreign key-level acls
        annotations: foreign key-level annotations
     """
-    def __init__(self, fk_table, fkey_doc, **kwargs):
+    def __init__(self, table, fkey_doc, **kwargs):
         refcols = fkey_doc['referenced_columns']
         NodeConfigAclBinding.__init__(
             self,
             fkey_doc
         )
-        self.fk_table = fk_table
+        self.table = table
         self.pk_table = None
-        self.constraint_schema, self.constraint_name = _constraint_name_parts(self, fkeydoc)
+        self.constraint_schema, self.constraint_name = _constraint_name_parts(self, fkey_doc)
         if self.constraint_schema:
             self.constraint_schema._fkeys[self.constraint_name] = self
         else:
-            self.fk_table.schema.model._pseudo_fkeys[self.constraint_name] = self
+            self.table.schema.model._pseudo_fkeys[self.constraint_name] = self
         self.foreign_key_columns = [
-            fk_table.column_definitions[coldoc['column_name']]
+            table.column_definitions[coldoc['column_name']]
             for coldoc in fkey_doc['foreign_key_columns']
         ]
         self._referenced_columns_doc = fkey_doc['referenced_columns']
@@ -782,7 +794,7 @@ class CatalogForeignKey (NodeConfigAclBinding):
     def uri_path(self):
         """URI to this model resource."""
         return '%s/foreignkey/%s/reference/%s:%s/%s' % (
-            self.fk_table.uri_path,
+            self.table.uri_path,
             ','.join([ urlquote(c.name) for c in self.foreign_key_columns ]),
             urlquote(self.pk_table.schema.name),
             urlquote(self.pk_table.name),
@@ -793,6 +805,19 @@ class CatalogForeignKey (NodeConfigAclBinding):
     def name(self):
         """Constraint name (schemaobj, name_str) used in API dictionaries."""
         return (self.constraint_schema, self.constraint_name)
+
+    def name_in_model(self, model):
+        """Constraint name (schemaobj, name_str) used in API dictionaries fetching schema from model.
+
+        While self.name works as a key within the same model tree,
+        self.name_in_model(dstmodel) works in dstmodel tree by finding
+        the equivalent schemaobj in that model via schema name lookup.
+
+        """
+        return (
+            model.schemas[self.constraint_schema.name] if self.constraint_schema else None,
+            self.constraint_name
+        )
 
     @property
     def names(self):

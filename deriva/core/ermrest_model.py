@@ -55,7 +55,7 @@ class Model (_ec.CatalogConfig):
         self.digest_fkeys()
         return newschema
 
-def strip_unchanged(d):
+def strip_nochange(d):
     return {
         k: v
         for k, v in d.items()
@@ -65,8 +65,8 @@ def strip_unchanged(d):
 class Schema (_ec.CatalogSchema):
     """Named schema.
     """
-    def __init__(self, sname, schema_doc, **kwargs):
-        super(Schema, self).__init__(sname, schema_doc, **_kwargs(**kwargs))
+    def __init__(self, model, sname, schema_doc, **kwargs):
+        super(Schema, self).__init__(model, sname, schema_doc, **_kwargs(**kwargs))
         self.comment = schema_doc.get('comment')
 
     @classmethod
@@ -106,7 +106,7 @@ class Schema (_ec.CatalogSchema):
             'annotations': nochange,
         })
 
-        r = self.catalog.put(self.uri_path, json=changes)
+        r = catalog.put(self.uri_path, json=changes)
         r.raise_for_status()
         changed = r.json() # use changed vs changes to get server-digested values
 
@@ -163,8 +163,8 @@ class Schema (_ec.CatalogSchema):
 class Table (_ec.CatalogTable):
     """Named table.
     """
-    def __init__(self, sname, tname, table_doc, **kwargs):
-        super(Table, self).__init__(sname, tname, table_doc, **_kwargs(**kwargs))
+    def __init__(self, schema, tname, table_doc, **kwargs):
+        super(Table, self).__init__(schema, tname, table_doc, **_kwargs(**kwargs))
         self.comment = table_doc.get('comment')
         self.kind = table_doc.get('kind')
 
@@ -470,7 +470,7 @@ class Table (_ec.CatalogTable):
             'annotations': annotations,
         })
 
-        r = self.catalog.put(self.uri_path, json=changes)
+        r = catalog.put(self.uri_path, json=changes)
         r.raise_for_status()
         changed = r.json() # use changed vs changes to get server-digested values
 
@@ -484,9 +484,9 @@ class Table (_ec.CatalogTable):
             self.schema = self.schema.model.schemas[changed['schema_name']]
             for fkey in self.foreign_keys:
                 if fkey.constraint_schema:
-                    del fkey.constraint_schema[fkey.constraint_name]
+                    del fkey.constraint_schema._fkeys[fkey.constraint_name]
                     fkey.constraint_schema = self.schema
-                    fkey.constraint_schema[fkey.constraint_name] = fkey
+                    fkey.constraint_schema._fkeys[fkey.constraint_name] = fkey
             self.schema.tables[self.name] = self
 
         if 'comment' in changes:
@@ -575,8 +575,8 @@ class Table (_ec.CatalogTable):
 class Column (_ec.CatalogColumn):
     """Named column.
     """
-    def __init__(self, sname, tname, column_doc, **kwargs):
-        super(Column, self).__init__(sname, tname, column_doc, **_kwargs(**kwargs))
+    def __init__(self, table, column_doc, **kwargs):
+        super(Column, self).__init__(table, column_doc, **_kwargs(**kwargs))
         self.type = make_type(column_doc['type'], **_kwargs(**kwargs))
         self.nullok = bool(column_doc.get('nullok', True))
         self.default = column_doc.get('default')
@@ -640,7 +640,7 @@ class Column (_ec.CatalogColumn):
             'annotations': annotations,
         })
 
-        r = self.catalog.put(self.uri_path, json=changes)
+        r = catalog.put(self.uri_path, json=changes)
         r.raise_for_status()
         changed = r.json() # use changed vs changes to get server-digested values
 
@@ -699,8 +699,8 @@ class Column (_ec.CatalogColumn):
 class Key (_ec.CatalogKey):
     """Named key.
     """
-    def __init__(self, sname, tname, key_doc, **kwargs):
-        super(Key, self).__init__(sname, tname, key_doc, **_kwargs(**kwargs))
+    def __init__(self, table, key_doc, **kwargs):
+        super(Key, self).__init__(table, key_doc, **_kwargs(**kwargs))
         self.comment = key_doc.get('comment')
 
     @classmethod
@@ -742,7 +742,7 @@ class Key (_ec.CatalogKey):
                 constraint_name
             ]]
 
-        r = self.catalog.put(self.uri_path, json=changes)
+        r = catalog.put(self.uri_path, json=changes)
         r.raise_for_status()
         changed = r.json() # use changed vs changes to get server-digested values
 
@@ -779,8 +779,8 @@ class Key (_ec.CatalogKey):
 class ForeignKey (_ec.CatalogForeignKey):
     """Named foreign key.
     """
-    def __init__(self, sname, tname, fkey_doc, **kwargs):
-        super(ForeignKey, self).__init__(sname, tname, fkey_doc, **_kwargs(**kwargs))
+    def __init__(self, table, fkey_doc, **kwargs):
+        super(ForeignKey, self).__init__(table, fkey_doc, **_kwargs(**kwargs))
         self.comment = fkey_doc.get('comment')
         self.on_delete = fkey_doc.get('on_delete')
         self.on_update = fkey_doc.get('on_update')
@@ -846,7 +846,7 @@ class ForeignKey (_ec.CatalogForeignKey):
                 constraint_name
             ]]
 
-        r = self.catalog.put(self.uri_path, json=changes)
+        r = catalog.put(self.uri_path, json=changes)
         r.raise_for_status()
         changed = r.json() # use changed vs changes to get server-digested values
 
@@ -854,12 +854,12 @@ class ForeignKey (_ec.CatalogForeignKey):
             if self.constraint_schema:
                 del self.constraint_schema._fkeys[self.constraint_name]
             else:
-                del self.fk_table.schema.model._pseudo_fkeys[self.constraint_name]
+                del self.table.schema.model._pseudo_fkeys[self.constraint_name]
             self.constraint_name = changed['names'][0][1]
             if self.constraint_schema:
                 self.constraint_schema._fkeys[self.constraint_name] = self
             else:
-                self.fk_table.schema.model._pseudo_fkeys[self.constraint_name] = self
+                self.table.schema.model._pseudo_fkeys[self.constraint_name] = self
 
         if 'comment' in changes:
             self._comment = changed['comment']
@@ -893,10 +893,10 @@ class ForeignKey (_ec.CatalogForeignKey):
         :param catalog: an ErmrestCatalog object
 
         """
-        if self.names[0] not in self.fk_table.foreign_keys.elements:
-            raise ValueError('Foreign key %s does not appear to belong to table %s.' % (self, self.fk_table))
+        if self.names[0] not in self.table.foreign_keys.elements:
+            raise ValueError('Foreign key %s does not appear to belong to table %s.' % (self, self.table))
         catalog.delete(self.update_uri_path).raise_for_status()
-        del self.fk_table.foreign_keys[self.names[0]]
+        del self.table.foreign_keys[self.names[0]]
         del self.pk_table.foreign_keys[self.names[0]]
 
 def make_type(type_doc, **kwargs):
