@@ -517,7 +517,7 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
             return self.gau.add_dependent_scopes(args.parent_scope,
                                                  args.scope_names,
                                                  args.optional,
-                                                 args.requires_refresh_tokens)
+                                                 args.requires_refresh_token)
         else:
             return self.gau.add_scopes(args.scope_names)
 
@@ -525,9 +525,9 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
         return self.gau.create_scope_with_deps(args.name,
                                                args.description,
                                                args.suffix,
-                                               args.dependent_scopes,
+                                               args.dependent_scope_names,
                                                args.advertised,
-                                               args.allow_refresh_tokens)
+                                               args.allow_refresh_token)
 
     def delete_scope(self, args):
         return self.gau.delete_scope(args.scope_name)
