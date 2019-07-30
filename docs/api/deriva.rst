@@ -1,4 +1,4 @@
-deriva package
+Source Code and Module Documentation
 ==============
 
 Subpackages
