@@ -631,6 +631,24 @@ class CatalogTable (NodeConfigAclBinding):
         })
         return d
 
+    def key_by_columns(self, unique_columns):
+        """Return key from self.keys with matching unique columns or raise KeyError if no such key is found."""
+        cset = set()
+        for c in unique_columns:
+            if isinstance(c, CatalogTable):
+                if self.column_definitions[c.name] is c:
+                    cset.add(c)
+                else:
+                    raise ValueError('column %s object is not from this table object' % (c,))
+            elif c in self.column_definitions.elements:
+                cset.add(self.column_definitions[c])
+            else:
+                raise ValueError('value %s does not name a defined column in this table' % (c,))
+        for key in self.keys:
+            if cset == { c for c in key.unique_columns }:
+                return key
+        raise KeyError(cset)
+
     @object_annotation(tag.table_alternatives)
     def alternatives(self): pass
 
