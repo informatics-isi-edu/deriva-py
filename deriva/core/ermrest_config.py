@@ -412,12 +412,23 @@ class CatalogConfig (NodeConfigAcl):
         return self.table(sname, tname).column_definitions[cname]
 
     def fkey(self, constraint_name_pair):
-        """Return configuration for foreign key with given name pair."""
+        """Return configuration for foreign key with given name pair.
+
+        Accepts (schema_name, constraint_name) pairs as found in many
+        faceting annotations and (schema_obj, constraint_name) pairs
+        as found in fkey.name fields.
+
+        """
         sname, cname = constraint_name_pair
-        if sname != '':
-            return self.schemas[sname]._fkeys[cname]
-        else:
+        if isinstance(sname, CatalogSchema):
+            if self.schemas[sname.name] is sname:
+                return sname._fkeys[cname]
+            else:
+                raise ValueError('schema object %s is not from same model tree' % (sname,))
+        elif sname is None or sname == '':
             return self._pseudo_fkeys[cname]
+        else:
+            return self.schemas[sname]._fkeys[cname]
 
     @object_annotation(tag.bulk_upload)
     def bulk_upload(self): pass
