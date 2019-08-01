@@ -29,10 +29,10 @@ nochange = NoChange()
 class Model (_ec.CatalogConfig):
     """Top-level catalog model.
     """
-    def __init__(self, model_doc, **kwargs):
-        super(Model, self).__init__(model_doc, **_kwargs(**kwargs))
+    def __init__(self, catalog, model_doc, **kwargs):
+        super(Model, self).__init__(catalog, model_doc, **_kwargs(**kwargs))
 
-    def create_schema(self, catalog, schema_def):
+    def create_schema(self, schema_def):
         """Add a new schema to this model in the remote database based on schema_def.
 
            Returns a new Schema instance based on the server-supplied
@@ -43,7 +43,7 @@ class Model (_ec.CatalogConfig):
         sname = schema_def['schema_name']
         if sname in self.schemas:
             raise ValueError('Schema %s already exists.' % sname)
-        r = catalog.post(
+        r = self.catalog.post(
             self.uri_path,
             json=[schema_def],
         )
@@ -87,10 +87,9 @@ class Schema (_ec.CatalogSchema):
         })
         return d
 
-    def alter(self, catalog, schema_name=nochange, comment=nochange, acls=nochange, annotations=nochange):
+    def alter(self, schema_name=nochange, comment=nochange, acls=nochange, annotations=nochange):
         """Alter existing schema definition.
 
-        :param catalog: ErmrestCatalog instance
         :param schema_name: Replacement schema name (default nochange)
         :param comment: Replacement comment (default nochange)
         :param acls: Replacement ACL configuration (default nochange)
@@ -106,7 +105,7 @@ class Schema (_ec.CatalogSchema):
             'annotations': nochange,
         })
 
-        r = catalog.put(self.uri_path, json=changes)
+        r = self.catalog.put(self.uri_path, json=changes)
         r.raise_for_status()
         changed = r.json() # use changed vs changes to get server-digested values
 
@@ -128,7 +127,7 @@ class Schema (_ec.CatalogSchema):
 
         return self
 
-    def create_table(self, catalog, table_def):
+    def create_table(self, table_def):
         """Add a new table to this schema in the remote database based on table_def.
 
            Returns a new Table instance based on the server-supplied
@@ -139,7 +138,7 @@ class Schema (_ec.CatalogSchema):
         tname = table_def['table_name']
         if tname in self.tables:
             raise ValueError('Table %s already exists.' % tname)
-        r = catalog.post(
+        r = self.catalog.post(
             '%s/table' % self.uri_path,
             json=table_def,
         )
@@ -149,15 +148,12 @@ class Schema (_ec.CatalogSchema):
         self.model.digest_fkeys()
         return newtable
 
-    def delete(self, catalog):
+    def delete(self):
         """Remove this schema from the remote database.
-
-        :param catalog: an ErmrestCatalog object
-
         """
         if self.name not in self.model.schemas:
             raise ValueError('Schema %s does not appear to belong to model.' % (self,))
-        catalog.delete(self.uri_path).raise_for_status()
+        self.catalog.delete(self.uri_path).raise_for_status()
         del self.model.schemas[self.name]
 
 class Table (_ec.CatalogTable):
@@ -436,7 +432,6 @@ class Table (_ec.CatalogTable):
 
     def alter(
             self,
-            catalog,
             schema_name=nochange,
             table_name=nochange,
             comment=nochange,
@@ -446,7 +441,6 @@ class Table (_ec.CatalogTable):
     ):
         """Alter existing schema definition.
 
-        :param catalog: ErmrestCatalog instance
         :param schema_name: Destination schema name (default nochange)
         :param table_name: Replacement table name (default nochange)
         :param comment: Replacement comment (default nochange)
@@ -470,7 +464,7 @@ class Table (_ec.CatalogTable):
             'annotations': annotations,
         })
 
-        r = catalog.put(self.uri_path, json=changes)
+        r = self.catalog.put(self.uri_path, json=changes)
         r.raise_for_status()
         changed = r.json() # use changed vs changes to get server-digested values
 
@@ -506,8 +500,8 @@ class Table (_ec.CatalogTable):
 
         return self
 
-    def _create_table_part(self, catalog, subapi, registerfunc, constructor, doc):
-        r = catalog.post(
+    def _create_table_part(self, subapi, registerfunc, constructor, doc):
+        r = self.catalog.post(
             '%s/%s' % (self.uri_path, subapi),
             json=doc,
         )
@@ -519,7 +513,7 @@ class Table (_ec.CatalogTable):
             created = created[0]
         return registerfunc(constructor(self, created))
 
-    def create_column(self, catalog, column_def):
+    def create_column(self, column_def):
         """Add a new column to this table in the remote database based on column_def.
 
            Returns a new Column instance based on the server-supplied
@@ -532,9 +526,9 @@ class Table (_ec.CatalogTable):
         def add_column(col):
             self.column_definitions.append(col)
             return col
-        return self._create_table_part(catalog, 'column', add_column, Column, column_def)
+        return self._create_table_part('column', add_column, Column, column_def)
 
-    def create_key(self, catalog, key_def):
+    def create_key(self, key_def):
         """Add a new key to this table in the remote database based on key_def.
 
            Returns a new Key instance based on the server-supplied
@@ -545,9 +539,9 @@ class Table (_ec.CatalogTable):
         def add_key(key):
             self.keys.append(key)
             return key
-        return self._create_table_part(catalog, 'key', add_key, Key, key_def)
+        return self._create_table_part('key', add_key, Key, key_def)
 
-    def create_fkey(self, catalog, fkey_def):
+    def create_fkey(self, fkey_def):
         """Add a new foreign key to this table in the remote database based on fkey_def.
 
            Returns a new ForeignKey instance based on the
@@ -559,17 +553,14 @@ class Table (_ec.CatalogTable):
             self.foreign_keys.append(fkey)
             fkey.digest_referenced_columns(self.schema.model)
             return fkey
-        return self._create_table_part(catalog, 'foreignkey', add_fkey, ForeignKey, fkey_def)
+        return self._create_table_part('foreignkey', add_fkey, ForeignKey, fkey_def)
 
-    def delete(self, catalog):
+    def delete(self):
         """Remove this table from the remote database.
-
-        :param catalog: an ErmrestCatalog object
-
         """
         if self.name not in self.schema.tables:
             raise ValueError('Table %s does not appear to belong to schema %s.' % (self, self.schema))
-        catalog.delete(self.uri_path).raise_for_status()
+        self.catalog.delete(self.uri_path).raise_for_status()
         del self.schema.tables[self.name]
 
 class Column (_ec.CatalogColumn):
@@ -602,7 +593,6 @@ class Column (_ec.CatalogColumn):
 
     def alter(
             self,
-            catalog,
             name=nochange,
             type=nochange,
             nullok=nochange,
@@ -614,7 +604,6 @@ class Column (_ec.CatalogColumn):
     ):
         """Alter existing schema definition.
 
-        :param catalog: ErmrestCatalog instance
         :param name: Replacement column name (default nochange)
         :param type: Replacement Type instance (default nochange)
         :param nullok: Replacement nullok value (default nochange)
@@ -640,7 +629,7 @@ class Column (_ec.CatalogColumn):
             'annotations': annotations,
         })
 
-        r = catalog.put(self.uri_path, json=changes)
+        r = self.catalog.put(self.uri_path, json=changes)
         r.raise_for_status()
         changed = r.json() # use changed vs changes to get server-digested values
 
@@ -685,15 +674,12 @@ class Column (_ec.CatalogColumn):
         })
         return d
         
-    def delete(self, catalog):
+    def delete(self):
         """Remove this column from the remote database.
-
-        :param catalog: an ErmrestCatalog object
-
         """
         if self.name not in self.table.column_definitions.elements:
             raise ValueError('Column %s does not appear to belong to table %s.' % (self, self.table))
-        catalog.delete(self.uri_path).raise_for_status()
+        self.catalog.delete(self.uri_path).raise_for_status()
         del self.table.column_definitions[self.name]
 
 class Key (_ec.CatalogKey):
@@ -717,14 +703,12 @@ class Key (_ec.CatalogKey):
 
     def alter(
             self,
-            catalog,
             constraint_name=nochange,
             comment=nochange,
             annotations=nochange
     ):
         """Alter existing schema definition.
 
-        :param catalog: ErmrestCatalog instance
         :param constraint_name: Unqualified constraint name string
         :param comment: Replacement comment (default nochange)
         :param annotations: Replacement annotations (default nochange)
@@ -742,7 +726,7 @@ class Key (_ec.CatalogKey):
                 constraint_name
             ]]
 
-        r = catalog.put(self.uri_path, json=changes)
+        r = self.catalog.put(self.uri_path, json=changes)
         r.raise_for_status()
         changed = r.json() # use changed vs changes to get server-digested values
 
@@ -765,15 +749,12 @@ class Key (_ec.CatalogKey):
         })
         return d
 
-    def delete(self, catalog):
+    def delete(self):
         """Remove this key from the remote database.
-
-        :param catalog: an ErmrestCatalog object
-
         """
         if self.names[0] not in self.table.keys.elements:
             raise ValueError('Key %s does not appear to belong to table %s.' % (self, self.table))
-        catalog.delete(self.update_uri_path).raise_for_status()
+        self.catalog.delete(self.update_uri_path).raise_for_status()
         del self.table.keys[self.names[0]]
 
 class ForeignKey (_ec.CatalogForeignKey):
@@ -815,7 +796,6 @@ class ForeignKey (_ec.CatalogForeignKey):
 
     def alter(
             self,
-            catalog,
             constraint_name=nochange,
             comment=nochange,
             acls=nochange,
@@ -824,7 +804,6 @@ class ForeignKey (_ec.CatalogForeignKey):
     ):
         """Alter existing schema definition.
 
-        :param catalog: ErmrestCatalog instance
         :param constraint_name: Replacement constraint name string
         :param comment: Replacement comment (default nochange)
         :param acls: Replacement ACL configuration (default nochange)
@@ -846,7 +825,7 @@ class ForeignKey (_ec.CatalogForeignKey):
                 constraint_name
             ]]
 
-        r = catalog.put(self.uri_path, json=changes)
+        r = self.catalog.put(self.uri_path, json=changes)
         r.raise_for_status()
         changed = r.json() # use changed vs changes to get server-digested values
 
@@ -887,15 +866,12 @@ class ForeignKey (_ec.CatalogForeignKey):
         })
         return d
 
-    def delete(self, catalog):
+    def delete(self):
         """Remove this foreign key from the remote database.
-
-        :param catalog: an ErmrestCatalog object
-
         """
         if self.names[0] not in self.table.foreign_keys.elements:
             raise ValueError('Foreign key %s does not appear to belong to table %s.' % (self, self.table))
-        catalog.delete(self.update_uri_path).raise_for_status()
+        self.catalog.delete(self.update_uri_path).raise_for_status()
         del self.table.foreign_keys[self.names[0]]
         del self.pk_table.foreign_keys[self.names[0]]
 

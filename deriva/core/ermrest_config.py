@@ -145,6 +145,10 @@ class NodeConfig (object):
         self._comment = node_doc.get('comment')
 
     @property
+    def catalog(self):
+        raise NotImplementedError('derived classes MUST define self.catalog property')
+
+    @property
     def uri_path(self):
         """URI to this model resource."""
         raise NotImplementedError('Subclasses need their own URI path properties.')
@@ -155,10 +159,9 @@ class NodeConfig (object):
         # normally this is the same as uri_path, but a subclass may need to override
         return self.uri_path
 
-    def apply(self, catalog, existing=None):
+    def apply(self, existing=None):
         """Apply configuration to corresponding node in catalog unless existing already matches.
 
-        :param catalog: The EmrestCatalog instance to which configuration will be applied.
         :param existing: An instance comparable to self, or None to apply configuration unconditionally.
 
         The configuration in self.comment and self.annotations will be
@@ -168,11 +171,11 @@ class NodeConfig (object):
         if self._supports_comment:
             if existing is None or not equivalent(self._comment, existing._comment):
                 if self._comment is not None:
-                    catalog.put('%s/comment' % self.update_uri_path, data=self._comment)
+                    self.catalog.put('%s/comment' % self.update_uri_path, data=self._comment)
                 else:
-                    catalog.delete('%s/comment' % self.update_uri_path)
+                    self.catalog.delete('%s/comment' % self.update_uri_path)
         if existing is None or not equivalent(self.annotations, existing.annotations):
-            catalog.put(
+            self.catalog.put(
                 '%s/%s' % (self.update_uri_path, 'annotation'),
                 json=self.annotations
             )
@@ -243,10 +246,9 @@ class NodeConfigAcl (NodeConfig):
         NodeConfig.__init__(self, node_doc)
         self.acls = AttrDict(node_doc.get('acls', {}))
 
-    def apply(self, catalog, existing=None):
+    def apply(self, existing=None):
         """Apply configuration to corresponding node in catalog unless existing already matches.
 
-        :param catalog: The EmrestCatalog instance to which configuration will be applied.
         :param existing: An instance comparable to self, or None to apply configuration unconditionally.
 
         The configuration in self.comment, self.annotations, and
@@ -255,9 +257,9 @@ class NodeConfigAcl (NodeConfig):
         supplied and is equivalent.
 
         """
-        NodeConfig.apply(self, catalog, existing)
+        NodeConfig.apply(self, existing)
         if existing is None or not equivalent(self.acls, existing.acls):
-            catalog.put(
+            self.catalog.put(
                 '%s/%s' % (self.update_uri_path, 'acl'),
                 json=self.acls
             )
@@ -292,10 +294,9 @@ class NodeConfigAclBinding (NodeConfigAcl):
         NodeConfigAcl.__init__(self, node_doc)
         self.acl_bindings = AttrDict(node_doc.get('acl_bindings', {}))
 
-    def apply(self, catalog, existing=None):
+    def apply(self, existing=None):
         """Apply configuration to corresponding node in catalog unless existing already matches.
 
-        :param catalog: The EmrestCatalog instance to which configuration will be applied.
         :param existing: An instance comparable to self, or None to apply configuration unconditionally.
 
         The configuration in self.comment, self.annotations,
@@ -304,9 +305,9 @@ class NodeConfigAclBinding (NodeConfigAcl):
         configuration is supplied and is equivalent.
 
         """
-        NodeConfigAcl.apply(self, catalog, existing)
+        NodeConfigAcl.apply(self, existing)
         if existing is None or not equivalent(self.acl_bindings, existing.acl_bindings, method='acl_binding'):
-            catalog.put(
+            self.catalog.put(
                 '%s/%s' % (self.update_uri_path, 'acl_binding'),
                 json=self.acl_bindings
             )
@@ -330,7 +331,8 @@ class CatalogConfig (NodeConfigAcl):
        annotations: catalog-level annotations
        schemas: all schemas in catalog, by name
     """
-    def __init__(self, model_doc, **kwargs):
+    def __init__(self, catalog, model_doc, **kwargs):
+        self._catalog = catalog
         NodeConfigAcl.__init__(self, model_doc)
         self._supports_comment = False
         self.schemas = {
@@ -349,6 +351,10 @@ class CatalogConfig (NodeConfigAcl):
                     fkey.digest_referenced_columns(self)
 
     @property
+    def catalog(self):
+        return self._catalog
+
+    @property
     def uri_path(self):
         """URI to this model resource."""
         return "/schema"
@@ -363,20 +369,19 @@ class CatalogConfig (NodeConfigAcl):
     @classmethod
     def fromcatalog(cls, catalog):
         """Retrieve catalog config as a CatalogConfig management object."""
-        return cls(catalog.get("/schema").json())
+        return cls(catalog, catalog.get("/schema").json())
 
     @classmethod
-    def fromfile(cls, schema_file):
+    def fromfile(cls, catalog, schema_file):
         """Deserialize a JSON schema file as a CatalogConfig management object."""
         with open(schema_file) as sf:
             schema = sf.read()
 
-        return cls(json.loads(schema, object_pairs_hook=OrderedDict))
+        return cls(catalog, json.loads(schema, object_pairs_hook=OrderedDict))
 
-    def apply(self, catalog, existing=None):
+    def apply(self, existing=None):
         """Apply catalog configuration to catalog unless existing already matches.
 
-        :param catalog: The EmrestCatalog instance to which configuration will be applied.
         :param existing: An instance comparable to self.
 
         The configuration in self will be applied recursively to the
@@ -392,10 +397,10 @@ class CatalogConfig (NodeConfigAcl):
 
         """
         if existing is None:
-            existing = self.fromcatalog(catalog)
-        NodeConfigAcl.apply(self, catalog, existing)
+            existing = self.fromcatalog(self.catalog)
+        NodeConfigAcl.apply(self, existing)
         for sname, schema in self.schemas.items():
-            schema.apply(catalog, existing.schemas[sname])
+            schema.apply(existing.schemas[sname])
 
     def clear(self):
         """Clear all configuration in catalog and children."""
@@ -447,6 +452,7 @@ class CatalogSchema (NodeConfigAcl):
 
        acls: schema-level ACL configuration
        annotations: schema-level annotations
+       comment: schema-level comment string
        tables: all tables in schema, by name
 
        Convenience access for common annotations:
@@ -463,14 +469,17 @@ class CatalogSchema (NodeConfigAcl):
         }
 
     @property
+    def catalog(self):
+        return self.model.catalog
+
+    @property
     def uri_path(self):
         """URI to this model resource."""
         return "/schema/%s" % urlquote(self.name)
 
-    def apply(self, catalog, existing=None):
+    def apply(self, existing=None):
         """Apply schema configuration to catalog unless existing already matches.
 
-        :param catalog: The EmrestCatalog instance to which configuration will be applied.
         :param existing: An instance comparable to self.
 
         The configuration in self will be applied recursively to the
@@ -479,9 +488,9 @@ class CatalogSchema (NodeConfigAcl):
         applied where applicable unless existing value is equivalent.
 
         """
-        NodeConfigAcl.apply(self, catalog, existing)
+        NodeConfigAcl.apply(self, existing)
         for tname, table in self.tables.items():
-            table.apply(catalog, existing.tables[tname] if existing else None)
+            table.apply(existing.tables[tname] if existing else None)
 
     def clear(self):
         """Clear all configuration in schema and children."""
@@ -545,6 +554,7 @@ class CatalogTable (NodeConfigAclBinding):
        acls: table-level ACL configuration
        annotations: table-level annotations
        column_definitions: columns in table
+       comment: table-level comment string
 
        Convenience access to common annotations:
          self.alternatives: tag.table_alternatives object
@@ -575,14 +585,17 @@ class CatalogTable (NodeConfigAclBinding):
         self.referenced_by = KeyedList([])
 
     @property
+    def catalog(self):
+        return self.schema.model.catalog
+
+    @property
     def uri_path(self):
         """URI to this model element."""
         return "%s/table/%s" % (self.schema.uri_path, urlquote(self.name))
 
-    def apply(self, catalog, existing=None):
+    def apply(self, existing=None):
         """Apply table configuration to catalog unless existing already matches.
 
-        :param catalog: The EmrestCatalog instance to which configuration will be applied.
         :param existing: An instance comparable to self.
 
         The configuration in self will be applied recursively to the
@@ -592,13 +605,13 @@ class CatalogTable (NodeConfigAclBinding):
         equivalent.
 
         """
-        NodeConfigAclBinding.apply(self, catalog, existing)
+        NodeConfigAclBinding.apply(self, existing)
         for col in self.column_definitions:
-            col.apply(catalog, existing.column_definitions[col.name] if existing else None)
+            col.apply(existing.column_definitions[col.name] if existing else None)
         for key in self.keys:
-            key.apply(catalog, existing.keys[key.name_in_model(existing.schema.model)] if existing else None)
+            key.apply(existing.keys[key.name_in_model(existing.schema.model)] if existing else None)
         for fkey in self.foreign_keys:
-            fkey.apply(catalog, existing.foreign_keys[fkey.name_in_model(existing.schema.model)] if existing else None)
+            fkey.apply(existing.foreign_keys[fkey.name_in_model(existing.schema.model)] if existing else None)
 
     def clear(self):
         """Clear all configuration in table and children."""
@@ -696,6 +709,7 @@ class CatalogColumn (NodeConfigAclBinding):
        acl_bindings: column-level dynamic ACL bindings
        acls: column-level ACL configuration
        annotations: column-level annotations
+       comment: column-level comment string
        name: name of column
 
        Convenience access to common annotations:
@@ -711,6 +725,10 @@ class CatalogColumn (NodeConfigAclBinding):
         NodeConfigAclBinding.__init__(self, column_doc)
         self.table = table
         self.name = cname
+
+    @property
+    def catalog(self):
+        return self.table.schema.model.catalog
 
     @property
     def uri_path(self):
@@ -754,7 +772,8 @@ class CatalogKey (NodeConfig):
     """Key-level configuration management.
 
        annotations: column-level annotations
-       names: name(s) of key constraint
+       comment: key-level comment string
+       name: (self.schema, name_str) pair of key constraint
     """
     def __init__(self, table, key_doc, **kwargs):
         NodeConfig.__init__(self, key_doc)
@@ -764,6 +783,10 @@ class CatalogKey (NodeConfig):
             table.column_definitions[cname]
             for cname in key_doc['unique_columns']
         ]
+
+    @property
+    def catalog(self):
+        return self.table.schema.model.catalog
 
     @property
     def uri_path(self):
@@ -814,6 +837,8 @@ class CatalogForeignKey (NodeConfigAclBinding):
        acl_bindings: foreign key-level acl-bindings
        acls: foreign key-level acls
        annotations: foreign key-level annotations
+       comment: foreign key-level comment string
+       name: (self.schema, name_str) pair of foreign key constraint
     """
     def __init__(self, table, fkey_doc, **kwargs):
         refcols = fkey_doc['referenced_columns']
@@ -847,6 +872,10 @@ class CatalogForeignKey (NodeConfigAclBinding):
             ]
             self._referenced_columns_doc = None
             self.pk_table.referenced_by.append(self)
+
+    @property
+    def catalog(self):
+        return self.table.schema.model.catalog
 
     @property
     def uri_path(self):
