@@ -2,12 +2,17 @@ import os
 import sys
 import json
 import logging
+import platform
 import traceback
+import importlib
 from pprint import pprint
 from requests.exceptions import HTTPError, ConnectionError
-from deriva.core import __version__ as VERSION, read_config, init_logging, format_exception, BaseCLI
+from deriva.core import __version__ as VERSION, DEFAULT_CONFIG_PATH, read_config, format_exception, BaseCLI
 from deriva.core.utils import eprint
 
+GLOBUS_SDK = None
+NATIVE_LOGIN = None
+NATIVE_APP_CLIENT_ID = "8ef15ba9-2b4a-469c-a163-7fd910c9d111"
 CLIENT_CRED_FILE = '/home/secrets/oauth2/client_secret_globus.json'
 
 
@@ -19,6 +24,16 @@ class UsageException(ValueError):
         """Initializes the exception.
         """
         super(UsageException, self).__init__(message)
+
+
+class DependencyError(ImportError):
+    """Dependency exception.
+    """
+
+    def __init__(self, message):
+        """Initializes the exception.
+        """
+        super(DependencyError, self).__init__(message)
 
 
 class GlobusAuthAPIException(Exception):
@@ -35,17 +50,22 @@ class GlobusAuthUtil:
         if not (client_id and client_secret):
             cred_file = kwargs.get("credential_file", CLIENT_CRED_FILE)
             creds = read_config(cred_file)
-            client_id = creds['web'].get('client_id')
-            client_secret = creds['web'].get('client_secret')
+            if creds:
+                client = creds.get("web")
+                if client:
+                    client_id = client.get('client_id')
+                    client_secret = client.get('client_secret')
         try:
-            from globus_sdk import ConfidentialAppAuthClient
-            global GlobusAuthAPIError
-            from globus_sdk.exc import AuthAPIError as GlobusAuthAPIError
-            self.client = ConfidentialAppAuthClient(client_id, client_secret)
-            self.client_id = client_id
+            global GLOBUS_SDK, GlobusAuthAPIError
+            GLOBUS_SDK = importlib.import_module("globus_sdk")
+            GlobusAuthAPIError = GLOBUS_SDK.AuthAPIError
         except Exception as e:
-            logging.error("Unable to instantiate required globus_sdk class ConfidentialAppAuthClient: %s" % e)
-            raise
+            raise DependencyError("Unable to load a required module: %s" % format_exception(e))
+
+        if not (client_id and client_secret):
+            logging.warning("Client ID and secret not specified and/or could not be determined.")
+        self.client = GLOBUS_SDK.ConfidentialAppAuthClient(client_id, client_secret)
+        self.client_id = client_id
 
     @staticmethod
     def from_json(obj):
@@ -116,6 +136,13 @@ class GlobusAuthUtil:
         if not token:
             raise UsageException("A token argument is required.")
         r = self.client.oauth2_token_introspect(token)
+        return r.data
+
+    def get_dependent_access_tokens(self, token, refresh=False):
+        if not token:
+            raise UsageException("A token argument is required.")
+        additional_params = {"access_type": "offline"} if refresh else None
+        r = self.client.oauth2_get_dependent_tokens(token, additional_params)
         return r.data
 
     def new_client(self, client):
@@ -328,6 +355,64 @@ class GlobusAuthUtil:
         return result
 
 
+class GlobusNativeLogin:
+    def __init__(self, **kwargs):
+        self.client = None
+        self.client_id = kwargs.get("client_id") or NATIVE_APP_CLIENT_ID
+        self.default_scopes = ["openid", "profile", "email", "urn:globus:auth:scope:auth.globus.org:view_identities"]
+        try:
+            global GLOBUS_SDK, NATIVE_LOGIN
+            GLOBUS_SDK = importlib.import_module("globus_sdk")
+            NATIVE_LOGIN = importlib.import_module("fair_research_login")
+        except Exception as e:
+            raise DependencyError("Unable to load a required module: %s" % format_exception(e))
+
+        try:
+            storage_file = 'globus-credential%s.json' % \
+                           (("-" + self.client_id) if self.client_id != NATIVE_APP_CLIENT_ID else "")
+            storage = NATIVE_LOGIN.JSONTokenStorage(
+                filename=os.path.join(DEFAULT_CONFIG_PATH, storage_file))
+            self.client = NATIVE_LOGIN.NativeClient(
+                client_id=self.client_id,
+                token_storage=storage,
+                app_name="deriva-client on %s [%s]" % (platform.uname()[1], platform.platform(aliased=True)),
+                default_scopes=self.default_scopes)
+        except Exception as e:
+            logging.error("Unable to instantiate a required class: %s" % format_exception(e))
+
+    def user_info(self):
+        # Loads RefreshTokenAuthorizer if login(refresh_tokens=True), otherwise will load an AccessTokenAuthorizer
+        ac_authorizer = self.client.get_authorizers()['auth.globus.org']
+        auth_cli = GLOBUS_SDK.AuthClient(authorizer=ac_authorizer)
+        return auth_cli.oauth2_userinfo().data
+
+    def is_logged_in(self):
+        try:
+            self.client.load_tokens()
+            return True
+        except NATIVE_LOGIN.LoadError:
+            return False
+
+    def login(self,
+              no_local_server=False,
+              no_browser=False,
+              requested_scopes=(),
+              refresh_tokens=None,
+              prefill_named_grant=None,
+              additional_params=None,
+              force=False):
+        return self.client.login(no_local_server=no_local_server,
+                                 no_browser=no_browser,
+                                 requested_scopes=requested_scopes,
+                                 refresh_tokens=refresh_tokens,
+                                 prefill_named_grant=prefill_named_grant,
+                                 additional_params=additional_params,
+                                 force=force)
+
+    def logout(self):
+        return self.client.logout()
+
+
 class DerivaGlobusAuthUtilCLIException(Exception):
     def __init__(self, message):
         super(DerivaGlobusAuthUtilCLIException, self).__init__(message)
@@ -341,10 +426,11 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
         super(DerivaGlobusAuthUtilCLI, self).__init__(*args, **kwargs)
 
         self.gau = None
+        self.gnl = None
         self.remove_options(['--host', '--config-file', '--credential-file', '--token', '--oauth2-token'])
         self.parser.add_argument("--pretty", "-p", action="store_true",
                                  help="Pretty-print all result output.")
-        parent_mutex_group = self.parser.add_mutually_exclusive_group(required=True)
+        parent_mutex_group = self.parser.add_mutually_exclusive_group()
         parent_mutex_group.add_argument('--credential-file', '-f', metavar='<file>',
                                         help="Path to a credential file.")
         parent_mutex_group.add_argument('--client-id', '-c', metavar='<client id>',
@@ -352,223 +438,302 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
         self.parser.add_argument('--client-secret', '-k', metavar='<client secret key>',
                                  help="Globus Auth Client Secret")
 
-        subparsers = self.parser.add_subparsers(title='sub-commands', dest='subcmd')
+        self.subparsers = self.parser.add_subparsers(title='sub-commands', dest='subcmd')
 
-        # get-scope parser
-        get_scopes = subparsers.add_parser('get-scopes',
-                                           help="Get one or more scopes by name or ID, or all scopes owned by this "
-                                                "client if no scope ID is specified.")
-        get_scopes.add_argument("--scope-ids", metavar="[scopes]",
-                                help="A comma-delimited list of scope IDs to retrieve.")
-        get_scopes.add_argument("--scope-names", metavar="[scopes]",
-                                help="A comma-delimited list of scope names to retrieve.")
-        get_scopes.set_defaults(func=self.get_scopes)
+        # init subparsers and corresponding functions
+        self.get_scopes_init()
+        self.put_scope_init()
+        self.add_scopes_init()
+        self.create_scope_init()
+        self.delete_scope_init()
+        self.get_client_init()
+        self.put_client_init()
+        self.create_client_init()
+        self.delete_client_init()
+        self.client_fqdn_init()
+        self.token_init()
+        self.login_init()
+        self.logout_init()
+        self.user_info_init()
 
-        # put-scope parser
-        put_scope = subparsers.add_parser("put-scope",
-                                          help="Create or update a scope owned by this client from a valid JSON scope "
-                                               "configuration in string form, or a path to an equivalent file.")
-        put_scope.add_argument("--scope-id", metavar="<scope id>", help="The scope ID.")
-        put_scope.add_argument("scope_config", metavar="<JSON String or path to file>",
-                               help="A valid JSON scope configuration in string form, or a path to an equivalent file.")
-        put_scope.set_defaults(func=self.put_scope)
+    def get_scopes_init(self):
+        def get_scopes(args):
+            if args.scope_ids:
+                return self.gau.get_scopes_by_id(args.scope_ids)
+            elif args.scope_names:
+                return self.gau.get_scopes_by_name(args.scope_names)
+            else:
+                return self.gau.list_all_scopes()
 
-        # add-scope parser
-        add_scopes = subparsers.add_parser('add-scopes',
-                                           help="Add one or more scopes by name to this client, or add one or more "
-                                                "scopes as dependent scopes of a specified parent scope.")
-        add_scopes.add_argument("scope_names", metavar="[scopes]", default=list(),
-                                type=lambda s: [item for item in s.split(',')],
-                                help="A comma-delimited list of scope names.")
-        add_scopes.add_argument("--parent-scope", metavar="<scope name>",
-                                help="The parent scope name if adding dependent scopes.")
-        add_scopes.add_argument("--optional", action="store_true",
-                                help="When adding to dependent scopes, sets the scope as optional. Default false.")
-        add_scopes.add_argument("--requires-refresh-token", action="store_true",
-                                help="When adding to dependent scopes, sets the scope to require the usage of refresh "
-                                     "tokens. Default false.")
-        add_scopes.set_defaults(func=self.add_scopes)
+        parser = self.subparsers.add_parser(
+            'get-scopes',
+            help="Get one or more scopes by name or ID, or all scopes owned by this client if no scope ID is "
+                 "specified.")
+        parser.add_argument("--scope-ids", metavar="[scopes]",
+                            help="A comma-delimited list of scope IDs to retrieve.")
+        parser.add_argument("--scope-names", metavar="[scopes]",
+                            help="A comma-delimited list of scope names to retrieve.")
+        parser.set_defaults(func=get_scopes)
 
-        # create-scope parser
-        create_scope = subparsers.add_parser('create-scope',
-                                             help="Creates a scope for each registered FQDN + the id of the client "
-                                                  "from command-line parameters.")
-        create_scope.add_argument("name", metavar="<scope name>",
-                                  help="The new scope name. Max 100 chars.")
-        create_scope.add_argument("description", metavar="<scope desc>",
-                                  help="A scope description. Max 5000 chars.")
-        create_scope.add_argument("suffix", metavar="<scope suffix>",
-                                  help="String consisting of lowercase letters, number, and underscores.")
-        create_scope.add_argument("--dependent-scope-names", metavar="[scopes]", default=list(),
-                                  type=lambda s: [item for item in s.split(',')],
-                                  help="A comma-delimited list of dependent scope names.")
-        create_scope.add_argument("--advertised", action="store_true",
-                                  help="Whether or not the scope should show up in searches. Default: True")
-        create_scope.add_argument("--allow-refresh-token", action="store_true",
-                                  help="Whether or not the scope allows refresh tokens to be issued. Default: True")
-        create_scope.set_defaults(func=self.create_scope)
+    def put_scope_init(self):
+        def put_scope(args):
+            if args.scope_id:
+                return self.gau.update_scope(args.scope_config)
+            else:
+                return self.gau.create_scope(args.scope_config)
 
-        # del-scope parser
-        del_scope = subparsers.add_parser("del-scope",
-                                          help="Delete the specified scope name. "
-                                               "Deleting a scope deletes all resources associated with it. This "
-                                               "operation can cause other apps and services that depend on the scope "
-                                               "to stop working. This action cannot be undone.")
-        del_scope.add_argument("scope_name", metavar="<scope_name>", help="The scope name to delete.")
-        del_scope.set_defaults(func=self.delete_scope)
+        parser = self.subparsers.add_parser(
+            "put-scope",
+            help="Create or update a scope owned by this client from a valid JSON scope configuration in string form, "
+                 "or a path to an equivalent file.")
+        parser.add_argument("--scope-id", metavar="<scope id>", help="The scope ID.")
+        parser.add_argument("scope_config", metavar="<JSON String or path to file>",
+                            help="A valid JSON scope configuration in string form, or a path to an equivalent file.")
+        parser.set_defaults(func=put_scope)
 
-        # get-client parser
-        get_client = subparsers.add_parser('get-client',
-                                           help="Retrieve client information for the specified client, "
-                                                "or all clients owned by this client ID if no ID specified.")
-        get_client.add_argument("--get-client-id", metavar="<client ID>",
-                                help="Retrieve client information for the specified client ID.")
-        get_client.set_defaults(func=self.get_client)
+    def add_scopes_init(self):
+        def add_scopes(args):
+            if args.parent_scope:
+                return self.gau.add_dependent_scopes(args.parent_scope,
+                                                     args.scope_names,
+                                                     args.optional,
+                                                     args.requires_refresh_token)
+            else:
+                return self.gau.add_scopes(args.scope_names)
 
-        # put-client parser
-        put_client = subparsers.add_parser('put-client',
-                                           help="Update this (or another) client OR create a child client of this "
-                                                "client from a valid JSON client configuration in string form, or a "
-                                                "path to an equivalent file.")
-        put_client.add_argument("client_config", metavar="<JSON String or path to file>",
-                                help="A valid JSON client config in string form, or a path to an equivalent file.")
-        put_client.add_argument("--put-client-id", metavar="<client id>",
-                                help="The client ID to update, or implicitly this client's ID if not specified.")
-        put_client.add_argument("--create", action="store_true",
-                                help="Create a new child client from the input client config.")
-        put_client.set_defaults(func=self.put_client)
+        parser = self.subparsers.add_parser(
+            'add-scopes',
+            help="Add one or more scopes by name to this client, or add one or more scopes as dependent scopes of a "
+                 "specified parent scope.")
+        parser.add_argument("scope_names", metavar="[scopes]", default=list(),
+                            type=lambda s: [item for item in s.split(',')],
+                            help="A comma-delimited list of scope names.")
+        parser.add_argument("--parent-scope", metavar="<scope name>",
+                            help="The parent scope name if adding dependent scopes.")
+        parser.add_argument("--optional", action="store_true",
+                            help="When adding to dependent scopes, sets the scope as optional. Default false.")
+        parser.add_argument("--requires-refresh-token", action="store_true",
+                            help="When adding to dependent scopes, sets the scope to require the usage of refresh "
+                                 "tokens. Default false.")
+        parser.set_defaults(func=add_scopes)
 
-        # create-client parser
-        create_client = subparsers.add_parser('create-client',
-                                              help="Create a client from command-line parameters.")
-        create_client.add_argument("name", metavar="<client name>",
-                                   help="Display name shown to users in consents. String without line-breaks, with no "
-                                        "more than 100 characters.")
-        create_client.add_argument("redirect_uris", metavar="[redirect uris]", default=list(),
-                                   type=lambda s: [item for item in s.split(',')],
-                                   help="A comma-delimited list of URIs that may be used in OAuth authorization flows.")
-        create_client.add_argument("--public", action="store_true",
-                                   help="Create a public (native app) client.")
-        create_client.add_argument("--visibility", choices=["public", "private"],
-                                   help="\"private\" means that only entities in the same project as the client "
-                                        "can view it. \"public\" means that any authenticated entity can view it.")
-        create_client.add_argument("--project", metavar="<project ID>",
-                                   help="ID representing the project this client belongs to.")
-        create_client.add_argument("--required-idp", metavar="<IDP ID>",
-                                   help="ID representing an Identity Provider. In order to use this client a user must"
-                                        " have an identity from this IdP in their identity set.")
-        create_client.add_argument("--preselect-idp", metavar="<IDP ID>",
-                                   help="ID representing an Identity Provider. This preselects the given IdP on the "
-                                        "Globus Auth login page if the user is not already authenticated.")
-        create_client.add_argument("--terms-of-service", metavar="<URL>",
-                                   help="A URL to the terms and conditions statement for this client.")
-        create_client.add_argument("--privacy_policy", metavar="<URL>",
-                                   help="A URL to the privacy policy for this client.")
-        create_client.set_defaults(func=self.create_client)
+    def create_scope_init(self):
+        def create_scope(args):
+            return self.gau.create_scope_with_deps(args.name,
+                                                   args.description,
+                                                   args.suffix,
+                                                   args.dependent_scope_names,
+                                                   args.advertised,
+                                                   args.allow_refresh_token)
 
-        # delete-client parser
-        delete_client = subparsers.add_parser('del-client',
-                                              help="Delete a client by ID. Warning: deletes all resources associated "
-                                                   "with it the client. This includes user consents, scopes (which "
-                                                   "means this operation can cause other apps and services that depend "
-                                                   "on those scopes to stop working as well), and any child clients "
-                                                   "owned by the client (which in turn means that all resources "
-                                                   "associated with the child clients would get deleted as well). "
-                                                   "This action cannot be undone.")
-        delete_client.add_argument("del_client_id", metavar="<client id>",
-                                   help="The client ID to update, or implicitly this client's ID if not specified.")
-        delete_client.set_defaults(func=self.delete_client)
+        parser = self.subparsers.add_parser(
+            'create-scope',
+            help="Creates a scope for each registered FQDN + the id of the client from command-line parameters.")
+        parser.add_argument("name", metavar="<scope name>",
+                            help="The new scope name. Max 100 chars.")
+        parser.add_argument("description", metavar="<scope desc>",
+                            help="A scope description. Max 5000 chars.")
+        parser.add_argument("suffix", metavar="<scope suffix>",
+                            help="String consisting of lowercase letters, number, and underscores.")
+        parser.add_argument("--dependent-scope-names", metavar="[scopes]", default=list(),
+                            type=lambda s: [item for item in s.split(',')],
+                            help="A comma-delimited list of dependent scope names.")
+        parser.add_argument("--advertised", action="store_true",
+                            help="Whether or not the scope should show up in searches. Default: True")
+        parser.add_argument("--allow-refresh-token", action="store_true",
+                            help="Whether or not the scope allows refresh tokens to be issued. Default: True")
+        parser.set_defaults(func=create_scope)
 
-        # client-fqdn parser
-        client_fqdn = subparsers.add_parser('client-fqdn',
-                                            help="Retrieve client information for an FQDN, "
-                                                 "or add and FQDN to this client.")
-        client_fqdn.add_argument("--add", action="store_true",
-                                 help="Add the specified FQDN to this client ID")
-        client_fqdn.add_argument("fqdn", metavar="<fqdn>",
-                                 help="The fully qualified domain name to lookup or add to this client.")
-        client_fqdn.set_defaults(func=self.client_fqdn)
+    def delete_scope_init(self):
+        def delete_scope(args):
+            return self.gau.delete_scope(args.scope_name)
 
-        # token parser
-        token = subparsers.add_parser('token',
-                                      help="Introspect or validate an access token.")
-        token.add_argument("--validate", action="store_true",
-                           help="Validate the access token.")
-        token.add_argument("token", metavar="<token>",
-                           help="The access token to introspect (or validate).")
-        token.set_defaults(func=self.token)
+        parser = self.subparsers.add_parser(
+            "del-scope",
+            help="Delete the specified scope name. Deleting a scope deletes all resources associated with it. This "
+                 "operation can cause other apps and services that depend on the scope to stop working. This action "
+                 "cannot be undone.")
+        parser.add_argument("scope_name", metavar="<scope_name>", help="The scope name to delete.")
+        parser.set_defaults(func=delete_scope)
 
-    def get_scopes(self, args):
-        if args.scope_ids:
-            return self.gau.get_scopes_by_id(args.scope_ids)
-        elif args.scope_names:
-            return self.gau.get_scopes_by_name(args.scope_names)
-        else:
-            return self.gau.list_all_scopes()
+    def get_client_init(self):
+        def get_client(args):
+            if args.get_client_id:
+                return self.gau.get_client(args.get_client_id)
+            else:
+                return self.gau.get_clients()
 
-    def put_scope(self, args):
-        if args.scope_id:
-            return self.gau.update_scope(args.scope_config)
-        else:
-            return self.gau.create_scope(args.scope_config)
+        parser = self.subparsers.add_parser(
+            'get-client',
+            help="Retrieve client information for the specified client, or all clients owned by this client ID if no "
+                 "ID specified.")
+        parser.add_argument("--get-client-id", metavar="<client ID>",
+                            help="Retrieve client information for the specified client ID.")
+        parser.set_defaults(func=get_client)
 
-    def add_scopes(self, args):
-        if args.parent_scope:
-            return self.gau.add_dependent_scopes(args.parent_scope,
-                                                 args.scope_names,
-                                                 args.optional,
-                                                 args.requires_refresh_token)
-        else:
-            return self.gau.add_scopes(args.scope_names)
+    def put_client_init(self):
+        def put_client(args):
+            if args.create:
+                return self.gau.new_client(args.client_config)
+            else:
+                return self.gau.update_client(args.client_config, args.put_client_id)
 
-    def create_scope(self, args):
-        return self.gau.create_scope_with_deps(args.name,
-                                               args.description,
-                                               args.suffix,
-                                               args.dependent_scope_names,
-                                               args.advertised,
-                                               args.allow_refresh_token)
+        parser = self.subparsers.add_parser(
+            'put-client',
+            help="Update this (or another) client OR create a child client of this client from a valid JSON client "
+                 "configuration in string form, or a path to an equivalent file.")
+        parser.add_argument("client_config", metavar="<JSON String or path to file>",
+                            help="A valid JSON client config in string form, or a path to an equivalent file.")
+        parser.add_argument("--put-client-id", metavar="<client id>",
+                            help="The client ID to update, or implicitly this client's ID if not specified.")
+        parser.add_argument("--create", action="store_true",
+                            help="Create a new child client from the input client config.")
+        parser.set_defaults(func=put_client)
 
-    def delete_scope(self, args):
-        return self.gau.delete_scope(args.scope_name)
+    def create_client_init(self):
+        def create_client(args):
+            return self.gau.create_client(args.name,
+                                          args.redirect_uris,
+                                          args.public,
+                                          args.visibility,
+                                          args.project,
+                                          args.required_idp,
+                                          args.preselect_idp,
+                                          args.terms_of_service,
+                                          args.privacy_policy)
 
-    def get_client(self, args):
-        if args.get_client_id:
-            return self.gau.get_client(args.get_client_id)
-        else:
-            return self.gau.get_clients()
+        parser = self.subparsers.add_parser('create-client', help="Create a client from command-line parameters.")
+        parser.add_argument("name", metavar="<client name>",
+                            help="Display name shown to users in consents. String without line-breaks, with no "
+                                 "more than 100 characters.")
+        parser.add_argument("redirect_uris", metavar="[redirect uris]", default=list(),
+                            type=lambda s: [item for item in s.split(',')],
+                            help="A comma-delimited list of URIs that may be used in OAuth authorization flows.")
+        parser.add_argument("--public", action="store_true",
+                            help="Create a public (native app) client.")
+        parser.add_argument("--visibility", choices=["public", "private"],
+                            help="\"private\" means that only entities in the same project as the client "
+                                 "can view it. \"public\" means that any authenticated entity can view it.")
+        parser.add_argument("--project", metavar="<project ID>",
+                            help="ID representing the project this client belongs to.")
+        parser.add_argument("--required-idp", metavar="<IDP ID>",
+                            help="ID representing an Identity Provider. In order to use this client a user must"
+                                 " have an identity from this IdP in their identity set.")
+        parser.add_argument("--preselect-idp", metavar="<IDP ID>",
+                            help="ID representing an Identity Provider. This preselects the given IdP on the "
+                                 "Globus Auth login page if the user is not already authenticated.")
+        parser.add_argument("--terms-of-service", metavar="<URL>",
+                            help="A URL to the terms and conditions statement for this client.")
+        parser.add_argument("--privacy_policy", metavar="<URL>",
+                            help="A URL to the privacy policy for this client.")
+        parser.set_defaults(func=create_client)
 
-    def put_client(self, args):
-        if args.create:
-            return self.gau.new_client(args.client_config)
-        else:
-            return self.gau.update_client(args.client_config, args.put_client_id)
+    def delete_client_init(self):
+        def delete_client(args):
+            return self.gau.delete_client(args.del_client_id)
 
-    def create_client(self, args):
-        return self.gau.create_client(args.name,
-                                      args.redirect_uris,
-                                      args.public,
-                                      args.visibility,
-                                      args.project,
-                                      args.required_idp,
-                                      args.preselect_idp,
-                                      args.terms_of_service,
-                                      args.privacy_policy)
+        parser = self.subparsers.add_parser(
+            'del-client',
+            help="Delete a client by ID. Warning: deletes all resources associated with it the client. This includes"
+                 " user consents, scopes (which means this operation can cause other apps and services that depend "
+                 "on those scopes to stop working as well), and any child clients owned by the client (which in turn "
+                 "means that all resources associated with the child clients would get deleted as well). This action "
+                 "cannot be undone.")
+        parser.add_argument("del_client_id", metavar="<client id>",
+                            help="The client ID to update, or implicitly this client's ID if not specified.")
+        parser.set_defaults(func=delete_client)
 
-    def delete_client(self, args):
-        return self.gau.delete_client(args.del_client_id)
+    def client_fqdn_init(self):
+        def client_fqdn(args):
+            if args.add:
+                return self.gau.add_fqdn_to_client(args.fqdn)
+            else:
+                return self.gau.get_client_for_fqdn(args.fqdn)
 
-    def client_fqdn(self, args):
-        if args.add:
-            return self.gau.add_fqdn_to_client(args.fqdn)
-        else:
-            return self.gau.get_client_for_fqdn(args.fqdn)
+        parser = self.subparsers.add_parser(
+            'client-fqdn',
+            help="Retrieve client information for an FQDN, or add and FQDN to this client.")
+        parser.add_argument("--add", action="store_true",
+                            help="Add the specified FQDN to this client ID")
+        parser.add_argument("fqdn", metavar="<fqdn>",
+                            help="The fully qualified domain name to lookup or add to this client.")
+        parser.set_defaults(func=client_fqdn)
 
-    def token(self, args):
-        if args.validate:
-            return self.gau.verify_access_token(args.token)
-        else:
-            return self.gau.introspect_access_token(args.token)
+    def token_init(self):
+        def token(args):
+            if args.validate:
+                return self.gau.verify_access_token(args.token)
+            elif args.dependent:
+                return self.gau.get_dependent_access_tokens(args.token, args.refresh)
+            else:
+                return self.gau.introspect_access_token(args.token)
+
+        parser = self.subparsers.add_parser('token', help="Introspect or validate an access token.")
+        parser.add_argument("--validate", action="store_true",
+                            help="Validate the access token.")
+        parser.add_argument("--dependent", action="store_true",
+                            help="Get dependent access token(s).")
+        parser.add_argument("--refresh", action="store_true",
+                            help="Request refresh tokens when getting dependent access token(s).")
+        parser.add_argument("token", metavar="<token>",
+                            help="The access token to introspect (or validate).")
+        parser.set_defaults(func=token)
+
+    def login_init(self):
+        def login(args):
+            if self.gnl.is_logged_in() and not args.force:
+                return "You are already logged in."
+            else:
+                scopes = self.gnl.default_scopes.copy()
+                scopes.extend(args.requested_scopes)
+                response = self.gnl.login(no_local_server=args.no_local_server,
+                                          no_browser=args.no_browser,
+                                          refresh_tokens=args.refresh,
+                                          force=args.force,
+                                          requested_scopes=scopes,
+                                          additional_params={"access_type": "offline"})
+                if args.show_response:
+                    return response
+                else:
+                    return "Login Successful"
+
+        parser = self.subparsers.add_parser('login', help="Login with Globus Auth")
+        parser.add_argument('--client-id', '-c', metavar='<client id>',
+                            help="Use a different client ID than the default.")
+        parser.add_argument("--no-local-server", action="store_true",
+                            help="Do not launch a local server to receive the authorization redirect response.")
+        parser.add_argument("--no-browser", action="store_true",
+                            help="Do not launch a browser instance on this system for initiating the login flow.")
+        parser.add_argument("--refresh", action="store_true",
+                            help="Enable the use of refresh tokens to extend the login time until revoked.")
+        parser.add_argument("--force", action="store_true",
+                            help="Force a login flow even if the current access token set is valid.")
+        parser.add_argument("--requested-scopes", metavar="[scopes]", default=list(),
+                            type=lambda s: [item for item in s.split(',')],
+                            help="A comma-delimited list of scope names to request tokens for. "
+                                 "This includes (implicitly) the following scopes: "
+                                 "[openid, profile, email, urn:globus:auth:scope:auth.globus.org:view_identities].")
+        parser.add_argument("--show-response", action="store_true",
+                            help="Display the tokens from the authorization response.")
+        parser.set_defaults(func=login)
+
+    def logout_init(self):
+        def logout(args):
+            self.gnl.logout()
+            return "You have been logged out."
+
+        parser = self.subparsers.add_parser("logout", help="Revoke and clear tokens")
+        parser.set_defaults(func=logout)
+
+    def user_info_init(self):
+        def user_info(args):
+            if self.gnl.is_logged_in():
+                return self.gnl.user_info()
+            else:
+                return "Login required."
+
+        parser = self.subparsers.add_parser("user-info", help="Display information for the currently logged-in user.")
+        parser.set_defaults(func=user_info)
 
     def main(self):
         args = self.parse_cli()
@@ -580,21 +745,27 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
         try:
             if not hasattr(args, 'func'):
                 self.parser.print_usage()
-                return 1
+                return 2
 
-            self.gau = GlobusAuthUtil(**vars(args))
+            if args.subcmd == "login" or args.subcmd == "logout" or args.subcmd == "user-info":
+                self.gnl = GlobusNativeLogin(**vars(args))
+            else:
+                self.gau = GlobusAuthUtil(**vars(args))
+
             response = args.func(args)
             if args.pretty:
                 if isinstance(response, dict) or isinstance(response, list):
                     try:
                         print(json.dumps(response, indent=2))
+                        return
                     except:
                         pprint(response)
-                else:
+                        return
+                elif not isinstance(response, str):
                     pprint(response)
-            else:
-                print(response)
-            return 0
+                    return
+            print(response)
+            return
 
         except UsageException as e:
             eprint("{prog} {subcmd}: {msg}".format(prog=self.parser.prog, subcmd=args.subcmd, msg=e))
@@ -609,6 +780,8 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                 msg = e
             logging.debug(format_exception(e))
             eprint(_cmd_error_message(msg))
+        except DependencyError as e:
+            eprint(_cmd_error_message(e))
         except RuntimeError as e:
             logging.debug(format_exception(e))
             eprint('Unexpected runtime error occurred')
@@ -626,63 +799,3 @@ def main():
 
 if __name__ == '__main__':
     sys.exit(main())
-
-# if __name__ == '__main__':
-#    scope_file = sys.argv[1]
-#    token = sys.argv[1]
-# s = GlobusClientUtil()
-# s.add_dependent_scopes('https://auth.globus.org/scopes/0fb084ec-401d-41f4-990e-e236f325010a/deriva_test_withdeps',
-#                        ['openid',
-#                         'email',
-#                         'urn:globus:auth:scope:nexus.api.globus.org:groups',
-#                         'https://auth.globus.org/scopes/identifiers.globus.org/create_update'
-#                         ])
-# print s.add_grant_types([
-#     "openid",
-#     "email",
-#     "profile",
-#     "urn:globus:auth:scope:auth.globus.org:view_identities",
-#     "urn:globus:auth:scope:nexus.api.globus.org:groups",
-#     "https://auth.globus.org/scopes/identifiers.globus.org/create_update"
-# ])
-#    s.add_scopes(["openid", "email"])
-#    print str(s.my_scope_names())
-#    print s.update_private_client()
-#    pprint.pprint(s.get_scopes_by_name('email,urn:globus:auth:scope:nexus.api.globus.org:groups,urn:globus:auth:scope:transfer.api.globus.org:all'))
-#    print s.create_private_client("nih_test_3", ["https://webauthn-dev.isrd.isi.edu/authn/session", "https://nih-commons.derivacloud.org/authn/session"])
-#    print s.get_clients()
-#    print s.add_scopes(]
-#    print s.get_my_client()
-#    print s.add_redirect_uris(["https://webauthn-dev.isrd.isi.edu/authn/session", "https://nih-commons.derivacloud.org/authn/session"])
-#    print s.create_scope(scope_file)
-#    print s.add_fqdn_to_client('nih-commons.derivacloud.org')
-# print s.create_scope_with_deps('Deriva Services', 'Use Deriva Services', 'deriva_all',
-#                                dependent_scopes = [
-#                                    "openid",
-#                                    "email",
-#                                    "profile",
-#                                    "urn:globus:auth:scope:auth.globus.org:view_identities",
-#                                    "urn:globus:auth:scope:nexus.api.globus.org:groups",
-#                                    "urn:globus:auth:scope:transfer.api.globus.org:all",
-#                                    "https://auth.globus.org/scopes/identifiers.globus.org/create_update"
-#                                    ])
-# print s.delete_scope("https://auth.globus.org/scopes/nih-commons.derivacloud.org/deriva_test_nodeps")
-# print s.delete_scope("https://auth.globus.org/scopes/0fb084ec-401d-41f4-990e-e236f325010a/deriva_test_withdeps")
-# print s.delete_scope("https://auth.globus.org/scopes/nih-commons.derivacloud.org/deriva_test_withdeps")
-# print s.delete_scope("https://auth.globus.org/scopes/0fb084ec-401d-41f4-990e-e236f325010a/deriva_test_3")
-# print s.delete_scope("https://auth.globus.org/scopes/nih-commons.derivacloud.org/deriva_test_3")
-# print s.delete_scope("https://auth.globus.org/scopes/0fb084ec-401d-41f4-990e-e236f325010a/deriva_test_4")
-# print s.delete_scope("https://auth.globus.org/scopes/nih-commons.derivacloud.org/deriva_test_4")
-# print(str(s.list_all_scopes()))
-#    scope = s.get_scopes_by_name("https://auth.globus.org/scopes/0fb084ec-401d-41f4-990e-e236f325010a/deriva_all")[0]
-#    pprint.pprint(s.get_dependent_scopes(scope))
-#    print s.verify_access_token(token)
-#    print s.introspect_access_token(token)
-# print s.update_scope('23b9a3f9-872d-4a40-9c4c-a80a4c61f3bf',
-#                      {"name" : "Use Deriva Services",
-#                       "description" : "Use all Deriva services"
-#                       })
-# print s.update_scope('b892c8a9-2f33-4404-9fe3-6eb9093010c3',
-#                      {"name" : "Use Deriva Services on nih-commons.derivacloud.org",
-#                       "description" : "Use all Deriva services on nih-commons.derivacloud.org"
-#                       })
