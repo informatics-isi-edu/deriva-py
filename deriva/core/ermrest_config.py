@@ -649,6 +649,35 @@ class CatalogTable (NodeConfigAclBinding):
                 return key
         raise KeyError(cset)
 
+    def fkey_by_column_map(self, from_to_map):
+        """Return fkey from self.fkeys with matching from: to mapping or raise KeyError if no such fkey is found.
+
+        from_to_map: dict-like mapping with items() method yielding (from_col, to_col) pairs
+        """
+        colmap = {
+            from_col: to_col
+            for from_col, to_col in from_to_map.items()
+        }
+        if not colmap:
+            raise ValueError('column mapping must be non-empty')
+        for c in colmap:
+            if c.table is not self:
+                raise ValueError('from-column is not part of this table')
+        to_table = None
+        for c in colmap.values():
+            if to_table is None:
+                to_table = c.table
+            elif to_table is not c.table:
+                raise ValueError('to-columns must all be part of same table')
+        for fkey in self.fkeys:
+            fkey_colmap = {
+                fkey.foreign_key_columns[i]: fkey.referenced_columns[i]
+                for i in range(len(fkey.foreign_key_columns))
+            }
+            if colmap == fkey_colmap:
+                return fkey
+        raise KeyError(from_to_map)
+
     @object_annotation(tag.table_alternatives)
     def alternatives(self): pass
 
