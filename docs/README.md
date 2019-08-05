@@ -62,7 +62,7 @@ access layer.
    - Change acls on schema, table, column, and foreign key constraints.
    - Change acl\_bindings on table, column, and foreign key constraints.
    - Change annotations on catalog, schema, table, column, key, or foreign key constraints.
-- Delete model elements
+- Drop model elements
    - Drop schemas.
    - Drop tables.
    - Drop columns.
@@ -210,17 +210,17 @@ be added to a model with `model.create_schema(schema_def)`.
 
 #### Remove a Column from a Table
 
-To delete a column, you invoke the `delete()` method on the
+To remove or "drop" a column, you invoke the `drop()` method on the
 column object itself:
 
     table = model_root.table(schema_name, table_name)
 	column = table.column_definitions[column_name]
-	column.delete()
+	column.drop()
 
 The same pattern can be used to remove a key or foreign key from a
-table via `key.delete()` or `foreign_key.delete()`,
+table via `key.drop()` or `foreign_key.drop()`,
 respectively. Similarly, a schema or table can be removed with
-`schema.delete()` or `table.delete()`, respectively.
+`schema.drop()` or `table.drop()`, respectively.
 
 #### Alter a Table
 

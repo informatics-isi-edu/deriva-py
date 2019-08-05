@@ -148,7 +148,7 @@ class Schema (_ec.CatalogSchema):
         self.model.digest_fkeys()
         return newtable
 
-    def delete(self):
+    def drop(self):
         """Remove this schema from the remote database.
         """
         if self.name not in self.model.schemas:
@@ -555,7 +555,7 @@ class Table (_ec.CatalogTable):
             return fkey
         return self._create_table_part('foreignkey', add_fkey, ForeignKey, fkey_def)
 
-    def delete(self):
+    def drop(self):
         """Remove this table from the remote database.
         """
         if self.name not in self.schema.tables:
@@ -674,7 +674,7 @@ class Column (_ec.CatalogColumn):
         })
         return d
         
-    def delete(self):
+    def drop(self):
         """Remove this column from the remote database.
         """
         if self.name not in self.table.column_definitions.elements:
@@ -749,7 +749,7 @@ class Key (_ec.CatalogKey):
         })
         return d
 
-    def delete(self):
+    def drop(self):
         """Remove this key from the remote database.
         """
         if self.names[0] not in self.table.keys.elements:
@@ -866,7 +866,7 @@ class ForeignKey (_ec.CatalogForeignKey):
         })
         return d
 
-    def delete(self):
+    def drop(self):
         """Remove this foreign key from the remote database.
         """
         if self.names[0] not in self.table.foreign_keys.elements:
