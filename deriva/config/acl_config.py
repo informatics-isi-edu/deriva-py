@@ -7,6 +7,7 @@ from deriva.core.ermrest_config import CatalogColumn, CatalogForeignKey
 from deriva.config.base_config import BaseSpec, BaseSpecList, ConfigUtil, ConfigBaseCLI
 from requests.exceptions import HTTPError
 from uuid import UUID
+import warnings
 
 
 class NoForeignKeyError(ValueError):
@@ -37,11 +38,14 @@ class AclConfig:
     GC_NAME = 'groups'
     ACL_TYPES = ["catalog_acl", "schema_acls", "table_acls", "column_acls", "foreign_key_acls"]
     GLOBUS_PREFIX = 'https://auth.globus.org/'
+    ROBOT_PREFIX_FORMAT = 'https://{server}/webauthn_robot/'
 
     def __init__(self, server, catalog_id, config_file, credentials, schema_name=None, table_name=None, verbose=False):
         self.config = json.load(open(config_file))
         self.ignored_schema_patterns = []
         self.verbose = verbose
+        self.server = server
+        self.catalog_id = catalog_id
         ip = self.config.get("ignored_schema_patterns")
         if ip is not None:
             for p in ip:
@@ -56,8 +60,6 @@ class AclConfig:
         self.expand_acl_definitions()
         self.acl_bindings = self.config.get("acl_bindings")
         self.invalidate_bindings = self.config.get("invalidate_bindings")
-        self.server = server
-        self.catalog_id = catalog_id
 
         old_catalog = ErmrestCatalog('https', self.server, self.catalog_id, credentials)
         self.saved_toplevel_config = ConfigUtil.find_toplevel_node(old_catalog.getCatalogConfig(), schema_name,
@@ -292,8 +294,10 @@ class AclConfig:
             return
         elif group.startswith(self.GLOBUS_PREFIX):
             self.validate_globus_group(group)
+        elif group.startswith(self.ROBOT_PREFIX_FORMAT.format(server=self.server)):
+            self.validate_webauthn_robot(group)
         else:
-            raise ValueError("Can't determine format of group '{g}'".format(g=group))
+            warnings.warn("Can't determine format of group '{g}'".format(g=group))
 
     def validate_globus_group(self, group):
         guid = group[len(self.GLOBUS_PREFIX):]
@@ -303,6 +307,13 @@ class AclConfig:
             raise ValueError("Group '{g}' appears to be a malformed Globus group".format(g=group))
         if self.verbose:
             print("group '{g}' appears to be a syntactically-correct Globus group".format(g=group))
+
+    def validate_webauthn_robot(self, group):
+        robot_name = group[len(self.ROBOT_PREFIX_FORMAT.format(server=self.server)):]
+        if not robot_name:
+            raise ValueError("Group '{g}' appears to be a malformed webauthn robot identity".format(g=group))
+        if self.verbose:
+            print("group '{g}' appears to be a syntactically-correct webauthn robot identity".format(g=group))
 
     def expand_group(self, group_name):
         groups = []
