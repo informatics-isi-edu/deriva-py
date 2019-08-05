@@ -102,7 +102,7 @@ class Schema (_ec.CatalogSchema):
             'schema_name': schema_name,
             'comment': comment,
             'acls': acls,
-            'annotations': nochange,
+            'annotations': annotations,
         })
 
         r = self.catalog.put(self.uri_path, json=changes)
