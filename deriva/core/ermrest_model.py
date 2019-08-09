@@ -797,6 +797,8 @@ class ForeignKey (_ec.CatalogForeignKey):
     def alter(
             self,
             constraint_name=nochange,
+            on_update=nochange,
+            on_delete=nochange,
             comment=nochange,
             acls=nochange,
             acl_bindings=nochange,
@@ -805,6 +807,8 @@ class ForeignKey (_ec.CatalogForeignKey):
         """Alter existing schema definition.
 
         :param constraint_name: Replacement constraint name string
+        :param on_update: Replacement on-update action string
+        :param on_delete: Replacement on-delete action string
         :param comment: Replacement comment (default nochange)
         :param acls: Replacement ACL configuration (default nochange)
         :param acl_bindings: Replacement ACL bindings (default nochange)
@@ -814,6 +818,8 @@ class ForeignKey (_ec.CatalogForeignKey):
 
         """
         changes = strip_nochange({
+            'on_update': on_update,
+            'on_delete': on_delete,
             'comment': comment,
             'acls': acls,
             'acl_bindings': acl_bindings,
@@ -839,6 +845,12 @@ class ForeignKey (_ec.CatalogForeignKey):
                 self.constraint_schema._fkeys[self.constraint_name] = self
             else:
                 self.table.schema.model._pseudo_fkeys[self.constraint_name] = self
+
+        if 'on_update' in changes:
+            self.on_update = changed['on_update']
+
+        if 'on_delete' in changes:
+            self.on_delete = changed['on_delete']
 
         if 'comment' in changes:
             self._comment = changed['comment']

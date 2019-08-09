@@ -258,12 +258,18 @@ foreign keys:
     
     key.alter(constraint_name=new_unqualified_name_str)
     
-    foreign_key.alter(constraint_name=new_unqualified_name_str)
+    foreign_key.alter(
+      constraint_name=new_unqualified_name_str,
+      on_update=new_action_string,
+      on_delete=new_action_string
+    )
 
 The key and foreign key alterations accept only the unqualified
 constraint name string, because it is not possible to change the
 schema qualification other than by relocating the parent table to a
-different schema.
+different schema. The foreign key alteration also supports changes to
+the `on_update` and `on_delete` action, e.g. `NO ACTION`, `SET NULL`,
+or `CASCADE`.
 
 As a convenience, there are also optional `alter()` arguments to
 reconfigure `comment`, `acls`, `acl_bindings` if they exist in the
