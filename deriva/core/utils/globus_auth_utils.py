@@ -443,7 +443,9 @@ class GlobusNativeLogin:
             scopes = set(requested_scopes)
             scopes.update(self.hosts_to_scope_list(hosts))
             logged_in = True
-            token_scopes = [token["scope"] for token in self.client.load_tokens().values()]
+            token_scopes = [item for sublist in
+                            [token["scope"].split() for token in self.client.load_tokens().values()]
+                            for item in sublist]
             for scope in scopes:
                 if scope not in token_scopes:
                     logged_in = False
@@ -789,9 +791,8 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                                           no_browser=args.no_browser,
                                           refresh_tokens=args.refresh,
                                           force=args.force,
-                                          requested_scopes=args.requested_scopes,
-                                          additional_params={"access_type": "offline"})
-                if args.show_response:
+                                          requested_scopes=args.requested_scopes)
+                if args.show_tokens:
                     return response
                 else:
                     return "Login Successful"
@@ -819,7 +820,7 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                             help="Enable the use of refresh tokens to extend the login time until revoked.")
         parser.add_argument("--force", action="store_true",
                             help="Force a login flow even if the current access token set is valid.")
-        parser.add_argument("--show-response", action="store_true",
+        parser.add_argument("--show-tokens", action="store_true",
                             help="Display the tokens from the authorization response.")
         parser.set_defaults(func=login)
 
@@ -835,12 +836,12 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
         mutex_group.add_argument("--hosts", metavar="[hostnames]", default=list(),
                                  type=lambda s: [item.strip() for item in s.split(',')],
                                  help="A comma-delimited list of host names to revoke tokens for. "
-                                 "An attempt to determine the required scope will be made by checking the local "
+                                 "An attempt to determine the associated scope(s) will be made by checking the local "
                                  "configuration or (if required) contacting each <host> will be made.")
         mutex_group.add_argument("--requested-scopes", metavar="[scopes]", default=list(),
                                  type=lambda s: [item.strip() for item in s.split(',')],
                                  help="A comma-delimited list of scope names to revoke tokens for. "
-                                 "If not specified, an attempt will be made to determine the required scope by "
+                                 "If not specified, an attempt will be made to determine the associated scope(s) by "
                                  "checking the local configuration or (if required) contacting each <host>.")
         parser.set_defaults(func=logout)
 

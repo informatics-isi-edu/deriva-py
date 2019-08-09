@@ -259,8 +259,7 @@ def get_credential(host,
     creds = credentials.get(host, credentials.get(host.lower(), dict()))
 
     # if present, load globus credentials and merge
-    globus_credentials = read_credential(globus_credential_file or DEFAULT_GLOBUS_CREDENTIAL_FILE,
-                                         create_default=True, default=dict())
+    globus_credentials = read_credential(globus_credential_file or DEFAULT_GLOBUS_CREDENTIAL_FILE, create_default=True)
     if globus_credentials:
         scopes = get_oauth_scopes_for_host(host, config_file, force_refresh=force_scope_lookup)
         for resource, g_creds in globus_credentials.items():
@@ -269,7 +268,7 @@ def get_credential(host,
                 creds["bearer-token"] = g_creds["access_token"]
                 break
 
-            # 2. try to determine the scope to use based on host-to-scope(s) mappings in the config file
+            # 2. try to determine the scope to use based on host-to-scope(s) mappings
             if scopes:
                 for k, v in scopes.items():
                     if v == g_creds["scope"]:
