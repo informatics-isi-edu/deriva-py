@@ -76,10 +76,10 @@ class DerivaRestore:
         username = kwargs.get("username")
         password = kwargs.get("password")
         if token or oauth2_token or (username and password):
-            self.set_credentials(format_credential(token=token,
-                                                   oauth2_token=oauth2_token,
-                                                   username=username,
-                                                   password=password))
+            self.credentials = (format_credential(token=token,
+                                                  oauth2_token=oauth2_token,
+                                                  username=username,
+                                                  password=password))
         else:
             self.credentials = get_credential(self.hostname, credential_file)
 

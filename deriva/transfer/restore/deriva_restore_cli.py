@@ -3,6 +3,8 @@ import sys
 import json
 import traceback
 import argparse
+import requests
+from requests.exceptions import HTTPError, ConnectionError
 from deriva.core import BaseCLI, KeyValuePairArgs, format_credential, format_exception, urlparse
 from deriva.transfer import DerivaRestore, DerivaRestoreError, DerivaRestoreConfigurationError, \
     DerivaRestoreAuthenticationError, DerivaRestoreAuthorizationError
@@ -31,11 +33,11 @@ class DerivaRestoreCLI(BaseCLI):
         self.parser.add_argument("--weak-bag-validation", action="store_true",
                                  help="If the input format is a bag, "
                                       "do not abort the restore if the bag fails validation.")
-        self.parser.add_argument("--exclude-object", type=lambda s: [item for item in s.split(',')],
+        self.parser.add_argument("--exclude-object", type=lambda s: [item.strip() for item in s.split(',')],
                                  metavar="<schema>, <schema:table>, ...",
                                  help="List of comma-delimited schema-name and/or schema-name/table-name to "
                                       "exclude from the restore process, in the form <schema> or <schema:table>.")
-        self.parser.add_argument("--exclude-data", type=lambda s: [item for item in s.split(',')],
+        self.parser.add_argument("--exclude-data", type=lambda s: [item.strip() for item in s.split(',')],
                                  metavar="<schema>, <schema:table>, ...",
                                  help="List of comma-delimited schema-name and/or schema-name/table-name to "
                                       "exclude from the restore process, in the form <schema> or <schema:table>.")
@@ -67,12 +69,19 @@ class DerivaRestoreCLI(BaseCLI):
                 server["host"] = args.host
 
             restorer = DerivaRestore(server, **vars(args))
-            restorer.restore()
-
-        except DerivaRestoreAuthenticationError:
+            try:
+                restorer.restore()
+            except ConnectionError as e:
+                raise DerivaRestoreError("Connection error occurred. %s" % format_exception(e))
+            except HTTPError as e:
+                if e.response.status_code == requests.codes.unauthorized:
+                    raise DerivaRestoreAuthenticationError
+                elif e.response.status_code == requests.codes.forbidden:
+                    raise DerivaRestoreAuthorizationError
+        except DerivaRestoreAuthenticationError as e:
             sys.stderr.write(("\n" if not args.quiet else "") +
-                             "The requested service requires authentication and a valid login session could not be "
-                             "found for the specified host.")
+                             "%sThe requested service requires authentication and a valid login session could "
+                             "not be found for the specified host." % format_exception(e))
             return 1
         except (DerivaRestoreError, DerivaRestoreConfigurationError, DerivaRestoreAuthorizationError) as e:
             sys.stderr.write(("\n" if not args.quiet else "") + format_exception(e))

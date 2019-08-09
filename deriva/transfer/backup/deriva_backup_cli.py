@@ -25,7 +25,8 @@ class DerivaBackupCLI(DerivaDownloadCLI):
                                           "references to asset files in the bag's \"fetch.txt\" file.")
         self.parser.add_argument("--bag-archiver", choices=['zip', 'tgz', 'bz2'],
                                  help="Format for compressed bag output.")
-        self.parser.add_argument("--exclude-data", default=list(), type=lambda s: [item for item in s.split(',')],
+        self.parser.add_argument("--exclude-data", default=list(),
+                                 type=lambda s: [item.strip() for item in s.split(',')],
                                  metavar="<schema>, <schema:table>, ...",
                                  help="List of comma-delimited schema-name and/or schema-name/table-name to "
                                       "exclude from data export, in the form <schema> or <schema:table>.")
