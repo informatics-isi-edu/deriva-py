@@ -9,7 +9,7 @@ import datetime
 import platform
 from collections import OrderedDict
 from bdbag import bdbag_api as bdb
-from deriva.core import get_credential, urlquote, format_exception, __version__ as VERSION
+from deriva.core import get_credential, format_credential, urlquote, format_exception, __version__ as VERSION
 from deriva.core.utils.version_utils import get_installed_version
 from deriva.core.ermrest_model import Model
 from deriva.core.deriva_server import DerivaServer
