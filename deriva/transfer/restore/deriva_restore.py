@@ -36,7 +36,7 @@ class DerivaRestore:
         self.hostname = None
         self.dst_catalog = None
         self.cancelled = False
-        self.input_path = os.path.abspath(kwargs.get("input_path", "."))
+        self.input_path = kwargs.get("input_path")
         self.exclude_schemas = kwargs.get("exclude_schemas", list())
         self.restore_data = not kwargs.get("no_data", False)
         self.data_chunk_size = kwargs.get("data_chunk_size", 10000)
@@ -76,10 +76,10 @@ class DerivaRestore:
         username = kwargs.get("username")
         password = kwargs.get("password")
         if token or oauth2_token or (username and password):
-            self.credentials = (format_credential(token=token,
-                                                  oauth2_token=oauth2_token,
-                                                  username=username,
-                                                  password=password))
+            self.credentials = format_credential(token=token,
+                                                 oauth2_token=oauth2_token,
+                                                 username=username,
+                                                 password=password)
         else:
             self.credentials = get_credential(self.hostname, credential_file)
 
@@ -242,22 +242,30 @@ class DerivaRestore:
         start = datetime.datetime.now()
 
         # pre-process input
-        logging.info("Processing input: %s" % self.input_path)
-        if os.path.isfile(self.input_path):
-            logging.info("The input path %s is a file. Assuming input file is a directory archive and extracting..." %
+        logging.info("Processing input path: %s" % self.input_path)
+        is_file, is_dir, is_uri = bdb.inspect_path(self.input_path)
+        if not (is_file or is_dir or is_uri):
+            raise DerivaRestoreError("Invalid input path [%s]. If the specified input path refers to a locally mounted "
+                                     "file or directory, it does not exist or cannot be accessed. If the specified "
+                                     "path is a URI, the scheme component of the URI could not be determined." %
+                                     self.input_path)
+        if is_file or is_dir:
+            self.input_path = os.path.abspath(self.input_path)
+        if is_file:
+            logging.info("The input path [%s] is a file. Assuming input file is a directory archive and extracting..." %
                          self.input_path)
             self.input_path = bdb.extract_bag(self.input_path)
+
+        try:
+            if not self.no_bag_materialize:
+                self.input_path = bdb.materialize(self.input_path)
+        except bdb.bdbagit.BagValidationError as e:
+            if self.strict_bag_validation:
+                raise DerivaRestoreError(format_exception(e))
+            else:
+                logging.warning("Input bag validation failed and strict validation mode is disabled. %s" %
+                                format_exception(e))
         is_bag = bdb.is_bag(self.input_path)
-        if is_bag:
-            try:
-                if not self.no_bag_materialize:
-                    bdb.materialize(self.input_path)
-            except bdb.bdbagit.BagValidationError as e:
-                if self.strict_bag_validation:
-                    raise DerivaRestoreError(format_exception(e))
-                else:
-                    logging.warning("Input bag validation failed and strict validation mode is disabled. %s" %
-                                    format_exception(e))
 
         src_schema_file = os.path.abspath(
             os.path.join(self.input_path, "data" if is_bag else "", "catalog-schema.json"))
