@@ -254,14 +254,16 @@ def get_credential(host,
                    requested_scope=None,
                    force_scope_lookup=False,
                    match_scope_tag="deriva-all"):
-    # load webauthn credentials first
+    # load deriva credential set first
     credentials = read_credential(credential_file or DEFAULT_CREDENTIAL_FILE, create_default=True)
     creds = credentials.get(host, credentials.get(host.lower(), dict()))
 
     # if present, load globus credentials and merge
     globus_credentials = read_credential(globus_credential_file or DEFAULT_GLOBUS_CREDENTIAL_FILE, create_default=True)
     if globus_credentials:
-        scopes = get_oauth_scopes_for_host(host, config_file, force_refresh=force_scope_lookup)
+        scopes = get_oauth_scopes_for_host(host, config_file,
+                                           force_refresh=force_scope_lookup,
+                                           warn_on_discovery_failure=True if not creds else False)
         for resource, g_creds in globus_credentials.items():
             # 1. look for the explicitly requested scope in the token store, if specified
             if requested_scope is not None and g_creds["scope"] == requested_scope:
@@ -288,7 +290,11 @@ def get_credential(host,
     return creds or None
 
 
-def get_oauth_scopes_for_host(host, config_file=DEFAULT_CONFIG_FILE, scheme="https", force_refresh=False):
+def get_oauth_scopes_for_host(host,
+                              config_file=DEFAULT_CONFIG_FILE,
+                              scheme="https",
+                              force_refresh=False,
+                              warn_on_discovery_failure=False):
     config = read_config(config_file or DEFAULT_CONFIG_FILE, create_default=True)
     required_scopes = config.get(OAUTH2_SCOPES_KEY)
     result = dict()
@@ -306,12 +312,18 @@ def get_oauth_scopes_for_host(host, config_file=DEFAULT_CONFIG_FILE, scheme="htt
             r.raise_for_status()
             result = r.json().get(OAUTH2_SCOPES_KEY)
             if result:
-                config[OAUTH2_SCOPES_KEY][host] = result
+                if not config.get(OAUTH2_SCOPES_KEY):
+                    config[OAUTH2_SCOPES_KEY] = {}
+                config[OAUTH2_SCOPES_KEY].update({host: result})
                 write_config(config_file or DEFAULT_CONFIG_FILE, config=config)
         except Exception as e:
-            logging.debug("Unable to discover and/or update the \"%s\" mappings from [%s]. As a result, access to "
-                          "this host may be limited even though you may already be in possession of a valid login "
-                          "token for the relevant scopes. %s" % (OAUTH2_SCOPES_KEY, url, format_exception(e)))
+            msg = "Unable to discover and/or update the \"%s\" mappings from [%s]. Requests to this host that " \
+                  "use OAuth2 scope-specific bearer tokens may fail or provide only limited access. %s" % \
+                  (OAUTH2_SCOPES_KEY, url, format_exception(e))
+            if warn_on_discovery_failure:
+                logging.warning(msg)
+            else:
+                logging.debug(msg)
     return result
 
 

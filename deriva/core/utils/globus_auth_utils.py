@@ -15,6 +15,8 @@ from deriva.core.utils import eprint
 GLOBUS_SDK = None
 NATIVE_LOGIN = None
 NATIVE_APP_CLIENT_ID = "8ef15ba9-2b4a-469c-a163-7fd910c9d111"
+GROUPS_SCOPE_ID = "69a73d8f-cd45-4e37-bb3b-43678424aeb7"
+GROUPS_SCOPE_NAME = "urn:globus:auth:scope:nexus.api.globus.org:groups"
 CLIENT_CRED_FILE = '/home/secrets/oauth2/client_secret_globus.json'
 DEFAULT_SCOPES = ["openid", "profile", "email", "urn:globus:auth:scope:auth.globus.org:view_identities"]
 
@@ -267,6 +269,9 @@ class GlobusAuthUtil:
         else:
             for scope in self.get_scopes_by_name(",".join(new_scopes)):
                 scopes.add(scope.get('id'))
+            # special case for groups scope since it cannot be resolved by name or inspected by ID via the API
+            if GROUPS_SCOPE_NAME in new_scopes:
+                scopes.add(GROUPS_SCOPE_ID)
         d = {
             "client": {
                 "scopes": list(scopes)
@@ -295,6 +300,9 @@ class GlobusAuthUtil:
             new_child_scopes = self.get_scopes_by_name(",".join(child_scopes))
             for scope in new_child_scopes:
                 new_child_scope_ids.add(scope.get('scope'))
+            # special case for groups scope since it cannot be resolved by name or inspected by ID via the API
+            if GROUPS_SCOPE_NAME in child_scopes:
+                new_child_scope_ids.add(GROUPS_SCOPE_ID)
         for scope in parent_scopes[0].get('dependent_scopes'):
             if scope.get('id') not in new_child_scope_ids:
                 dependent_scopes.append(scope)
@@ -319,6 +327,9 @@ class GlobusAuthUtil:
         dependent_scope_arg = []
         if len(dependent_scopes) > 0:
             child_scopes = self.get_scopes_by_name(",".join(dependent_scopes))
+            # special case for groups scope since it cannot be resolved by name or inspected by ID via the API
+            if GROUPS_SCOPE_NAME in dependent_scopes:
+                child_scopes.add({"id": GROUPS_SCOPE_ID})
             for scope in child_scopes:
                 dependent_scope_arg.append({
                     "scope": scope.get("id"),
@@ -411,7 +422,7 @@ class GlobusNativeLogin:
         self.config_file = kwargs.get("config_file")
         self.default_scopes = DEFAULT_SCOPES.copy()
         if self.client_id == NATIVE_APP_CLIENT_ID:
-            self.default_scopes.append("urn:globus:auth:scope:nexus.api.globus.org:groups")
+            self.default_scopes.append(GROUPS_SCOPE_NAME)
 
         try:
             global GLOBUS_SDK, NATIVE_LOGIN
@@ -438,25 +449,27 @@ class GlobusNativeLogin:
     def user_info(self, host):
         pass
 
-    def is_logged_in(self, hosts=None, requested_scopes=()):
+    def is_logged_in(self, hosts=None, requested_scopes=(), include_defaults=False):
         try:
             scopes = set(requested_scopes)
             scopes.update(self.hosts_to_scope_list(hosts))
-            logged_in = True
-            token_scopes = [item for sublist in
-                            [token["scope"].split() for token in self.client.load_tokens().values()]
-                            for item in sublist]
-            for scope in scopes:
-                if scope not in token_scopes:
-                    logged_in = False
-            return logged_in
+            if include_defaults:
+                scopes.update(self.default_scopes)
+            self.client.load_tokens(scopes)
+            return True
         except NATIVE_LOGIN.LoadError:
             return False
 
-    def hosts_to_scope_list(self, hosts, match_scope_tag=None, all_tagged_scopes=False, force_refresh=False):
+    def hosts_to_scope_list(self, hosts,
+                            match_scope_tag=None,
+                            all_tagged_scopes=False,
+                            force_refresh=False):
         scope_list = list()
         for host in hosts:
-            scopes = get_oauth_scopes_for_host(host, self.config_file, force_refresh=force_refresh)
+            scopes = get_oauth_scopes_for_host(host,
+                                               self.config_file,
+                                               force_refresh=force_refresh,
+                                               warn_on_discovery_failure=True)
             if scopes:
                 for k, v in scopes.items():
                     if match_scope_tag is None:
@@ -480,9 +493,12 @@ class GlobusNativeLogin:
               prefill_named_grant=None,
               additional_params=None,
               force=False,
-              match_scope_tag=None):
+              match_scope_tag=None,
+              include_defaults=False):
         scopes = set(requested_scopes)
         scopes.update(self.hosts_to_scope_list(hosts, match_scope_tag, force_refresh=True))
+        if include_defaults:
+            scopes.update(self.default_scopes)
         if not prefill_named_grant:
             prefill_named_grant = self.client.app_name + " with requested scopes [%s] " % ", ".join(scopes)
         return self.client.login(no_local_server=no_local_server,
@@ -493,11 +509,13 @@ class GlobusNativeLogin:
                                  additional_params=additional_params,
                                  force=force)
 
-    def logout(self, hosts, requested_scopes=()):
-        scopes = set(requested_scopes)
-        scopes.update(self.hosts_to_scope_list(hosts))
+    def logout(self, hosts, requested_scopes=(), include_defaults=False):
         tokens = self.client._load_raw_tokens()
 
+        scopes = set(requested_scopes)
+        scopes.update(self.hosts_to_scope_list(hosts))
+        if include_defaults:
+            scopes.update(self.default_scopes)
         if not scopes:
             logging.info("Logging out and invalidating tokens for ALL existing scopes.")
             self.client.revoke_token_set(tokens)
@@ -783,7 +801,8 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
 
     def login_init(self):
         def login(args):
-            if self.gnl.is_logged_in(args.hosts, args.requested_scopes) and not args.force:
+            if self.gnl.is_logged_in(args.hosts, args.requested_scopes,
+                                     include_defaults=args.include_defaults) and not args.force:
                 return "You are already logged in."
             else:
                 response = self.gnl.login(hosts=args.hosts,
@@ -791,7 +810,8 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                                           no_browser=args.no_browser,
                                           refresh_tokens=args.refresh,
                                           force=args.force,
-                                          requested_scopes=args.requested_scopes)
+                                          requested_scopes=args.requested_scopes,
+                                          include_defaults=args.include_defaults)
                 if args.show_tokens:
                     return response
                 else:
@@ -822,12 +842,17 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                             help="Force a login flow even if the current access token set is valid.")
         parser.add_argument("--show-tokens", action="store_true",
                             help="Display the tokens from the authorization response.")
+        parser.add_argument("--include-defaults", action="store_true",
+                            help="In addition to any specified scopes or host-to-scope mappings, include the default "
+                                 "set of scopes: [%s] and, when using the default client ID, the groups scope [%s]."
+                                 % (", ".join(DEFAULT_SCOPES), GROUPS_SCOPE_NAME))
         parser.set_defaults(func=login)
 
     def logout_init(self):
         def logout(args):
             self.gnl.logout(args.hosts,
-                            args.requested_scopes)
+                            args.requested_scopes,
+                            args.include_defaults)
             return "You have been logged out."
 
         parser = self.subparsers.add_parser("logout", help="Revoke and clear tokens. If no arguments are specified, "
@@ -843,6 +868,10 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                                  help="A comma-delimited list of scope names to revoke tokens for. "
                                  "If not specified, an attempt will be made to determine the associated scope(s) by "
                                  "checking the local configuration or (if required) contacting each <host>.")
+        parser.add_argument("--include-defaults", action="store_true",
+                            help="In addition to any specified scopes or host-to-scope mappings, include the default "
+                                 "set of scopes: [%s] and, when using the default client ID, the groups scope [%s]."
+                                 % (", ".join(DEFAULT_SCOPES), GROUPS_SCOPE_NAME))
         parser.set_defaults(func=logout)
 
     def user_info_init(self):
@@ -904,9 +933,9 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
             eprint(_cmd_error_message(e))
         except RuntimeError as e:
             logging.debug(format_exception(e))
-            eprint('Unexpected runtime error occurred')
+            eprint('An unexpected runtime error occurred')
         except:
-            eprint('Unexpected error occurred')
+            eprint('An unexpected error occurred')
             traceback.print_exc()
         return 1
 

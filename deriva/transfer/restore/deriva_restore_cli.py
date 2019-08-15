@@ -75,20 +75,20 @@ class DerivaRestoreCLI(BaseCLI):
                 raise DerivaRestoreError("Connection error occurred. %s" % format_exception(e))
             except HTTPError as e:
                 if e.response.status_code == requests.codes.unauthorized:
-                    raise DerivaRestoreAuthenticationError
+                    raise DerivaRestoreAuthenticationError(
+                        "The requested service requires authentication and a valid login session could "
+                        "not be found for the specified host. Server responded: %s" % e)
                 elif e.response.status_code == requests.codes.forbidden:
-                    raise DerivaRestoreAuthorizationError
-        except DerivaRestoreAuthenticationError as e:
-            sys.stderr.write(("\n" if not args.quiet else "") +
-                             "%sThe requested service requires authentication and a valid login session could "
-                             "not be found for the specified host." % format_exception(e))
-            return 1
-        except (DerivaRestoreError, DerivaRestoreConfigurationError, DerivaRestoreAuthorizationError) as e:
+                    raise DerivaRestoreAuthorizationError(
+                        "A requested operation was forbidden. Server responded: %s" % e)
+        except (DerivaRestoreError, DerivaRestoreConfigurationError,
+                DerivaRestoreAuthenticationError, DerivaRestoreAuthorizationError) as e:
             sys.stderr.write(("\n" if not args.quiet else "") + format_exception(e))
             if args.debug:
                 traceback.print_exc()
             return 1
         except:
+            sys.stderr.write("An unexpected error occurred.")
             traceback.print_exc()
             return 1
         finally:
