@@ -19,11 +19,11 @@ IS_PY3 = (sys.version_info[0] == 3)
 
 if IS_PY3:
     from urllib.parse import quote as _urlquote, unquote as urlunquote
-    from urllib.parse import urlparse, urlsplit, urlunsplit
+    from urllib.parse import urlparse, urlsplit, urlunsplit, urljoin
     from http.cookiejar import MozillaCookieJar
 else:
     from urllib import quote as _urlquote, unquote as urlunquote
-    from urlparse import urlparse, urlsplit, urlunsplit
+    from urlparse import urlparse, urlsplit, urlunsplit, urljoin
     from cookielib import MozillaCookieJar
 
 Kilobyte = 1024
@@ -261,7 +261,8 @@ def get_credential(host,
     # if present, load globus credentials and merge
     globus_credentials = read_credential(globus_credential_file or DEFAULT_GLOBUS_CREDENTIAL_FILE, create_default=True)
     if globus_credentials:
-        scopes = get_oauth_scopes_for_host(host, config_file,
+        scopes = get_oauth_scopes_for_host(host,
+                                           config_file=config_file,
                                            force_refresh=force_scope_lookup,
                                            warn_on_discovery_failure=True if not creds else False)
         for resource, g_creds in globus_credentials.items():
@@ -292,12 +293,17 @@ def get_credential(host,
 
 def get_oauth_scopes_for_host(host,
                               config_file=DEFAULT_CONFIG_FILE,
-                              scheme="https",
                               force_refresh=False,
                               warn_on_discovery_failure=False):
     config = read_config(config_file or DEFAULT_CONFIG_FILE, create_default=True)
     required_scopes = config.get(OAUTH2_SCOPES_KEY)
     result = dict()
+    upr = urlparse(host)
+    if upr.scheme and upr.netloc:
+        url = urljoin(host, "/authn/discovery")
+        host = upr.hostname
+    else:
+        url = "https://%s/authn/discovery" % host
     # determine the scope to use based on host-to-scope(s) mappings in the config file
     if required_scopes:
         for hostname, scopes in required_scopes.items():
@@ -306,7 +312,6 @@ def get_oauth_scopes_for_host(host,
                 break
     if not result or force_refresh:
         session = get_new_requests_session(session_config=DEFAULT_SESSION_CONFIG)
-        url = "%s://%s/authn/discovery" % (scheme or "https", host)
         try:
             r = session.get(url, headers=DEFAULT_HEADERS)
             r.raise_for_status()

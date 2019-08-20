@@ -8,8 +8,9 @@ import traceback
 import importlib
 from pprint import pprint
 from requests.exceptions import HTTPError, ConnectionError
-from deriva.core import __version__ as VERSION, DEFAULT_CONFIG_PATH, DEFAULT_GLOBUS_CREDENTIAL_FILE, read_config,\
-    format_exception, BaseCLI, get_oauth_scopes_for_host
+from bdbag.fetch.auth import keychain as bdbkc
+from deriva.core import __version__ as VERSION, DEFAULT_CONFIG_PATH, DEFAULT_GLOBUS_CREDENTIAL_FILE, urlparse, urljoin,\
+    read_config, format_exception, BaseCLI, get_oauth_scopes_for_host
 from deriva.core.utils import eprint
 
 GLOBUS_SDK = None
@@ -452,7 +453,7 @@ class GlobusNativeLogin:
     def is_logged_in(self, hosts=None, requested_scopes=(), include_defaults=False):
         try:
             scopes = set(requested_scopes)
-            scopes.update(self.hosts_to_scope_list(hosts))
+            scopes.update(self.scope_set_from_scope_map(self.hosts_to_scope_map(hosts)))
             if include_defaults:
                 scopes.update(self.default_scopes)
             self.client.load_tokens(scopes)
@@ -460,16 +461,18 @@ class GlobusNativeLogin:
         except NATIVE_LOGIN.LoadError:
             return False
 
-    def hosts_to_scope_list(self, hosts,
-                            match_scope_tag=None,
-                            all_tagged_scopes=False,
-                            force_refresh=False):
-        scope_list = list()
+    def hosts_to_scope_map(self, hosts,
+                           match_scope_tag=None,
+                           all_tagged_scopes=False,
+                           force_refresh=False):
+        scope_map = dict()
         for host in hosts:
+            scope_map.update({host: []})
             scopes = get_oauth_scopes_for_host(host,
-                                               self.config_file,
+                                               config_file=self.config_file,
                                                force_refresh=force_refresh,
                                                warn_on_discovery_failure=True)
+            scope_list = list()
             if scopes:
                 for k, v in scopes.items():
                     if match_scope_tag is None:
@@ -482,7 +485,75 @@ class GlobusNativeLogin:
                         break
                     else:
                         continue
-        return scope_list
+            scope_map.update({host: scope_list})
+
+        return scope_map
+
+    @staticmethod
+    def scope_set_from_scope_map(scope_map):
+        return set([scope for scope_list in [scope_list for scope_list in scope_map.values()] for scope in scope_list])
+
+    @staticmethod
+    def host_to_url(host, path="/"):
+        if not host:
+            return None
+        upr = urlparse(host)
+        if upr.scheme and upr.netloc:
+            url = urljoin(host, path)
+        else:
+            url = "https://%s%s" % (host, path if not host.endswith("/") else "")
+        return url.lower()
+
+    @staticmethod
+    def find_access_token_for_host(host, scope_map, tokens, match_scope_tag=None):
+        scope = None
+        scopes = scope_map.get(host)
+        if match_scope_tag:
+            scope = scopes[0]
+        else:
+            for entry in scopes:
+                if host.lower() in entry.lower():
+                    scope = entry
+        for token in tokens.values():
+            token_scope = token.get("scope")
+            access_token = token.get("access_token")
+            if (token_scope == scope) and (access_token is not None):
+                return access_token
+
+    def update_bdbag_keychain(self, token=None, host=None, keychain_file=None, allow_redirects=False, delete=False):
+        if (token is None) and (host is None):
+            return
+        keychain_file = keychain_file or bdbkc.DEFAULT_KEYCHAIN_FILE
+        if not os.path.isfile(keychain_file):
+            keychain = list()
+        else:
+            keychain = bdbkc.read_keychain(keychain_file, create_default=False)
+        updated_keychain = list()
+        url = self.host_to_url(host)
+
+        for entry in keychain:
+            uri = entry.get("uri", "").lower().strip()
+            if uri == url:
+                continue
+            if delete and (url is None):
+                if entry.get("auth_type") == "bearer-token":
+                    auth_params = entry.get("auth_params", dict())
+                    if auth_params.get("token") == token:
+                        continue
+            updated_keychain.append(entry)
+
+        if not delete:
+            new_entry = {
+                "uri": url,
+                "auth_type": "bearer-token",
+                "auth_params": {
+                    "token": token,
+                    "allow_redirects_with_token": "True" if allow_redirects else "False"
+                }
+            }
+            updated_keychain.append(new_entry)
+
+        bdbkc.write_keychain(updated_keychain, keychain_file)
 
     def login(self,
               hosts=None,
@@ -494,33 +565,49 @@ class GlobusNativeLogin:
               additional_params=None,
               force=False,
               match_scope_tag=None,
-              include_defaults=False):
+              include_defaults=False,
+              update_bdbag_keychain=True,
+              bdbag_keychain_file=None):
         scopes = set(requested_scopes)
-        scopes.update(self.hosts_to_scope_list(hosts, match_scope_tag, force_refresh=True))
+        scope_map = self.hosts_to_scope_map(hosts, match_scope_tag, force_refresh=True)
+        scopes.update(self.scope_set_from_scope_map(scope_map))
         if include_defaults:
             scopes.update(self.default_scopes)
         if not prefill_named_grant:
             prefill_named_grant = self.client.app_name + " with requested scopes [%s] " % ", ".join(scopes)
-        return self.client.login(no_local_server=no_local_server,
-                                 no_browser=no_browser,
-                                 requested_scopes=scopes,
-                                 refresh_tokens=refresh_tokens,
-                                 prefill_named_grant=prefill_named_grant,
-                                 additional_params=additional_params,
-                                 force=force)
+        tokens = self.client.login(no_local_server=no_local_server,
+                                   no_browser=no_browser,
+                                   requested_scopes=scopes,
+                                   refresh_tokens=refresh_tokens,
+                                   prefill_named_grant=prefill_named_grant,
+                                   additional_params=additional_params,
+                                   force=force)
+        if update_bdbag_keychain:
+            for host in hosts:
+                access_token = self.find_access_token_for_host(host, scope_map, tokens, match_scope_tag=match_scope_tag)
+                if access_token:
+                    self.update_bdbag_keychain(token=access_token, host=host, keychain_file=bdbag_keychain_file)
+        return tokens
 
-    def logout(self, hosts, requested_scopes=(), include_defaults=False):
+    def logout(self, hosts, requested_scopes=(), include_defaults=False, bdbag_keychain_file=None):
         tokens = self.client._load_raw_tokens()
 
         scopes = set(requested_scopes)
-        scopes.update(self.hosts_to_scope_list(hosts))
+        scope_map = self.hosts_to_scope_map(hosts)
+        scopes.update(self.scope_set_from_scope_map(scope_map))
+
         if include_defaults:
             scopes.update(self.default_scopes)
         if not scopes:
             logging.info("Logging out and invalidating tokens for ALL existing scopes.")
             self.client.revoke_token_set(tokens)
             self.client.token_storage.clear_tokens()
+            for token in tokens.values():
+                self.update_bdbag_keychain(token=token["access_token"], keychain_file=bdbag_keychain_file, delete=True)
             return
+
+        for host in hosts:
+            self.update_bdbag_keychain(host=host, keychain_file=bdbag_keychain_file, delete=True)
 
         token_set = dict()
         for resource, token in tokens.items():
@@ -811,7 +898,9 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                                           refresh_tokens=args.refresh,
                                           force=args.force,
                                           requested_scopes=args.requested_scopes,
-                                          include_defaults=args.include_defaults)
+                                          include_defaults=args.include_defaults,
+                                          update_bdbag_keychain=not args.no_bdbag_keychain,
+                                          bdbag_keychain_file=args.bdbag_keychain_file)
                 if args.show_tokens:
                     return response
                 else:
@@ -836,6 +925,10 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                             help="Do not launch a local server to receive the authorization redirect response.")
         parser.add_argument("--no-browser", action="store_true",
                             help="Do not launch a browser instance on this system for initiating the login flow.")
+        parser.add_argument("--no-bdbag-keychain", action="store_true",
+                            help="Do not update the bdbag keychain file with result access tokens. Default false.")
+        parser.add_argument('--bdbag-keychain-file', metavar='<file>',
+                            help="Non-default path to a bdbag keychain file.")
         parser.add_argument("--refresh", action="store_true",
                             help="Enable the use of refresh tokens to extend the login time until revoked.")
         parser.add_argument("--force", action="store_true",
@@ -852,7 +945,8 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
         def logout(args):
             self.gnl.logout(args.hosts,
                             args.requested_scopes,
-                            args.include_defaults)
+                            args.include_defaults,
+                            args.bdbag_keychain_file)
             return "You have been logged out."
 
         parser = self.subparsers.add_parser("logout", help="Revoke and clear tokens. If no arguments are specified, "
@@ -872,6 +966,8 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                             help="In addition to any specified scopes or host-to-scope mappings, include the default "
                                  "set of scopes: [%s] and, when using the default client ID, the groups scope [%s]."
                                  % (", ".join(DEFAULT_SCOPES), GROUPS_SCOPE_NAME))
+        parser.add_argument('--bdbag-keychain-file', metavar='<file>',
+                            help="Non-default path to a bdbag keychain file.")
         parser.set_defaults(func=logout)
 
     def user_info_init(self):
