@@ -158,11 +158,10 @@ class AclConfig:
         if invalidate_list is not None:
             for binding_name in invalidate_list:
                 if binding_list and binding_name in binding_list:
-                    raise ValueError("Binding {b} appears in both acl_bindings and invalidate_bindings for table {s}.{t} node {n}".format(
-                        b=binding_name,s=table_node.sname, t=table_node.name, n=node.name))
+                    raise ValueError(
+                        "Binding {b} appears in both acl_bindings and invalidate_bindings for table {s}.{t} node {n}".format(
+                            b=binding_name, s=table_node.sname, t=table_node.name, n=node.name))
                 node.acl_bindings[binding_name] = False
-            
-                
 
     def save_groups(self):
         glt = self.create_or_validate_group_table()
@@ -533,6 +532,7 @@ class AclCLI(ConfigBaseCLI):
     def __init__(self):
         ConfigBaseCLI.__init__(self, "ACL configuration tool", None, version=VERSION)
         self.parser.add_argument('-g', '--groups-only', help="create group table only", action="store_true")
+        self.parser.add_argument('--no-groups', help="do not create group table", action="store_true")
 
 
 def main():
@@ -541,7 +541,7 @@ def main():
     table_name = cli.get_table_arg(args)
     schema_names = cli.get_schema_arg_list(args)
     credentials = get_credential(args.host, args.credential_file)
-    save_groups = not args.dryrun
+    save_groups = not args.dryrun and not args.no_groups
     for schema in schema_names:
         acl_config = AclConfig(args.host, args.catalog, args.config_file, credentials, schema_name=schema,
                                table_name=table_name, verbose=args.verbose or args.debug)
