@@ -531,8 +531,9 @@ class Table(AttrDict):
 class AclCLI(ConfigBaseCLI):
     def __init__(self):
         ConfigBaseCLI.__init__(self, "ACL configuration tool", None, version=VERSION)
-        self.parser.add_argument('-g', '--groups-only', help="create group table only", action="store_true")
-        self.parser.add_argument('--no-groups', help="do not create group table", action="store_true")
+        group = self.parser.add_mutually_exclusive_group()
+        group.add_argument('-g', '--groups-only', help="create group table only", action="store_true")
+        group.add_argument('-o', '--omit-groups', help="do not create group table", action="store_true")
 
 
 def main():
@@ -541,7 +542,7 @@ def main():
     table_name = cli.get_table_arg(args)
     schema_names = cli.get_schema_arg_list(args)
     credentials = get_credential(args.host, args.credential_file)
-    save_groups = not args.dryrun and not args.no_groups
+    save_groups = not (args.dryrun or args.omit_groups)
     for schema in schema_names:
         acl_config = AclConfig(args.host, args.catalog, args.config_file, credentials, schema_name=schema,
                                table_name=table_name, verbose=args.verbose or args.debug)
