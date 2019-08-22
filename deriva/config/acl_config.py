@@ -217,14 +217,14 @@ class AclConfig:
                         self.NC_NAME,
                         _em.builtin_types.text,
                         nullok=False,
-                        comment='Name of grouplist, used in foreign keys. This table is maintained by the rbk_acls '
+                        comment='Name of grouplist, used in foreign keys. This table is maintained by the acl-config '
                                 'program and should not be updated by hand.'
                     ),
                     _em.Column.define(
                         self.GC_NAME,
                         _em.builtin_types['text[]'],
                         nullok=True,
-                        comment='List of groups. This table is maintained by the rbk_acls program and should not be '
+                        comment='List of groups. This table is maintained by the acl-config program and should not be '
                                 'updated by hand.'
                     )
                 ],
@@ -234,7 +234,7 @@ class AclConfig:
                         constraint_names=[[sname, "{t}_{c}_u".format(t=tname, c=self.NC_NAME)]]
                     )
                 ],
-                comment="Named lists of groups used in ACLs. Maintained by the rbk_acls program. Do not update this "
+                comment="Named lists of groups used in ACLs. Maintained by the acl-config program. Do not update this "
                         "table manually.",
                 annotations={'tag:isrd.isi.edu,2016:generated': None}
             )
