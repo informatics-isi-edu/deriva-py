@@ -1,0 +1,46 @@
+{
+  "comment": "To run this example, use cmdline argument (pick one value): genome={mm9|mm10|hg18|hg19}",
+  "catalog": {
+    "query_processors": [
+      {
+        "processor": "json-stream",
+        "processor_params": {
+          "output_path": "supertrack-metadata.json",
+          "query_path": "/attribute/T:=isa:track_data/vocab:mapping_assembly/name={genome}/$T/isa:dataset/RID,title"
+        }
+      },
+      {
+        "processor": "json-stream",
+        "processor_params": {
+          "output_path": "track-metadata.json",
+          "query_path": "/attribute/D:=isa:dataset/T:=isa:track_data/vocab:mapping_assembly/name=mm10/$T/FF:=vocab:file_format/$T/T:RID,dataset_RID:=D:RID,T:filename,T:url,FF:name"
+        }
+      }
+    ]
+  },
+  "transform_processors": [
+    {
+      "processor":"interpolation",
+      "processor_params": {
+        "input_path": "supertrack-metadata.json",
+        "output_path": "super-track.txt",
+        "template": "track $RID\nshortLabel FACEBASE:$RID\nlongLabel $title\nsuperTrack on show\ngroup facebase\n\n"
+      }
+    },
+    {
+      "processor":"interpolation",
+      "processor_params": {
+        "input_path": "track-metadata.json",
+        "output_path": "track.txt",
+        "template": "track $RID\nparent $dataset_RID\nurl https://www.facebase.org/id/$RID\nbigDataUrl $url\nshortLabel FACEBASE:$RID\nlongLabel $filename\ntype $name\ngroup facebase\n\n"
+      }
+    },
+    {
+      "processor":"cat",
+      "processor_params": {
+        "input_paths": ["super-track.txt", "track.txt"],
+        "output_path": "{genome}/trackDb.txt"
+      }
+    }
+  ]
+}

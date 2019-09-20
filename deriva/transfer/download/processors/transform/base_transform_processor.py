@@ -14,7 +14,9 @@ class BaseTransformProcessor(BaseProcessor):
     def __init__(self, envars=None, **kwargs):
         super(BaseTransformProcessor, self).__init__(envars, **kwargs)
         self.base_path = kwargs["base_path"]
-        self.input_path = self.parameters["input_path"]
+        self.input_paths = self.parameters.get("input_paths", [])
+        if not self.input_paths:
+            self.input_paths = [self.parameters["input_path"]]  # for backward compatibility
         self.sub_path = self.parameters.get("output_path", "")
         self.is_bag = kwargs.get("bag", False)
         self.transformed_output = self.outputs.get(self.input_path, dict())
@@ -24,20 +26,35 @@ class BaseTransformProcessor(BaseProcessor):
         self.ro_author_name = self.kwargs.get("ro_author_name")
         self.ro_author_orcid = self.kwargs.get("ro_author_orcid")
         self.delete_input = stob(self.parameters.get("delete_input", True))
-        self.input_relpath = None
-        self.input_abspath = None
+        self.input_relpaths = []
+        self.input_abspaths = []
         self.output_relpath = None
         self.output_abspath = None
 
+    @property
+    def input_path(self):  # for backward compatibility
+        return self.input_paths[0]
+
+    @property
+    def input_relpath(self):  # for backward compatibility
+        return self.input_relpaths[0]
+
+    @property
+    def input_abspath(self):  # for backward compatibility
+        return self.input_abspaths[0]
+
     def _create_input_output_paths(self):
-        self.input_relpath, self.input_abspath = self.create_paths(
-            self.base_path, self.input_path, is_bag=self.is_bag, envars=self.envars)
+        for input_path in self.input_paths:
+            relpath, abspath = self.create_paths(self.base_path, input_path, is_bag=self.is_bag, envars=self.envars)
+            self.input_relpaths.append(relpath)
+            self.input_abspaths.append(abspath)
         self.output_relpath, self.output_abspath = self.create_paths(
             self.base_path, self.sub_path, is_bag=self.is_bag, envars=self.envars)
 
     def _delete_input(self):
-        if os.path.isfile(self.input_abspath):
-            os.remove(self.input_abspath)
+        for input_abspath in self.input_abspaths:
+            if os.path.isfile(input_abspath):
+                os.remove(input_abspath)
         del self.outputs[self.input_relpath]
 
     def process(self):
