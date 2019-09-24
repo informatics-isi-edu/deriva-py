@@ -55,7 +55,8 @@ class BaseTransformProcessor(BaseProcessor):
         for input_abspath in self.input_abspaths:
             if os.path.isfile(input_abspath):
                 os.remove(input_abspath)
-        del self.outputs[self.input_relpath]
+        for input_relpath in self.input_relpaths:
+            del self.outputs[input_relpath]
 
     def process(self):
         if self.ro_manifest and self.ro_file_provenance:

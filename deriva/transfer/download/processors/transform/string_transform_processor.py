@@ -1,7 +1,9 @@
 import json
+import os
 import re
 from string import Template
 import logging
+from deriva.core import make_dirs
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError
 from deriva.transfer.download.processors.transform.base_transform_processor import BaseTransformProcessor
 
@@ -82,6 +84,7 @@ class ConcatenateTransformProcessor(BaseTransformProcessor):
         """Reads a input files in order given and writes to output file.
         """
         try:
+            make_dirs(os.path.dirname(self.output_abspath))
             with open(self.output_abspath, mode='w') as outputfile:
                 for input_abspath in self.input_abspaths:
                     with open(input_abspath) as inputfile:
