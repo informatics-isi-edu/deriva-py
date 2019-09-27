@@ -881,11 +881,11 @@ class ForeignKey (_ec.CatalogForeignKey):
     def drop(self):
         """Remove this foreign key from the remote database.
         """
-        if self.names[0] not in self.table.foreign_keys.elements:
+        if self.name not in self.table.foreign_keys.elements:
             raise ValueError('Foreign key %s does not appear to belong to table %s.' % (self, self.table))
         self.catalog.delete(self.update_uri_path).raise_for_status()
-        del self.table.foreign_keys[self.names[0]]
-        del self.pk_table.foreign_keys[self.names[0]]
+        del self.table.foreign_keys[self.name]
+        del self.pk_table.referenced_by[self.name]
 
 def make_type(type_doc, **kwargs):
     """Create instance of Type, DomainType, or ArrayType as appropriate for type_doc."""
