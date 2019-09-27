@@ -175,10 +175,13 @@ class NodeConfig (object):
                 else:
                     self.catalog.delete('%s/comment' % self.update_uri_path)
         if existing is None or not equivalent(self.annotations, existing.annotations):
-            self.catalog.put(
-                '%s/%s' % (self.update_uri_path, 'annotation'),
-                json=self.annotations
-            )
+            try:
+                self.catalog.put(
+                    '%s/%s' % (self.update_uri_path, 'annotation'),
+                    json=self.annotations
+                )
+            except TypeError as e:
+                raise TypeError('Bad %s/annotation' % (self.update_uri_path, self.annotations)) from e
 
     def clear(self, clear_comment=False):
         """Clear existing annotations on node, also clearing comment if clear_comment is True.
