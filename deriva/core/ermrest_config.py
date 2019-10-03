@@ -710,11 +710,7 @@ class CatalogTable (NodeConfigAclBinding):
             elif to_table is not c.table:
                 raise ValueError('to-columns must all be part of same table')
         for fkey in self.foreign_keys:
-            fkey_colmap = {
-                from_col: to_col
-                for from_col, to_col in zip(fkey.foreign_key_columns, fkey.referenced_columns)
-            }
-            if colmap == fkey_colmap:
+            if colmap == fkey.column_map:
                 return fkey
         if raise_nomatch:
             raise KeyError(from_to_map)
