@@ -650,52 +650,173 @@ class CatalogTable (NodeConfigAclBinding):
         })
         return d
 
-    def key_by_columns(self, unique_columns):
-        """Return key from self.keys with matching unique columns or raise KeyError if no such key is found."""
-        cset = set()
-        for c in unique_columns:
-            if isinstance(c, CatalogTable):
-                if self.column_definitions[c.name] is c:
-                    cset.add(c)
-                else:
-                    raise ValueError('column %s object is not from this table object' % (c,))
-            elif c in self.column_definitions.elements:
-                cset.add(self.column_definitions[c])
-            else:
-                raise ValueError('value %s does not name a defined column in this table' % (c,))
+    def _own_column(self, column):
+        if isinstance(column, CatalogColumn):
+            if self.column_definitions[column.name] is column:
+                return column
+            raise ValueError('column %s object is not from this table object' % (column,))
+        elif column in self.column_definitions.elements:
+            return self.column_definitions[column]
+        raise ValueError('value %s does not name a defined column in this table' % (c,))
+
+    def key_by_columns(self, unique_columns, raise_nomatch=True):
+        """Return key from self.keys with matching unique columns.
+
+        unique_columns: iterable of column instances or column names
+        raise_nomatch: for True, raise KeyError on non-match, else return None
+        """
+        cset = { self._own_column(c) for c in unique_columns }
         for key in self.keys:
             if cset == { c for c in key.unique_columns }:
                 return key
-        raise KeyError(cset)
+        if raise_nomatch:
+            raise KeyError(cset)
 
-    def fkey_by_column_map(self, from_to_map):
-        """Return fkey from self.fkeys with matching from: to mapping or raise KeyError if no such fkey is found.
+    def fkeys_by_columns(self, from_columns, partial=False, raise_nomatch=True):
+        """Iterable of fkeys from self.foreign_keys with matching columns.
+
+        from_columns: iterable of referencing column instances or column names
+        partial: include fkeys which cover a superset of from_columns
+        raise_nomatch: for True, raise KeyError on empty iterable
+        """
+        cset = { self._own_column(c) for c in from_columns }
+        if not cset:
+            raise ValueError('from_columns must be non-empty')
+        to_table = None
+        for fkey in self.foreign_keys:
+            fkey_cset = set(fkey.foreign_key_columns)
+            if cset == fkey_cset or partial and cset.issubset(fkey_cset):
+                raise_nomatch = False
+                yield fkey
+        if raise_nomatch:
+            raise KeyError(cset)
+
+    def fkey_by_column_map(self, from_to_map, raise_nomatch=True):
+        """Return fkey from self.foreign_keys with matching {referencing: referenced} column mapping.
 
         from_to_map: dict-like mapping with items() method yielding (from_col, to_col) pairs
+        raise_nomatch: for True, raise KeyError on non-match, else return None
         """
         colmap = {
-            from_col: to_col
+            self._own_column(from_col): to_col
             for from_col, to_col in from_to_map.items()
         }
         if not colmap:
             raise ValueError('column mapping must be non-empty')
-        for c in colmap:
-            if c.table is not self:
-                raise ValueError('from-column is not part of this table')
         to_table = None
         for c in colmap.values():
             if to_table is None:
                 to_table = c.table
             elif to_table is not c.table:
                 raise ValueError('to-columns must all be part of same table')
-        for fkey in self.fkeys:
+        for fkey in self.foreign_keys:
             fkey_colmap = {
-                fkey.foreign_key_columns[i]: fkey.referenced_columns[i]
-                for i in range(len(fkey.foreign_key_columns))
+                from_col: to_col
+                for from_col, to_col in zip(fkey.foreign_key_columns, fkey.referenced_columns)
             }
             if colmap == fkey_colmap:
                 return fkey
-        raise KeyError(from_to_map)
+        if raise_nomatch:
+            raise KeyError(from_to_map)
+
+    def is_association(self, min_arity=2, max_arity=2, unqualified=True, pure=True, no_overlap=True):
+        """Return (truthy) integer arity if self is a matching association, else False.
+
+        min_arity: minimum number of associated fkeys (default 2)
+        max_arity: maximum number of associated fkeys (default 2) or None
+        unqualified: reject qualified associations when True (default True)
+        pure: reject impure assocations when True (default True)
+        no_overlap: reject overlapping associations when True (default True)
+
+        The default behavior with no arguments is to test for pure,
+        unqualified, non-overlapping, binary assocations.
+
+        An association is comprised of several foreign keys which are
+        covered by a non-nullable composite row key. This allows
+        specific combinations of foreign keys to appear at most once.
+
+        The arity of an association is the number of foreign keys
+        being associated. A typical binary association has arity=2.
+
+        An unqualified association contains *only* the foreign key
+        material in its row key. Conversely, a qualified association
+        mixes in other material which means that a specific
+        combination of foreign keys may repeat with different
+        qualifiers.
+
+        A pure association contains *only* row key
+        material. Conversely, an impure association includes
+        additional metadata columns not covered by the row key. Unlike
+        qualifiers, impure metadata merely decorates an association
+        without augmenting its identifying characteristics.
+
+        A non-overlapping association does not share any columns
+        between multiple foreign keys. This means that all
+        combinations of foreign keys are possible. Conversely, an
+        overlapping association shares some columns between multiple
+        foreign keys, potentially limiting the combinations which can
+        be represented in an association row.
+
+        These tests ignore the five ERMrest system columns and any
+        corresponding constraints.
+
+        """
+        if min_arity < 2:
+            raise ValueError('An assocation cannot have arity < 2')
+        if max_arity is not None and max_arity < min_arity:
+            raise ValueError('max_arity cannot be less than min_arity')
+
+        # TODO: revisit whether there are any other cases we might
+        # care about where system columns are involved?
+        non_sys_cols = {
+            col
+            for col in self.column_definitions
+            if col.name not in {'RID', 'RCT', 'RMT', 'RCB', 'RMB'}
+        }
+        non_sys_key_colsets = {
+            frozenset(key.unique_columns)
+            for key in self.keys
+            if set(key.unique_columns).issubset(non_sys_cols)
+            and len(key.unique_columns) > 1
+        }
+
+        if not non_sys_key_colsets:
+            # reject: not association
+            return False
+
+        # choose longest compound key (arbitrary choice with ties!)
+        row_key = sorted(non_sys_key_colsets, key=lambda s: len(s), reverse=True)[0]
+        covered_fkeys = {
+            fkey
+            for fkey in self.foreign_keys
+            if set(fkey.foreign_key_columns).issubset(row_key)
+        }
+        covered_fkey_cols = set()
+
+        if len(covered_fkeys) < min_arity:
+            # reject: not enough fkeys in association
+            return False
+        elif max_arity is not None and len(covered_fkeys) > max_arity:
+            # reject: too many fkeys in association
+            return False
+
+        for fkey in covered_fkeys:
+            fkcols = set(fkey.foreign_key_columns)
+            if no_overlap and fkcols.intersection(covered_fkey_cols):
+                # reject: overlapping fkeys in association
+                return False
+            covered_fkey_cols.update(fkcols)
+
+        if unqualified and row_key.difference(covered_fkey_cols):
+            # reject: qualified association
+            return False
+
+        if pure and non_sys_cols.difference(row_key):
+            # reject: impure association
+            return False
+
+        # return (truthy) arity
+        return len(covered_fkeys)
 
     @object_annotation(tag.table_alternatives)
     def alternatives(self): pass
@@ -884,6 +1005,13 @@ class CatalogForeignKey (NodeConfigAclBinding):
             ]
             self._referenced_columns_doc = None
             self.pk_table.referenced_by.append(self)
+
+    @property
+    def column_map(self):
+        return {
+            fk_col: pk_col
+            for fk_col, pk_col in zip(self.foreign_key_columns, self.referenced_columns)
+        }
 
     @property
     def catalog(self):
