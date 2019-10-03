@@ -350,8 +350,11 @@ class CatalogConfig (NodeConfigAcl):
         """
         for schema in self.schemas.values():
             for referer in schema.tables.values():
-                for fkey in referer.foreign_keys:
-                    fkey.digest_referenced_columns(self)
+                for fkey in list(referer.foreign_keys):
+                    try:
+                        fkey.digest_referenced_columns(self)
+                    except KeyError:
+                        del referer.foreign_keys[fkey.name]
 
     @property
     def catalog(self):
@@ -781,7 +784,10 @@ class CatalogKey (NodeConfig):
     def __init__(self, table, key_doc, **kwargs):
         NodeConfig.__init__(self, key_doc)
         self.table = table
-        self.constraint_schema, self.constraint_name = _constraint_name_parts(self, key_doc)
+        try:
+            self.constraint_schema, self.constraint_name = _constraint_name_parts(self, key_doc)
+        except ValueError:
+            self.constraint_schema, self.constraint_name = None, hash(self)
         self.unique_columns = [
             table.column_definitions[cname]
             for cname in key_doc['unique_columns']
@@ -851,7 +857,10 @@ class CatalogForeignKey (NodeConfigAclBinding):
         )
         self.table = table
         self.pk_table = None
-        self.constraint_schema, self.constraint_name = _constraint_name_parts(self, fkey_doc)
+        try:
+            self.constraint_schema, self.constraint_name = _constraint_name_parts(self, fkey_doc)
+        except ValueError:
+            self.constraint_schema, self.constraint_name = None, hash(self)
         if self.constraint_schema:
             self.constraint_schema._fkeys[self.constraint_name] = self
         else:
