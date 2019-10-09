@@ -149,7 +149,7 @@ class PollingErmrestCatalog(ErmrestCatalog):
                     # catch up on changes since last time we looked
                     self._run_notice_event(look_for_work)
 
-            except pika.exceptions.ConnectionClosed as e:
+            except pika.exceptions.AMQPConnectionError as e:
                 # do our best without AMQP by falling back on polling
                 now = time.time()
                 if not retry_amqp:
