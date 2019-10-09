@@ -524,36 +524,16 @@ class GlobusNativeLogin:
         if (token is None) and (host is None):
             return
         keychain_file = keychain_file or bdbkc.DEFAULT_KEYCHAIN_FILE
-        if not os.path.isfile(keychain_file):
-            keychain = list()
-        else:
-            keychain = bdbkc.read_keychain(keychain_file, create_default=False)
-        updated_keychain = list()
-        url = self.host_to_url(host)
-
-        for entry in keychain:
-            uri = entry.get("uri", "").lower().strip()
-            if uri == url:
-                continue
-            if delete and (url is None):
-                if entry.get("auth_type") == "bearer-token":
-                    auth_params = entry.get("auth_params", dict())
-                    if auth_params.get("token") == token:
-                        continue
-            updated_keychain.append(entry)
-
-        if not delete:
-            new_entry = {
-                "uri": url,
-                "auth_type": "bearer-token",
-                "auth_params": {
-                    "token": token,
-                    "allow_redirects_with_token": "True" if allow_redirects else "False"
-                }
+        entry = {
+            "uri": self.host_to_url(host),
+            "tag": self.__class__.__name__,
+            "auth_type": "bearer-token",
+            "auth_params": {
+                "token": token,
+                "allow_redirects_with_token": "True" if allow_redirects else "False"
             }
-            updated_keychain.append(new_entry)
-
-        bdbkc.write_keychain(updated_keychain, keychain_file)
+        }
+        bdbkc.update_keychain(entry, keychain_file=keychain_file, delete=delete)
 
     def login(self,
               hosts=None,
