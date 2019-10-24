@@ -91,7 +91,7 @@ class ErmrestCatalog(DerivaBinding):
         return ermrest_model.Model.fromcatalog(self)
 
     def applyCatalogConfig(self, config):
-        return config.apply(self)
+        return config.apply()
 
     def getCatalogSchema(self):
         path = '/schema'

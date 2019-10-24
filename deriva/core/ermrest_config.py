@@ -18,6 +18,9 @@ class AttrDict (dict):
     def __setattr__(self, a, v):
         self[a] = v
 
+    def update(self, d):
+        dict.update(self, d)
+
 # convenient enumeration of common annotation tags
 tag = AttrDict({
     'generated':          'tag:isrd.isi.edu,2016:generated',
@@ -338,12 +341,12 @@ class CatalogConfig (NodeConfigAcl):
         self._catalog = catalog
         NodeConfigAcl.__init__(self, model_doc)
         self._supports_comment = False
+        self._pseudo_fkeys = {}
         self.schemas = {
             sname: kwargs.get('schema_class', CatalogSchema)(self, sname, sdoc, **kwargs)
             for sname, sdoc in model_doc.get('schemas', {}).items()
         }
         self.digest_fkeys()
-        self._pseudo_fkeys = {}
 
     def digest_fkeys(self):
         """Finish second-pass digestion of foreign key definitions using full model w/ all schemas and tables.
