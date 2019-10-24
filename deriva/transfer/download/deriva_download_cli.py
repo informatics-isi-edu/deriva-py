@@ -3,6 +3,8 @@ import sys
 import json
 import traceback
 import argparse
+import requests
+from requests.exceptions import HTTPError, ConnectionError
 from deriva.transfer import GenericDownloader
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError, \
     DerivaDownloadAuthenticationError, DerivaDownloadAuthorizationError
@@ -54,19 +56,27 @@ class DerivaDownloadCLI(BaseCLI):
             sys.stderr.write("\n")
 
         try:
-            downloaded = self.download(args)
-            sys.stdout.write("\n%s\n" % (json.dumps(downloaded)))
-        except DerivaDownloadAuthenticationError:
-            sys.stderr.write(("\n" if not args.quiet else "") +
-                             "The requested service requires authentication and a valid login session could not be "
-                             "found for the specified host.")
-            return 1
-        except (DerivaDownloadError, DerivaDownloadConfigurationError, DerivaDownloadAuthorizationError) as e:
+            try:
+                downloaded = self.download(args)
+                sys.stdout.write("\n%s\n" % (json.dumps(downloaded)))
+            except ConnectionError as e:
+                raise DerivaDownloadError("Connection error occurred. %s" % format_exception(e))
+            except HTTPError as e:
+                if e.response.status_code == requests.codes.unauthorized:
+                    raise DerivaDownloadAuthenticationError(
+                        "The requested service requires authentication and a valid login session could "
+                        "not be found for the specified host. Server responded: %s" % e)
+                elif e.response.status_code == requests.codes.forbidden:
+                    raise DerivaDownloadAuthorizationError(
+                        "A requested operation was forbidden. Server responded: %s" % e)
+        except (DerivaDownloadError, DerivaDownloadConfigurationError,
+                DerivaDownloadAuthenticationError, DerivaDownloadAuthorizationError) as e:
             sys.stderr.write(("\n" if not args.quiet else "") + format_exception(e))
             if args.debug:
                 traceback.print_exc()
             return 1
         except:
+            sys.stderr.write("An unexpected error occurred.")
             traceback.print_exc()
             return 1
         finally:

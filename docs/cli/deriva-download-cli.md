@@ -324,3 +324,77 @@ the `url` for the `Content-Disposition` of the referenced file asset. If this qu
 If other fields are present, they are also available for variable substitution in other parameters that support interpolation, e.g., `output_path`.
 
 Unlike the `download` processor, the `fetch` processor does not actually download any asset files, but rather uses the query results to create a `bag` with checksummed manifest entries that reference each remote asset via the `bag`'s `fetch.txt` file.
+
+## Supported transform_processors
+The following `transform_processor` tag values are supported by default:
+
+| Tag | Type | Description|
+| --- | --- | --- |
+|[`strsub`](#strsub)|Transform|String substitution transformation.
+|[`interpolation`](#csv)|Transform|Performs a string interpolation.
+|[`cat`](#cat)|Transform|Concatenates multiple files.
+
+## Transform Processor details
+Each _transform processor_ performs a transformation over the input stream(s). The transform processors may alter 
+specific fields of the input (e.g., `strsub`) while others alter the entire contents and format of the input (e.g., 
+`interpolation`).
+
+<a name="strsub"></a>
+### `strsub`
+This `transform_processor` processor performs a string substitution on a designated property of the input stream. The 
+input must be `json-stream`. The spec allows multiple `substitutions` where `pattern` is given as a regular expresison
+following Python `re` conventions, `reply` is the replacement string to substitute for each matched pattern, `input` is
+the name of the object attribute to process, and `output` is the name of the object attribute to set with the result.
+The following example would strip off the version suffix (`...:version-id`) from Hatrac versioned URLs.
+
+```json
+  "transform_processors": [
+    {
+      "processor":"strsub",
+      "processor_params": {
+        "input_path": "track-metadata.json",
+        "output_path": "track-metadata-unversioned.json",
+        "substitutions": [
+          {
+            "pattern": ":[^/]*$",
+            "repl": "",
+            "input": "url",
+            "output": "url"
+          }
+        ]
+      }
+    },
+```
+
+<a name="interpolation"></a>
+### `interpolation`
+This `transform_processor` processor performs a string interpolation on each line of the input stream. The input must
+be `json-stream` format. Each row of the input is passed as the environment for the string interpolation parameters. 
+The following example would take metadata for genomic annotation tracks and create a line for the "custom tracks" 
+specification used by UCSC and other Genome Browsers.
+
+```json
+    {
+      "processor":"interpolation",
+      "processor_params": {
+        "input_path": "track-metadata-unversioned.json",
+        "output_path": "customtracks.txt",
+        "template": "track type=$type name=\"$RID\" description=\"$filename\" bigDataUrl=https://www.facebase.org$url\n"
+      }
+    }
+```
+
+<a name="cat"></a>
+### `cat`
+This `transform_processor` processor performs a concatenation of multiple input streams into a single output stream. In
+the following example, 2 input files are concatenated into one. (More than 2 input files are allow.)
+
+```json
+    {
+      "processor":"cat",
+      "processor_params": {
+        "input_paths": ["super-track.txt", "track.txt"],
+        "output_path": "trackDb.txt"
+      }
+    }
+```

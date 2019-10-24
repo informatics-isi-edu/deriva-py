@@ -19,11 +19,11 @@ IS_PY3 = (sys.version_info[0] == 3)
 
 if IS_PY3:
     from urllib.parse import quote as _urlquote, unquote as urlunquote
-    from urllib.parse import urlparse, urlsplit, urlunsplit
+    from urllib.parse import urlparse, urlsplit, urlunsplit, urljoin
     from http.cookiejar import MozillaCookieJar
 else:
     from urllib import quote as _urlquote, unquote as urlunquote
-    from urlparse import urlparse, urlsplit, urlunsplit
+    from urlparse import urlparse, urlsplit, urlunsplit, urljoin
     from cookielib import MozillaCookieJar
 
 Kilobyte = 1024
@@ -34,6 +34,7 @@ MAX_CHUNK_SIZE = Megabyte * 100
 DEFAULT_HEADERS = {}
 DEFAULT_CONFIG_PATH = os.path.join(os.path.expanduser('~'), '.deriva')
 DEFAULT_CREDENTIAL_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'credential.json')
+DEFAULT_GLOBUS_CREDENTIAL_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'globus-credential.json')
 DEFAULT_CONFIG_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'config.json')
 DEFAULT_COOKIE_JAR_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'cookies.txt')
 DEFAULT_SESSION_CONFIG = {
@@ -43,6 +44,7 @@ DEFAULT_SESSION_CONFIG = {
     "retry_status_forcelist": [500, 503, 504],
     "cookie_jar": DEFAULT_COOKIE_JAR_FILE
 }
+OAUTH2_SCOPES_KEY = "oauth2_scopes"
 DEFAULT_CONFIG = {
     "server":
     {
@@ -51,7 +53,8 @@ DEFAULT_CONFIG = {
         "catalog_id": 1
     },
     "session": DEFAULT_SESSION_CONFIG,
-    "download_processor_whitelist": []
+    "download_processor_whitelist": [],
+    OAUTH2_SCOPES_KEY: {}
 }
 DEFAULT_CREDENTIAL = {}
 
@@ -244,22 +247,104 @@ def read_credential(credential_file=DEFAULT_CREDENTIAL_FILE, create_default=Fals
     return json.loads(credential, object_pairs_hook=OrderedDict)
 
 
-def get_credential(host, credential_file=DEFAULT_CREDENTIAL_FILE):
-    if credential_file is None:
-        credential_file = DEFAULT_CREDENTIAL_FILE
-    credentials = read_credential(credential_file)
-    return credentials.get(host, credentials.get(host.lower()))
+def get_credential(host,
+                   credential_file=DEFAULT_CREDENTIAL_FILE,
+                   globus_credential_file=DEFAULT_GLOBUS_CREDENTIAL_FILE,
+                   config_file=DEFAULT_CONFIG_FILE,
+                   requested_scope=None,
+                   force_scope_lookup=False,
+                   match_scope_tag="deriva-all"):
+    # load deriva credential set first
+    credentials = read_credential(credential_file or DEFAULT_CREDENTIAL_FILE, create_default=True)
+    creds = credentials.get(host, credentials.get(host.lower(), dict()))
+
+    # if present, load globus credentials and merge
+    globus_credentials = read_credential(globus_credential_file or DEFAULT_GLOBUS_CREDENTIAL_FILE, create_default=True)
+    if globus_credentials:
+        scopes = get_oauth_scopes_for_host(host,
+                                           config_file=config_file,
+                                           force_refresh=force_scope_lookup,
+                                           warn_on_discovery_failure=True if not creds else False)
+        for resource, g_creds in globus_credentials.items():
+            # 1. look for the explicitly requested scope in the token store, if specified
+            if requested_scope is not None and g_creds["scope"] == requested_scope:
+                creds["bearer-token"] = g_creds["access_token"]
+                break
+
+            # 2. try to determine the scope to use based on host-to-scope(s) mappings
+            if scopes:
+                for k, v in scopes.items():
+                    if v == g_creds["scope"]:
+                        if match_scope_tag is not None and match_scope_tag != k:
+                            continue
+                        creds["bearer-token"] = g_creds["access_token"]
+                        break
+                if creds.get("bearer-token"):
+                    break
+            else:
+                # 3. if we did not find any host-to-scope(s) mappings in the config file, just fall back and
+                # try to find a token by matching the hostname to the resource server name
+                if host.lower() == resource.lower():
+                    creds["bearer-token"] = g_creds["access_token"]
+                    break
+
+    return creds or None
+
+
+def get_oauth_scopes_for_host(host,
+                              config_file=DEFAULT_CONFIG_FILE,
+                              force_refresh=False,
+                              warn_on_discovery_failure=False):
+    config = read_config(config_file or DEFAULT_CONFIG_FILE, create_default=True)
+    required_scopes = config.get(OAUTH2_SCOPES_KEY)
+    result = dict()
+    upr = urlparse(host)
+    if upr.scheme and upr.netloc:
+        url = urljoin(host, "/authn/discovery")
+        host = upr.hostname
+    else:
+        url = "https://%s/authn/discovery" % host
+    # determine the scope to use based on host-to-scope(s) mappings in the config file
+    if required_scopes:
+        for hostname, scopes in required_scopes.items():
+            if host.lower() == hostname.lower():
+                result = scopes
+                break
+    if not result or force_refresh:
+        session = get_new_requests_session(session_config=DEFAULT_SESSION_CONFIG)
+        try:
+            r = session.get(url, headers=DEFAULT_HEADERS)
+            r.raise_for_status()
+            result = r.json().get(OAUTH2_SCOPES_KEY)
+            if result:
+                if not config.get(OAUTH2_SCOPES_KEY):
+                    config[OAUTH2_SCOPES_KEY] = {}
+                config[OAUTH2_SCOPES_KEY].update({host: result})
+                write_config(config_file or DEFAULT_CONFIG_FILE, config=config)
+        except Exception as e:
+            msg = "Unable to discover and/or update the \"%s\" mappings from [%s]. Requests to this host that " \
+                  "use OAuth2 scope-specific bearer tokens may fail or provide only limited access. %s" % \
+                  (OAUTH2_SCOPES_KEY, url, format_exception(e))
+            if warn_on_discovery_failure:
+                logging.warning(msg)
+            else:
+                logging.debug(msg)
+    return result
 
 
 def format_credential(token=None, oauth2_token=None, username=None, password=None):
-    if token:
-        return {"cookie": "webauthn=%s" % token}
-    elif oauth2_token:
-        return {"bearer-token": "%s" % oauth2_token}
-    elif username and password:
+    if username and password:
         return {"username": username, "password": password}
-    raise ValueError(
-        "Missing required argument(s): a supported authentication token or a username and password must be provided.")
+    credential = dict()
+    if token:
+        credential.update({"cookie": "webauthn=%s" % token})
+    if oauth2_token:
+        credential.update({"bearer-token": "%s" % oauth2_token})
+    if not credential:
+        raise ValueError(
+            "Missing required argument(s): a supported authentication token or a username/password must be provided.")
+
+    return credential
 
 
 def bootstrap():

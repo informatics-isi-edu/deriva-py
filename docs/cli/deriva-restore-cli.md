@@ -103,7 +103,7 @@ The CLI accepts an authentication token with the `--token TOKEN` option. If this
 option is not given, it will look in the user home dir where the `DERIVA-Auth`
 client would store the credentials.
 
-### `--oauth2-token`
+#### `--oauth2-token`
 An OAuth2 bearer token. This argument is mutually exclusive to the `--token` option.
 
 #### `--credential-file`

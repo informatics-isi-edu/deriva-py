@@ -6,8 +6,8 @@ import platform
 import requests
 from requests.exceptions import HTTPError
 from bdbag import bdbag_api as bdb, bdbag_ro as ro, BAG_PROFILE_TAG, BDBAG_RO_PROFILE_ID
-from deriva.core import ErmrestCatalog, HatracStore, format_exception, get_credential, read_config, stob, \
-    __version__ as VERSION
+from deriva.core import ErmrestCatalog, HatracStore, format_exception, get_credential, format_credential, read_config, \
+    stob, __version__ as VERSION
 from deriva.core.utils.version_utils import get_installed_version
 from deriva.transfer.download.processors import find_query_processor, find_transform_processor, find_post_processor
 from deriva.transfer.download.processors.base_processor import LOCAL_PATH_KEY, REMOTE_PATHS_KEY, SERVICE_URL_KEY
@@ -59,10 +59,10 @@ class DerivaDownload(object):
         if credential_file:
             self.credentials = get_credential(self.hostname, credential_file)
         elif token or oauth2_token or (username and password):
-            self.set_credentials(format_credential(token=token,
-                                                   oauth2_token=oauth2_token,
-                                                   username=username,
-                                                   password=password))
+            self.credentials = format_credential(token=token,
+                                                 oauth2_token=oauth2_token,
+                                                 username=username,
+                                                 password=password)
 
         # catalog and file store initialization
         if self.catalog:

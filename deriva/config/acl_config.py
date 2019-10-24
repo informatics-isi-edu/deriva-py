@@ -3,10 +3,12 @@ import json
 import re
 from deriva.core import ErmrestCatalog, AttrDict, ermrest_config, get_credential, __version__ as VERSION, \
     format_exception, urlquote
+from deriva.core import ermrest_model as _em
 from deriva.core.ermrest_config import CatalogColumn, CatalogForeignKey
 from deriva.config.base_config import BaseSpec, BaseSpecList, ConfigUtil, ConfigBaseCLI
 from requests.exceptions import HTTPError
 from uuid import UUID
+import warnings
 
 
 class NoForeignKeyError(ValueError):
@@ -37,11 +39,14 @@ class AclConfig:
     GC_NAME = 'groups'
     ACL_TYPES = ["catalog_acl", "schema_acls", "table_acls", "column_acls", "foreign_key_acls"]
     GLOBUS_PREFIX = 'https://auth.globus.org/'
+    ROBOT_PREFIX_FORMAT = 'https://{server}/webauthn_robot/'
 
     def __init__(self, server, catalog_id, config_file, credentials, schema_name=None, table_name=None, verbose=False):
         self.config = json.load(open(config_file))
         self.ignored_schema_patterns = []
         self.verbose = verbose
+        self.server = server
+        self.catalog_id = catalog_id
         ip = self.config.get("ignored_schema_patterns")
         if ip is not None:
             for p in ip:
@@ -56,8 +61,6 @@ class AclConfig:
         self.expand_acl_definitions()
         self.acl_bindings = self.config.get("acl_bindings")
         self.invalidate_bindings = self.config.get("invalidate_bindings")
-        self.server = server
-        self.catalog_id = catalog_id
 
         old_catalog = ErmrestCatalog('https', self.server, self.catalog_id, credentials)
         self.saved_toplevel_config = ConfigUtil.find_toplevel_node(old_catalog.getCatalogConfig(), schema_name,
@@ -156,11 +159,10 @@ class AclConfig:
         if invalidate_list is not None:
             for binding_name in invalidate_list:
                 if binding_list and binding_name in binding_list:
-                    raise ValueError("Binding {b} appears in both acl_bindings and invalidate_bindings for table {s}.{t} node {n}".format(
-                        b=binding_name,s=table_node.sname, t=table_node.name, n=node.name))
+                    raise ValueError(
+                        "Binding {b} appears in both acl_bindings and invalidate_bindings for table {s}.{t} node {n}".format(
+                            b=binding_name, s=table_node.sname, t=table_node.name, n=node.name))
                 node.acl_bindings[binding_name] = False
-            
-                
 
     def save_groups(self):
         glt = self.create_or_validate_group_table()
@@ -208,36 +210,34 @@ class AclConfig:
         assert schema is not None
         glt = Table(schema['tables'].get(tname))
         if glt == {}:
-            glt_spec = {
-                'comment': "Named lists of groups used in ACLs. Maintained by the rbk_acls program. "
-                           "Do not update this table manually.",
-                'annotations': {
-                    'tag:isrd.isi.edu,2016:generated': None
-                },
-                'column_definitions': [
-                    {
-                        'name': self.NC_NAME,
-                        'type': {'typename': 'text'},
-                        'nullok': False,
-                        'comment': 'Name of grouplist, used in foreign keys. This table is maintained by the rbk_acls '
-                                   'program and should not be updated by hand.'
-                    },
-                    {
-                        'name': self.GC_NAME,
-                        'type': {'base_type': {'typename': 'text'}, 'is_array': True},
-                        'nullok': True,
-                        'comment': 'List of groups. This table is maintained by the rbk_acls program and should not be '
-                                   'updated by hand.'
-                    }
-
+            glt_spec = _em.Table.define(
+                tname,
+                column_defs=[
+                    _em.Column.define(
+                        self.NC_NAME,
+                        _em.builtin_types.text,
+                        nullok=False,
+                        comment='Name of grouplist, used in foreign keys. This table is maintained by the acl-config '
+                                'program and should not be updated by hand.'
+                    ),
+                    _em.Column.define(
+                        self.GC_NAME,
+                        _em.builtin_types['text[]'],
+                        nullok=True,
+                        comment='List of groups. This table is maintained by the acl-config program and should not be '
+                                'updated by hand.'
+                    )
                 ],
-                'keys': [
-                    {
-                        'names': [[sname, "{t}_{c}_u".format(t=tname, c=self.NC_NAME)]],
-                        'unique_columns': [self.NC_NAME]
-                    }
-                ]
-            }
+                key_defs=[
+                    _em.Key.define(
+                        [self.NC_NAME],
+                        constraint_names=[[sname, "{t}_{c}_u".format(t=tname, c=self.NC_NAME)]]
+                    )
+                ],
+                comment="Named lists of groups used in ACLs. Maintained by the acl-config program. Do not update this "
+                        "table manually.",
+                annotations={'tag:isrd.isi.edu,2016:generated': None}
+            )
             glt = Table(self.create_table(sname, tname, glt_spec))
 
         else:
@@ -249,13 +249,12 @@ class AclConfig:
             if name_col.get('nullok'):
                 raise ValueError(
                     "{n} column in group list table ({s}.{t}) allows nulls".format(n=self.NC_NAME, s=sname, t=tname))
+
             nc_uniq = False
             for key in glt.get('keys'):
                 cols = key.get('unique_columns')
                 if len(cols) == 1 and cols[0] == self.NC_NAME:
                     nc_uniq = True
-                    break
-                if nc_uniq:
                     break
             if not nc_uniq:
                 raise ValueError(
@@ -292,8 +291,10 @@ class AclConfig:
             return
         elif group.startswith(self.GLOBUS_PREFIX):
             self.validate_globus_group(group)
+        elif group.startswith(self.ROBOT_PREFIX_FORMAT.format(server=self.server)):
+            self.validate_webauthn_robot(group)
         else:
-            raise ValueError("Can't determine format of group '{g}'".format(g=group))
+            warnings.warn("Can't determine format of group '{g}'".format(g=group))
 
     def validate_globus_group(self, group):
         guid = group[len(self.GLOBUS_PREFIX):]
@@ -303,6 +304,13 @@ class AclConfig:
             raise ValueError("Group '{g}' appears to be a malformed Globus group".format(g=group))
         if self.verbose:
             print("group '{g}' appears to be a syntactically-correct Globus group".format(g=group))
+
+    def validate_webauthn_robot(self, group):
+        robot_name = group[len(self.ROBOT_PREFIX_FORMAT.format(server=self.server)):]
+        if not robot_name:
+            raise ValueError("Group '{g}' appears to be a malformed webauthn robot identity".format(g=group))
+        if self.verbose:
+            print("group '{g}' appears to be a syntactically-correct webauthn robot identity".format(g=group))
 
     def expand_group(self, group_name):
         groups = []
@@ -521,7 +529,9 @@ class Table(AttrDict):
 class AclCLI(ConfigBaseCLI):
     def __init__(self):
         ConfigBaseCLI.__init__(self, "ACL configuration tool", None, version=VERSION)
-        self.parser.add_argument('-g', '--groups-only', help="create group table only", action="store_true")
+        group = self.parser.add_mutually_exclusive_group()
+        group.add_argument('-g', '--groups-only', help="create group table only", action="store_true")
+        group.add_argument('-o', '--omit-groups', help="do not create group table", action="store_true")
 
 
 def main():
@@ -530,7 +540,7 @@ def main():
     table_name = cli.get_table_arg(args)
     schema_names = cli.get_schema_arg_list(args)
     credentials = get_credential(args.host, args.credential_file)
-    save_groups = not args.dryrun
+    save_groups = not (args.dryrun or args.omit_groups)
     for schema in schema_names:
         acl_config = AclConfig(args.host, args.catalog, args.config_file, credentials, schema_name=schema,
                                table_name=table_name, verbose=args.verbose or args.debug)
