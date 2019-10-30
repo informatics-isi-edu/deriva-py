@@ -176,13 +176,14 @@ class PollingErmrestCatalog(ErmrestCatalog):
                         # ... and delay for up to coalesce_seconds to combine multiple notices into one wakeup
                         while next(coalesce_gen)[0] is not None:
                             pass
+                        # run once per wakeup
+                        self._run_notice_event(look_for_work)
+                        last_notice_event = time.time()
                 else:
-                    # wait for next poll deadline
+                    # wait for next poll deadline and run once
                     time.sleep(next_poll_time())
-
-                # run once now that we've woken on AMQP or basic poll delay
-                self._run_notice_event(look_for_work)
-                last_notice_event = time.time()
+                    self._run_notice_event(look_for_work)
+                    last_notice_event = time.time()
 
             except pika.exceptions.AMQPConnectionError as e:
                 if amqp_failed_at is None:
