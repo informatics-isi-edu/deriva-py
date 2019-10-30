@@ -125,39 +125,73 @@ class PollingErmrestCatalog(ErmrestCatalog):
            Other exceptions abort the blocking_poll() call.
 
         """
-        last_run_time = None
-        retry_amqp = False
+        amqp_failed_at = None
+        amqp_retry_count = 0
+        last_notice_event = 0
+
+        def next_poll_time():
+            return max(
+                1,
+                polling_seconds
+                - (time.time() - last_notice_event)
+            )
+
+        def next_amqp_time():
+            if amqp_failed_at is None:
+                return 0
+            return max(
+                0,
+                5**amqp_retry_count # exponential backoff 5s ... ~21h
+                - (time.time() - amqp_failed_at)
+            )
+
         while True:
             try:
-                self._amqp_bind()
-                polling_gen = self.notice_channel.consume(self.notice_queue_name, exclusive=True,
-                                                          inactivity_timeout=polling_seconds)
-                coalesce_gen = self.notice_channel.consume(self.notice_queue_name, exclusive=True,
-                                                           inactivity_timeout=coalesce_seconds)
-                retry_amqp = True
-
-                # run once to catch up on historical changes since before we opened our channel
-                self._run_notice_event(look_for_work)
-
-                # follow channel with polling_seconds periodic wakeup even when idle
-                for result in polling_gen:
-                    # ... and delay for up to coalesce_seconds to combine multiple notices into one wakeup
-                    sys.stderr.write('Woke up on %s.\n' % ('change-notice' if result else 'poll timeout'))
-                    while next(coalesce_gen)[0] is not None:
-                        pass
-
-                    # catch up on changes since last time we looked
+                if (self.amqp_connection is None or not self.amqp_connection.is_open) \
+                   and next_amqp_time() <= next_poll_time():
+                    # initialize AMQP (unless we're in a cool-down period)
+                    time.sleep(next_amqp_time())
+                    self._amqp_bind()
+                    polling_gen = self.notice_channel.consume(
+                        self.notice_queue_name,
+                        exclusive=True,
+                        inactivity_timeout=polling_seconds
+                    )
+                    coalesce_gen = self.notice_channel.consume(
+                        self.notice_queue_name,
+                        exclusive=True,
+                        inactivity_timeout=coalesce_seconds
+                    )
+                    amqp_failed_at = None
+                    amqp_retry_count = 0
+                    sys.stderr.write('Using AMQP hybrid polling.\n')
+                    # drain any pre-existing work that won't fire an AMQP event for us
                     self._run_notice_event(look_for_work)
+                    last_notice_event = time.time()
+
+                if self.amqp_connection and self.amqp_connection.is_open:
+                    # wait for AMQP event or timeout to wake us
+                    for result in polling_gen:
+                        sys.stderr.write('Woke up on %s.\n' % ('change-notice' if result else 'poll timeout'))
+                        # ... and delay for up to coalesce_seconds to combine multiple notices into one wakeup
+                        while next(coalesce_gen)[0] is not None:
+                            pass
+                else:
+                    # wait for next poll deadline
+                    time.sleep(next_poll_time())
+
+                # run once now that we've woken on AMQP or basic poll delay
+                self._run_notice_event(look_for_work)
+                last_notice_event = time.time()
 
             except pika.exceptions.AMQPConnectionError as e:
-                # do our best without AMQP by falling back on polling
-                now = time.time()
-                if not retry_amqp:
+                if amqp_failed_at is None:
                     sys.stderr.write('Using basic polling due to AMQP communication problems.\n')
-                    if last_run_time and not retry_amqp:
-                        time.sleep(max(0, polling_seconds - (now - last_run_time)))
-                    last_run_time = now
-                    self._run_notice_event(look_for_work)
+                    self.amqp_connection = None
+                amqp_failed_at = time.time()
+                if amqp_retry_count < 6:
+                    # don't let retry exponent get bigger than 7...
+                    amqp_retry_count += 1
 
             except Exception as e:
                 sys.stderr.write('Got error %s in main event loop.' % e)
