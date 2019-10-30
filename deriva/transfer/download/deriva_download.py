@@ -140,7 +140,8 @@ class DerivaDownload(object):
         bag_config = self.config.get('bag')
         create_bag = True if bag_config else False
         if create_bag:
-            bag_name = bag_config.get('bag_name', ''.join(["deriva_bag", '_', time.strftime("%Y-%m-%d_%H.%M.%S")]))
+            bag_name = bag_config.get(
+                'bag_name', ''.join(["deriva_bag", '_', time.strftime("%Y-%m-%d_%H.%M.%S")])).format(**self.envars)
             bag_path = os.path.abspath(os.path.join(self.output_dir, bag_name))
             bag_archiver = bag_config.get('bag_archiver')
             bag_algorithms = bag_config.get('bag_algorithms', ['sha256'])
