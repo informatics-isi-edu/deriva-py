@@ -1,5 +1,6 @@
 
 from . import ermrest_config as _ec
+from .ermrest_config import equivalent
 import re
 
 def _kwargs(**kwargs):
@@ -86,6 +87,28 @@ class Schema (_ec.CatalogSchema):
             'comment': self.comment,
         })
         return d
+
+    def apply(self, existing=None):
+        """Apply configuration to corresponding schema in catalog unless existing already matches.
+
+        :param existing: An instance comparable to self, or None to apply configuration unconditionally.
+
+        The state of self.comment, self.annotations, and self.acls
+        will be applied to the server unless they match their
+        corresponding state in existing.
+        """
+        changes = {}
+        if existing is None or not equivalent(self._comment, existing._comment):
+            changes['comment'] = self._comment
+        if existing is None or not equivalent(self.annotations, existing.annotations):
+            changes['annotations'] = self.annotations
+        if existing is None or not equivalent(self.acls, existing.acls):
+            changes['acls'] = self.acls
+        if changes:
+            # use alter method to reduce number of web requests
+            self.alter(**changes)
+        for tname, table in self.tables.items():
+            table.apply(existing.tables[tname] if existing else None)
 
     def alter(self, schema_name=nochange, comment=nochange, acls=nochange, annotations=nochange):
         """Alter existing schema definition.
@@ -430,6 +453,34 @@ class Table (_ec.CatalogTable):
         })
         return d
 
+    def apply(self, existing=None):
+        """Apply configuration to corresponding table in catalog unless existing already matches.
+
+        :param existing: An instance comparable to self, or None to apply configuration unconditionally.
+
+        The state of self.comment, self.annotations, self.acls, and
+        self.acl_bindings will be applied to the server unless they
+        match their corresponding state in existing.
+        """
+        changes = {}
+        if existing is None or not equivalent(self._comment, existing._comment):
+            changes['comment'] = self._comment
+        if existing is None or not equivalent(self.annotations, existing.annotations):
+            changes['annotations'] = self.annotations
+        if existing is None or not equivalent(self.acls, existing.acls):
+            changes['acls'] = self.acls
+        if existing is None or not equivalent(self.acl_bindings, existing.acl_bindings):
+            changes['acl_bindings'] = self.acl_bindings
+        if changes:
+            # use alter method to reduce number of web requests
+            self.alter(**changes)
+        for col in self.column_definitions:
+            col.apply(existing.column_definitions[col.name] if existing else None)
+        for key in self.keys:
+            key.apply(existing.keys[key.name_in_model(existing.schema.model)] if existing else None)
+        for fkey in self.foreign_keys:
+            fkey.apply(existing.foreign_keys[fkey.name_in_model(existing.schema.model)] if existing else None)
+
     def alter(
             self,
             schema_name=nochange,
@@ -591,6 +642,28 @@ class Column (_ec.CatalogColumn):
             'annotations': annotations,
         }
 
+    def apply(self, existing=None):
+        """Apply configuration to corresponding column in catalog unless existing already matches.
+
+        :param existing: An instance comparable to self, or None to apply configuration unconditionally.
+
+        The state of self.comment, self.annotations, self.acls, and
+        self.acl_bindings will be applied to the server unless they
+        match their corresponding state in existing.
+        """
+        changes = {}
+        if existing is None or not equivalent(self._comment, existing._comment):
+            changes['comment'] = self._comment
+        if existing is None or not equivalent(self.annotations, existing.annotations):
+            changes['annotations'] = self.annotations
+        if existing is None or not equivalent(self.acls, existing.acls):
+            changes['acls'] = self.acls
+        if existing is None or not equivalent(self.acl_bindings, existing.acl_bindings):
+            changes['acl_bindings'] = self.acl_bindings
+        if changes:
+            # use alter method to reduce number of web requests
+            self.alter(**changes)
+
     def alter(
             self,
             name=nochange,
@@ -701,6 +774,24 @@ class Key (_ec.CatalogKey):
             'annotations': annotations,
         }
 
+    def apply(self, existing=None):
+        """Apply configuration to corresponding table in catalog unless existing already matches.
+
+        :param existing: An instance comparable to self, or None to apply configuration unconditionally.
+
+        The state of self.comment and self.annotations will be applied
+        to the server unless they match their corresponding state in
+        existing.
+        """
+        changes = {}
+        if existing is None or not equivalent(self._comment, existing._comment):
+            changes['comment'] = self._comment
+        if existing is None or not equivalent(self.annotations, existing.annotations):
+            changes['annotations'] = self.annotations
+        if changes:
+            # use alter method to reduce number of web requests
+            self.alter(**changes)
+
     def alter(
             self,
             constraint_name=nochange,
@@ -793,6 +884,28 @@ class ForeignKey (_ec.CatalogForeignKey):
             'acl_bindings': acl_bindings,
             'annotations': annotations,
         }
+
+    def apply(self, existing=None):
+        """Apply configuration to corresponding table in catalog unless existing already matches.
+
+        :param existing: An instance comparable to self, or None to apply configuration unconditionally.
+
+        The state of self.comment, self.annotations, self.acls, and
+        self.acl_bindings will be applied to the server unless they
+        match their corresponding state in existing.
+        """
+        changes = {}
+        if existing is None or not equivalent(self._comment, existing._comment):
+            changes['comment'] = self._comment
+        if existing is None or not equivalent(self.annotations, existing.annotations):
+            changes['annotations'] = self.annotations
+        if existing is None or not equivalent(self.acls, existing.acls):
+            changes['acls'] = self.acls
+        if existing is None or not equivalent(self.acl_bindings, existing.acl_bindings):
+            changes['acl_bindings'] = self.acl_bindings
+        if changes:
+            # use alter method to reduce number of web requests
+            self.alter(**changes)
 
     def alter(
             self,
