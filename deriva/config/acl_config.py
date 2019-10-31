@@ -1,10 +1,8 @@
 import sys
 import json
 import re
-from deriva.core import ErmrestCatalog, AttrDict, ermrest_config, get_credential, __version__ as VERSION, \
+from deriva.core import ErmrestCatalog, AttrDict, ermrest_model, get_credential, __version__ as VERSION, \
     format_exception, urlquote
-from deriva.core import ermrest_model as _em
-from deriva.core.ermrest_config import CatalogColumn, CatalogForeignKey
 from deriva.config.base_config import BaseSpec, BaseSpecList, ConfigUtil, ConfigBaseCLI
 from requests.exceptions import HTTPError
 from uuid import UUID
@@ -63,10 +61,10 @@ class AclConfig:
         self.invalidate_bindings = self.config.get("invalidate_bindings")
 
         old_catalog = ErmrestCatalog('https', self.server, self.catalog_id, credentials)
-        self.saved_toplevel_config = ConfigUtil.find_toplevel_node(old_catalog.getCatalogConfig(), schema_name,
+        self.saved_toplevel_config = ConfigUtil.find_toplevel_node(old_catalog.getCatalogModel(), schema_name,
                                                                    table_name)
         self.catalog = ErmrestCatalog('https', self.server, self.catalog_id, credentials)
-        self.toplevel_config = ConfigUtil.find_toplevel_node(self.catalog.getCatalogConfig(), schema_name, table_name)
+        self.toplevel_config = ConfigUtil.find_toplevel_node(self.catalog.getCatalogModel(), schema_name, table_name)
 
     def make_speclist(self, name):
         d = self.config.get(name)
@@ -89,9 +87,9 @@ class AclConfig:
             node.acl_bindings[binding_name] = self.expand_acl_binding(binding, table_node)
         except NoForeignKeyError as e:
             detail = ''
-            if isinstance(node, CatalogColumn):
+            if isinstance(node, ermrest_model.Column):
                 detail = 'on column {n}'.format(n=node.name)
-            elif isinstance(node, CatalogForeignKey):
+            elif isinstance(node, ermrest_model.ForeignKey):
                 detail = 'on foreign key {s}.{n}'.format(s=node.names[0][0], n=node.names[0][1])
             else:
                 detail = ' {t}'.format(t=type(node))
@@ -210,26 +208,26 @@ class AclConfig:
         assert schema is not None
         glt = Table(schema['tables'].get(tname))
         if glt == {}:
-            glt_spec = _em.Table.define(
+            glt_spec = ermrest_model.Table.define(
                 tname,
                 column_defs=[
-                    _em.Column.define(
+                    ermrest_model.Column.define(
                         self.NC_NAME,
-                        _em.builtin_types.text,
+                        ermrest_model.builtin_types.text,
                         nullok=False,
                         comment='Name of grouplist, used in foreign keys. This table is maintained by the acl-config '
                                 'program and should not be updated by hand.'
                     ),
-                    _em.Column.define(
+                    ermrest_model.Column.define(
                         self.GC_NAME,
-                        _em.builtin_types['text[]'],
+                        ermrest_model.builtin_types['text[]'],
                         nullok=True,
                         comment='List of groups. This table is maintained by the acl-config program and should not be '
                                 'updated by hand.'
                     )
                 ],
                 key_defs=[
-                    _em.Key.define(
+                    ermrest_model.Key.define(
                         [self.NC_NAME],
                         constraint_names=[[sname, "{t}_{c}_u".format(t=tname, c=self.NC_NAME)]]
                     )
@@ -405,17 +403,17 @@ class AclConfig:
             self.set_table_acls(table)
 
     def set_acls(self):
-        if isinstance(self.toplevel_config, ermrest_config.CatalogConfig):
+        if isinstance(self.toplevel_config, ermrest_model.Model):
             self.set_catalog_acls(self.toplevel_config)
-        elif isinstance(self.toplevel_config, ermrest_config.CatalogSchema):
+        elif isinstance(self.toplevel_config, ermrest_model.Schema):
             self.set_schema_acls(self.toplevel_config)
-        elif isinstance(self.toplevel_config, ermrest_config.CatalogTable):
+        elif isinstance(self.toplevel_config, ermrest_model.Table):
             self.set_table_acls(self.toplevel_config)
         else:
             raise ValueError("toplevel config is a {t}".format(t=str(type(self.toplevel_config))))
 
     def apply_acls(self):
-        self.toplevel_config.apply(self.catalog, self.saved_toplevel_config)
+        self.toplevel_config.apply(self.saved_toplevel_config)
 
     def dumps(self):
         """Dump a serialized (string) representation of the config.
