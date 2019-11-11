@@ -390,3 +390,30 @@ def get_transfer_summary(total_bytes, elapsed_time):
     summary = "%.2f %s transferred%s. %s" % \
               (transferred, "KB" if total_bytes < Megabyte else "MB", throughput, elapsed)
     return summary
+
+def topo_sorted(depmap):
+    """Return list of items topologically sorted.
+
+       depmap: { item: [required_item, ...], ... }
+
+    Raises ValueError if a required_item cannot be satisfied in any order.
+
+    The per-item required_item iterables must allow revisiting on
+    multiple iterations.
+
+    """
+    ordered = [ item for item, requires in depmap.items() if not requires ]
+    depmap = { item: set(requires) for item, requires in depmap.items() if requires }
+    satisfied = set(ordered)
+    while depmap:
+        additions = []
+        for item, requires in list(depmap.items()):
+            if requires.issubset(satisfied):
+                additions.append(item)
+                satisfied.add(item)
+                del depmap[item]
+        if not additions:
+            raise ValueError(("unsatisfiable", depmap))
+        ordered.extend(additions)
+        additions = []
+    return ordered

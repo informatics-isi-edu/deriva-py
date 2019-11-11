@@ -57,12 +57,23 @@ access layer.
    - Create new columns on existing tables.
    - Create new key constraints over existing columns.
    - Create new foreign key constraints over existing columns and key constraints.
-- Delete model elements
+- Reconfigure model elements
+   - Change comment string on schema, table, column, key, or foreign key constraints.
+   - Change acls on schema, table, column, and foreign key constraints.
+   - Change acl\_bindings on table, column, and foreign key constraints.
+   - Change annotations on catalog, schema, table, column, key, or foreign key constraints.
+- Drop model elements
    - Drop schemas.
    - Drop tables.
    - Drop columns.
    - Drop key constraints.
    - Drop foreign key constraints.
+- Alter model elements
+   - Rename a schema.
+   - Rename a table or move the table between schemas.
+   - Rename a column, or change column storage type, default value, or null-ok status.
+   - Rename a key constraint.
+   - Rename a foreign key constraint.
 
 ### Limitations
 
@@ -72,11 +83,10 @@ the local objects to get out of synchronization with the remote
 catalog and either represent model elements which no longer exist or
 lack model elements recently added.
 
-The provided management methods, when used carefully, can
-incrementally update the local representation with changes made to the
-server by the calling client. However, if other clients make
-concurrent changes, it is likely that the local representation will
-diverge.
+The provided management methods can incrementally update the local
+representation with changes made to the server by the calling
+client. However, if other clients make concurrent changes, it is
+likely that the local representation will diverge.
 
 The only robust solution to this problem is for the caller to discard
 its model representation, reconstruct it to match the latest server
@@ -147,7 +157,7 @@ definition:
       provide_system=True,
     )
     schema = model_root.schemas[schema_name]
-    new_table = schema.create_table(catalog, table_def)
+    new_table = schema.create_table(table_def)
 
 By default, `create_table(...)` will add system columns to the table
 definition, so the caller does not need to reconstruct these standard elements
@@ -161,7 +171,7 @@ science data columns.  A simple vocabulary term table can be
 created with a helper function:
 
     schema = model_root.schemas[schema_name]
-    new_vocab_table = schema.create_table(catalog,
+    new_vocab_table = schema.create_table(
       Table.define_vocabulary(
         "My Vocabulary",
         "MYPROJECT:{RID}",
@@ -169,7 +179,7 @@ created with a helper function:
       )
     )
 
-The `Table.define_vocabular()` method is a convenience wrapper around
+The `Table.define_vocabulary()` method is a convenience wrapper around
 `Table.define()` to automatically generate core vocabulary table
 structures. It accepts other table definition parameters which a
 sophisticated caller can use to override or extend these core
@@ -191,33 +201,84 @@ existing table.
       acl_bindings={},
     )
     table = model_root.table(schema_name, table_name)
-    new_column = table.create_column(catalog, column_def)
+    new_column = table.create_column(column_def)
 
 The same pattern can be used to add a key or foreign key to an
-existing table via `table.create_key(catalog, key_def)` or
-`table.create_fkey(catalog, fkey_def)`, respectively. Similarly, a
-schema can be added to a model with `model.create_schema(catalog,
-schema_def)`.
+existing table via `table.create_key(key_def)` or
+`table.create_fkey(fkey_def)`, respectively. Similarly, a schema can
+be added to a model with `model.create_schema(schema_def)`.
 
 #### Remove a Column from a Table
 
-To delete a column, you invoke the `delete()` method on the
+To remove or "drop" a column, you invoke the `drop()` method on the
 column object itself:
 
     table = model_root.table(schema_name, table_name)
 	column = table.column_definitions[column_name]
-	column.delete(catalog, table=table)
-
-The optional `table` argument allows the method to prune the stale
-object from the table object to reflect the change made on
-the server. If this is omitted, the server change will be made but the
-local table object will fall out of synchronization.
+	column.drop()
 
 The same pattern can be used to remove a key or foreign key from a
-table via `key.delete(catalog, table)` or `foreign_key.delete(catalog,
-table)`, respectively. Similarly, a schema or table can be removed
-with `schema.delete(catalog, model)` or `table.delete(catalog,
-schema)`, respectively.
+table via `key.drop()` or `foreign_key.drop()`,
+respectively. Similarly, a schema or table can be removed with
+`schema.drop()` or `table.drop()`, respectively.
+
+#### Alter a Table
+
+To alter certain aspects of an existing table, you invoke the
+`alter()` method with optional keyword arguments for the aspects you
+wish to change. The default for omitted keyword arguments is a special
+`nochange` value which means to keep that aspect as it is currently
+defined:
+
+    table = model_root.table(orig_schema_name, orig_table_name)
+    table.alter(
+      schema_name=destination_schema_name,
+      table_name=new_table_name
+    )
+
+The `schema_name` argument allows you to relocate an existing table
+from an original schema to a destination schema, where both named
+schemas already exist in the model. This also relocates key or foreign
+key constraints in the table at the same time. The `table_name`
+argument allows you to revise the name of an existing table in the
+model, while preserving other aspects of the table definition,
+content, and content history.
+
+The same pattern can be used to alter schemas, columns, keys, and
+foreign keys:
+
+    schema.alter(schema_name=new_schema_name)
+    
+    column.alter(
+      name=new_column_name,
+      type=new_column_type_obj,
+      nullok=new_nullok_value,
+      default=new_default_value
+    )
+    
+    key.alter(constraint_name=new_unqualified_name_str)
+    
+    foreign_key.alter(
+      constraint_name=new_unqualified_name_str,
+      on_update=new_action_string,
+      on_delete=new_action_string
+    )
+
+The key and foreign key alterations accept only the unqualified
+constraint name string, because it is not possible to change the
+schema qualification other than by relocating the parent table to a
+different schema. The foreign key alteration also supports changes to
+the `on_update` and `on_delete` action, e.g. `NO ACTION`, `SET NULL`,
+or `CASCADE`.
+
+As a convenience, there are also optional `alter()` arguments to
+reconfigure `comment`, `acls`, `acl_bindings` if they exist in the
+`define()` method for the same class of object. They are omitted from
+the preceding examples for the sake of brevity. These arguments allow
+similar effect to mutating the local configuration fields and then
+invoking the `apply()` method to send them to the server, except that
+configuration changes included in an `alter()` request will happen
+atomically with respect to the other indicated alterations.
 
 ## ErmrestCatalog
 
@@ -286,7 +347,7 @@ factory methods on a catalog or snapshot object:
    - The `config_root` object roots a tree of objects isomorphic to the catalog model, organizing configuration data according to each part of the model.
    - Allows inspection of catalog/snapshot annotations and policies.
    - Allows mutation to draft a new configuration objective.
-   - Draft changes are applied with `catalog.applyCatalogConfig(config_root)`
+   - Draft changes are applied with `config_root.apply()`
 - `model_root = catalog.getCatalogModel()`
    - `deriva.core.ermrest_model.Model` object for catalog (or snapshot)
    - The `model_root` object roots a tree of objects isomorphic to the catalog model, organizing model definitions according to each part of the model.

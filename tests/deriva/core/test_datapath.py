@@ -52,9 +52,9 @@ def define_test_schema(catalog):
     An 'isa' schema with an 'experiment' table, with 'type' that references the vocab table.
     """
     model = catalog.getCatalogModel()
-    vocab = model.create_schema(catalog, _em.Schema.define("Vocab"))
-    vocab.create_table(catalog, _em.Table.define_vocabulary("Experiment_Type", "TEST:{RID}"))
-    isa = model.create_schema(catalog, _em.Schema.define("ISA"))
+    vocab = model.create_schema(_em.Schema.define("Vocab"))
+    vocab.create_table(_em.Table.define_vocabulary("Experiment_Type", "TEST:{RID}"))
+    isa = model.create_schema(_em.Schema.define("ISA"))
 
     # create 'Project' table
     table_def = _em.Table.define(
@@ -69,7 +69,7 @@ def define_test_schema(catalog):
             _em.Key.define(['Investigator', 'Num'])
         ]
     )
-    isa.create_table(catalog, table_def)
+    isa.create_table(table_def)
 
     # create 'Experiment' table
     table_def = _em.Table.define(
@@ -92,11 +92,11 @@ def define_test_schema(catalog):
             _em.ForeignKey.define(['Project_Investigator', 'Project_Num'], 'ISA', 'Project', ['Investigator', 'Num'])
         ]
     )
-    isa.create_table(catalog, table_def)
+    isa.create_table(table_def)
 
     # create copy of 'Experiment' table
     table_def['table_name'] = 'Experiment_Copy'
-    isa.create_table(catalog, table_def)
+    isa.create_table(table_def)
 
 
 def _generate_experiment_entities(types, count):
@@ -566,3 +566,7 @@ class DatapathTests (unittest.TestCase):
         ig = itemgetter(*nondefaults)
         for i in range(TEST_EXP_MAX):
             self.assertEqual(ig(results[i]), ig(entities_copy[i]), 'copied values do not match')
+
+
+if __name__ == '__main__':
+    sys.exit(unittest.main())

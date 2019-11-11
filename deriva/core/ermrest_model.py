@@ -1,5 +1,6 @@
 
 from . import ermrest_config as _ec
+from .ermrest_config import equivalent
 import re
 
 def _kwargs(**kwargs):
@@ -14,28 +15,25 @@ def _kwargs(**kwargs):
     kwargs2.update(kwargs)
     return kwargs2
 
+class NoChange (object):
+    """Special class used to distinguish no-change default arguments to methods.
+
+       Values for no-change are distinct from all valid values for
+    these arguments.
+
+    """
+    pass
+
+# singletone to use in APIs below
+nochange = NoChange()
+
 class Model (_ec.CatalogConfig):
     """Top-level catalog model.
     """
-    def __init__(self, model_doc, **kwargs):
-        super(Model, self).__init__(model_doc, **_kwargs(**kwargs))
-        self.update_referenced_by()
+    def __init__(self, catalog, model_doc, **kwargs):
+        super(Model, self).__init__(catalog, model_doc, **_kwargs(**kwargs))
 
-    def update_referenced_by(self):
-        """Introspects the 'foreign_keys' and updates the 'referenced_by' properties on the 'Table' objects.
-        :param model: an ERMrest model object
-        """
-        for schema in self.schemas.values():
-            for referer in schema.tables.values():
-                for fkey in referer.foreign_keys:
-                    referenced = self.schemas[
-                        fkey.referenced_columns[0]['schema_name']
-                    ].tables[
-                        fkey.referenced_columns[0]['table_name']
-                    ]
-                    referenced.referenced_by.append(fkey)
-
-    def create_schema(self, catalog, schema_def):
+    def create_schema(self, schema_def):
         """Add a new schema to this model in the remote database based on schema_def.
 
            Returns a new Schema instance based on the server-supplied
@@ -46,22 +44,30 @@ class Model (_ec.CatalogConfig):
         sname = schema_def['schema_name']
         if sname in self.schemas:
             raise ValueError('Schema %s already exists.' % sname)
-        r = catalog.post(
+        r = self.catalog.post(
             self.uri_path,
             json=[schema_def],
         )
         r.raise_for_status()
         d = r.json()
         assert len(d) == 1
-        newschema = Schema(sname, d[0])
+        newschema = Schema(self, sname, d[0])
         self.schemas[sname] = newschema
+        self.digest_fkeys()
         return newschema
+
+def strip_nochange(d):
+    return {
+        k: v
+        for k, v in d.items()
+        if v is not nochange
+    }
 
 class Schema (_ec.CatalogSchema):
     """Named schema.
     """
-    def __init__(self, sname, schema_doc, **kwargs):
-        super(Schema, self).__init__(sname, schema_doc, **_kwargs(**kwargs))
+    def __init__(self, model, sname, schema_doc, **kwargs):
+        super(Schema, self).__init__(model, sname, schema_doc, **_kwargs(**kwargs))
         self.comment = schema_doc.get('comment')
 
     @classmethod
@@ -82,7 +88,69 @@ class Schema (_ec.CatalogSchema):
         })
         return d
 
-    def create_table(self, catalog, table_def):
+    def apply(self, existing=None):
+        """Apply configuration to corresponding schema in catalog unless existing already matches.
+
+        :param existing: An instance comparable to self, or None to apply configuration unconditionally.
+
+        The state of self.comment, self.annotations, and self.acls
+        will be applied to the server unless they match their
+        corresponding state in existing.
+        """
+        changes = {}
+        if existing is None or not equivalent(self._comment, existing._comment):
+            changes['comment'] = self._comment
+        if existing is None or not equivalent(self.annotations, existing.annotations):
+            changes['annotations'] = self.annotations
+        if existing is None or not equivalent(self.acls, existing.acls):
+            changes['acls'] = self.acls
+        if changes:
+            # use alter method to reduce number of web requests
+            self.alter(**changes)
+        for tname, table in self.tables.items():
+            table.apply(existing.tables[tname] if existing else None)
+
+    def alter(self, schema_name=nochange, comment=nochange, acls=nochange, annotations=nochange):
+        """Alter existing schema definition.
+
+        :param schema_name: Replacement schema name (default nochange)
+        :param comment: Replacement comment (default nochange)
+        :param acls: Replacement ACL configuration (default nochange)
+        :param annotations: Replacement annotations (default nochange)
+
+        Returns self (to allow for optional chained access).
+
+        """
+        changes = strip_nochange({
+            'schema_name': schema_name,
+            'comment': comment,
+            'acls': acls,
+            'annotations': annotations,
+        })
+
+        r = self.catalog.put(self.uri_path, json=changes)
+        r.raise_for_status()
+        changed = r.json() # use changed vs changes to get server-digested values
+
+        if 'schema_name' in changes:
+            del self.model.schemas[self.name]
+            self.name = changed['schema_name']
+            self.model.schemas[self.name] = self
+
+        if 'comment' in changes:
+            self._comment = changed['comment']
+
+        if 'acls' in changes:
+            self.acls.clear()
+            self.acls.update(changed['acls'])
+
+        if 'annotations' in changes:
+            self.annotations.clear()
+            self.annotations.update(changed['annotations'])
+
+        return self
+
+    def create_table(self, table_def):
         """Add a new table to this schema in the remote database based on table_def.
 
            Returns a new Table instance based on the server-supplied
@@ -93,39 +161,31 @@ class Schema (_ec.CatalogSchema):
         tname = table_def['table_name']
         if tname in self.tables:
             raise ValueError('Table %s already exists.' % tname)
-        r = catalog.post(
+        r = self.catalog.post(
             '%s/table' % self.uri_path,
             json=table_def,
         )
         r.raise_for_status()
-        newtable = Table(self.name, tname, r.json())
+        newtable = Table(self, tname, r.json())
         self.tables[tname] = newtable
+        self.model.digest_fkeys()
         return newtable
 
-    def delete(self, catalog, model=None):
+    def drop(self):
         """Remove this schema from the remote database.
-
-        Also remove this schema from the local model object (if provided).
-
-        :param catalog: an ErmrestCatalog object
-        :param schema: a Schema object or None
-
         """
-        if model is not None:
-            if self.name not in model.schemas:
-                raise ValueError('Schema %s does not appear to belong to model.' % (self,))
-        catalog.delete(self.update_uri_path).raise_for_status()
-        if model is not None:
-            del model.schemas[self.name]
+        if self.name not in self.model.schemas:
+            raise ValueError('Schema %s does not appear to belong to model.' % (self,))
+        self.catalog.delete(self.uri_path).raise_for_status()
+        del self.model.schemas[self.name]
 
 class Table (_ec.CatalogTable):
     """Named table.
     """
-    def __init__(self, sname, tname, table_doc, **kwargs):
-        super(Table, self).__init__(sname, tname, table_doc, **_kwargs(**kwargs))
+    def __init__(self, schema, tname, table_doc, **kwargs):
+        super(Table, self).__init__(schema, tname, table_doc, **_kwargs(**kwargs))
         self.comment = table_doc.get('comment')
         self.kind = table_doc.get('kind')
-        self.referenced_by = _ec.MultiKeyedList([])
 
     @classmethod
     def system_column_defs(cls, custom=[]):
@@ -393,8 +453,106 @@ class Table (_ec.CatalogTable):
         })
         return d
 
-    def _create_table_part(self, catalog, subapi, registerfunc, constructor, doc):
-        r = catalog.post(
+    def apply(self, existing=None):
+        """Apply configuration to corresponding table in catalog unless existing already matches.
+
+        :param existing: An instance comparable to self, or None to apply configuration unconditionally.
+
+        The state of self.comment, self.annotations, self.acls, and
+        self.acl_bindings will be applied to the server unless they
+        match their corresponding state in existing.
+        """
+        changes = {}
+        if existing is None or not equivalent(self._comment, existing._comment):
+            changes['comment'] = self._comment
+        if existing is None or not equivalent(self.annotations, existing.annotations):
+            changes['annotations'] = self.annotations
+        if existing is None or not equivalent(self.acls, existing.acls):
+            changes['acls'] = self.acls
+        if existing is None or not equivalent(self.acl_bindings, existing.acl_bindings):
+            changes['acl_bindings'] = self.acl_bindings
+        if changes:
+            # use alter method to reduce number of web requests
+            self.alter(**changes)
+        for col in self.column_definitions:
+            col.apply(existing.column_definitions[col.name] if existing else None)
+        for key in self.keys:
+            key.apply(existing.keys[key.name_in_model(existing.schema.model)] if existing else None)
+        for fkey in self.foreign_keys:
+            fkey.apply(existing.foreign_keys[fkey.name_in_model(existing.schema.model)] if existing else None)
+
+    def alter(
+            self,
+            schema_name=nochange,
+            table_name=nochange,
+            comment=nochange,
+            acls=nochange,
+            acl_bindings=nochange,
+            annotations=nochange
+    ):
+        """Alter existing schema definition.
+
+        :param schema_name: Destination schema name (default nochange)
+        :param table_name: Replacement table name (default nochange)
+        :param comment: Replacement comment (default nochange)
+        :param acls: Replacement ACL configuration (default nochange)
+        :param acl_bindings: Replacement ACL bindings (default nochange)
+        :param annotations: Replacement annotations (default nochange)
+
+        A change of schema name is a transfer of the existing table to
+        an existing destination schema (not a rename of the current
+        containing schema).
+
+        Returns self (to allow for optional chained access).
+
+        """
+        changes = strip_nochange({
+            'schema_name': schema_name,
+            'table_name': table_name,
+            'comment': comment,
+            'acls': acls,
+            'acl_bindings': acl_bindings,
+            'annotations': annotations,
+        })
+
+        r = self.catalog.put(self.uri_path, json=changes)
+        r.raise_for_status()
+        changed = r.json() # use changed vs changes to get server-digested values
+
+        if 'table_name' in changes:
+            del self.schema.tables[self.name]
+            self.name = changed['table_name']
+            self.schema.tables[self.name] = self
+
+        if 'schema_name' in changes:
+            del self.schema.tables[self.name]
+            self.schema = self.schema.model.schemas[changed['schema_name']]
+            for fkey in self.foreign_keys:
+                if fkey.constraint_schema:
+                    del fkey.constraint_schema._fkeys[fkey.constraint_name]
+                    fkey.constraint_schema = self.schema
+                    fkey.constraint_schema._fkeys[fkey.constraint_name] = fkey
+            self.schema.tables[self.name] = self
+
+        if 'comment' in changes:
+            self._comment = changed['comment']
+
+        if 'acls' in changes:
+            self.acls.clear()
+            self.acls.update(changed['acls'])
+
+        if 'acls_bindings' in changes:
+            self.acl_bindings.clear()
+            self.acl_bindings.update(changed['acls'])
+
+        if 'annotations' in changes:
+            self.annotations.clear()
+            self.annotations.update(changed['annotations'])
+
+        return self
+
+    def _create_table_part(self, subapi, registerfunc, constructor, doc):
+        r = self.catalog.post(
             '%s/%s' % (self.uri_path, subapi),
             json=doc,
         )
@@ -404,9 +562,9 @@ class Table (_ec.CatalogTable):
             # handle fkey case where POST returns a list
             assert len(created) == 1
             created = created[0]
-        return registerfunc(constructor(self.sname, self.name, created))
+        return registerfunc(constructor(self, created))
 
-    def create_column(self, catalog, column_def):
+    def create_column(self, column_def):
         """Add a new column to this table in the remote database based on column_def.
 
            Returns a new Column instance based on the server-supplied
@@ -419,9 +577,9 @@ class Table (_ec.CatalogTable):
         def add_column(col):
             self.column_definitions.append(col)
             return col
-        return self._create_table_part(catalog, 'column', add_column, Column, column_def)
+        return self._create_table_part('column', add_column, Column, column_def)
 
-    def create_key(self, catalog, key_def):
+    def create_key(self, key_def):
         """Add a new key to this table in the remote database based on key_def.
 
            Returns a new Key instance based on the server-supplied
@@ -432,9 +590,9 @@ class Table (_ec.CatalogTable):
         def add_key(key):
             self.keys.append(key)
             return key
-        return self._create_table_part(catalog, 'key', add_key, Key, key_def)
+        return self._create_table_part('key', add_key, Key, key_def)
 
-    def create_fkey(self, catalog, fkey_def):
+    def create_fkey(self, fkey_def):
         """Add a new foreign key to this table in the remote database based on fkey_def.
 
            Returns a new ForeignKey instance based on the
@@ -444,30 +602,23 @@ class Table (_ec.CatalogTable):
         """
         def add_fkey(fkey):
             self.foreign_keys.append(fkey)
+            fkey.digest_referenced_columns(self.schema.model)
             return fkey
-        return self._create_table_part(catalog, 'foreignkey', add_fkey, ForeignKey, fkey_def)
+        return self._create_table_part('foreignkey', add_fkey, ForeignKey, fkey_def)
 
-    def delete(self, catalog, schema=None):
+    def drop(self):
         """Remove this table from the remote database.
-
-        Also remove this table from the local schema object (if provided).
-
-        :param catalog: an ErmrestCatalog object
-        :param schema: a Schema object or None
-
         """
-        if schema is not None:
-            if self.name not in schema.tables:
-                raise ValueError('Table %s does not appear to belong to schema %s.' % (self, schema))
-        catalog.delete(self.update_uri_path).raise_for_status()
-        if schema is not None:
-            del schema.tables[self.name]
+        if self.name not in self.schema.tables:
+            raise ValueError('Table %s does not appear to belong to schema %s.' % (self, self.schema))
+        self.catalog.delete(self.uri_path).raise_for_status()
+        del self.schema.tables[self.name]
 
 class Column (_ec.CatalogColumn):
     """Named column.
     """
-    def __init__(self, sname, tname, column_doc, **kwargs):
-        super(Column, self).__init__(sname, tname, column_doc, **_kwargs(**kwargs))
+    def __init__(self, table, column_doc, **kwargs):
+        super(Column, self).__init__(table, column_doc, **_kwargs(**kwargs))
         self.type = make_type(column_doc['type'], **_kwargs(**kwargs))
         self.nullok = bool(column_doc.get('nullok', True))
         self.default = column_doc.get('default')
@@ -491,6 +642,101 @@ class Column (_ec.CatalogColumn):
             'annotations': annotations,
         }
 
+    def apply(self, existing=None):
+        """Apply configuration to corresponding column in catalog unless existing already matches.
+
+        :param existing: An instance comparable to self, or None to apply configuration unconditionally.
+
+        The state of self.comment, self.annotations, self.acls, and
+        self.acl_bindings will be applied to the server unless they
+        match their corresponding state in existing.
+        """
+        changes = {}
+        if existing is None or not equivalent(self._comment, existing._comment):
+            changes['comment'] = self._comment
+        if existing is None or not equivalent(self.annotations, existing.annotations):
+            changes['annotations'] = self.annotations
+        if existing is None or not equivalent(self.acls, existing.acls):
+            changes['acls'] = self.acls
+        if existing is None or not equivalent(self.acl_bindings, existing.acl_bindings):
+            changes['acl_bindings'] = self.acl_bindings
+        if changes:
+            # use alter method to reduce number of web requests
+            self.alter(**changes)
+
+    def alter(
+            self,
+            name=nochange,
+            type=nochange,
+            nullok=nochange,
+            default=nochange,
+            comment=nochange,
+            acls=nochange,
+            acl_bindings=nochange,
+            annotations=nochange
+    ):
+        """Alter existing schema definition.
+
+        :param name: Replacement column name (default nochange)
+        :param type: Replacement Type instance (default nochange)
+        :param nullok: Replacement nullok value (default nochange)
+        :param default: Replacement default value (default nochange)
+        :param comment: Replacement comment (default nochange)
+        :param acls: Replacement ACL configuration (default nochange)
+        :param acl_bindings: Replacement ACL bindings (default nochange)
+        :param annotations: Replacement annotations (default nochange)
+
+        Returns self (to allow for optional chained access).
+
+        """
+        if type is not nochange and not isinstance(type, Type):
+            raise TypeError('Parameter "type" %s should be an instance of Type.' % (type,))
+        changes = strip_nochange({
+            'name': name,
+            'type': type,
+            'nullok': nullok,
+            'default': default,
+            'comment': comment,
+            'acls': acls,
+            'acl_bindings': acl_bindings,
+            'annotations': annotations,
+        })
+
+        r = self.catalog.put(self.uri_path, json=changes)
+        r.raise_for_status()
+        changed = r.json() # use changed vs changes to get server-digested values
+
+        if 'name' in changes:
+            del self.table.column_definitions.elements[self.name]
+            self.name = changed['name']
+            self.table.column_definitions.elements[self.name] = self
+
+        if 'type' in changes:
+            self.type = make_type(changed['type'])
+
+        if 'nullok' in changes:
+            self.nullok = changed['nullok']
+
+        if 'default' in changes:
+            self.default = changed['default']
+
+        if 'comment' in changes:
+            self._comment = changed['comment']
+
+        if 'acls' in changes:
+            self.acls.clear()
+            self.acls.update(changed['acls'])
+
+        if 'acls_bindings' in changes:
+            self.acl_bindings.clear()
+            self.acl_bindings.update(changed['acls'])
+
+        if 'annotations' in changes:
+            self.annotations.clear()
+            self.annotations.update(changed['annotations'])
+
+        return self
+
     def prejson(self, prune=True):
         d = super(Column, self).prejson(prune)
         d.update({
@@ -501,27 +747,19 @@ class Column (_ec.CatalogColumn):
         })
         return d
         
-    def delete(self, catalog, table=None):
+    def drop(self):
         """Remove this column from the remote database.
-
-        Also remove this column from the local table object (if provided).
-
-        :param catalog: an ErmrestCatalog object
-        :param table: a Table object or None
-
         """
-        if table is not None:
-            if self.name not in table.column_definitions.elements:
-                raise ValueError('Column %s does not appear to belong to table %s.' % (self, table))
-        catalog.delete(self.update_uri_path).raise_for_status()
-        if table is not None:
-            del table.column_definitions[self.name]
+        if self.name not in self.table.column_definitions.elements:
+            raise ValueError('Column %s does not appear to belong to table %s.' % (self, self.table))
+        self.catalog.delete(self.uri_path).raise_for_status()
+        del self.table.column_definitions[self.name]
 
 class Key (_ec.CatalogKey):
     """Named key.
     """
-    def __init__(self, sname, tname, key_doc, **kwargs):
-        super(Key, self).__init__(sname, tname, key_doc, **_kwargs(**kwargs))
+    def __init__(self, table, key_doc, **kwargs):
+        super(Key, self).__init__(table, key_doc, **_kwargs(**kwargs))
         self.comment = key_doc.get('comment')
 
     @classmethod
@@ -536,6 +774,65 @@ class Key (_ec.CatalogKey):
             'annotations': annotations,
         }
 
+    def apply(self, existing=None):
+        """Apply configuration to corresponding table in catalog unless existing already matches.
+
+        :param existing: An instance comparable to self, or None to apply configuration unconditionally.
+
+        The state of self.comment and self.annotations will be applied
+        to the server unless they match their corresponding state in
+        existing.
+        """
+        changes = {}
+        if existing is None or not equivalent(self._comment, existing._comment):
+            changes['comment'] = self._comment
+        if existing is None or not equivalent(self.annotations, existing.annotations):
+            changes['annotations'] = self.annotations
+        if changes:
+            # use alter method to reduce number of web requests
+            self.alter(**changes)
+
+    def alter(
+            self,
+            constraint_name=nochange,
+            comment=nochange,
+            annotations=nochange
+    ):
+        """Alter existing schema definition.
+
+        :param constraint_name: Unqualified constraint name string
+        :param comment: Replacement comment (default nochange)
+        :param annotations: Replacement annotations (default nochange)
+
+        Returns self (to allow for optional chained access).
+
+        """
+        changes = strip_nochange({
+            'comment': comment,
+            'annotations': annotations,
+        })
+        if constraint_name is not nochange:
+            changes['names'] = [[
+                self.constraint_schema.name if self.constraint_schema else '',
+                constraint_name
+            ]]
+
+        r = self.catalog.put(self.uri_path, json=changes)
+        r.raise_for_status()
+        changed = r.json() # use changed vs changes to get server-digested values
+
+        if 'names' in changes:
+            self.constraint_name = changed['names'][0][1]
+
+        if 'comment' in changes:
+            self._comment = changed['comment']
+
+        if 'annotations' in changes:
+            self.annotations.clear()
+            self.annotations.update(changed['annotations'])
+
+        return self
+
     def prejson(self, prune=True):
         d = super(Key, self).prejson(prune)
         d.update({
@@ -543,27 +840,19 @@ class Key (_ec.CatalogKey):
         })
         return d
 
-    def delete(self, catalog, table=None):
+    def drop(self):
         """Remove this key from the remote database.
-
-        Also remove this key from the local table object (if provided).
-
-        :param catalog: an ErmrestCatalog object
-        :param table: a Table object or None
-
         """
-        if table is not None:
-            if self.names[0] not in table.keys.elements:
-                raise ValueError('Key %s does not appear to belong to table %s.' % (self, table))
-        catalog.delete(self.update_uri_path).raise_for_status()
-        if table is not None:
-            del table.keys[self.names[0]]
+        if self.names[0] not in self.table.keys.elements:
+            raise ValueError('Key %s does not appear to belong to table %s.' % (self, self.table))
+        self.catalog.delete(self.update_uri_path).raise_for_status()
+        del self.table.keys[self.names[0]]
 
 class ForeignKey (_ec.CatalogForeignKey):
     """Named foreign key.
     """
-    def __init__(self, sname, tname, fkey_doc, **kwargs):
-        super(ForeignKey, self).__init__(sname, tname, fkey_doc, **_kwargs(**kwargs))
+    def __init__(self, table, fkey_doc, **kwargs):
+        super(ForeignKey, self).__init__(table, fkey_doc, **_kwargs(**kwargs))
         self.comment = fkey_doc.get('comment')
         self.on_delete = fkey_doc.get('on_delete')
         self.on_update = fkey_doc.get('on_update')
@@ -596,6 +885,103 @@ class ForeignKey (_ec.CatalogForeignKey):
             'annotations': annotations,
         }
 
+    def apply(self, existing=None):
+        """Apply configuration to corresponding table in catalog unless existing already matches.
+
+        :param existing: An instance comparable to self, or None to apply configuration unconditionally.
+
+        The state of self.comment, self.annotations, self.acls, and
+        self.acl_bindings will be applied to the server unless they
+        match their corresponding state in existing.
+        """
+        changes = {}
+        if existing is None or not equivalent(self._comment, existing._comment):
+            changes['comment'] = self._comment
+        if existing is None or not equivalent(self.annotations, existing.annotations):
+            changes['annotations'] = self.annotations
+        if existing is None or not equivalent(self.acls, existing.acls):
+            changes['acls'] = self.acls
+        if existing is None or not equivalent(self.acl_bindings, existing.acl_bindings):
+            changes['acl_bindings'] = self.acl_bindings
+        if changes:
+            # use alter method to reduce number of web requests
+            self.alter(**changes)
+
+    def alter(
+            self,
+            constraint_name=nochange,
+            on_update=nochange,
+            on_delete=nochange,
+            comment=nochange,
+            acls=nochange,
+            acl_bindings=nochange,
+            annotations=nochange
+    ):
+        """Alter existing schema definition.
+
+        :param constraint_name: Replacement constraint name string
+        :param on_update: Replacement on-update action string
+        :param on_delete: Replacement on-delete action string
+        :param comment: Replacement comment (default nochange)
+        :param acls: Replacement ACL configuration (default nochange)
+        :param acl_bindings: Replacement ACL bindings (default nochange)
+        :param annotations: Replacement annotations (default nochange)
+
+        Returns self (to allow for optional chained access).
+
+        """
+        changes = strip_nochange({
+            'on_update': on_update,
+            'on_delete': on_delete,
+            'comment': comment,
+            'acls': acls,
+            'acl_bindings': acl_bindings,
+            'annotations': annotations,
+        })
+        if constraint_name is not nochange:
+            changes['names'] = [[
+                self.constraint_schema.name if self.constraint_schema else '',
+                constraint_name
+            ]]
+
+        r = self.catalog.put(self.uri_path, json=changes)
+        r.raise_for_status()
+        changed = r.json() # use changed vs changes to get server-digested values
+
+        if 'names' in changes:
+            if self.constraint_schema:
+                del self.constraint_schema._fkeys[self.constraint_name]
+            else:
+                del self.table.schema.model._pseudo_fkeys[self.constraint_name]
+            self.constraint_name = changed['names'][0][1]
+            if self.constraint_schema:
+                self.constraint_schema._fkeys[self.constraint_name] = self
+            else:
+                self.table.schema.model._pseudo_fkeys[self.constraint_name] = self
+
+        if 'on_update' in changes:
+            self.on_update = changed['on_update']
+
+        if 'on_delete' in changes:
+            self.on_delete = changed['on_delete']
+
+        if 'comment' in changes:
+            self._comment = changed['comment']
+
+        if 'annotations' in changes:
+            self.annotations.clear()
+            self.annotations.update(changed['annotations'])
+
+        if 'acls' in changes:
+            self.acls.clear()
+            self.acls.update(changed['acls'])
+
+        if 'acls_bindings' in changes:
+            self.acl_bindings.clear()
+            self.acl_bindings.update(changed['acls'])
+
+        return self
+
     def prejson(self, prune=True):
         d = super(ForeignKey, self).prejson(prune)
         d.update({
@@ -605,21 +991,14 @@ class ForeignKey (_ec.CatalogForeignKey):
         })
         return d
 
-    def delete(self, catalog, table=None):
+    def drop(self):
         """Remove this foreign key from the remote database.
-
-        Also remove this foreign key from the local table object (if provided).
-
-        :param catalog: an ErmrestCatalog object
-        :param table: a Table object or None
-
         """
-        if table is not None:
-            if self.names[0] not in table.foreign_keys.elements:
-                raise ValueError('Foreign key %s does not appear to belong to table %s.' % (self, table))
-        catalog.delete(self.update_uri_path).raise_for_status()
-        if table is not None:
-            del table.foreign_keys[self.names[0]]
+        if self.name not in self.table.foreign_keys.elements:
+            raise ValueError('Foreign key %s does not appear to belong to table %s.' % (self, self.table))
+        self.catalog.delete(self.update_uri_path).raise_for_status()
+        del self.table.foreign_keys[self.name]
+        del self.pk_table.referenced_by[self.name]
 
 def make_type(type_doc, **kwargs):
     """Create instance of Type, DomainType, or ArrayType as appropriate for type_doc."""

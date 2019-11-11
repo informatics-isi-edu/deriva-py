@@ -9,7 +9,7 @@ import tempfile
 import logging
 import platform
 from collections import OrderedDict, namedtuple
-from deriva.core import ErmrestCatalog, CatalogConfig, HatracStore, HatracJobAborted, HatracJobPaused, \
+from deriva.core import ErmrestCatalog, HatracStore, HatracJobAborted, HatracJobPaused, \
     HatracJobTimeout, urlquote, stob, format_exception, get_credential, read_config, write_config, copy_config, \
     resource_path, make_dirs, lock_file, DEFAULT_CHUNK_SIZE, IS_PY2, __version__ as VERSION
 from deriva.core.utils import hash_utils as hu, mime_utils as mu, version_utils as vu
@@ -343,7 +343,7 @@ class DerivaUpload(object):
                (self.DefaultTransferStateBaseName, self.server.get('host', 'localhost'))
 
     def getRemoteConfig(self):
-        catalog_config = CatalogConfig.fromcatalog(self.catalog)
+        catalog_config = self.catalog.getCatalogModel()
         return catalog_config.bulk_upload
 
     def getUpdatedConfig(self):

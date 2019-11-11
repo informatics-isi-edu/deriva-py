@@ -91,7 +91,7 @@ class ErmrestCatalog(DerivaBinding):
         return ermrest_model.Model.fromcatalog(self)
 
     def applyCatalogConfig(self, config):
-        return config.apply(self)
+        return config.apply()
 
     def getCatalogSchema(self):
         path = '/schema'
@@ -409,8 +409,8 @@ class ErmrestCatalog(DerivaBinding):
                         if cname not in src_columns:
                             raise ValueError("Destination column %s.%s.%s does not exist in source catalog." % (sname, tname, cname))
 
-                    src_keys = { tuple(sorted(key.unique_columns)): key for key in table.keys }
-                    dst_keys = { tuple(sorted(key.unique_columns)): key for key in dst_model.schemas[sname].tables[tname].keys }
+                    src_keys = { tuple(sorted(c.name for c in key.unique_columns)): key for key in table.keys }
+                    dst_keys = { tuple(sorted(c.name for c in key.unique_columns)): key for key in dst_model.schemas[sname].tables[tname].keys }
 
                     for utuple in src_keys:
                         if utuple not in dst_keys:

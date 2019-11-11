@@ -18,6 +18,9 @@ class AttrDict (dict):
     def __setattr__(self, a, v):
         self[a] = v
 
+    def update(self, d):
+        dict.update(self, d)
+
 # convenient enumeration of common annotation tags
 tag = AttrDict({
     'generated':          'tag:isrd.isi.edu,2016:generated',
@@ -139,17 +142,29 @@ class NodeConfig (object):
          self.generated: treat tag.generated as a boolean
          self.immutable: treat tag.immutable as a boolean
     """
-    def __init__(self, uri_path, node_doc):
-        self.uri_path = uri_path
-        self.update_uri_path = uri_path
+    def __init__(self, node_doc):
         self.annotations = dict(node_doc.get('annotations', {}))
         self._supports_comment = True
         self._comment = node_doc.get('comment')
 
-    def apply(self, catalog, existing=None):
+    @property
+    def catalog(self):
+        raise NotImplementedError('derived classes MUST define self.catalog property')
+
+    @property
+    def uri_path(self):
+        """URI to this model resource."""
+        raise NotImplementedError('Subclasses need their own URI path properties.')
+
+    @property
+    def update_uri_path(self):
+        """URI to use as base for sub-resources ./comment ./annotation etc."""
+        # normally this is the same as uri_path, but a subclass may need to override
+        return self.uri_path
+
+    def apply(self, existing=None):
         """Apply configuration to corresponding node in catalog unless existing already matches.
 
-        :param catalog: The EmrestCatalog instance to which configuration will be applied.
         :param existing: An instance comparable to self, or None to apply configuration unconditionally.
 
         The configuration in self.comment and self.annotations will be
@@ -159,14 +174,17 @@ class NodeConfig (object):
         if self._supports_comment:
             if existing is None or not equivalent(self._comment, existing._comment):
                 if self._comment is not None:
-                    catalog.put('%s/comment' % self.update_uri_path, data=self._comment)
+                    self.catalog.put('%s/comment' % self.update_uri_path, data=self._comment)
                 else:
-                    catalog.delete('%s/comment' % self.update_uri_path)
+                    self.catalog.delete('%s/comment' % self.update_uri_path)
         if existing is None or not equivalent(self.annotations, existing.annotations):
-            catalog.put(
-                '%s/%s' % (self.update_uri_path, 'annotation'),
-                json=self.annotations
-            )
+            try:
+                self.catalog.put(
+                    '%s/%s' % (self.update_uri_path, 'annotation'),
+                    json=self.annotations
+                )
+            except TypeError as e:
+                raise TypeError('Bad %s/annotation' % (self.update_uri_path, self.annotations)) from e
 
     def clear(self, clear_comment=False):
         """Clear existing annotations on node, also clearing comment if clear_comment is True.
@@ -230,14 +248,13 @@ class NodeConfigAcl (NodeConfig):
          self.generated: treat tag.generated as a boolean
          self.immutable: treat tag.immutable as a boolean
     """
-    def __init__(self, uri_path, node_doc):
-        NodeConfig.__init__(self, uri_path, node_doc)
+    def __init__(self, node_doc):
+        NodeConfig.__init__(self, node_doc)
         self.acls = AttrDict(node_doc.get('acls', {}))
 
-    def apply(self, catalog, existing=None):
+    def apply(self, existing=None):
         """Apply configuration to corresponding node in catalog unless existing already matches.
 
-        :param catalog: The EmrestCatalog instance to which configuration will be applied.
         :param existing: An instance comparable to self, or None to apply configuration unconditionally.
 
         The configuration in self.comment, self.annotations, and
@@ -246,9 +263,9 @@ class NodeConfigAcl (NodeConfig):
         supplied and is equivalent.
 
         """
-        NodeConfig.apply(self, catalog, existing)
+        NodeConfig.apply(self, existing)
         if existing is None or not equivalent(self.acls, existing.acls):
-            catalog.put(
+            self.catalog.put(
                 '%s/%s' % (self.update_uri_path, 'acl'),
                 json=self.acls
             )
@@ -279,14 +296,13 @@ class NodeConfigAclBinding (NodeConfigAcl):
          self.generated: treat tag.generated as a boolean
          self.immutable: treat tag.immutable as a boolean
     """
-    def __init__(self, uri_path, node_doc):
-        NodeConfigAcl.__init__(self, uri_path, node_doc)
+    def __init__(self, node_doc):
+        NodeConfigAcl.__init__(self, node_doc)
         self.acl_bindings = AttrDict(node_doc.get('acl_bindings', {}))
 
-    def apply(self, catalog, existing=None):
+    def apply(self, existing=None):
         """Apply configuration to corresponding node in catalog unless existing already matches.
 
-        :param catalog: The EmrestCatalog instance to which configuration will be applied.
         :param existing: An instance comparable to self, or None to apply configuration unconditionally.
 
         The configuration in self.comment, self.annotations,
@@ -295,9 +311,9 @@ class NodeConfigAclBinding (NodeConfigAcl):
         configuration is supplied and is equivalent.
 
         """
-        NodeConfigAcl.apply(self, catalog, existing)
+        NodeConfigAcl.apply(self, existing)
         if existing is None or not equivalent(self.acl_bindings, existing.acl_bindings, method='acl_binding'):
-            catalog.put(
+            self.catalog.put(
                 '%s/%s' % (self.update_uri_path, 'acl_binding'),
                 json=self.acl_bindings
             )
@@ -314,7 +330,6 @@ class NodeConfigAclBinding (NodeConfigAcl):
             d["acl_bindings"] = self.acl_bindings
         return d
 
-
 class CatalogConfig (NodeConfigAcl):
     """Top-level catalog configuration management.
 
@@ -322,32 +337,60 @@ class CatalogConfig (NodeConfigAcl):
        annotations: catalog-level annotations
        schemas: all schemas in catalog, by name
     """
-    def __init__(self, model_doc, **kwargs):
-        NodeConfigAcl.__init__(self, "/schema", model_doc)
+    def __init__(self, catalog, model_doc, **kwargs):
+        self._catalog = catalog
+        NodeConfigAcl.__init__(self, model_doc)
         self._supports_comment = False
-        self.update_uri_path = ""
+        self._pseudo_fkeys = {}
         self.schemas = {
-            sname: kwargs.get('schema_class', CatalogSchema)(sname, sdoc, **kwargs)
+            sname: kwargs.get('schema_class', CatalogSchema)(self, sname, sdoc, **kwargs)
             for sname, sdoc in model_doc.get('schemas', {}).items()
         }
+        self.digest_fkeys()
+
+    def digest_fkeys(self):
+        """Finish second-pass digestion of foreign key definitions using full model w/ all schemas and tables.
+        """
+        for schema in self.schemas.values():
+            for referer in schema.tables.values():
+                for fkey in list(referer.foreign_keys):
+                    try:
+                        fkey.digest_referenced_columns(self)
+                    except KeyError:
+                        del referer.foreign_keys[fkey.name]
+
+    @property
+    def catalog(self):
+        return self._catalog
+
+    @property
+    def uri_path(self):
+        """URI to this model resource."""
+        return "/schema"
+
+    @property
+    def update_uri_path(self):
+        """URI to use as base for sub-resources ./acl ./annotation etc."""
+        # we get whole catalog schema at /schema
+        # but we get whole catalog sub-resources at /acl etc.
+        return ""
 
     @classmethod
     def fromcatalog(cls, catalog):
         """Retrieve catalog config as a CatalogConfig management object."""
-        return cls(catalog.get("/schema").json())
+        return cls(catalog, catalog.get("/schema").json())
 
     @classmethod
-    def fromfile(cls, schema_file):
+    def fromfile(cls, catalog, schema_file):
         """Deserialize a JSON schema file as a CatalogConfig management object."""
         with open(schema_file) as sf:
             schema = sf.read()
 
-        return cls(json.loads(schema, object_pairs_hook=OrderedDict))
+        return cls(catalog, json.loads(schema, object_pairs_hook=OrderedDict))
 
-    def apply(self, catalog, existing=None):
+    def apply(self, existing=None):
         """Apply catalog configuration to catalog unless existing already matches.
 
-        :param catalog: The EmrestCatalog instance to which configuration will be applied.
         :param existing: An instance comparable to self.
 
         The configuration in self will be applied recursively to the
@@ -363,10 +406,10 @@ class CatalogConfig (NodeConfigAcl):
 
         """
         if existing is None:
-            existing = self.fromcatalog(catalog)
-        NodeConfigAcl.apply(self, catalog, existing)
+            existing = self.fromcatalog(self.catalog)
+        NodeConfigAcl.apply(self, existing)
         for sname, schema in self.schemas.items():
-            schema.apply(catalog, existing.schemas[sname])
+            schema.apply(existing.schemas[sname])
 
     def clear(self):
         """Clear all configuration in catalog and children."""
@@ -381,6 +424,25 @@ class CatalogConfig (NodeConfigAcl):
     def column(self, sname, tname, cname):
         """Return column configuration for column with given name."""
         return self.table(sname, tname).column_definitions[cname]
+
+    def fkey(self, constraint_name_pair):
+        """Return configuration for foreign key with given name pair.
+
+        Accepts (schema_name, constraint_name) pairs as found in many
+        faceting annotations and (schema_obj, constraint_name) pairs
+        as found in fkey.name fields.
+
+        """
+        sname, cname = constraint_name_pair
+        if isinstance(sname, CatalogSchema):
+            if self.schemas[sname.name] is sname:
+                return sname._fkeys[cname]
+            else:
+                raise ValueError('schema object %s is not from same model tree' % (sname,))
+        elif sname is None or sname == '':
+            return self._pseudo_fkeys[cname]
+        else:
+            return self.schemas[sname]._fkeys[cname]
 
     @object_annotation(tag.bulk_upload)
     def bulk_upload(self): pass
@@ -399,27 +461,34 @@ class CatalogSchema (NodeConfigAcl):
 
        acls: schema-level ACL configuration
        annotations: schema-level annotations
+       comment: schema-level comment string
        tables: all tables in schema, by name
 
        Convenience access for common annotations:
          self.display: access mutable tag.display object
     """
-    def __init__(self, sname, schema_doc, **kwargs):
-        NodeConfigAcl.__init__(
-            self,
-            "/schema/%s" % urlquote(sname),
-            schema_doc
-        )
+    def __init__(self, model, sname, schema_doc, **kwargs):
+        NodeConfigAcl.__init__(self, schema_doc)
+        self.model = model
         self.name = sname
+        self._fkeys = {}
         self.tables = {
-            tname: kwargs.get('table_class', CatalogTable)(sname, tname, tdoc, **kwargs)
+            tname: kwargs.get('table_class', CatalogTable)(self, tname, tdoc, **kwargs)
             for tname, tdoc in schema_doc.get('tables', {}).items()
         }
 
-    def apply(self, catalog, existing=None):
+    @property
+    def catalog(self):
+        return self.model.catalog
+
+    @property
+    def uri_path(self):
+        """URI to this model resource."""
+        return "/schema/%s" % urlquote(self.name)
+
+    def apply(self, existing=None):
         """Apply schema configuration to catalog unless existing already matches.
 
-        :param catalog: The EmrestCatalog instance to which configuration will be applied.
         :param existing: An instance comparable to self.
 
         The configuration in self will be applied recursively to the
@@ -428,9 +497,9 @@ class CatalogSchema (NodeConfigAcl):
         applied where applicable unless existing value is equivalent.
 
         """
-        NodeConfigAcl.apply(self, catalog, existing)
+        NodeConfigAcl.apply(self, existing)
         for tname, table in self.tables.items():
-            table.apply(catalog, existing.tables[tname] if existing else None)
+            table.apply(existing.tables[tname] if existing else None)
 
     def clear(self):
         """Clear all configuration in schema and children."""
@@ -447,7 +516,6 @@ class CatalogSchema (NodeConfigAcl):
             for tname, table in self.tables.items()
         }
         return d
-
 
 class KeyedList (list):
     """Keyed list."""
@@ -488,39 +556,6 @@ class KeyedList (list):
         list.append(self, e)
         self.elements[e.name] = e
 
-class MultiKeyedList (list):
-    """Multi-keyed list."""
-    def __init__(self, l):
-        list.__init__(self, l)
-        self.elements = {
-            tuple(name): e
-            for e in l
-            for name in e.names
-        }
-
-    def __getitem__(self, idx):
-        """Get element by key or by list index or slice."""
-        if isinstance(idx, (tuple, list)):
-            return self.elements[idx]
-        else:
-            return list.__getitem__(self, idx)
-
-    def __delitem__(self, idx):
-        """Delete element by key or by list index."""
-        item = self[idx]
-        list.__delitem__(self, self.index(item))
-        for name in item.names:
-            del self.elements[name]
-
-    def append(self, e):
-        """Append element to list and record its keys."""
-        for name in e.names:
-            if name in self.elements:
-                raise ValueError('Element name %s already exists.' % e.names)
-        list.append(self, e)
-        for name in e.names:
-            self.elements[name] = e
-
 class CatalogTable (NodeConfigAclBinding):
     """Table-level configuration management.
 
@@ -528,6 +563,7 @@ class CatalogTable (NodeConfigAclBinding):
        acls: table-level ACL configuration
        annotations: table-level annotations
        column_definitions: columns in table
+       comment: table-level comment string
 
        Convenience access to common annotations:
          self.alternatives: tag.table_alternatives object
@@ -539,31 +575,36 @@ class CatalogTable (NodeConfigAclBinding):
          self.visible_foreign_keys: tag.visible_foreign_keys object
     """
 
-    def __init__(self, sname, tname, table_doc, **kwargs):
-        NodeConfigAclBinding.__init__(
-            self,
-            "/schema/%s/table/%s" % (urlquote(sname), urlquote(tname)),
-            table_doc
-        )
-        self.sname = sname
+    def __init__(self, schema, tname, table_doc, **kwargs):
+        NodeConfigAclBinding.__init__(self, table_doc)
+        self.schema = schema
         self.name = tname
         self.column_definitions = KeyedList([
-            kwargs.get('column_class', CatalogColumn)(sname, tname, cdoc, **kwargs)
+            kwargs.get('column_class', CatalogColumn)(self, cdoc, **kwargs)
             for cdoc in table_doc.get('column_definitions', [])
         ])
-        self.keys = MultiKeyedList([
-            kwargs.get('key_class', CatalogKey)(sname, tname, kdoc, **kwargs)
+        self.keys = KeyedList([
+            kwargs.get('key_class', CatalogKey)(self, kdoc, **kwargs)
             for kdoc in table_doc.get('keys', [])
         ])
-        self.foreign_keys = MultiKeyedList([
-            kwargs.get('foreign_key_class', CatalogForeignKey)(sname, tname, fkdoc, **kwargs)
+        self.foreign_keys = KeyedList([
+            kwargs.get('foreign_key_class', CatalogForeignKey)(self, fkdoc, **kwargs)
             for fkdoc in table_doc.get('foreign_keys', [])
         ])
+        self.referenced_by = KeyedList([])
 
-    def apply(self, catalog, existing=None):
+    @property
+    def catalog(self):
+        return self.schema.model.catalog
+
+    @property
+    def uri_path(self):
+        """URI to this model element."""
+        return "%s/table/%s" % (self.schema.uri_path, urlquote(self.name))
+
+    def apply(self, existing=None):
         """Apply table configuration to catalog unless existing already matches.
 
-        :param catalog: The EmrestCatalog instance to which configuration will be applied.
         :param existing: An instance comparable to self.
 
         The configuration in self will be applied recursively to the
@@ -573,13 +614,13 @@ class CatalogTable (NodeConfigAclBinding):
         equivalent.
 
         """
-        NodeConfigAclBinding.apply(self, catalog, existing)
+        NodeConfigAclBinding.apply(self, existing)
         for col in self.column_definitions:
-            col.apply(catalog, existing.column_definitions[col.name] if existing else None)
+            col.apply(existing.column_definitions[col.name] if existing else None)
         for key in self.keys:
-            key.apply(catalog, existing.keys[key.names[0]] if existing else None)
+            key.apply(existing.keys[key.name_in_model(existing.schema.model)] if existing else None)
         for fkey in self.foreign_keys:
-            fkey.apply(catalog, existing.foreign_keys[fkey.names[0]] if existing else None)
+            fkey.apply(existing.foreign_keys[fkey.name_in_model(existing.schema.model)] if existing else None)
 
     def clear(self):
         """Clear all configuration in table and children."""
@@ -594,21 +635,187 @@ class CatalogTable (NodeConfigAclBinding):
     def prejson(self, prune=True):
         """Produce a representation of configuration as generic Python data structures"""
         d = NodeConfigAclBinding.prejson(self)
-        d["schema_name"] = self.sname
-        d["table_name"] = self.name
-        d["column_definitions"] = [
-            column.prejson()
-            for column in self.column_definitions
-        ]
-        d["keys"] = [
-            key.prejson()
-            for key in self.keys
-        ]
-        d["foreign_keys"] = [
-            fkey.prejson()
-            for fkey in self.foreign_keys
-        ]
+        d.update({
+            "schema_name": self.schema.name,
+            "table_name": self.name,
+            "column_definitions": [
+                c.prejson()
+                for c in self.column_definitions
+            ],
+            "keys": [
+                key.prejson()
+                for key in self.keys
+            ],
+            "foreign_keys": [
+                fkey.prejson()
+                for fkey in self.foreign_keys
+            ]
+        })
         return d
+
+    def _own_column(self, column):
+        if isinstance(column, CatalogColumn):
+            if self.column_definitions[column.name] is column:
+                return column
+            raise ValueError('column %s object is not from this table object' % (column,))
+        elif column in self.column_definitions.elements:
+            return self.column_definitions[column]
+        raise ValueError('value %s does not name a defined column in this table' % (c,))
+
+    def key_by_columns(self, unique_columns, raise_nomatch=True):
+        """Return key from self.keys with matching unique columns.
+
+        unique_columns: iterable of column instances or column names
+        raise_nomatch: for True, raise KeyError on non-match, else return None
+        """
+        cset = { self._own_column(c) for c in unique_columns }
+        for key in self.keys:
+            if cset == { c for c in key.unique_columns }:
+                return key
+        if raise_nomatch:
+            raise KeyError(cset)
+
+    def fkeys_by_columns(self, from_columns, partial=False, raise_nomatch=True):
+        """Iterable of fkeys from self.foreign_keys with matching columns.
+
+        from_columns: iterable of referencing column instances or column names
+        partial: include fkeys which cover a superset of from_columns
+        raise_nomatch: for True, raise KeyError on empty iterable
+        """
+        cset = { self._own_column(c) for c in from_columns }
+        if not cset:
+            raise ValueError('from_columns must be non-empty')
+        to_table = None
+        for fkey in self.foreign_keys:
+            fkey_cset = set(fkey.foreign_key_columns)
+            if cset == fkey_cset or partial and cset.issubset(fkey_cset):
+                raise_nomatch = False
+                yield fkey
+        if raise_nomatch:
+            raise KeyError(cset)
+
+    def fkey_by_column_map(self, from_to_map, raise_nomatch=True):
+        """Return fkey from self.foreign_keys with matching {referencing: referenced} column mapping.
+
+        from_to_map: dict-like mapping with items() method yielding (from_col, to_col) pairs
+        raise_nomatch: for True, raise KeyError on non-match, else return None
+        """
+        colmap = {
+            self._own_column(from_col): to_col
+            for from_col, to_col in from_to_map.items()
+        }
+        if not colmap:
+            raise ValueError('column mapping must be non-empty')
+        to_table = None
+        for c in colmap.values():
+            if to_table is None:
+                to_table = c.table
+            elif to_table is not c.table:
+                raise ValueError('to-columns must all be part of same table')
+        for fkey in self.foreign_keys:
+            if colmap == fkey.column_map:
+                return fkey
+        if raise_nomatch:
+            raise KeyError(from_to_map)
+
+    def is_association(self, min_arity=2, max_arity=2, unqualified=True, pure=True, no_overlap=True):
+        """Return (truthy) integer arity if self is a matching association, else False.
+
+        min_arity: minimum number of associated fkeys (default 2)
+        max_arity: maximum number of associated fkeys (default 2) or None
+        unqualified: reject qualified associations when True (default True)
+        pure: reject impure assocations when True (default True)
+        no_overlap: reject overlapping associations when True (default True)
+
+        The default behavior with no arguments is to test for pure,
+        unqualified, non-overlapping, binary assocations.
+
+        An association is comprised of several foreign keys which are
+        covered by a non-nullable composite row key. This allows
+        specific combinations of foreign keys to appear at most once.
+
+        The arity of an association is the number of foreign keys
+        being associated. A typical binary association has arity=2.
+
+        An unqualified association contains *only* the foreign key
+        material in its row key. Conversely, a qualified association
+        mixes in other material which means that a specific
+        combination of foreign keys may repeat with different
+        qualifiers.
+
+        A pure association contains *only* row key
+        material. Conversely, an impure association includes
+        additional metadata columns not covered by the row key. Unlike
+        qualifiers, impure metadata merely decorates an association
+        without augmenting its identifying characteristics.
+
+        A non-overlapping association does not share any columns
+        between multiple foreign keys. This means that all
+        combinations of foreign keys are possible. Conversely, an
+        overlapping association shares some columns between multiple
+        foreign keys, potentially limiting the combinations which can
+        be represented in an association row.
+
+        These tests ignore the five ERMrest system columns and any
+        corresponding constraints.
+
+        """
+        if min_arity < 2:
+            raise ValueError('An assocation cannot have arity < 2')
+        if max_arity is not None and max_arity < min_arity:
+            raise ValueError('max_arity cannot be less than min_arity')
+
+        # TODO: revisit whether there are any other cases we might
+        # care about where system columns are involved?
+        non_sys_cols = {
+            col
+            for col in self.column_definitions
+            if col.name not in {'RID', 'RCT', 'RMT', 'RCB', 'RMB'}
+        }
+        non_sys_key_colsets = {
+            frozenset(key.unique_columns)
+            for key in self.keys
+            if set(key.unique_columns).issubset(non_sys_cols)
+            and len(key.unique_columns) > 1
+        }
+
+        if not non_sys_key_colsets:
+            # reject: not association
+            return False
+
+        # choose longest compound key (arbitrary choice with ties!)
+        row_key = sorted(non_sys_key_colsets, key=lambda s: len(s), reverse=True)[0]
+        covered_fkeys = {
+            fkey
+            for fkey in self.foreign_keys
+            if set(fkey.foreign_key_columns).issubset(row_key)
+        }
+        covered_fkey_cols = set()
+
+        if len(covered_fkeys) < min_arity:
+            # reject: not enough fkeys in association
+            return False
+        elif max_arity is not None and len(covered_fkeys) > max_arity:
+            # reject: too many fkeys in association
+            return False
+
+        for fkey in covered_fkeys:
+            fkcols = set(fkey.foreign_key_columns)
+            if no_overlap and fkcols.intersection(covered_fkey_cols):
+                # reject: overlapping fkeys in association
+                return False
+            covered_fkey_cols.update(fkcols)
+
+        if unqualified and row_key.difference(covered_fkey_cols):
+            # reject: qualified association
+            return False
+
+        if pure and non_sys_cols.difference(row_key):
+            # reject: impure association
+            return False
+
+        # return (truthy) arity
+        return len(covered_fkeys)
 
     @object_annotation(tag.table_alternatives)
     def alternatives(self): pass
@@ -628,6 +835,7 @@ class CatalogColumn (NodeConfigAclBinding):
        acl_bindings: column-level dynamic ACL bindings
        acls: column-level ACL configuration
        annotations: column-level annotations
+       comment: column-level comment string
        name: name of column
 
        Convenience access to common annotations:
@@ -638,16 +846,27 @@ class CatalogColumn (NodeConfigAclBinding):
          self.immutable: treat tag.immutable as a boolean
     """
 
-    def __init__(self, sname, tname, column_doc, **kwargs):
+    def __init__(self, table, column_doc, **kwargs):
         cname = column_doc['name']
-        NodeConfigAclBinding.__init__(
-            self,
-            "/schema/%s/table/%s/column/%s" % (urlquote(sname), urlquote(tname), urlquote(cname)),
-            column_doc
-        )
-        self.sname = sname
-        self.tname = tname
+        NodeConfigAclBinding.__init__(self, column_doc)
+        self.table = table
         self.name = cname
+
+    @property
+    def catalog(self):
+        return self.table.schema.model.catalog
+
+    @property
+    def uri_path(self):
+        """URI to this model resource."""
+        return "%s/column/%s" % (self.table.uri_path, urlquote(self.name))
+
+    def prejson_colref(self):
+        return {
+            "schema_name": self.table.schema.name,
+            "table_name": self.table.name,
+            "column_name": self.name,
+        }
 
     def prejson(self, prune=True):
         """Produce a representation of configuration as generic Python data structures"""
@@ -661,34 +880,85 @@ class CatalogColumn (NodeConfigAclBinding):
     @object_annotation(tag.column_display)
     def column_display(self): pass
 
+def _constraint_name_parts(constraint, doc):
+    # modern systems should have 0 or 1 names here
+    names = doc.get('names', [])[0:1]
+    if not names:
+        raise ValueError('Unexpected constraint without any name.')
+    if names[0][0] == '':
+        constraint_schema = None
+    elif names[0][0] == constraint.table.schema.name:
+        constraint_schema = constraint.table.schema
+    else:
+        raise ValueError('Unexpected schema name in constraint %s' % (names[0],))
+    constraint_name = names[0][1]
+    return (constraint_schema, constraint_name)
+
 class CatalogKey (NodeConfig):
     """Key-level configuration management.
 
        annotations: column-level annotations
-       names: name(s) of key constraint
+       comment: key-level comment string
+       name: (self.schema, name_str) pair of key constraint
     """
-    def __init__(self, sname, tname, key_doc, **kwargs):
-        NodeConfig.__init__(
-            self,
-            '/schema/%s/table/%s/key/%s' % (
-                urlquote(sname),
-                urlquote(tname),
-                ','.join([ urlquote(cname) for cname in key_doc['unique_columns'] ])
-            ),
-            key_doc
+    def __init__(self, table, key_doc, **kwargs):
+        NodeConfig.__init__(self, key_doc)
+        self.table = table
+        try:
+            self.constraint_schema, self.constraint_name = _constraint_name_parts(self, key_doc)
+        except ValueError:
+            self.constraint_schema, self.constraint_name = None, hash(self)
+        self.unique_columns = [
+            table.column_definitions[cname]
+            for cname in key_doc['unique_columns']
+        ]
+
+    @property
+    def catalog(self):
+        return self.table.schema.model.catalog
+
+    @property
+    def uri_path(self):
+        """URI to this model resource."""
+        return '%s/key/%s' % (
+            self.table.uri_path,
+            ','.join([ urlquote(c.name) for c in self.unique_columns ])
         )
-        self.sname = sname
-        self.tname = tname
-        self.names = [ tuple(name) for name in key_doc['names'] ]
-        self.unique_columns = key_doc['unique_columns']
+
+    @property
+    def name(self):
+        """Constraint name (schemaobj, name_str) used in API dictionaries."""
+        return (self.constraint_schema, self.constraint_name)
+
+    def name_in_model(self, model):
+        """Constraint name (schemaobj, name_str) used in API dictionaries fetching schema from model.
+
+        While self.name works as a key within the same model tree,
+        self.name_in_model(dstmodel) works in dstmodel tree by finding
+        the equivalent schemaobj in that model via schema name lookup.
+
+        """
+        return (
+            model.schemas[self.constraint_schema.name] if self.constraint_schema else None,
+            self.constraint_name
+        )
+
+    @property
+    def names(self):
+        """Constraint names field as seen in JSON document."""
+        return [ [self.constraint_schema.name if self.constraint_schema else '', self.constraint_name] ]
 
     def prejson(self, prune=True):
         """Produce a representation of configuration as generic Python data structures"""
         d = NodeConfig.prejson(self)
-        d['unique_columns'] = self.unique_columns
-        d['names'] = self.names
+        d.update({
+            'unique_columns': [
+                c.name
+                for c in self.unique_columns
+            ],
+            'names': self.names,
+        })
         return d
-
 
 class CatalogForeignKey (NodeConfigAclBinding):
     """Foreign key-level configuration management.
@@ -696,27 +966,90 @@ class CatalogForeignKey (NodeConfigAclBinding):
        acl_bindings: foreign key-level acl-bindings
        acls: foreign key-level acls
        annotations: foreign key-level annotations
+       comment: foreign key-level comment string
+       name: (self.schema, name_str) pair of foreign key constraint
     """
-    def __init__(self, sname, tname, fkey_doc, **kwargs):
+    def __init__(self, table, fkey_doc, **kwargs):
         refcols = fkey_doc['referenced_columns']
         NodeConfigAclBinding.__init__(
             self,
-            '/schema/%s/table/%s/foreignkey/%s/reference/%s:%s/%s' % (
-                urlquote(sname),
-                urlquote(tname),
-                ','.join([ urlquote(col['column_name']) for col in fkey_doc['foreign_key_columns'] ]),
-                urlquote(refcols[0]['schema_name']),
-                urlquote(refcols[0]['table_name']),
-                ','.join([ urlquote(col['column_name']) for col in refcols ]),
-            ),
             fkey_doc
         )
-        self.sname = sname
-        self.tname = tname
-        self.names = [ tuple(name) for name in fkey_doc['names'] ]
-        self.foreign_key_columns = fkey_doc['foreign_key_columns']
-        self.referenced_columns = fkey_doc['referenced_columns']
-    
+        self.table = table
+        self.pk_table = None
+        try:
+            self.constraint_schema, self.constraint_name = _constraint_name_parts(self, fkey_doc)
+        except ValueError:
+            self.constraint_schema, self.constraint_name = None, hash(self)
+        if self.constraint_schema:
+            self.constraint_schema._fkeys[self.constraint_name] = self
+        else:
+            self.table.schema.model._pseudo_fkeys[self.constraint_name] = self
+        self.foreign_key_columns = [
+            table.column_definitions[coldoc['column_name']]
+            for coldoc in fkey_doc['foreign_key_columns']
+        ]
+        self._referenced_columns_doc = fkey_doc['referenced_columns']
+        self.referenced_columns = None
+
+    def digest_referenced_columns(self, model):
+        """Finish construction deferred until model is known with all tables."""
+        if self.referenced_columns is None:
+            pk_sname = self._referenced_columns_doc[0]['schema_name']
+            pk_tname = self._referenced_columns_doc[0]['table_name']
+            self.pk_table = model.schemas[pk_sname].tables[pk_tname]
+            self.referenced_columns = [
+                self.pk_table.column_definitions[coldoc['column_name']]
+                for coldoc in self._referenced_columns_doc
+            ]
+            self._referenced_columns_doc = None
+            self.pk_table.referenced_by.append(self)
+
+    @property
+    def column_map(self):
+        return {
+            fk_col: pk_col
+            for fk_col, pk_col in zip(self.foreign_key_columns, self.referenced_columns)
+        }
+
+    @property
+    def catalog(self):
+        return self.table.schema.model.catalog
+
+    @property
+    def uri_path(self):
+        """URI to this model resource."""
+        return '%s/foreignkey/%s/reference/%s:%s/%s' % (
+            self.table.uri_path,
+            ','.join([ urlquote(c.name) for c in self.foreign_key_columns ]),
+            urlquote(self.pk_table.schema.name),
+            urlquote(self.pk_table.name),
+            ','.join([ urlquote(c.name) for c in self.referenced_columns ]),
+        )
+
+    @property
+    def name(self):
+        """Constraint name (schemaobj, name_str) used in API dictionaries."""
+        return (self.constraint_schema, self.constraint_name)
+
+    def name_in_model(self, model):
+        """Constraint name (schemaobj, name_str) used in API dictionaries fetching schema from model.
+
+        While self.name works as a key within the same model tree,
+        self.name_in_model(dstmodel) works in dstmodel tree by finding
+        the equivalent schemaobj in that model via schema name lookup.
+
+        """
+        return (
+            model.schemas[self.constraint_schema.name] if self.constraint_schema else None,
+            self.constraint_name
+        )
+
+    @property
+    def names(self):
+        """Constraint names field as seen in JSON document."""
+        return [ [self.constraint_schema.name if self.constraint_schema else '', self.constraint_name] ]
+
     def prejson(self, prune=True):
         """Produce a representation of configuration as generic Python data structures"""
         def expand(c):
@@ -724,12 +1057,17 @@ class CatalogForeignKey (NodeConfigAclBinding):
             c['table_name'] = self.tname
             return c
         d = NodeConfig.prejson(self)
-        d['foreign_key_columns'] = [
-            expand(c)
-            for c in self.foreign_key_columns
-        ]
-        d['referenced_columns'] = self.referenced_columns
-        d['names'] = self.names
+        d.update({
+            'foreign_key_columns': [
+                c.prejson_colref()
+                for c in self.foreign_key_columns
+            ],
+            'referenced_columns': [
+                c.prejson_colref()
+                for c in self.referenced_columns
+            ],
+            'names': self.names,
+        })
         return d
 
     @object_annotation(tag.foreign_key)

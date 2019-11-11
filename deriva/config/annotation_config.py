@@ -1,7 +1,7 @@
 import sys
 import json
 import re
-from deriva.core import ErmrestCatalog, AttrDict, ermrest_config, get_credential
+from deriva.core import ErmrestCatalog, AttrDict, ermrest_model, get_credential
 from deriva.config.base_config import BaseSpec, BaseSpecList, ConfigUtil, ConfigBaseCLI
 
 if sys.version_info > (3,):
@@ -82,10 +82,10 @@ class AttrConfig:
         self.catalog_id = catalog_id
         self.verbose = verbose
         old_catalog = ErmrestCatalog('https', self.server, self.catalog_id, credentials)
-        self.saved_toplevel_config = ConfigUtil.find_toplevel_node(old_catalog.getCatalogConfig(), schema_name,
+        self.saved_toplevel_config = ConfigUtil.find_toplevel_node(old_catalog.getCatalogModel(), schema_name,
                                                                    table_name)
         self.catalog = ErmrestCatalog('https', self.server, self.catalog_id, credentials)
-        self.toplevel_config = ConfigUtil.find_toplevel_node(self.catalog.getCatalogConfig(), schema_name, table_name)
+        self.toplevel_config = ConfigUtil.find_toplevel_node(self.catalog.getCatalogModel(), schema_name, table_name)
 
     def make_speclist(self, name):
         d = self.config.get(unicode(name))
@@ -123,13 +123,13 @@ class AttrConfig:
         return specs
 
     def node_name(self, node):
-        if isinstance(node, ermrest_config.CatalogSchema):
+        if isinstance(node, ermrest_model.Schema):
             return "schema {s}".format(s=str(node.name))
-        if isinstance(node, ermrest_config.CatalogTable):
+        if isinstance(node, ermrest_model.Table):
             return "table {s}.{t}".format(s=str(node.sname), t=str(node.name))
-        if isinstance(node, ermrest_config.CatalogColumn):
+        if isinstance(node, ermrest_model.Column):
             return "column {s}.{t}.{c}".format(s=str(node.sname), t=str(node.tname), c=str(node.name))
-        if isinstance(node, ermrest_config.CatalogForeignKey):
+        if isinstance(node, ermrest_model.ForeignKey):
             return "foreign key {n}".format(n=str(node.names))
         return str("unknown node type {t}".format(t=type(node)))
 
@@ -224,17 +224,17 @@ class AttrConfig:
             self.set_schema_annotations(schema, self.find_named_schema(self.saved_toplevel_config, schema.name))
 
     def set_attributes(self):
-        if isinstance(self.toplevel_config, ermrest_config.CatalogConfig):
+        if isinstance(self.toplevel_config, ermrest_model.Model):
             self.set_catalog_annotations()
-        elif isinstance(self.toplevel_config, ermrest_config.CatalogSchema):
+        elif isinstance(self.toplevel_config, ermrest_model.Schema):
             self.set_schema_annotations(self.toplevel_config, self.saved_toplevel_config)
-        elif isinstance(self.toplevel_config, ermrest_config.CatalogTable):
+        elif isinstance(self.toplevel_config, ermrest_model.Table):
             self.set_table_annotations(self.toplevel_config, self.saved_toplevel_config)
         else:
             raise ValueError("toplevel config is a {t}".format(t=str(type(self.toplevel_config))))
 
     def apply_annotations(self):
-        self.toplevel_config.apply(self.catalog, self.saved_toplevel_config)
+        self.toplevel_config.apply(self.saved_toplevel_config)
 
 
 def main():
