@@ -151,7 +151,7 @@ class DerivaRestore:
 
     def copy_cdef(self, column):
         """Copy column definition with conditional parts."""
-        return self.prune_parts(column.prejson())
+        return column.table.schema.name, column.table.name, self.prune_parts(column.prejson())
 
     @staticmethod
     def check_column_compatibility(src, dst):
@@ -172,7 +172,7 @@ class DerivaRestore:
             raise error("default", src.default, dst.default)
 
     def copy_kdef(self, key):
-        return self.prune_parts(key.prejson())
+        return key.table.schema.name, key.table.name, self.prune_parts(key.prejson())
 
     def get_table_path(self, sname, tname, is_bag):
         return os.path.abspath(
@@ -343,7 +343,7 @@ class DerivaRestore:
 
                         for cname in src_columns:
                             if cname not in dst_columns:
-                                new_columns.append((sname, tname, self.copy_cdef(src_columns[cname])))
+                                new_columns.append(self.copy_cdef(src_columns[cname]))
                             else:
                                 self.check_column_compatibility(src_columns[cname], dst_columns[cname])
 
@@ -359,7 +359,7 @@ class DerivaRestore:
 
                         for utuple in src_keys:
                             if utuple not in dst_keys:
-                                new_keys.append((sname, tname, self.copy_kdef(src_keys[utuple])))
+                                new_keys.append(self.copy_kdef(src_keys[utuple]))
 
                         for utuple in dst_keys:
                             if utuple not in src_keys:
