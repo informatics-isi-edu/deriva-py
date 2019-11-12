@@ -151,7 +151,7 @@ class DerivaRestore:
 
     def copy_cdef(self, column):
         """Copy column definition with conditional parts."""
-        return sname, tname, self.prune_parts(column.prejson())
+        return column.table.schema.name, column.table.name, self.prune_parts(column.prejson())
 
     @staticmethod
     def check_column_compatibility(src, dst):
@@ -172,7 +172,7 @@ class DerivaRestore:
             raise error("default", src.default, dst.default)
 
     def copy_kdef(self, key):
-        return sname, tname, self.prune_parts(key.prejson())
+        return key.table.schema.name, key.table.name, self.prune_parts(key.prejson())
 
     def get_table_path(self, sname, tname, is_bag):
         return os.path.abspath(
@@ -269,7 +269,10 @@ class DerivaRestore:
 
         src_schema_file = os.path.abspath(
             os.path.join(self.input_path, "data" if is_bag else "", "catalog-schema.json"))
-        src_model = Model.fromfile(src_schema_file)
+        # the src_catalog_stub created below will never be "connected" in any kind of network sense,
+        # but we need an instance of ErmrestCatalog in order to get a working Model from the schema file.
+        src_catalog_stub = ErmrestCatalog("file", src_schema_file, "1")
+        src_model = Model.fromfile(src_catalog_stub, src_schema_file)
 
         # initialize/connect to destination catalog
         if not self.catalog_id:
@@ -350,8 +353,8 @@ class DerivaRestore:
                                     "Destination column %s.%s.%s does not exist in source catalog." %
                                     (sname, tname, cname))
 
-                        src_keys = {tuple(sorted(key.unique_columns)): key for key in table.keys}
-                        dst_keys = {tuple(sorted(key.unique_columns)): key for key in
+                        src_keys = {tuple(sorted(c.name for c in key.unique_columns)): key for key in table.keys}
+                        dst_keys = {tuple(sorted(c.name for c in key.unique_columns)): key for key in
                                     dst_model.schemas[sname].tables[tname].keys}
 
                         for utuple in src_keys:

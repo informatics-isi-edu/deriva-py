@@ -109,8 +109,8 @@ class AttrConfig:
     def find_best_fkey_specs(self, fkey):
         specs = dict()
         for key in self.managed_annotations:
-            specs[key] = self.annotation_specs["foreign_key_annotations"].find_best_foreign_key_spec(fkey.sname,
-                                                                                                     fkey.tname,
+            specs[key] = self.annotation_specs["foreign_key_annotations"].find_best_foreign_key_spec(fkey.table.schema.name,
+                                                                                                     fkey.table.name,
                                                                                                      fkey.names,
                                                                                                      key=key)
         return specs
@@ -126,9 +126,9 @@ class AttrConfig:
         if isinstance(node, ermrest_model.Schema):
             return "schema {s}".format(s=str(node.name))
         if isinstance(node, ermrest_model.Table):
-            return "table {s}.{t}".format(s=str(node.sname), t=str(node.name))
+            return "table {s}.{t}".format(s=str(node.schema.name), t=str(node.name))
         if isinstance(node, ermrest_model.Column):
-            return "column {s}.{t}.{c}".format(s=str(node.sname), t=str(node.tname), c=str(node.name))
+            return "column {s}.{t}.{c}".format(s=str(node.table.schema.name), t=str(node.table.name), c=str(node.name))
         if isinstance(node, ermrest_model.ForeignKey):
             return "foreign key {n}".format(n=str(node.names))
         return str("unknown node type {t}".format(t=type(node)))
@@ -156,7 +156,7 @@ class AttrConfig:
                     raise ValueError("annotation key {k} is neither managed nor ignored".format(k=k))
 
     def set_table_annotations(self, table, saved_table):
-        self.set_node_annotations(table, self.find_best_table_specs(table.sname, table.name), saved_table)
+        self.set_node_annotations(table, self.find_best_table_specs(table.schema.name, table.name), saved_table)
         for column in table.column_definitions:
             self.set_column_annotations(column, self.find_named_column(saved_table, column.name))
         for fkey in table.foreign_keys:
@@ -201,7 +201,7 @@ class AttrConfig:
         self.set_node_annotations(fkey, self.find_best_fkey_specs(fkey), saved_fkey)
 
     def set_column_annotations(self, column, saved_column):
-        self.set_node_annotations(column, self.find_best_column_specs(column.sname, column.tname, column.name),
+        self.set_node_annotations(column, self.find_best_column_specs(column.table.schema.name, column.table.name, column.name),
                                   saved_column)
 
     def set_schema_annotations(self, schema, saved_schema):
