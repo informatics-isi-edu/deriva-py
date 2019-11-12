@@ -94,7 +94,7 @@ class AclConfig:
             else:
                 detail = ' {t}'.format(t=type(node))
             print(
-                "couldn't expand acl binding {b} {d} table {s}.{t}".format(b=binding_name, d=detail, s=table_node.sname,
+                "couldn't expand acl binding {b} {d} table {s}.{t}".format(b=binding_name, d=detail, s=table_node.schema.name,
                                                                            t=table_node.name))
             raise e
 
@@ -143,10 +143,10 @@ class AclConfig:
         for fkey in table_node.foreign_keys:
             if len(fkey.foreign_key_columns) == 1:
                 col = fkey.foreign_key_columns[0]
-                if col.get("table_name") == table_node.name and col.get("schema_name") == table_node.sname and col.get(
+                if col.get("table_name") == table_node.name and col.get("schema_name") == table_node.schema.name and col.get(
                         "column_name") == col_name:
                     return fkey.names[0]
-        raise NoForeignKeyError("can't find foreign key for column %I.%I(%I)", table_node.sname, table_node.name,
+        raise NoForeignKeyError("can't find foreign key for column %I.%I(%I)", table_node.schema.name, table_node.name,
                                 col_name)
 
     def set_node_acl_bindings(self, node, table_node, binding_list, invalidate_list):
@@ -159,7 +159,7 @@ class AclConfig:
                 if binding_list and binding_name in binding_list:
                     raise ValueError(
                         "Binding {b} appears in both acl_bindings and invalidate_bindings for table {s}.{t} node {n}".format(
-                            b=binding_name, s=table_node.sname, t=table_node.name, n=node.name))
+                            b=binding_name, s=table_node.schema.name, t=table_node.name, n=node.name))
                 node.acl_bindings[binding_name] = False
 
     def save_groups(self):
@@ -339,7 +339,7 @@ class AclConfig:
             spec[op_type] = groups
 
     def set_table_acls(self, table):
-        spec = self.acl_specs["table_acls"].find_best_table_spec(table.sname, table.name)
+        spec = self.acl_specs["table_acls"].find_best_table_spec(table.schema.name, table.name)
         table.acls.clear()
         table.acl_bindings.clear()
         if spec is not None:
@@ -347,7 +347,7 @@ class AclConfig:
             self.set_node_acl_bindings(table, table, spec.get("acl_bindings"), spec.get("invalidate_bindings"))
         if self.verbose:
             print(
-                "set table {s}.{t} acls to {a}, bindings to {b}".format(s=table.sname, t=table.name, a=str(table.acls),
+                "set table {s}.{t} acls to {a}, bindings to {b}".format(s=table.schema.name, t=table.name, a=str(table.acls),
                                                                         b=str(table.acl_bindings)))
         for column in table.column_definitions:
             self.set_column_acls(column, table)
@@ -355,19 +355,19 @@ class AclConfig:
             self.set_fkey_acls(fkey, table)
 
     def set_column_acls(self, column, table):
-        spec = self.acl_specs["column_acls"].find_best_column_spec(column.sname, column.tname, column.name)
+        spec = self.acl_specs["column_acls"].find_best_column_spec(column.table.schema.name, column.table.name, column.name)
         column.acls.clear()
         column.acl_bindings.clear()
         if spec is not None:
             self.set_node_acl(column, spec)
             self.set_node_acl_bindings(column, table, spec.get("acl_bindings"), spec.get("invalidate_bindings"))
         if self.verbose:
-            print("set column {s}.{t}.{c} acls to {a}, bindings to {b}".format(s=column.sname, t=column.tname,
+            print("set column {s}.{t}.{c} acls to {a}, bindings to {b}".format(s=column.table.schema.name, t=column.table.name,
                                                                                c=column.name, a=str(column.acls),
                                                                                b=str(column.acl_bindings)))
 
     def set_fkey_acls(self, fkey, table):
-        spec = self.acl_specs["foreign_key_acls"].find_best_foreign_key_spec(fkey.sname, fkey.tname, fkey.names)
+        spec = self.acl_specs["foreign_key_acls"].find_best_foreign_key_spec(fkey.table.schema.name, fkey.table.name, fkey.names)
         fkey.acls.clear()
         fkey.acl_bindings.clear()
         if spec is not None:
