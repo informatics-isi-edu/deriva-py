@@ -296,8 +296,8 @@ class DataPath (object):
     def aggregates(self, **functions):
         """Returns a results set of computed aggregates from this data path.
 
-        By using the built-in subclasses of the `AggregateFunction` class, including `Min`, `Max`, `Avg`, `Cnt`, `CntD`,
-        `Array`, and `ArrayD`, aggregates can be computed and fetched. These aggregates must be passed as named
+        By using the built-in subclasses of the `AggregateFunction` class, including `Min`, `Max`, `Sum`, `Avg`, `Cnt`,
+        `CntD`, `Array`, and `ArrayD`, aggregates can be computed and fetched. These aggregates must be passed as named
         parameters since they require _alias names_.
 
         ```
@@ -1237,8 +1237,14 @@ class Max (AggregateFunction):
         super(Max, self).__init__('max', operand)
 
 
+class Sum (AggregateFunction):
+    """Aggregate function for sum of non-NULL values."""
+    def __init__(self, operand):
+        super(Sum, self).__init__('sum', operand)
+
+
 class Avg (AggregateFunction):
-    """Aggregate function for average non-NULL value."""
+    """Aggregate function for average of non-NULL values."""
     def __init__(self, operand):
         super(Avg, self).__init__('avg', operand)
 

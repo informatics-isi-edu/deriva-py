@@ -11,7 +11,7 @@ import os
 import unittest
 import sys
 from deriva.core import DerivaServer, get_credential, ermrest_model as _em
-from deriva.core.datapath import DataPathException, Min, Max, Avg, Cnt, CntD, Array, ArrayD
+from deriva.core.datapath import DataPathException, Min, Max, Sum, Avg, Cnt, CntD, Array, ArrayD
 
 # unittests did not support 'subTests' until 3.4
 if sys.version_info[0] < 3 or sys.version_info[1] < 4:
@@ -317,6 +317,7 @@ class DatapathTests (unittest.TestCase):
         tests = [
             ('min_amount',      Min,    0),
             ('max_amount',      Max,    TEST_EXP_MAX-1),
+            ('sum_amount',      Sum,    sum(range(TEST_EXP_MAX))),
             ('avg_amount',      Avg,    sum(range(TEST_EXP_MAX))/TEST_EXP_MAX),
             ('cnt_amount',      Cnt,    TEST_EXP_MAX),
             ('cnt_d_amount',    CntD,   TEST_EXP_MAX),
@@ -378,6 +379,7 @@ class DatapathTests (unittest.TestCase):
         tests = [
             ('min_amount',      Min,    0),
             ('max_amount',      Max,    TEST_EXP_MAX-TEST_EXPTYPE_MAX),
+            ('sum_amount',      Sum,    sum(range(0, TEST_EXP_MAX, TEST_EXPTYPE_MAX))),
             ('avg_amount',      Avg,    sum(range(0, TEST_EXP_MAX, TEST_EXPTYPE_MAX))/TEST_EXPTYPE_MAX),
             ('cnt_amount',      Cnt,    TEST_EXPTYPE_MAX),
             ('cnt_d_amount',    CntD,   TEST_EXPTYPE_MAX),
