@@ -396,6 +396,31 @@ class DatapathTests (unittest.TestCase):
                 self.assertIn(name, result)
                 self.assertEqual(result[name], value)
 
+    @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
+    def test_attributegroup_groupkeys(self):
+        group_key = (self.experiment.column_definitions['Project_Num'], self.experiment.column_definitions['Type'])
+        # the 'value' component (3rd element) of the test tuples is not used in these tests (yet)
+        tests = [
+            ('min_amount',      Min,    0),
+            ('max_amount',      Max,    TEST_EXP_MAX-TEST_EXPTYPE_MAX),
+            ('sum_amount',      Sum,    sum(range(0, TEST_EXP_MAX, TEST_EXPTYPE_MAX))),
+            ('avg_amount',      Avg,    sum(range(0, TEST_EXP_MAX, TEST_EXPTYPE_MAX))/TEST_EXPTYPE_MAX),
+            ('cnt_amount',      Cnt,    TEST_EXPTYPE_MAX),
+            ('cnt_d_amount',    CntD,   TEST_EXPTYPE_MAX),
+            ('array_amount',    Array,  list(range(0, TEST_EXP_MAX, TEST_EXPTYPE_MAX))),
+            ('array_d_amount',  ArrayD, list(range(0, TEST_EXP_MAX, TEST_EXPTYPE_MAX)))
+        ]
+        for name, Fn, _ in tests:
+            with self.subTest(name=name):
+                results = self.experiment.attributegroups(group_key=group_key,
+                                                    **{name: Fn(self.experiment.column_definitions['Amount'])}
+                                                    ).fetch(sort=[group_key[0]])
+                result = results[0]
+                self.assertEqual(len(results), TEST_EXPTYPE_MAX)
+                self.assertIn(group_key[0].name, result)
+                self.assertIn(group_key[1].name, result)
+                self.assertIn(name, result)
+
     def test_link_implicit(self):
         results = self.experiment.link(self.experiment_type).entities()
         self.assertEqual(TEST_EXPTYPE_MAX, len(results))

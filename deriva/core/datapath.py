@@ -996,6 +996,8 @@ class Project (PathOperator):
 
         # Validate renamed attributes
         for key in renamed_attributes:
+            if key == 'group_key':
+                continue  # validation of group_key is handled as a special case
             elem = renamed_attributes[key]
             if not (isinstance(elem, Column) or isinstance(elem, AggregateFunction)):
                 message = "Invalid value in renamed attributes: %s=%s." % (str(key), str(elem))
