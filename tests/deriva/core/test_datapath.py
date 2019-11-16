@@ -11,7 +11,7 @@ import os
 import unittest
 import sys
 from deriva.core import DerivaServer, get_credential, ermrest_model as _em
-from deriva.core.datapath import DataPathException, Min, Max, Sum, Avg, Cnt, CntD, Array, ArrayD
+from deriva.core.datapath import DataPathException, Min, Max, Sum, Avg, Cnt, CntD, Array, ArrayD, Bin
 
 # unittests did not support 'subTests' until 3.4
 if sys.version_info[0] < 3 or sys.version_info[1] < 4:
@@ -388,9 +388,9 @@ class DatapathTests (unittest.TestCase):
         ]
         for name, Fn, value in tests:
             with self.subTest(name=name):
-                results = self.experiment.attributegroups(group_key=self.experiment.column_definitions['Type'],
-                                                    **{name: Fn(self.experiment.column_definitions['Amount'])}
-                                                    ).fetch(sort=[group_key])
+                results = self.experiment.attributegroups(self.experiment.column_definitions['Type'],
+                                                          **{name: Fn(self.experiment.column_definitions['Amount'])}
+                                                          ).fetch(sort=[group_key])
                 result = results[0]
                 self.assertIn(group_key.name, result)
                 self.assertIn(name, result)
@@ -399,7 +399,6 @@ class DatapathTests (unittest.TestCase):
     @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
     def test_attributegroup_groupkeys(self):
         group_key = (self.experiment.column_definitions['Project_Num'], self.experiment.column_definitions['Type'])
-        # the 'value' component (3rd element) of the test tuples is not used in these tests (yet)
         tests = [
             ('min_amount',      Min,    0),
             ('max_amount',      Max,    TEST_EXP_MAX-TEST_EXPTYPE_MAX),
@@ -410,16 +409,71 @@ class DatapathTests (unittest.TestCase):
             ('array_amount',    Array,  list(range(0, TEST_EXP_MAX, TEST_EXPTYPE_MAX))),
             ('array_d_amount',  ArrayD, list(range(0, TEST_EXP_MAX, TEST_EXPTYPE_MAX)))
         ]
-        for name, Fn, _ in tests:
+        for name, Fn, value in tests:
             with self.subTest(name=name):
-                results = self.experiment.attributegroups(group_key=group_key,
-                                                    **{name: Fn(self.experiment.column_definitions['Amount'])}
-                                                    ).fetch(sort=[group_key[0]])
+                results = self.experiment.attributegroups(group_key,
+                                                          **{name: Fn(self.experiment.column_definitions['Amount'])}
+                                                          ).fetch(sort=list(group_key))
                 result = results[0]
                 self.assertEqual(len(results), TEST_EXPTYPE_MAX)
-                self.assertIn(group_key[0].name, result)
-                self.assertIn(group_key[1].name, result)
+                self.assertTrue(all(key.name in result for key in group_key))
                 self.assertIn(name, result)
+                self.assertEqual(result[name], value)
+
+    @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
+    def test_attributegroup_w_rename(self):
+        new_name = 'TheType'
+        group_key = {new_name: self.experiment.column_definitions['Type']}
+        tests = [
+            ('min_amount',      Min,    0),
+            ('max_amount',      Max,    TEST_EXP_MAX-TEST_EXPTYPE_MAX),
+            ('sum_amount',      Sum,    sum(range(0, TEST_EXP_MAX, TEST_EXPTYPE_MAX))),
+            ('avg_amount',      Avg,    sum(range(0, TEST_EXP_MAX, TEST_EXPTYPE_MAX))/TEST_EXPTYPE_MAX),
+            ('cnt_amount',      Cnt,    TEST_EXPTYPE_MAX),
+            ('cnt_d_amount',    CntD,   TEST_EXPTYPE_MAX),
+            ('array_amount',    Array,  list(range(0, TEST_EXP_MAX, TEST_EXPTYPE_MAX))),
+            ('array_d_amount',  ArrayD, list(range(0, TEST_EXP_MAX, TEST_EXPTYPE_MAX)))
+        ]
+        for name, Fn, value in tests:
+            with self.subTest(name=name):
+                results = self.experiment.attributegroups(group_key,
+                                                          **{name: Fn(self.experiment.column_definitions['Amount'])}
+                                                          ).fetch()
+
+                result = results[0]
+                self.assertTrue(all(key in result for key in group_key))
+                self.assertIn(name, result)
+                # self.assertEqual(result[name], value)  # TODO: need to sort results for this to work
+
+    @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
+    def test_attributegroup_w_bin(self):
+        new_name, bin_name = 'TheProj', 'ABin'
+        nbins = int(TEST_EXP_MAX/20)
+        group_key = {
+            new_name: self.experiment.column_definitions['Project_Num'],
+            bin_name: Bin(self.experiment.column_definitions['Amount'], nbins, 0, TEST_EXP_MAX)
+        }
+        tests = [
+            ('min_amount',      Min,    lambda a, b: a >= b[1]),
+            ('max_amount',      Max,    lambda a, b: a <= b[2]),
+            ('sum_amount',      Sum,    lambda a, b: a >= b[1] + b[2]),
+            ('avg_amount',      Avg,    lambda a, b: b[1] <= a <= b[2]),
+            ('cnt_amount',      Cnt,    lambda a, b: a == TEST_EXP_MAX/nbins),
+            ('cnt_d_amount',    CntD,   lambda a, b: a == TEST_EXP_MAX/nbins),
+            ('array_amount',    Array,  lambda a, b: b[1] <= a[0] <= b[2]),
+            ('array_d_amount',  ArrayD, lambda a, b: b[1] <= a[0] <= b[2])
+        ]
+        for name, Fn, compare in tests:
+            with self.subTest(name=name):
+                results = self.experiment.attributegroups(group_key,
+                                                          **{name: Fn(self.experiment.column_definitions['Amount'])}
+                                                          ).fetch()
+
+                result = results[0]
+                self.assertTrue(all(key in result for key in group_key))
+                self.assertIn(name, result)
+                for result in results:
+                    self.assertTrue(compare(result[name], result[bin_name]))
 
     def test_link_implicit(self):
         results = self.experiment.link(self.experiment_type).entities()

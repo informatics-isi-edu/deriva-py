@@ -317,14 +317,29 @@ class DataPath (object):
         Aggregates over groups, as specified by a `group_key`, can be computed and fetched. Note that the `group_key`
         named parameter is therefore _reserved_ for any invocation of the `attributegroups(...)` method.
 
+        With a single group key:
         ```
-        results1 = my_path.attributegroups(group_key=col1, min_col1=Min(col2), arr_col2=Array(col3))  # 1 group key
-        results2 = my_path.attributegroups(group_key=(col1, col2), min_col1=Min(col3), arr_col2=Array(col4))  # >1 group keys
+        results1 = my_path.attributegroups(col1, min_col1=Min(col2), arr_col2=Array(col3))
+        ```
+
+        With more than one group key:
+        ```
+        results2 = my_path.attributegroups((col1, col2), min_col1=Min(col3), arr_col2=Array(col4))
+        ```
+
+        With renamed group keys:
+        ```
+        results3 = my_path.attributegroups({'key_one': col1, 'keyTwo': col2}, min_col1=Min(col3), arr_col2=Array(col4))
+        ```
+
+        With binning:
+        ```
+        results3 = my_path.attributegroups({'key_one': col1, 'my_bin': Bin(col2;10;0;9999)}, min_col1=Min(col3), arr_col2=Array(col4))
         ```
 
         As with aggregation, callers must not mix ordinary columns in with grouped aggregates.
 
-        :param group_key: a Column or a set of Columns to be used as the group key for grouping the computations on.
+        :param group_key: a Column, list of Columns, or dict of renamed Columns (or Bins), to be used as the grouping key.
         :param functions: named parameters of type AggregateFunction
         :return: a results set with a row of results for each group.
         """
@@ -1011,9 +1026,15 @@ class Project (PathOperator):
             del renamed_attributes['group_key']
             if isinstance(group_key, Column):
                 self._group_key = [group_key.instancename]
-            elif not all(isinstance(col, Column) for col in group_key):
-                raise ValueError("Group keys must be Column objects.")
+            elif isinstance(group_key, dict):
+                # validate and convert renamed group keys
+                if not all(isinstance(attr, Column) or isinstance(attr, Bin) for attr in group_key.values()):
+                    raise ValueError("Renamed group keys must be Column or Bin objects")
+                self._group_key = ["%s:=%s" % (urlquote(out_alias), attr.instancename) for out_alias, attr in group_key.items()]
             else:
+                # validate and convert group keys
+                if not all(isinstance(col, Column) for col in group_key):
+                    raise ValueError("Group keys must be Column objects.")
                 self._group_key = [col.instancename for col in group_key]
             self._inferred_mode = 'attributegroup'
 
@@ -1273,3 +1294,19 @@ class ArrayD (AggregateFunction):
     """Aggregate function for an array containing distinct values (including NULL)."""
     def __init__(self, operand):
         super(ArrayD, self).__init__('array_d', operand)
+
+
+class Bin (AggregateFunction):
+    """Binning function."""
+    def __init__(self, operand, nbins, minval, maxval):
+        super(Bin, self).__init__('bin', operand)
+        self.nbins = nbins
+        self.minval = minval
+        self.maxval = maxval
+
+    def __str__(self):
+        return "%s(%s;%s;%s;%s)" % (self.name, self.operand, self.nbins, self.minval, self.maxval)
+
+    @property
+    def instancename(self):
+        return "%s(%s;%s;%s;%s)" % (self.name, self.operand.instancename, self.nbins, self.minval, self.maxval)
