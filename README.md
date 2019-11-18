@@ -28,8 +28,9 @@ $ pip install --user git+https://github.com/informatics-isi-edu/deriva-py.git
 The APIs include:
 - low-level ERMrest interface (see `ErmrestCatalog`)
 - low-level Hatrac interface (see `HatracStore`)
-- higher-level ERMrest catalog configuration (see `CatalogConfig`)
-- higher-level ERMrest "data path" (see [documentation and tutorials](./docs/README.md))
+- higher-level APIs (see [documentation and tutorials](./docs/README.md))
+   - ERMrest catalog model and configuration
+   - ERMrest "data path"
 
 ## CLIs
 
