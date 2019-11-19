@@ -314,22 +314,24 @@ class DataPath (object):
 
         With a single group key:
         ```
-        results1 = my_path.attributegroups(col1, min_col1=Min(col2), arr_col2=Array(col3))
+        results1 = my_path.attributegroups(col1, Min(col2).alias('min_col1'), Array(col3).alias('arr_col2'))
         ```
 
         With more than one group key:
         ```
-        results2 = my_path.attributegroups((col1, col2), min_col1=Min(col3), arr_col2=Array(col4))
+        results2 = my_path.attributegroups([col1, col2], Min(col3).alias('min_col1'), Array(col4).alias('arr_col2'))
         ```
 
         With renamed group keys:
         ```
-        results3 = my_path.attributegroups({'key_one': col1, 'keyTwo': col2}, min_col1=Min(col3), arr_col2=Array(col4))
+        results3 = my_path.attributegroups([col1.alias('key_one'), col2.alias('keyTwo')],
+                                           Min(col3).alias('min_col1'), Array(col4).alias('arr_col2'))
         ```
 
         With binning:
         ```
-        results3 = my_path.attributegroups({'key_one': col1, 'my_bin': Bin(col2;10;0;9999)}, min_col1=Min(col3), arr_col2=Array(col4))
+        results3 = my_path.attributegroups([col1.alias('key_one'), Bin(col2;10;0;9999).alias('my_bin')],
+                                           Min(col3).alias('min_col1'), Array(col4).alias('arr_col2'))
         ```
 
         As with aggregation, callers must not mix ordinary columns in with grouped aggregates.
