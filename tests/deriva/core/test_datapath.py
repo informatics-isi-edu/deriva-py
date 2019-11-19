@@ -184,11 +184,11 @@ class DatapathTests (unittest.TestCase):
         self.assertLess({'name', 'tables', 'describe'}, set(dir(self.paths.schemas['ISA'])))
 
     def test_datapath_dir_base(self):
-        self.assertLess({'aggregates', 'attributegroups', 'attributes', 'context', 'delete', 'entities', 'filter',
+        self.assertLess({'aggregates', 'groupby', 'attributes', 'context', 'delete', 'entities', 'filter',
                          'link', 'table_instances', 'uri'}, set(dir(self.paths.schemas['ISA'].tables['Experiment'].path)))
 
     def test_table_dir_base(self):
-        self.assertLess({'aggregates', 'alias', 'attributegroups', 'attributes', 'catalog', 'describe', 'entities',
+        self.assertLess({'aggregates', 'alias', 'groupby', 'attributes', 'catalog', 'describe', 'entities',
                          'filter', 'fqname', 'fromname', 'insert', 'link', 'name', 'path', 'sname',
                          'uname', 'update', 'uri'}, set(dir(self.paths.schemas['ISA'].tables['Experiment'])))
 
@@ -375,7 +375,7 @@ class DatapathTests (unittest.TestCase):
         ]
         for name, Fn, value in tests:
             with self.subTest(name=name):
-                results = self.experiment.attributegroups(group_key,
+                results = self.experiment.groupby(*group_key).attributes(
                                                           Fn(self.experiment.column_definitions['Amount']).alias(name)
                                                           ).fetch(sort=group_key)
                 result = results[0]
@@ -398,7 +398,7 @@ class DatapathTests (unittest.TestCase):
         ]
         for name, Fn, value in tests:
             with self.subTest(name=name):
-                results = self.experiment.attributegroups(group_key,
+                results = self.experiment.groupby(*group_key).attributes(
                                                           Fn(self.experiment.column_definitions['Amount']).alias(name)
                                                           ).fetch(sort=group_key)
                 result = results[0]
@@ -423,7 +423,7 @@ class DatapathTests (unittest.TestCase):
         ]
         for name, Fn, value in tests:
             with self.subTest(name=name):
-                results = self.experiment.attributegroups(group_key,
+                results = self.experiment.groupby(*group_key).attributes(
                                                           Fn(self.experiment.column_definitions['Amount']).alias(name)
                                                           ).fetch(sort=group_key)
 
@@ -452,7 +452,7 @@ class DatapathTests (unittest.TestCase):
         ]
         for name, Fn, compare in tests:
             with self.subTest(name=name):
-                results = self.experiment.attributegroups(group_key,
+                results = self.experiment.groupby(*group_key).attributes(
                                                           Fn(self.experiment.column_definitions['Amount']).alias(name)
                                                           ).fetch()
 

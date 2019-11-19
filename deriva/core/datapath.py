@@ -306,42 +306,6 @@ class DataPath (object):
         """
         return self._query(mode=Project.AGGREGATE, projection=list(functions))
 
-    def attributegroups(self, group_key, *cols_or_aggrfns):
-        """Returns a results set of computed aggregates for groups of attributes from this data path.
-
-        Aggregates over groups, as specified by a `group_key`, can be computed and fetched. Note that the `group_key`
-        named parameter is therefore _reserved_ for any invocation of the `attributegroups(...)` method.
-
-        With a single group key:
-        ```
-        results1 = my_path.attributegroups(col1, Min(col2).alias('min_col1'), Array(col3).alias('arr_col2'))
-        ```
-
-        With more than one group key:
-        ```
-        results2 = my_path.attributegroups([col1, col2], Min(col3).alias('min_col1'), Array(col4).alias('arr_col2'))
-        ```
-
-        With renamed group keys:
-        ```
-        results3 = my_path.attributegroups([col1.alias('key_one'), col2.alias('keyTwo')],
-                                           Min(col3).alias('min_col1'), Array(col4).alias('arr_col2'))
-        ```
-
-        With binning:
-        ```
-        results3 = my_path.attributegroups([col1.alias('key_one'), Bin(col2;10;0;9999).alias('my_bin')],
-                                           Min(col3).alias('min_col1'), Array(col4).alias('arr_col2'))
-        ```
-
-        As with aggregation, callers must not mix ordinary columns in with grouped aggregates.
-
-        :param group_key: a list of columns, aliased columns, or aliased bins, to be used as the grouping key.
-        :param cols_or_aggrfns: aliased columns or aggregate functions.
-        :return: a results set with a row of results for each group.
-        """
-        return self._query(mode=Project.ATTRGROUP, projection=list(cols_or_aggrfns), group_key=group_key)
-
     def attributes(self, *attributes):
         """Returns a results set of attributes projected and optionally renamed from this data path.
 
@@ -355,6 +319,40 @@ class DataPath (object):
         :return: a results set of the projected attributes from this data path.
         """
         return self._query(mode=Project.ATTRIBUTE, projection=list(attributes))
+
+    def groupby(self, *keys):
+        """Returns an attribute group object.
+
+        The attribute group object returned by this method can be used to get a results set of computed aggregates for
+        groups of attributes from this data path.
+
+        With a single group key:
+        ```
+        results1 = my_path.groupby(col1).attributes(Min(col2).alias('min_col1'), Array(col3).alias('arr_col2'))
+        ```
+
+        With more than one group key:
+        ```
+        results2 = my_path.groupby(col1, col2).attributes(Min(col3).alias('min_col1'), Array(col4).alias('arr_col2'))
+        ```
+
+        With aliased group keys:
+        ```
+        results3 = my_path.groupby(col1.alias('key_one'), col2.alias('keyTwo'))\
+                          .attributes(Min(col3).alias('min_col1'), Array(col4).alias('arr_col2'))
+        ```
+
+        With binning:
+        ```
+        results3 = my_path.groupby(col1.alias('key_one'), Bin(col2;10;0;9999).alias('my_bin'))\
+                          .attributes(Min(col3).alias('min_col1'), Array(col4).alias('arr_col2'))
+        ```
+
+        :param keys: a list of columns, aliased columns, or aliased bins, to be used as the grouping key.
+        :return: an attribute group that supports an `.attributes(...)` method that accepts columns, aliased columns,
+        and/or aliased aggregate functions as its arguments.
+        """
+        return AttributeGroup(self._query, keys)
 
     def _query(self, mode='entity', projection=[], group_key=[], context=None):
         """Internal method for querying the data path from the perspective of the given 'context'.
@@ -581,19 +579,19 @@ class Table (object):
         """
         return self._query(mode=Project.AGGREGATE, projection=list(functions))
 
-    def attributegroups(self, group_key, *cols_or_aggrfns):
-        """Returns a results set of computed aggregates for groups of attributes from this data path.
-
-        See the docs for this method in `DataPath` for more information.
-        """
-        return self._query(mode=Project.ATTRGROUP, projection=list(cols_or_aggrfns), group_key=group_key)
-
     def attributes(self, *attributes):
         """Returns a results set of attributes projected and optionally renamed from this data path.
 
         See the docs for this method in `DataPath` for more information.
         """
         return self._query(mode=Project.ATTRIBUTE, projection=list(attributes))
+
+    def groupby(self, *keys):
+        """Returns an attribute group object.
+
+        See the docs for this method in `DataPath` for more information.
+        """
+        return AttributeGroup(self._query, keys)
 
     def insert(self, entities, defaults=set(), nondefaults=set(), add_system_defaults=True):
         """Inserts entities into the table.
@@ -1453,3 +1451,27 @@ class AggregateFunctionAlias (object):
     def projection_name(self):
         """In a projection, the object uses this name."""
         return "%s:=%s" % (urlquote(self.name), self._fn.instancename)
+
+
+class AttributeGroup (object):
+    """A computed attribute group."""
+    def __init__(self, queryfn, keys):
+        """Initializes an attribute group instance.
+
+        :param queryfn: a query function that takes mode, projection, and group_key parameters
+        :param keys: an iterable collection of group keys
+        """
+        super(AttributeGroup, self).__init__()
+        assert isinstance(keys, tuple)
+        if not keys:
+            raise ValueError("No groupby keys.")
+        self._queryfn = queryfn
+        self._grouping_keys = list(keys)
+
+    def attributes(self, *attributes):
+        """Returns a results set of attributes projected and optionally renamed from this group.
+
+        :param attributes: the columns, aliased columns, and/or aliased aggregate functions to be retrieved for this group.
+        :return: a results set of the projected attributes from this group.
+        """
+        return self._queryfn(mode=Project.ATTRGROUP, projection=list(attributes), group_key=self._grouping_keys)
