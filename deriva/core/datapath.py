@@ -409,6 +409,7 @@ class ResultSet (object):
         self._fetcher_fn = fetcher_fn
         self._results_doc = None
         self._dataframe = None
+        self._sort_keys = None
         self.uri = uri
 
     @property
@@ -438,16 +439,30 @@ class ResultSet (object):
     def __iter__(self):
         return iter(self._results)
 
-    def fetch(self, limit=None, sort=None):
+    def sort(self, *attributes):
+        """Orders the results set by the given attributes.
+
+        :param keys: Columns, column aliases, or aggregate function aliases. The sort attributes must be projected by
+        the originating query.
+        :return: self
+        """
+        if not attributes:
+            raise ValueError("No sort attributes given.")
+        if not all(isinstance(a, Column) or isinstance(a, ColumnAlias) or (a, AggregateFunctionAlias) for a in attributes):
+            raise ValueError("Sort keys must be column, column alias, or aggregate function alias")
+        self._sort_keys = attributes
+        self._results_doc = None
+        self._dataframe = None
+        return self
+
+    def fetch(self, limit=None):
         """Fetches the results from the catalog.
 
         :param limit: maximum number of results to fetch from the catalog.
-        :param sort: collection of columns to use for sorting. Note that if using the `attributes(...)` query interface,
-        the columns in the sort list _must_ be explicitly listed in the `attributes(...)` call.
         :return: self
         """
         limit = int(limit) if limit else None
-        self._results_doc = self._fetcher_fn(limit, sort)
+        self._results_doc = self._fetcher_fn(limit, self._sort_keys)
         self._dataframe = None  # clear potentially cached state
         logger.debug("Fetched %d entities" % len(self._results_doc))
         return self
@@ -1052,18 +1067,18 @@ class ColumnAlias (object):
 class SortDescending (object):
     """Represents a descending sort condition.
     """
-    def __init__(self, col):
+    def __init__(self, attr):
         """Creates sort descending object.
 
-        :param col: a column object
+        :param attr: a column, column alias, or aggrfn alias object
         """
-        assert isinstance(col, Column)
-        self.col = col
+        assert isinstance(attr, Column) or isinstance(attr, ColumnAlias) or isinstance(attr, AggregateFunctionAlias)
+        self._attr = attr
 
     @property
     def uname(self):
         """the url encoded name"""
-        return urlquote(self.col.uname) + "::desc::"
+        return urlquote(self._attr.uname) + "::desc::"
 
 
 class PathOperator (object):
@@ -1345,22 +1360,22 @@ class NegationPredicate (Predicate):
 
 class AggregateFunction (object):
     """Base class of all aggregate functions."""
-    def __init__(self, name, operand):
+    def __init__(self, op, operand):
         """Initializes the aggregate function.
 
-        :param name: name of the function per ERMrest specification.
+        :param op: name of the function per ERMrest specification.
         :param operand: single operand of the function; a Column, Table, or TableAlias object.
         """
         super(AggregateFunction, self).__init__()
-        self.name = name
+        self.op = op
         self.operand = operand
 
     def __str__(self):
-        return "%s(%s)" % (self.name, self.operand)
+        return "%s(%s)" % (self.op, self.operand)
 
     @property
     def instancename(self):
-        return "%s(%s)" % (self.name, self.operand.instancename)
+        return "%s(%s)" % (self.op, self.operand.instancename)
 
     def alias(self, alias_name):
         """Returns an (output) alias for this aggregate function instance."""
@@ -1424,11 +1439,11 @@ class Bin (AggregateFunction):
         self.maxval = maxval
 
     def __str__(self):
-        return "%s(%s;%s;%s;%s)" % (self.name, self.operand, self.nbins, self.minval, self.maxval)
+        return "%s(%s;%s;%s;%s)" % (self.op, self.operand, self.nbins, self.minval, self.maxval)
 
     @property
     def instancename(self):
-        return "%s(%s;%s;%s;%s)" % (self.name, self.operand.instancename, self.nbins, self.minval, self.maxval)
+        return "%s(%s;%s;%s;%s)" % (self.op, self.operand.instancename, self.nbins, self.minval, self.maxval)
 
 
 class AggregateFunctionAlias (object):
@@ -1448,9 +1463,18 @@ class AggregateFunctionAlias (object):
         return str(self._fn)
 
     @property
+    def uname(self):
+        return urlquote(self.name)
+
+    @property
     def projection_name(self):
         """In a projection, the object uses this name."""
-        return "%s:=%s" % (urlquote(self.name), self._fn.instancename)
+        return "%s:=%s" % (self.uname, self._fn.instancename)
+
+    @property
+    def desc(self):
+        """A descending sort modifier based on this alias."""
+        return SortDescending(self)
 
 
 class AttributeGroup (object):

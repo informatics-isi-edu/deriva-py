@@ -225,46 +225,46 @@ class DatapathTests (unittest.TestCase):
 
     def test_fetch_with_sort(self):
         results = self.experiment.entities()
-        results.fetch(sort=[self.experiment.column_definitions['Amount']])
+        results.sort(self.experiment.column_definitions['Amount'])
         self.assertEqual(results[0]['Amount'], 0)
 
     def test_fetch_attributes_with_sort(self):
         results = self.experiment.attributes(self.experiment.RID, self.experiment.Amount)
-        results.fetch(sort=[self.experiment.Amount])
+        results.sort(self.experiment.Amount)
         self.assertEqual(results[0]['Amount'], 0)
 
     def test_fetch_all_attributes_with_sort(self):
         results = self.experiment.attributes(self.experiment)
-        results.fetch(sort=[self.experiment.Amount])
+        results.sort(self.experiment.Amount)
         self.assertEqual(results[0]['Amount'], 0)
 
     def test_fetch_all_attributes_with_sort_desc(self):
         results = self.experiment.attributes(self.experiment)
-        results.fetch(sort=[self.experiment.Amount.desc])
+        results.sort(self.experiment.Amount.desc)
         self.assertEqual(results[0]['Amount'], TEST_EXP_MAX-1)
 
     def test_fetch_from_path_attributes_with_sort_on_talias(self):
         path = self.experiment.path
         results = path.Experiment.attributes(path.Experiment.RID, path.Experiment.Amount)
-        results.fetch(sort=[path.Experiment.Amount])
+        results.sort(path.Experiment.Amount)
         self.assertEqual(results[0]['Amount'], 0)
 
     def test_fetch_from_path_attributes_with_sort_on_talias_desc(self):
         path = self.experiment.path
         results = path.Experiment.attributes(path.Experiment.RID, path.Experiment.Amount)
-        results.fetch(sort=[path.Experiment.Amount.desc])
+        results.sort(path.Experiment.Amount.desc)
         self.assertEqual(results[0]['Amount'], TEST_EXP_MAX-1)
 
     def test_fetch_from_path_all_attributes_with_sort_on_talias(self):
         path = self.experiment.path
         results = path.Experiment.attributes(*path.Experiment.column_definitions.values())
-        results.fetch(sort=[path.Experiment.Amount])
+        results.sort(path.Experiment.Amount)
         self.assertEqual(results[0]['Amount'], 0)
 
     def test_fetch_from_path_all_attributes_with_sort_on_alias_desc(self):
         path = self.experiment.path
         results = path.Experiment.attributes(*path.Experiment.column_definitions.values())
-        results.fetch(sort=[path.Experiment.Amount.desc])
+        results.sort(path.Experiment.Amount.desc)
         self.assertEqual(results[0]['Amount'], TEST_EXP_MAX-1)
 
     def test_attribute_projection(self):
@@ -376,15 +376,15 @@ class DatapathTests (unittest.TestCase):
         for name, Fn, value in tests:
             with self.subTest(name=name):
                 results = self.experiment.groupby(*group_key).attributes(
-                                                          Fn(self.experiment.column_definitions['Amount']).alias(name)
-                                                          ).fetch(sort=group_key)
+                    Fn(self.experiment.column_definitions['Amount']).alias(name)).sort(*group_key)
+
                 result = results[0]
                 self.assertIn(group_key[0].name, result)
                 self.assertIn(name, result)
                 self.assertEqual(result[name], value)
 
     @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
-    def test_attributegroup_groupkeys(self):
+    def test_attributegroup_2_groupkeys(self):
         group_key = [self.experiment.column_definitions['Project_Num'], self.experiment.column_definitions['Type']]
         tests = [
             ('min_amount',      Min,    0),
@@ -399,8 +399,8 @@ class DatapathTests (unittest.TestCase):
         for name, Fn, value in tests:
             with self.subTest(name=name):
                 results = self.experiment.groupby(*group_key).attributes(
-                                                          Fn(self.experiment.column_definitions['Amount']).alias(name)
-                                                          ).fetch(sort=group_key)
+                    Fn(self.experiment.column_definitions['Amount']).alias(name)).sort(*group_key)
+
                 result = results[0]
                 self.assertEqual(len(results), TEST_EXPTYPE_MAX)
                 self.assertTrue(all(key.name in result for key in group_key))
@@ -408,7 +408,7 @@ class DatapathTests (unittest.TestCase):
                 self.assertEqual(result[name], value)
 
     @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
-    def test_attributegroup_w_rename(self):
+    def test_attributegroup_groupkey_alias(self):
         new_name = 'TheType'
         group_key = [self.experiment.column_definitions['Type'].alias(new_name)]
         tests = [
@@ -424,8 +424,7 @@ class DatapathTests (unittest.TestCase):
         for name, Fn, value in tests:
             with self.subTest(name=name):
                 results = self.experiment.groupby(*group_key).attributes(
-                                                          Fn(self.experiment.column_definitions['Amount']).alias(name)
-                                                          ).fetch(sort=group_key)
+                    Fn(self.experiment.column_definitions['Amount']).alias(name)).sort(*group_key)
 
                 result = results[0]
                 self.assertTrue(all(key.name in result for key in group_key))
@@ -453,14 +452,40 @@ class DatapathTests (unittest.TestCase):
         for name, Fn, compare in tests:
             with self.subTest(name=name):
                 results = self.experiment.groupby(*group_key).attributes(
-                                                          Fn(self.experiment.column_definitions['Amount']).alias(name)
-                                                          ).fetch()
+                    Fn(self.experiment.column_definitions['Amount']).alias(name)).fetch()
 
                 result = results[0]
                 self.assertTrue(all(key.name in result for key in group_key))
                 self.assertIn(name, result)
                 for result in results:
                     self.assertTrue(compare(result[name], result[bin_name]))
+
+    @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
+    def test_attributegroup_w_bin_sort(self):
+        bin_name = 'bin'
+        nbins = int(TEST_EXP_MAX/20)
+        bin = Bin(self.experiment.column_definitions['Amount'], nbins, 0, TEST_EXP_MAX).alias(bin_name)
+        bin_desc = bin.desc
+        asc_fn = lambda n, a, b: a[n] <= b[n]
+        desc_fn = lambda n, a, b: a[n] >= b[n]
+        tests = [
+            ('min_amount', Min, bin,      asc_fn),
+            ('max_amount', Max, bin,      asc_fn),
+            ('sum_amount', Sum, bin,      asc_fn),
+            ('avg_amount', Avg, bin,      asc_fn),
+            ('min_amount', Min, bin_desc, desc_fn),
+            ('max_amount', Max, bin_desc, desc_fn),
+            ('sum_amount', Sum, bin_desc, desc_fn),
+            ('avg_amount', Avg, bin_desc, desc_fn)
+        ]
+        for name, Fn, sort_key, compfn in tests:
+            with self.subTest(name=name):
+                results = self.experiment.groupby(bin).attributes(
+                    Fn(self.experiment.column_definitions['Amount']).alias(name)).sort(sort_key).fetch()
+
+                self.assertIn(bin.name, results[0])
+                self.assertIn(name, results[0])
+                self.assertTrue(compfn(name, results[0], results[1]))
 
     def test_link_implicit(self):
         results = self.experiment.link(self.experiment_type).entities()
