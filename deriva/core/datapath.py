@@ -1435,6 +1435,9 @@ class Bin (AggregateFunction):
     def __init__(self, operand, nbins, minval=None, maxval=None):
         """Initialize the bin function.
 
+        If `minval` or `maxval` are not given, they will be set based on the min and/or max values for the column
+        (`operand` parameter) as determined by issuing an aggregate query over the current data path.
+
         :param operand: a column or aliased column instance
         :param nbins: number of bins
         :param minval: minimum value (optional)
@@ -1526,4 +1529,4 @@ class AttributeGroup (object):
                 if aggrs:
                     result = self._source.aggregates(*aggrs)[0]
                     bin.minval = result.get('minval', bin.minval)
-                    bin.maxval = bin.maxval if bin.maxval is not None else result['maxval']+1  # +1 b/c max is exclusive
+                    bin.maxval = result.get('maxval', bin.maxval)

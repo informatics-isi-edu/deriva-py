@@ -422,19 +422,22 @@ class DatapathTests (unittest.TestCase):
             ('avg_amount',      Avg,    lambda a, b: b[1] <= a <= b[2]),
             ('cnt_amount',      Cnt,    lambda a, b: a == TEST_EXP_MAX/nbins),
             ('cnt_d_amount',    CntD,   lambda a, b: a == TEST_EXP_MAX/nbins),
-            ('array_amount',    Array,  lambda a, b: b[1] <= a[0] <= b[2]),
-            ('array_d_amount',  ArrayD, lambda a, b: b[1] <= a[0] <= b[2])
+            ('array_amount',    Array,  lambda a, b: all(b[1] <= a_i <= b[2] for a_i in a)),
+            ('array_d_amount',  ArrayD, lambda a, b: all(b[1] <= a_i <= b[2] for a_i in a))
         ]
         for name, Fn, compare in tests:
             with self.subTest(name=name):
                 results = self.experiment.groupby(*group_key).attributes(
                     Fn(self.experiment.column_definitions['Amount']).alias(name)).fetch()
 
-                result = results[0]
-                self.assertTrue(all(key.name in result for key in group_key))
-                self.assertIn(name, result)
+                self.assertTrue(all(key.name in results[0] for key in group_key))
+                self.assertIn(name, results[0])
                 for result in results:
-                    self.assertTrue(compare(result[name], result[bin_name]))
+                    bin = result[bin_name]
+                    if not maxval and (bin[0] >= nbins):
+                        # skip the last 2 bins when maxval was resolved; those bins are not aligned like the others
+                        continue
+                    self.assertTrue(compare(result[name], bin))
 
     @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
     def test_attributegroup_w_bin_sort(self):
