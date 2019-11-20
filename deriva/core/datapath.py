@@ -408,7 +408,6 @@ class ResultSet (object):
         assert fetcher_fn is not None
         self._fetcher_fn = fetcher_fn
         self._results_doc = None
-        self._dataframe = None
         self._sort_keys = None
         self.uri = uri
 
@@ -417,18 +416,6 @@ class ResultSet (object):
         if self._results_doc is None:
             self.fetch()
         return self._results_doc
-
-    @property
-    def dataframe(self):
-        """Pandas DataFrame representation of this path.
-
-        :return: a pandas dataframe object
-        :raise ImportError: exception if the 'pandas' library is not available
-        """
-        if not self._dataframe:
-            from pandas import DataFrame
-            self._dataframe = DataFrame(self._results)
-        return self._dataframe
 
     def __len__(self):
         return len(self._results)
@@ -452,7 +439,6 @@ class ResultSet (object):
             raise ValueError("Sort keys must be column, column alias, or aggregate function alias")
         self._sort_keys = attributes
         self._results_doc = None
-        self._dataframe = None
         return self
 
     def fetch(self, limit=None):
@@ -463,7 +449,6 @@ class ResultSet (object):
         """
         limit = int(limit) if limit else None
         self._results_doc = self._fetcher_fn(limit, self._sort_keys)
-        self._dataframe = None  # clear potentially cached state
         logger.debug("Fetched %d entities" % len(self._results_doc))
         return self
 

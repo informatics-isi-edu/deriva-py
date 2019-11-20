@@ -576,7 +576,7 @@ class DatapathTests (unittest.TestCase):
     @unittest.skipUnless(HAS_PANDAS, "pandas library not available")
     def test_dataframe(self):
         results = self.experiment.entities()
-        df = results.dataframe
+        df = DataFrame(results)
         self.assertEqual(len(df), TEST_EXP_MAX)
 
     def test_insert_empty_entities(self):
