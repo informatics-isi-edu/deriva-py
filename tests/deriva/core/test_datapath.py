@@ -431,13 +431,13 @@ class DatapathTests (unittest.TestCase):
                 self.assertIn(name, result)
                 self.assertEqual(result[name], value)
 
-    @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
-    def test_attributegroup_w_bin(self):
+    def _do_bin_subtests(self, minval, maxval):
+        """Helper method for running common binning tests with & without min/max values."""
         new_name, bin_name = 'TheProj', 'ABin'
         nbins = int(TEST_EXP_MAX/20)
         group_key = [
             self.experiment.column_definitions['Project_Num'].alias(new_name),
-            Bin(self.experiment.column_definitions['Amount'], nbins, 0, TEST_EXP_MAX).alias(bin_name)
+            Bin(self.experiment.column_definitions['Amount'], nbins, minval=minval, maxval=maxval).alias(bin_name)
         ]
         tests = [
             ('min_amount',      Min,    lambda a, b: a >= b[1]),
@@ -459,6 +459,18 @@ class DatapathTests (unittest.TestCase):
                 self.assertIn(name, result)
                 for result in results:
                     self.assertTrue(compare(result[name], result[bin_name]))
+
+    @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
+    def test_attributegroup_w_bin(self):
+        tests = [
+            ('min/max given',     0,    TEST_EXP_MAX),
+            ('min/max not given', None, None),
+            ('min only given',    0,    None),
+            ('max only given',    None, TEST_EXP_MAX)
+        ]
+        for testname, minval, maxval in tests:
+            with self.subTest(name=testname):
+                self._do_bin_subtests(minval, maxval)
 
     @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
     def test_attributegroup_w_bin_sort(self):

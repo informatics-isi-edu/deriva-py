@@ -352,7 +352,7 @@ class DataPath (object):
         :return: an attribute group that supports an `.attributes(...)` method that accepts columns, aliased columns,
         and/or aliased aggregate functions as its arguments.
         """
-        return AttributeGroup(self._query, keys)
+        return AttributeGroup(self, self._query, keys)
 
     def _query(self, mode='entity', projection=[], group_key=[], context=None):
         """Internal method for querying the data path from the perspective of the given 'context'.
@@ -606,7 +606,7 @@ class Table (object):
 
         See the docs for this method in `DataPath` for more information.
         """
-        return AttributeGroup(self._query, keys)
+        return AttributeGroup(self, self._query, keys)
 
     def insert(self, entities, defaults=set(), nondefaults=set(), add_system_defaults=True):
         """Inserts entities into the table.
@@ -1432,8 +1432,17 @@ class ArrayD (AggregateFunction):
 
 class Bin (AggregateFunction):
     """Binning function."""
-    def __init__(self, operand, nbins, minval, maxval):
+    def __init__(self, operand, nbins, minval=None, maxval=None):
+        """Initialize the bin function.
+
+        :param operand: a column or aliased column instance
+        :param nbins: number of bins
+        :param minval: minimum value (optional)
+        :param maxval: maximum value (optional)
+        """
         super(Bin, self).__init__('bin', operand)
+        if not (isinstance(operand, Column) or isinstance(operand, ColumnAlias)):
+            raise ValueError("Bin operand must be a column or column alias")
         self.nbins = nbins
         self.minval = minval
         self.maxval = maxval
@@ -1456,11 +1465,11 @@ class AggregateFunctionAlias (object):
         """
         super(AggregateFunctionAlias, self).__init__()
         assert isinstance(fn, AggregateFunction)
-        self._fn = fn
+        self.fn = fn
         self.name = alias_name
 
     def __str__(self):
-        return str(self._fn)
+        return str(self.fn)
 
     @property
     def uname(self):
@@ -1469,7 +1478,7 @@ class AggregateFunctionAlias (object):
     @property
     def projection_name(self):
         """In a projection, the object uses this name."""
-        return "%s:=%s" % (self.uname, self._fn.instancename)
+        return "%s:=%s" % (self.uname, self.fn.instancename)
 
     @property
     def desc(self):
@@ -1479,16 +1488,19 @@ class AggregateFunctionAlias (object):
 
 class AttributeGroup (object):
     """A computed attribute group."""
-    def __init__(self, queryfn, keys):
+    def __init__(self, source, queryfn, keys):
         """Initializes an attribute group instance.
 
+        :param source: the source object for the group (DataPath, Table, TableAlias)
         :param queryfn: a query function that takes mode, projection, and group_key parameters
         :param keys: an iterable collection of group keys
         """
         super(AttributeGroup, self).__init__()
+        assert any(isinstance(source, valid_type) for valid_type in [DataPath, Table, TableAlias])
         assert isinstance(keys, tuple)
         if not keys:
             raise ValueError("No groupby keys.")
+        self._source = source
         self._queryfn = queryfn
         self._grouping_keys = list(keys)
 
@@ -1498,4 +1510,20 @@ class AttributeGroup (object):
         :param attributes: the columns, aliased columns, and/or aliased aggregate functions to be retrieved for this group.
         :return: a results set of the projected attributes from this group.
         """
+        self._resolve_binning_ranges()
         return self._queryfn(mode=Project.ATTRGROUP, projection=list(attributes), group_key=self._grouping_keys)
+
+    def _resolve_binning_ranges(self):
+        """Helper method to resolve any unspecified binning ranges."""
+        for key in self._grouping_keys:
+            if isinstance(key, AggregateFunctionAlias) and isinstance(key.fn, Bin):
+                bin = key.fn
+                aggrs = []
+                if bin.minval is None:
+                    aggrs.append(Min(bin.operand).alias('minval'))
+                if bin.maxval is None:
+                    aggrs.append(Max(bin.operand).alias('maxval'))
+                if aggrs:
+                    result = self._source.aggregates(*aggrs)[0]
+                    bin.minval = result.get('minval', bin.minval)
+                    bin.maxval = bin.maxval if bin.maxval is not None else result['maxval']+1  # +1 b/c max is exclusive
