@@ -601,8 +601,14 @@ class DerivaUpload(object):
         column_map = asset_mapping.get("column_map", {})
         updated_record = self.interpolateDict(self.metadata, column_map)
         if updated_record != record:
+            record_update_template = asset_mapping.get("record_update_template")
+            require_record_update_template = stob(asset_mapping.get("require_record_update_template", False))
+            if require_record_update_template and not record_update_template:
+                raise DerivaUploadCatalogUpdateError(
+                    "A required 'record_update_template' parameter for this asset mapping could not be found in the "
+                    "configuration. The record will not be updated.")
             logger.info("Updating catalog for file [%s]" % self.getFileDisplayName(file_path))
-            self._catalogRecordUpdate(self.metadata['target_table'], record, updated_record)
+            self._catalogRecordUpdate(self.metadata['target_table'], record, updated_record, record_update_template)
 
         # 9. Execute any configured post_processors
         self._execute_processors(file_path, asset_mapping, match_groupdict, processor_list=POST_PROCESSORS_KEY)
@@ -847,7 +853,7 @@ class DerivaUpload(object):
             (etype, value, traceback) = sys.exc_info()
             raise DerivaUploadCatalogCreateError(format_exception(value))
 
-    def _catalogRecordUpdate(self, catalog_table, old_row, new_row):
+    def _catalogRecordUpdate(self, catalog_table, old_row, new_row, record_update_template=None):
         """
 
         :param catalog_table:
@@ -865,22 +871,24 @@ class DerivaUpload(object):
                 raise RuntimeError("Cannot update catalog - "
                                    "new row column list and old row column list do not match: New: %s != Old: %s" %
                                    (keys, old_keys))
-            combined_row = {
+            o_keys = ','.join(["o%d:=%s" % (i, urlquote(keys[i])) for i in range(len(keys))])
+            n_keys = ','.join(["n%d:=%s" % (i, urlquote(keys[i])) for i in range(len(keys))])
+            update_row = {
                 'o%d' % i: old_row[keys[i]]
                 for i in range(len(keys))
             }
-            combined_row.update({
+            update_row.update({
                 'n%d' % i: new_row[keys[i]]
                 for i in range(len(keys))
             })
-            update_uri = '/attributegroup/%s/%s;%s' % (
-                catalog_table,
-                ','.join(["o%d:=%s" % (i, urlquote(keys[i])) for i in range(len(keys))]),
-                ','.join(["n%d:=%s" % (i, urlquote(keys[i])) for i in range(len(keys))])
-            )
+            if record_update_template:
+                update_uri = record_update_template.format(**self.metadata)
+                update_row = new_row
+            else:
+                update_uri = '/attributegroup/%s/%s;%s' % (catalog_table, o_keys, n_keys)
             logger.debug(
-                "Attempting catalog record update [%s] with data: %s" % (update_uri, json.dumps(combined_row)))
-            return self.catalog.put(update_uri, json=[combined_row]).json()
+                "Attempting catalog record update [%s] with data: %s" % (update_uri, json.dumps(update_row)))
+            return self.catalog.put(update_uri, json=[update_row]).json()
         except:
             (etype, value, traceback) = sys.exc_info()
             raise DerivaUploadCatalogUpdateError(format_exception(value))
