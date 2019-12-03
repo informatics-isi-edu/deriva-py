@@ -391,6 +391,7 @@ def get_transfer_summary(total_bytes, elapsed_time):
               (transferred, "KB" if total_bytes < Megabyte else "MB", throughput, elapsed)
     return summary
 
+
 def topo_sorted(depmap):
     """Return list of items topologically sorted.
 

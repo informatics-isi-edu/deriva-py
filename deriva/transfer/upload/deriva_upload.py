@@ -64,6 +64,7 @@ class DerivaUpload(object):
     def __init__(self, config_file=None, credential_file=None, server=None, dcctx_id=None):
         self.server_url = None
         self.catalog = None
+        self.catalog_model = None
         self.store = None
         self.config = None
         self.credentials = None
@@ -181,6 +182,7 @@ class DerivaUpload(object):
         self.reset()
         self.config = None
         self.credentials = None
+        self.catalog_model = None
 
     def setServer(self, server):
         cleanup = self.server != server
@@ -482,6 +484,7 @@ class DerivaUpload(object):
         return None, None, None
 
     def uploadFiles(self, status_callback=None, file_callback=None):
+        self.catalog_model = self.catalog.getCatalogModel()
         for group, assets in self.file_list.items():
             for asset_group_num, asset_mapping, groupdict, file_path in assets:
                 if self.cancelled:
@@ -809,6 +812,16 @@ class DerivaUpload(object):
     def _validate_catalog_row_columns(self, row, table):
         return set(row.keys()) - self._get_catalog_table_columns(table)
 
+    def _validate_row_key_constraints(self, catalog_table, row):
+        schema_name, table_name = self.catalog.splitQualifiedCatalogName(catalog_table)
+        schema = self.catalog_model.schemas.get(schema_name)
+        table = schema.tables.get(table_name)
+        non_null_correlations = {cname for cname, cval in row.items() if cval is not None}
+        for key in table.keys:
+            if set(key.unique_columns).issubset(non_null_correlations):
+                return True  # it is safe
+        return False  # it is not safe
+
     def _get_catalog_default_columns(self, row, table, exclude=None, quote_url=True):
         columns = self._get_catalog_table_columns(table)
         if isinstance(exclude, list):
@@ -886,6 +899,12 @@ class DerivaUpload(object):
                 update_row = new_row
             else:
                 update_uri = '/attributegroup/%s/%s;%s' % (catalog_table, o_keys, n_keys)
+                if self.config.get("strict_update_check", True) and not \
+                        self._validate_row_key_constraints(catalog_table, old_row):
+                    raise ValueError(
+                        "Potential unsafe attributegroup update [%s]: at least one pre-existing, non-null correlation "
+                        "key is required. Old values: %s, New values: %s" %
+                        (update_uri, json.dumps(old_row), json.dumps(new_row)))
             logger.debug(
                 "Attempting catalog record update [%s] with data: %s" % (update_uri, json.dumps(update_row)))
             return self.catalog.put(update_uri, json=[update_row]).json()
