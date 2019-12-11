@@ -62,5 +62,6 @@ class GlobusWorkspacePortalPostProcessor(BaseProcessor):
                 v["workspaces"] = workspaces
             except Exception as e:
                 raise DerivaDownloadError("Unable to create workspace: %s" % format_exception(e))
-
+            finally:
+                session.close()
         return self.outputs

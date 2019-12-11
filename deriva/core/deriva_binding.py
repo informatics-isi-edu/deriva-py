@@ -142,6 +142,7 @@ class DerivaBinding (object):
 
         if not session_config:
             session_config = DEFAULT_SESSION_CONFIG
+        self._session = None
         self._get_new_session(session_config)
 
         self._caching = caching
@@ -157,6 +158,7 @@ class DerivaBinding (object):
         return self._server_uri
 
     def _get_new_session(self, session_config):
+        self._close_session()
         self._session = get_new_requests_session(self._server_uri + '/', session_config)
 
     def _pre_get(self, path, headers):
@@ -341,3 +343,9 @@ class DerivaBinding (object):
         r = self._session.delete(url, headers=headers)
         return self._raise_for_status_412(r)
 
+    def _close_session(self):
+        if self._session is not None:
+            self._session.close()
+
+    def __del__(self):
+        self._close_session()

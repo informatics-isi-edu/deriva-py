@@ -329,6 +329,8 @@ def get_oauth_scopes_for_host(host,
                 logging.warning(msg)
             else:
                 logging.debug(msg)
+        finally:
+            session.close()
     return result
 
 

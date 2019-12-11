@@ -271,6 +271,10 @@ class DerivaDownload(object):
 
         return outputs
 
+    def __del__(self):
+        for session in self.sessions.values():
+            session.close()
+
 
 class GenericDownloader(DerivaDownload):
     LOCAL_PATH_KEY = LOCAL_PATH_KEY
