@@ -241,7 +241,7 @@ def read_credential(credential_file=DEFAULT_CREDENTIAL_FILE, create_default=Fals
             credential = json.dumps(default, ensure_ascii=False)
 
     if not credential:
-        with lock_file(credential_file, mode='r') as cf:
+        with lock_file(credential_file, mode='r', exclusive=False) as cf:
             credential = cf.read()
 
     return json.loads(credential, object_pairs_hook=OrderedDict)
