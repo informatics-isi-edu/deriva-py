@@ -190,6 +190,14 @@ class Export2GEO(object):
                 self.source_type = data[0].get('Source')
                 self.specimen_cell_type = data[0].get('Specimen_Cell_Type')
                 self.cell_type = data[0].get('Cell_Type')
+                
+                # Adding sorting to files based on key ( Replicate-RID, FileName )
+                # https://github.com/informatics-isi-edu/rbk-project/issues/615
+                self.replicates.sort( key = lambda x: ( x['RID'] ) )
+                self.files.sort( key = lambda x: ( x['Replicate_RID'], x['File_Name'] ) )
+                self.study_files.sort( key = lambda x: ( x['File_Name'] ) )
+
+
 
     def export_start(self):
         self.excel = Export2Excel(self.output_excel_path)
