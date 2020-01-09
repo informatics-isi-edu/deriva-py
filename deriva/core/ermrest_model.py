@@ -689,8 +689,11 @@ class Column (_ec.CatalogColumn):
         Returns self (to allow for optional chained access).
 
         """
-        if type is not nochange and not isinstance(type, Type):
-            raise TypeError('Parameter "type" %s should be an instance of Type.' % (type,))
+        if type is not nochange:
+            if not isinstance(type, Type):
+                raise TypeError('Parameter "type" %s should be an instance of Type.' % (type,))
+            type = type.prejson()
+
         changes = strip_nochange({
             'name': name,
             'type': type,
