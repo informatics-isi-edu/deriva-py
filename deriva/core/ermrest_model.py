@@ -846,10 +846,10 @@ class Key (_ec.CatalogKey):
     def drop(self):
         """Remove this key from the remote database.
         """
-        if self.names[0] not in self.table.keys.elements:
+        if self.name not in self.table.keys.elements:
             raise ValueError('Key %s does not appear to belong to table %s.' % (self, self.table))
         self.catalog.delete(self.update_uri_path).raise_for_status()
-        del self.table.keys[self.names[0]]
+        del self.table.keys[self.name]
 
 class ForeignKey (_ec.CatalogForeignKey):
     """Named foreign key.
