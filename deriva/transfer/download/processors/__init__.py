@@ -15,6 +15,8 @@ from deriva.transfer.download.processors.postprocess.identifier_post_processor i
 from deriva.transfer.download.processors.postprocess.transfer_post_processor import Boto3UploadPostProcessor
 from deriva.transfer.download.processors.postprocess.workspace_post_processor import GlobusWorkspacePortalPostProcessor
 from deriva.transfer.download.processors.postprocess.url_post_processor import UrlRewritePostProcessor
+from deriva.transfer.download.processors.transform.pride_transform_processor import PrideMTDExportTransformProcessor,\
+    PrideCVExportTransformProcessor, PrideFMExportTransformProcessor, PrideSMExportTransformProcessor
 
 DEFAULT_QUERY_PROCESSORS = {
     "csv": CSVQueryProcessor,
@@ -30,7 +32,11 @@ DEFAULT_TRANSFORM_PROCESSORS = {
     "interpolation": InterpolationTransformProcessor,
     "strsub": StrSubTransformProcessor,
     "geo": GeoExportTransformProcessor,
-    "fasta": FastaExportTransformProcessor
+    "fasta": FastaExportTransformProcessor,
+    "prideMTD": PrideMTDExportTransformProcessor,
+    "prideCV": PrideCVExportTransformProcessor,
+    "prideFM": PrideFMExportTransformProcessor,
+    "prideSM": PrideSMExportTransformProcessor,
 }
 
 DEFAULT_POST_PROCESSORS = {
