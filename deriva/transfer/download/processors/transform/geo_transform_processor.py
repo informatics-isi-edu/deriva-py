@@ -21,7 +21,7 @@ class GeoExportTransformProcessor(BaseTransformProcessor):
                      (self.input_abspath, self.output_abspath))
         # input_abspath: the json file containing raw data retrieved from DB
         # output_abspath: the excel file of GEO format
-        geo = Export2GEO(self.input_abspath, self.output_abspath)
+        geo = Export2GEO(self.input_abspath, self.output_abspath, self.parameters)
         geo.export_all()
 
         super(GeoExportTransformProcessor, self).process()
@@ -151,10 +151,11 @@ class Export2Excel(object):
 
 class Export2GEO(object):
 
-    def __init__(self, input_file, output_excel_path):
+    def __init__(self, input_file, output_excel_path, parameters):
         self.__name__ = 'export_geo_template'
         self.input_file = input_file
         self.output_excel_path = output_excel_path
+        self.parameters = parameters
         self.current_row_idx = 0
         self.header_row_idx = 0
         # all types of protocols
@@ -272,12 +273,14 @@ class Export2GEO(object):
 
         # one line for each study file
         if len(self.study_files) >= 1 and self.study_files[0] is not None:
+            file_path = self.parameters.get("study_files_path_template", self.study_files[0].get("File_Name", ""))
             self.excel.write_cell(self.current_row_idx, 1, 'supplementary file', Style.FIELD)
-            self.excel.write_cell(self.current_row_idx, 2, self.study_files[0].get('File_Name', ''))
+            self.excel.write_cell(self.current_row_idx, 2, file_path.format(**self.study_files[0]))
             self.current_row_idx += 1
             for i in range(len(self.study_files) - 1):
+                file_path = self.parameters.get("study_files_path_template", self.study_files[i + 1].get("File_Name", ""))
                 self.excel.write_cell(self.current_row_idx, 1, 'supplementary file', Style.FIELD)
-                self.excel.write_cell(self.current_row_idx, 2, self.study_files[i + 1].get('File_Name', ''))
+                self.excel.write_cell(self.current_row_idx, 2,  file_path.format(**self.study_files[i + 1]))
                 self.current_row_idx += 1
         else:
             self.excel.write_cell(self.current_row_idx, 2, '')
@@ -524,8 +527,9 @@ class Export2GEO(object):
                         if f is None or 'Replicate_RID' not in f.keys():
                             continue
                         elif f['Replicate_RID'] == r['RID']:
+                            file_path = self.parameters.get("replicate_files_path_template", f.get("File_Name", ""))
                             self.excel.write_cell(self.header_row_idx, local_col_idx, 'raw file', Style.HEADER)
-                            self.excel.write_cell(self.current_row_idx, local_col_idx, f.get('File_Name', ''))
+                            self.excel.write_cell(self.current_row_idx, local_col_idx, file_path.format(**f))
                             local_col_idx += 1
                         else:
                             continue
@@ -711,8 +715,10 @@ class Export2GEO(object):
                 validFile = True
             if validFile:
                 local_col_idx = 1
+                file_path = self.parameters.get("study_files_path_template", pf.get("File_Name", ""))
+                file_path = file_path.format(**pf)
                 self.excel.write_cell(self.header_row_idx, local_col_idx, 'file name', Style.HEADER)
-                self.excel.write_cell(self.current_row_idx, local_col_idx, pf.get('File_Name', ''))
+                self.excel.write_cell(self.current_row_idx, local_col_idx, file_path)
                 local_col_idx += 1
                 self.excel.write_cell(self.header_row_idx, local_col_idx, 'file type', Style.HEADER)
                 self.excel.write_cell(self.current_row_idx, local_col_idx, pf.get('File_Type', ''))
@@ -752,8 +758,9 @@ class Export2GEO(object):
                 validFile = True
             if validFile:
                 current_col_idx = 1
+                file_path = self.parameters.get("replicate_files_path_template", pf.get("File_Name", ""))
                 self.excel.write_cell(self.header_row_idx, current_col_idx, 'file name', Style.HEADER)
-                self.excel.write_cell(self.current_row_idx, current_col_idx, pf.get('File_Name', ''))
+                self.excel.write_cell(self.current_row_idx, current_col_idx, file_path.format(**pf))
                 current_col_idx += 1
                 self.excel.write_cell(self.header_row_idx, current_col_idx, 'file type', Style.HEADER)
                 self.excel.write_cell(self.current_row_idx, current_col_idx, pf.get('File_Type', ''))
