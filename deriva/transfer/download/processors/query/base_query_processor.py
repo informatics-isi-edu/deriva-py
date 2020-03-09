@@ -25,7 +25,8 @@ class BaseQueryProcessor(BaseProcessor):
         self.query = self.parameters["query_path"]
         if self.envars:
             self.query = self.query.format(**self.envars)
-        self.sub_path = self.parameters.get("output_path", "")
+        self.sub_path = self.parameters.get("output_path")
+        self.output_filename = self.parameters.get("output_filename")
         self.store_base = kwargs.get("store_base", "/hatrac/")
         self.is_bag = kwargs.get("bag", False)
         self.sessions = kwargs.get("sessions", dict())
@@ -39,10 +40,7 @@ class BaseQueryProcessor(BaseProcessor):
         self.output_abspath = None
 
     def process(self):
-        headers = self.HEADERS
-        headers.update({'accept': self.content_type})
-        resp = self.catalogQuery(headers)
-
+        resp = self.catalogQuery(headers={'accept': self.content_type})
         if self.ro_manifest and self.ro_file_provenance:
             ro.add_file_metadata(self.ro_manifest,
                                  source_url=self.url,
@@ -51,11 +49,16 @@ class BaseQueryProcessor(BaseProcessor):
                                  retrieved_on=ro.make_retrieved_on(),
                                  retrieved_by=ro.make_retrieved_by(self.ro_author_name, orcid=self.ro_author_orcid),
                                  bundled_as=ro.make_bundled_as())
-
-        self.outputs.update({self.output_relpath: {LOCAL_PATH_KEY: self.output_abspath, SOURCE_URL_KEY: self.url}})
+        if os.path.isfile(self.output_abspath):
+            self.outputs.update({self.output_relpath: {LOCAL_PATH_KEY: self.output_abspath, SOURCE_URL_KEY: self.url}})
         return self.outputs
 
-    def catalogQuery(self, headers=HEADERS, as_file=True):
+    def catalogQuery(self, headers=None, as_file=True):
+        if not headers:
+            headers = self.HEADERS.copy()
+        else:
+            headers.update(self.HEADERS)
+
         if as_file:
             output_dir = os.path.dirname(self.output_abspath)
             make_dirs(output_dir)
@@ -69,10 +72,12 @@ class BaseQueryProcessor(BaseProcessor):
                 raise DerivaDownloadAuthenticationError(e)
             if e.response.status_code == 403:
                 raise DerivaDownloadAuthorizationError(e)
-            os.remove(self.output_abspath)
+            if as_file:
+                os.remove(self.output_abspath)
             raise DerivaDownloadError("Error executing catalog query: %s" % e)
         except Exception:
-            os.remove(self.output_abspath)
+            if as_file:
+                os.remove(self.output_abspath)
             raise
 
     def headForHeaders(self, url, raise_for_status=False):
@@ -150,14 +155,25 @@ class BaseQueryProcessor(BaseProcessor):
         sessions[host] = session
         return session
 
+    def create_default_paths(self):
+        self.output_relpath, self.output_abspath = self.create_paths(self.base_path,
+                                                                     sub_path=self.sub_path,
+                                                                     filename=self.output_filename,
+                                                                     ext=self.ext,
+                                                                     is_bag=self.is_bag,
+                                                                     envars=self.envars)
+
+    def __del__(self):
+        for session in self.sessions.values():
+            session.close()
+
 
 class CSVQueryProcessor(BaseQueryProcessor):
     def __init__(self, envars=None, **kwargs):
         super(CSVQueryProcessor, self).__init__(envars, **kwargs)
         self.ext = ".csv"
         self.content_type = "text/csv"
-        self.output_relpath, self.output_abspath = self.create_paths(
-            self.base_path, self.sub_path, ext=self.ext, is_bag=self.is_bag, envars=envars)
+        self.create_default_paths()
 
 
 class JSONQueryProcessor(BaseQueryProcessor):
@@ -165,8 +181,7 @@ class JSONQueryProcessor(BaseQueryProcessor):
         super(JSONQueryProcessor, self).__init__(envars, **kwargs)
         self.ext = ".json"
         self.content_type = "application/json"
-        self.output_relpath, self.output_abspath = self.create_paths(
-            self.base_path, self.sub_path, ext=self.ext, is_bag=self.is_bag, envars=envars)
+        self.create_default_paths()
 
 
 class JSONStreamQueryProcessor(BaseQueryProcessor):
@@ -174,8 +189,7 @@ class JSONStreamQueryProcessor(BaseQueryProcessor):
         super(JSONStreamQueryProcessor, self).__init__(envars, **kwargs)
         self.ext = ".json"
         self.content_type = "application/x-json-stream"
-        self.output_relpath, self.output_abspath = self.create_paths(
-            self.base_path, self.sub_path, ext=self.ext, is_bag=self.is_bag, envars=envars)
+        self.create_default_paths()
 
 
 class JSONEnvUpdateProcessor(BaseQueryProcessor):
@@ -183,9 +197,7 @@ class JSONEnvUpdateProcessor(BaseQueryProcessor):
         super(JSONEnvUpdateProcessor, self).__init__(envars, **kwargs)
 
     def process(self):
-        headers = self.HEADERS
-        headers.update({'accept': "application/json"})
-        resp = self.catalogQuery(headers, as_file=False)
+        resp = self.catalogQuery(headers={'accept': "application/json"}, as_file=False)
         if resp:
             self.envars.update(resp[0])
             self._urlencode_envars()

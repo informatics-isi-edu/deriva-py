@@ -17,7 +17,8 @@ class BaseTransformProcessor(BaseProcessor):
         self.input_paths = self.parameters.get("input_paths", [])
         if not self.input_paths:
             self.input_paths = [self.parameters["input_path"]]  # for backward compatibility
-        self.sub_path = self.parameters.get("output_path", "")
+        self.sub_path = self.parameters.get("output_path")
+        self.output_filename = self.parameters.get("output_filename")
         self.is_bag = kwargs.get("bag", False)
         self.transformed_output = self.outputs.get(self.input_path, dict())
         self.url = self.transformed_output.get(SOURCE_URL_KEY)
@@ -45,11 +46,17 @@ class BaseTransformProcessor(BaseProcessor):
 
     def _create_input_output_paths(self):
         for input_path in self.input_paths:
-            relpath, abspath = self.create_paths(self.base_path, input_path, is_bag=self.is_bag, envars=self.envars)
+            relpath, abspath = self.create_paths(self.base_path,
+                                                 sub_path=input_path,
+                                                 is_bag=self.is_bag,
+                                                 envars=self.envars)
             self.input_relpaths.append(relpath)
             self.input_abspaths.append(abspath)
-        self.output_relpath, self.output_abspath = self.create_paths(
-            self.base_path, self.sub_path, is_bag=self.is_bag, envars=self.envars)
+        self.output_relpath, self.output_abspath = self.create_paths(self.base_path,
+                                                                     sub_path=self.sub_path,
+                                                                     filename=self.output_filename,
+                                                                     is_bag=self.is_bag,
+                                                                     envars=self.envars)
 
     def _delete_input(self):
         for input_abspath in self.input_abspaths:

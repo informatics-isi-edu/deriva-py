@@ -44,12 +44,19 @@ class BaseProcessor(object):
         raise NotImplementedError("Must be implemented by subclass")
 
     @staticmethod
-    def create_paths(base_path, sub_path=None, ext='', is_bag=False, envars=None):
+    def create_paths(base_path, sub_path=None, filename=None, ext=None, is_bag=False, envars=None):
         relpath = sub_path if sub_path else ''
-        if not os.path.splitext(sub_path)[1][1:]:
-            relpath += ext
+        if filename:
+            relpath = ''.join([relpath, "/", filename]) if relpath else filename
+
         if isinstance(envars, dict):
             relpath = relpath.format(**envars)
+
+        cur_ext = os.path.splitext(relpath)[1]
+        if ext:
+            ext = ext if ext.startswith(".") else "." + ext
+            if not cur_ext == ext:
+                relpath += ext
 
         abspath = os.path.abspath(
             os.path.join(base_path, 'data' if is_bag else '', relpath))

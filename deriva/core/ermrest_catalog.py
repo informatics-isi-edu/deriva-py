@@ -208,10 +208,11 @@ class ErmrestCatalog(DerivaBinding):
                     if rowcount <= 1:
                         delete_file = True
 
-                if delete_file:
-                    destfile.close()
-                    os.remove(destfilename)
-                    destfile = None
+            # automatically delete zero-length files or detected "empty" content
+            if delete_file:
+                destfile.close()
+                os.remove(destfilename)
+                destfile = None
 
             log_msg = "File [%s] transfer successful. %s %s" % \
                       (destfilename, summary,

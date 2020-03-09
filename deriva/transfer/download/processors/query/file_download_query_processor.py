@@ -1,5 +1,6 @@
 import os
 import json
+import uuid
 import datetime
 import logging
 import requests
@@ -8,17 +9,23 @@ from bdbag import bdbag_ro as ro
 from deriva.core import urlsplit, format_exception, get_transfer_summary, make_dirs, DEFAULT_CHUNK_SIZE
 from deriva.core.utils.mime_utils import parse_content_disposition
 from deriva.transfer.download.processors.query.base_query_processor import BaseQueryProcessor, LOCAL_PATH_KEY
-from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError
+from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError, \
+    DerivaDownloadAuthenticationError
 
 
 class FileDownloadQueryProcessor(BaseQueryProcessor):
     def __init__(self, envars=None, **kwargs):
         super(FileDownloadQueryProcessor, self).__init__(envars, **kwargs)
         self.content_type = "application/x-json-stream"
-        self.output_relpath, self.output_abspath = self.create_paths(self.base_path, "download-manifest.json")
+        filename = ''.join(['download-manifest_', str(uuid.uuid4()), ".json"])
+        self.output_relpath, self.output_abspath = self.create_paths(self.base_path, filename=filename)
         self.ro_file_provenance = False
+        self.allow_anonymous = kwargs.get("allow_anonymous", True)
 
     def process(self):
+        if not self.identity and not self.allow_anonymous:
+            raise DerivaDownloadAuthenticationError(
+                "Unauthenticated (anonymous) users are not permitted to request direct file downloads.")
         super(FileDownloadQueryProcessor, self).process()
         self.outputs.update(self.downloadFiles(self.output_abspath))
         return self.outputs
@@ -27,7 +34,7 @@ class FileDownloadQueryProcessor(BaseQueryProcessor):
         host = urlsplit(url).netloc
         if output_path:
             if not headers:
-                headers = self.HEADERS
+                headers = self.HEADERS.copy()
             else:
                 headers.update(self.HEADERS)
             session = self.getExternalSession(host)
@@ -64,10 +71,7 @@ class FileDownloadQueryProcessor(BaseQueryProcessor):
                             % json.dumps(entry))
                         continue
                     store = self.getHatracStore(url)
-                    filename = entry.get('filename')
-                    envvars = self.envars.copy()
-                    envvars.update(entry)
-                    subdir = self.sub_path.format(**envvars)
+                    filename = entry.get('filename') if not self.output_filename else self.output_filename
                     if not filename:
                         if store:
                             try:
@@ -79,8 +83,13 @@ class FileDownloadQueryProcessor(BaseQueryProcessor):
                                 parse_content_disposition(content_disposition)
                         else:
                             filename = os.path.basename(url)
-                    file_path = os.path.abspath(os.path.join(
-                        self.base_path, 'data' if self.is_bag else '', subdir, filename))
+                    env = self.envars.copy()
+                    env.update(entry)
+                    rel_path, file_path = self.create_paths(self.base_path,
+                                                            sub_path=self.sub_path,
+                                                            filename=filename,
+                                                            is_bag=self.is_bag,
+                                                            envars=env)
                     output_dir = os.path.dirname(file_path)
                     make_dirs(output_dir)
                     if store:
@@ -93,7 +102,7 @@ class FileDownloadQueryProcessor(BaseQueryProcessor):
                         url = self.getExternalUrl(url)
                     else:
                         url = self.getExternalUrl(url)
-                        file_path, resp = self.getExternalFile(url, file_path, self.HEADERS)
+                        file_path, resp = self.getExternalFile(url, file_path)
                         length = int(resp.headers.get('Content-Length'))
                         content_type = resp.headers.get("Content-Type")
                     file_bytes = os.path.getsize(file_path)
@@ -101,17 +110,16 @@ class FileDownloadQueryProcessor(BaseQueryProcessor):
                         raise DerivaDownloadError(
                             "File size of %s does not match expected size of %s for file %s" %
                             (length, file_bytes, file_path))
-                    output_path = ''.join([subdir, "/", filename]) if subdir else filename
                     if self.ro_manifest:
                         ro.add_file_metadata(self.ro_manifest,
                                              source_url=url,
-                                             local_path=output_path,
+                                             local_path=rel_path,
                                              media_type=content_type,
                                              retrieved_on=ro.make_retrieved_on(),
                                              retrieved_by=ro.make_retrieved_by(
                                                  self.ro_author_name, orcid=self.ro_author_orcid),
                                              bundled_as=ro.make_bundled_as())
-                    file_list.update({output_path: {LOCAL_PATH_KEY: file_path}})
+                    file_list.update({rel_path: {LOCAL_PATH_KEY: file_path}})
                 return file_list
         finally:
             os.remove(input_manifest)

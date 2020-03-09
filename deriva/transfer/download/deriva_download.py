@@ -33,6 +33,7 @@ class DerivaDownload(object):
         credential_file = kwargs.get("credential_file")
         self.metadata = dict()
         self.sessions = dict()
+        self.allow_anonymous = kwargs.get("allow_anonymous", True)
 
         info = "%s v%s [Python %s, %s]" % (
             self.__class__.__name__, get_installed_version(VERSION),
@@ -183,7 +184,8 @@ class DerivaDownload(object):
                                             ro_author_name=ro_author_name,
                                             ro_author_orcid=ro_author_orcid,
                                             identity=identity,
-                                            wallet=wallet)
+                                            wallet=wallet,
+                                            allow_anonymous=self.allow_anonymous)
                 outputs = processor.process()
             except Exception as e:
                 logging.error(format_exception(e))
@@ -210,7 +212,8 @@ class DerivaDownload(object):
                         ro_author_name=ro_author_name,
                         ro_author_orcid=ro_author_orcid,
                         identity=identity,
-                        wallet=wallet)
+                        wallet=wallet,
+                        allow_anonymous=self.allow_anonymous)
                     outputs = processor.process()
                 except Exception as e:
                     logging.error(format_exception(e))
@@ -263,7 +266,8 @@ class DerivaDownload(object):
                         inputs=outputs,
                         processor_params=processor_params,
                         identity=identity,
-                        wallet=wallet)
+                        wallet=wallet,
+                        allow_anonymous=self.allow_anonymous)
                     outputs = processor.process()
                 except Exception as e:
                     logging.error(format_exception(e))

@@ -1,5 +1,6 @@
 import os
 import json
+import uuid
 import logging
 import requests
 from bdbag import bdbag_ro as ro
@@ -14,19 +15,25 @@ class BagFetchQueryProcessor(BaseQueryProcessor):
     def __init__(self, envars=None, **kwargs):
         super(BagFetchQueryProcessor, self).__init__(envars, **kwargs)
         self.content_type = "application/x-json-stream"
-        self.output_relpath, self.output_abspath = self.create_paths(self.base_path, "fetch-manifest.json")
+        filename = ''.join(['fetch-manifest_', str(uuid.uuid4()), ".json"])
+        self.output_relpath, self.output_abspath = self.create_paths(self.base_path, filename=filename)
         self.ro_file_provenance = False
 
     def process(self):
         super(BagFetchQueryProcessor, self).process()
         rfm_relpath, rfm_abspath = self.createRemoteFileManifest()
-        self.outputs.update({rfm_relpath: {LOCAL_PATH_KEY: rfm_abspath}} if not self.is_bag else {})
+        if rfm_relpath and rfm_abspath:
+            self.outputs.update({rfm_relpath: {LOCAL_PATH_KEY: rfm_abspath}} if not self.is_bag else {})
         return self.outputs
 
     def createRemoteFileManifest(self):
         logging.info("Creating remote file manifest from results of query: %s" % self.query)
         input_manifest = self.output_abspath
         remote_file_manifest = self.kwargs.get("remote_file_manifest")
+
+        if not os.path.isfile(input_manifest):
+            return None, None
+
         with open(input_manifest, "r") as in_file, open(remote_file_manifest, "a") as remote_file:
             for line in in_file:
                 # get the required bdbag remote file manifest vars from each line of the json-stream input file
@@ -58,7 +65,7 @@ class BagFetchQueryProcessor(BaseQueryProcessor):
         length = entry.get("length")
         md5 = entry.get("md5")
         sha256 = entry.get("sha256")
-        filename = entry.get("filename")
+        filename = entry.get("filename") if not self.output_filename else self.output_filename
         content_type = entry.get("content_type")
         content_disposition = None
         # if any required fields are missing from the query result, attempt to get them from the remote server by
@@ -84,15 +91,17 @@ class BagFetchQueryProcessor(BaseQueryProcessor):
             raise DerivaDownloadError("Could not determine Content-Length for %s" % ext_url)
         if not (md5 or sha256):
             raise DerivaDownloadError("Could not locate an MD5 or SHA256 hash for %s" % ext_url)
-        envvars = self.envars.copy()
-        envvars.update(entry)
-        subdir = self.sub_path.format(**envvars)
         # if a local filename is not provided, try to construct one using content_disposition, if available
         if not filename:
             filename = os.path.basename(url).split(":")[0] if not content_disposition else \
                 parse_content_disposition(content_disposition)
-        output_path = ''.join([subdir, "/", filename]) if subdir else filename
-
+        env = self.envars.copy()
+        env.update(entry)
+        output_path, _ = self.create_paths(self.base_path,
+                                           sub_path=self.sub_path,
+                                           filename=filename,
+                                           is_bag=self.is_bag,
+                                           envars=env)
         manifest_entry['url'] = ext_url
         manifest_entry['length'] = int(length)
         manifest_entry['filename'] = output_path
