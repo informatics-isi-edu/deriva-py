@@ -42,15 +42,16 @@ class BaseQueryProcessor(BaseProcessor):
 
     def process(self):
         resp = self.catalogQuery(headers={'accept': self.content_type})
-        if self.ro_manifest and self.ro_file_provenance:
-            ro.add_file_metadata(self.ro_manifest,
-                                 source_url=self.url,
-                                 local_path=self.output_relpath,
-                                 media_type=self.content_type,
-                                 retrieved_on=ro.make_retrieved_on(),
-                                 retrieved_by=ro.make_retrieved_by(self.ro_author_name, orcid=self.ro_author_orcid),
-                                 bundled_as=ro.make_bundled_as())
         if os.path.isfile(self.output_abspath):
+            if self.ro_manifest and self.ro_file_provenance:
+                ro.add_file_metadata(self.ro_manifest,
+                                     source_url=self.url,
+                                     local_path=self.output_relpath,
+                                     media_type=self.content_type,
+                                     retrieved_on=ro.make_retrieved_on(),
+                                     retrieved_by=ro.make_retrieved_by(self.ro_author_name,
+                                                                       orcid=self.ro_author_orcid),
+                                     bundled_as=ro.make_bundled_as())
             self.outputs.update({self.output_relpath: {LOCAL_PATH_KEY: self.output_abspath,
                                                        FILE_SIZE_KEY: os.path.getsize(self.output_abspath),
                                                        SOURCE_URL_KEY: self.url}})
