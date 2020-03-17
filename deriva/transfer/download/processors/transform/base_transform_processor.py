@@ -2,7 +2,8 @@ import os
 from deriva.core import stob
 from deriva.core.utils.mime_utils import guess_content_type
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError
-from deriva.transfer.download.processors.base_processor import BaseProcessor, LOCAL_PATH_KEY, SOURCE_URL_KEY
+from deriva.transfer.download.processors.base_processor import BaseProcessor, \
+    LOCAL_PATH_KEY, FILE_SIZE_KEY, SOURCE_URL_KEY
 from bdbag import bdbag_ro as ro
 
 
@@ -77,7 +78,9 @@ class BaseTransformProcessor(BaseProcessor):
         if self.delete_input:
             self._delete_input()
 
-        self.outputs.update({self.output_relpath: {LOCAL_PATH_KEY: self.output_abspath, SOURCE_URL_KEY: self.url}})
+        self.outputs.update({self.output_relpath: {LOCAL_PATH_KEY: self.output_abspath,
+                                                   FILE_SIZE_KEY: os.path.getsize(self.output_abspath),
+                                                   SOURCE_URL_KEY: self.url}})
         return self.outputs
 
 

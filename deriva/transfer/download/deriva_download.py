@@ -7,10 +7,11 @@ import requests
 from requests.exceptions import HTTPError
 from bdbag import bdbag_api as bdb, bdbag_ro as ro, BAG_PROFILE_TAG, BDBAG_RO_PROFILE_ID
 from deriva.core import ErmrestCatalog, HatracStore, format_exception, get_credential, format_credential, read_config, \
-    stob, __version__ as VERSION
+    stob, Megabyte, __version__ as VERSION
 from deriva.core.utils.version_utils import get_installed_version
 from deriva.transfer.download.processors import find_query_processor, find_transform_processor, find_post_processor
-from deriva.transfer.download.processors.base_processor import LOCAL_PATH_KEY, REMOTE_PATHS_KEY, SERVICE_URL_KEY
+from deriva.transfer.download.processors.base_processor import LOCAL_PATH_KEY, REMOTE_PATHS_KEY, SERVICE_URL_KEY, \
+    FILE_SIZE_KEY
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError, \
     DerivaDownloadAuthenticationError, DerivaDownloadAuthorizationError
 
@@ -34,6 +35,7 @@ class DerivaDownload(object):
         self.metadata = dict()
         self.sessions = dict()
         self.allow_anonymous = kwargs.get("allow_anonymous", True)
+        self.max_payload_size_mb = int(kwargs.get("max_payload_size_mb", 0) or 0)
 
         info = "%s v%s [Python %s, %s]" % (
             self.__class__.__name__, get_installed_version(VERSION),
@@ -99,6 +101,19 @@ class DerivaDownload(object):
         self.catalog.set_credentials(credentials, self.hostname)
         self.store.set_credentials(credentials, self.hostname)
         self.credentials = credentials
+
+    def check_payload_size(self, outputs):
+        if self.max_payload_size_mb < 1:
+            return
+
+        # This is not very well optimized for the way it is invoked but until it becomes an issue, it is good enough.
+        max_bytes = self.max_payload_size_mb * Megabyte
+        total_bytes = 0
+        for v in outputs.values():
+            total_bytes += v.get(FILE_SIZE_KEY, 0)
+            if total_bytes >= max_bytes:
+                raise DerivaDownloadError("Maximum payload size of %d megabytes exceeded." %
+                                          self.max_payload_size_mb)
 
     def download(self, **kwargs):
 
@@ -187,6 +202,7 @@ class DerivaDownload(object):
                                             wallet=wallet,
                                             allow_anonymous=self.allow_anonymous)
                 outputs = processor.process()
+                self.check_payload_size(outputs)
             except Exception as e:
                 logging.error(format_exception(e))
                 if create_bag:
@@ -215,6 +231,7 @@ class DerivaDownload(object):
                         wallet=wallet,
                         allow_anonymous=self.allow_anonymous)
                     outputs = processor.process()
+                    self.check_payload_size(outputs)
                 except Exception as e:
                     logging.error(format_exception(e))
                     raise
@@ -269,6 +286,7 @@ class DerivaDownload(object):
                         wallet=wallet,
                         allow_anonymous=self.allow_anonymous)
                     outputs = processor.process()
+                    self.check_payload_size(outputs)
                 except Exception as e:
                     logging.error(format_exception(e))
                     raise
