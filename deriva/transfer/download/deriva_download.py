@@ -207,6 +207,8 @@ class DerivaDownload(object):
                 logging.error(format_exception(e))
                 if create_bag:
                     bdb.cleanup_bag(bag_path)
+                    if remote_file_manifest and os.path.isfile(remote_file_manifest):
+                        os.remove(remote_file_manifest)
                 raise
 
         # 4. Execute anything in the transform processing pipeline, if configured
@@ -233,7 +235,10 @@ class DerivaDownload(object):
                     outputs = processor.process()
                     self.check_payload_size(outputs)
                 except Exception as e:
-                    logging.error(format_exception(e))
+                    if create_bag:
+                        bdb.cleanup_bag(bag_path)
+                        if remote_file_manifest and os.path.isfile(remote_file_manifest):
+                            os.remove(remote_file_manifest)
                     raise
 
         # 5. Create the bag, and archive (serialize) if necessary
