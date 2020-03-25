@@ -33,4 +33,4 @@ class DerivaBackupCLI(DerivaDownloadCLI):
 
     @classmethod
     def get_downloader(cls, *args, **kwargs):
-        return DerivaBackup(*args, **kwargs)
+        return DerivaBackup(*args, dcctx_cid="cli/" + DerivaBackupCLI.__name__, **kwargs)

@@ -61,7 +61,7 @@ class DerivaUpload(object):
     DefaultTransferStateBaseName = ".deriva-upload-state"
     DefaultTransferStateFileName = "%s-%s.json"
 
-    def __init__(self, config_file=None, credential_file=None, server=None, dcctx_id=None):
+    def __init__(self, config_file=None, credential_file=None, server=None, dcctx_cid=None):
         self.server_url = None
         self.catalog = None
         self.catalog_model = None
@@ -83,7 +83,7 @@ class DerivaUpload(object):
         self.override_config_file = config_file
         self.override_credential_file = credential_file
         self.server = self.getDefaultServer() if not server else server
-        self.dcctx_id = dcctx_id if dcctx_id else self.__class__.__name__
+        self.dcctx_cid = dcctx_cid if dcctx_cid else self.__class__.__name__
         self.initialize()
 
     def __del__(self):
@@ -126,7 +126,7 @@ class DerivaUpload(object):
         self.store = HatracStore(protocol, host, self.credentials, session_config=session_config)
 
         # init dcctx cid to a default
-        self.set_dcctx_cid(self.dcctx_id)
+        self.set_dcctx_cid(self.dcctx_cid)
 
         """
          Configuration initialization - this is a bit complex because we allow for:
@@ -1085,8 +1085,12 @@ class DerivaUpload(object):
 
 class GenericUploader(DerivaUpload):
 
-    def __init__(self, config_file=None, credential_file=None, server=None):
-        DerivaUpload.__init__(self, config_file=config_file, credential_file=credential_file, server=server)
+    def __init__(self, config_file=None, credential_file=None, server=None, dcctx_cid=None):
+        DerivaUpload.__init__(self,
+                              config_file=config_file,
+                              credential_file=credential_file,
+                              server=server,
+                              dcctx_cid=dcctx_cid)
 
     @classmethod
     def getVersion(cls):

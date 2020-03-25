@@ -89,7 +89,7 @@ class DerivaRestore:
                                    self.credentials,
                                    caching=True,
                                    session_config=self.session_config)
-
+        self.server.dcctx["cid"] = kwargs.get("dcctx_cid", "api/" + self.__class__.__name__)
         # process config file
         if config_file:
             try:

@@ -68,7 +68,7 @@ class DerivaRestoreCLI(BaseCLI):
                 server["protocol"] = "https"
                 server["host"] = args.host
 
-            restorer = DerivaRestore(server, **vars(args))
+            restorer = DerivaRestore(server, **vars(args), dcctx_cid="cli/" + self.__class__.__name__)
             try:
                 restorer.restore()
             except ConnectionError as e:
