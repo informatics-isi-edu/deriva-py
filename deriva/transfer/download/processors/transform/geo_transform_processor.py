@@ -748,30 +748,30 @@ class Export2GEO(object):
 
 
 
-        # ## Derive the paired end values using replicate level files.
-        # ## https://github.com/informatics-isi-edu/rbk-project/issues/615
-        # replicateFileDict = {}
-        # derivedPairedEnds = {}
-        # patternR1 = ".*(\.|_)R1(\.|_)[0-9]*(\.|_)*(FASTQ|FQ).GZ"
-        # patternR2 = ".*(\.|_)R2(\.|_)[0-9]*(\.|_)*(FASTQ|FQ).GZ"
+        ## Derive the paired end values using replicate level files.
+        ## https://github.com/informatics-isi-edu/rbk-project/issues/615
+        replicateFileDict = {}
+        derivedPairedEnds = {}
+        patternR1 = ".*(\.|_)R1(\.|_)[0-9]*(\.|_)*(FASTQ|FQ).GZ"
+        patternR2 = ".*(\.|_)R2(\.|_)[0-9]*(\.|_)*(FASTQ|FQ).GZ"
         
-        # # Group the File Names by Replicate RID's
-        # for pf in self.files:
-        #     if pf['Replicate_RID'] in replicateFileDict:
-        #         replicateFileDict[ pf['Replicate_RID'] ].append( pf['File_Name'] )
-        #     else:
-        #         replicateFileDict[ pf['Replicate_RID'] ] = [ pf['File_Name'] ]
+        # Group the File Names by Replicate RID's
+        for pf in self.files:
+            if pf['Replicate_RID'] in replicateFileDict:
+                replicateFileDict[ pf['Replicate_RID'] ].append( pf['File_Name'] )
+            else:
+                replicateFileDict[ pf['Replicate_RID'] ] = [ pf['File_Name'] ]
 
-        # # Derive the paired end based on file names
-        # for replicate_rid, fileList in replicateFileDict.items():
-        #     if ( any( re.match( patternR1, fileName.upper() ) for fileName in fileList ) 
-        #         and any( re.match( patternR2, fileName.upper() ) for fileName in fileList ) ):
-        #         derivedPairedEnds[ replicate_rid ] = 'paired-end'
-        #     elif any( re.match( patternR1, fileName.upper() ) for fileName in fileList ):
-        #         derivedPairedEnds[ replicate_rid ] = 'single'
-        #     else:
-        #         derivedPairedEnds[ replicate_rid ] = None
-        # ## MODIFICATION END
+        # Derive the paired end based on file names
+        for replicate_rid, fileList in replicateFileDict.items():
+            if ( any( re.match( patternR1, fileName.upper() ) for fileName in fileList ) 
+                and any( re.match( patternR2, fileName.upper() ) for fileName in fileList ) ):
+                derivedPairedEnds[ replicate_rid ] = 'paired-end'
+            elif any( re.match( patternR1, fileName.upper() ) for fileName in fileList ):
+                derivedPairedEnds[ replicate_rid ] = 'single'
+            else:
+                derivedPairedEnds[ replicate_rid ] = None
+        ## MODIFICATION END
 
 
         # 1. set flagWhitelist to False then all the files will pass
@@ -817,23 +817,23 @@ class Export2GEO(object):
                         ## Modify the paired end logic to fetch derived values.
                         ## https://github.com/informatics-isi-edu/rbk-project/issues/615
                         ## OLD CODE
-                        if es.get('Paired_End') is not None and 'pair' in es.get('Paired_End').lower():
-                            single_or_paired = 'paired-end'
-                        else:
-                            single_or_paired = 'single'
+                        # if es.get('Paired_End') is not None and 'pair' in es.get('Paired_End').lower():
+                        #     single_or_paired = 'paired-end'
+                        # else:
+                        #     single_or_paired = 'single'
                         
                         ## NEW CODE
                         # If the paired end value could not be derived then switch to the value in Experiment Settings
-                        # if ( derivedPairedEnds is None  
-                        #     or pf['Replicate_RID'] not in derivedPairedEnds 
-                        #     or derivedPairedEnds [ pf['Replicate_RID'] ] is None ):
-                        #     ## OLD CODE
-                        #     if es.get('Paired_End') is not None and 'pair' in es.get('Paired_End').lower():
-                        #         single_or_paired = 'paired-end'
-                        #     else:
-                        #         single_or_paired = 'single'
-                        # else:
-                        #     single_or_paired = derivedPairedEnds [ pf['Replicate_RID'] ]                        
+                        if ( derivedPairedEnds is None  
+                            and pf['Replicate_RID'] not in derivedPairedEnds 
+                            and derivedPairedEnds [ pf['Replicate_RID'] ] is None ):
+                            ## OLD CODE
+                            if es.get('Paired_End') is not None and 'pair' in es.get('Paired_End').lower():
+                                single_or_paired = 'paired-end'
+                            else:
+                                single_or_paired = 'single'
+                        else:
+                            single_or_paired = derivedPairedEnds[ pf['Replicate_RID'] ]                        
                         # ## MODIFICATION END
 
                         self.excel.write_cell(self.header_row_idx, current_col_idx, 'single or paired-end',
