@@ -195,14 +195,14 @@ class Export2GEO(object):
                 
                 # Adding sorting to files based on key ( Replicate-RID, FileName )
                 # https://github.com/informatics-isi-edu/rbk-project/issues/615
-                # if len(self.replicates) >= 1 and self.replicates[0] is not None:
-                #     self.replicates.sort( key = lambda x: ( x['RID'] ) )
+                if len(self.replicates) >= 1 and self.replicates[0] is not None:
+                    self.replicates.sort( key = lambda x: ( x['RID'] ) )
                 
-                # if len(self.files) >= 1 and self.files[0] is not None:
-                #     self.files.sort( key = lambda x: ( x['Replicate_RID'], x['File_Name'] ) )
+                if len(self.files) >= 1 and self.files[0] is not None:
+                    self.files.sort( key = lambda x: ( x['Replicate_RID'], x['File_Name'] ) )
                 
-                # if len(self.study_files) >= 1 and self.study_files[0] is not None:
-                #     self.study_files.sort( key = lambda x: ( x['File_Name'] ) )
+                if len(self.study_files) >= 1 and self.study_files[0] is not None:
+                    self.study_files.sort( key = lambda x: ( x['File_Name'] ) )
 
 
 
