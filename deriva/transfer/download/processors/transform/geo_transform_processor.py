@@ -824,9 +824,9 @@ class Export2GEO(object):
                         
                         ## NEW CODE
                         # If the paired end value could not be derived then switch to the value in Experiment Settings
-                        if ( derivedPairedEnds is None  
-                            and pf['Replicate_RID'] not in derivedPairedEnds 
-                            and derivedPairedEnds [ pf['Replicate_RID'] ] is None ):
+                        if ( derivedPairedEnds is None
+                            or pf['Replicate_RID'] not in derivedPairedEnds 
+                            or derivedPairedEnds [ pf['Replicate_RID'] ] is None ):
                             ## OLD CODE
                             if es.get('Paired_End') is not None and 'pair' in es.get('Paired_End').lower():
                                 single_or_paired = 'paired-end'
