@@ -160,7 +160,9 @@ class ErmrestCatalog(DerivaBinding):
             return None
         return entity[0], entity[1]
 
-    def getAsFile(self, path, destfilename,
+    def getAsFile(self,
+                  path,
+                  destfilename,
                   headers=DEFAULT_HEADERS,
                   callback=None,
                   delete_if_empty=False,
