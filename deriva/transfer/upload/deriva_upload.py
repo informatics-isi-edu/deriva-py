@@ -1058,6 +1058,7 @@ class DerivaUpload(object):
             self.transfer_state_fh.truncate()
             json.dump(self.transfer_state, self.transfer_state_fh, indent=2)
             self.transfer_state_fh.flush()
+            os.fsync(self.transfer_state_fh.fileno())
         except Exception as e:
             logger.warning("Unable to write transfer state file: %s" % format_exception(e))
 
@@ -1065,6 +1066,7 @@ class DerivaUpload(object):
         if self.transfer_state_fh and not self.transfer_state_fh.closed:
             try:
                 self.transfer_state_fh.flush()
+                os.fsync(self.transfer_state_fh.fileno())
                 self.transfer_state_fh.close()
             except Exception as e:
                 logger.warning("Unable to flush/close transfer state file: %s" % format_exception(e))

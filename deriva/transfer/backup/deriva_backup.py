@@ -23,8 +23,8 @@ class DerivaBackup(DerivaDownload):
             "output_path": "catalog-schema"
         }
     }
-    BASE_DATA_QUERY_PATH = "/entity/{}:{}?limit=none"
-    BASE_DATA_OUTPUT_PATH = "records/{}/{}.json"
+    BASE_DATA_QUERY_PATH = "/entity/{}:{}"
+    BASE_DATA_OUTPUT_PATH = "records/{}/{}"
     BASE_ASSET_OUTPUT_PATH = "assets"
 
     def __init__(self, *args, **kwargs):
@@ -89,7 +89,10 @@ class DerivaBackup(DerivaDownload):
                     query_path = self.BASE_DATA_QUERY_PATH.format(q_sname, q_tname)
                     query_proc = dict()
                     query_proc["processor"] = data_format
-                    query_proc["processor_params"] = {"query_path": query_path, "output_path": output_path}
+                    query_proc_params = {"query_path": query_path, "output_path": output_path}
+                    if data_format == "json-stream":
+                        query_proc_params.update({"paged_query": True, "paged_query_size": 100000})
+                    query_proc["processor_params"] = query_proc_params
                     self.config["catalog"]["query_processors"].append(query_proc)
 
         self.generate_asset_configs()

@@ -39,24 +39,28 @@ class FileDownloadQueryProcessor(BaseQueryProcessor):
             else:
                 headers.update(self.HEADERS)
             session = self.getExternalSession(host)
-            r = session.get(url, headers=headers, stream=True, verify=certifi.where())
-            if r.status_code != 200:
-                file_error = "File [%s] transfer failed." % output_path
-                url_error = 'HTTP GET Failed for url: %s' % url
-                host_error = "Host %s responded:\n\n%s" % (urlsplit(url).netloc, r.text)
-                raise DerivaDownloadError('%s\n\n%s\n%s' % (file_error, url_error, host_error))
-            else:
-                total = 0
-                start = datetime.datetime.now()
-                logging.debug("Transferring file %s to %s" % (url, output_path))
-                with open(output_path, 'wb') as data_file:
-                    for chunk in r.iter_content(chunk_size=DEFAULT_CHUNK_SIZE):
-                        data_file.write(chunk)
-                        total += len(chunk)
-                elapsed = datetime.datetime.now() - start
-                summary = get_transfer_summary(total, elapsed)
-                logging.info("File [%s] transfer successful. %s" % (output_path, summary))
-                return output_path, r
+            with session.get(url, headers=headers, stream=True, verify=certifi.where()) as r:
+                if r.status_code != 200:
+                    file_error = "File [%s] transfer failed." % output_path
+                    url_error = 'HTTP GET Failed for url: %s' % url
+                    host_error = "Host %s responded:\n\n%s" % (urlsplit(url).netloc, r.text)
+                    raise DerivaDownloadError('%s\n\n%s\n%s' % (file_error, url_error, host_error))
+                else:
+                    total = 0
+                    start = datetime.datetime.now()
+                    logging.debug("Transferring file %s to %s" % (url, output_path))
+                    with open(output_path, 'wb') as data_file:
+                        for chunk in r.iter_content(chunk_size=DEFAULT_CHUNK_SIZE):
+                            data_file.write(chunk)
+                            total += len(chunk)
+                            data_file.flush()
+                            os.fsync(data_file.fileno())
+                    elapsed = datetime.datetime.now() - start
+                    summary = get_transfer_summary(total, elapsed)
+                    logging.info("File [%s] transfer successful. %s" % (output_path, summary))
+                    length = int(r.headers.get('Content-Length'))
+                    content_type = r.headers.get("Content-Type")
+                    return output_path, length, content_type
 
     def downloadFiles(self, input_manifest):
         logging.info("Attempting to download file(s) based on the results of query: %s" % self.query)
@@ -103,9 +107,7 @@ class FileDownloadQueryProcessor(BaseQueryProcessor):
                         url = self.getExternalUrl(url)
                     else:
                         url = self.getExternalUrl(url)
-                        file_path, resp = self.getExternalFile(url, file_path)
-                        length = int(resp.headers.get('Content-Length'))
-                        content_type = resp.headers.get("Content-Type")
+                        file_path, length, content_type = self.getExternalFile(url, file_path)
                     file_bytes = os.path.getsize(file_path)
                     if length != file_bytes:
                         raise DerivaDownloadError(
