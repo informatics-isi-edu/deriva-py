@@ -112,8 +112,6 @@ class HatracStore(DerivaBinding):
                 for buf in r.iter_content(chunk_size=DEFAULT_CHUNK_SIZE):
                     destfile.write(buf)
                     total += len(buf)
-                    destfile.flush()
-                    os.fsync(destfile.fileno())
                     if callback:
                         if not callback(progress="Downloading: %.2f MB transferred" % (total / Megabyte)):
                             destfile.close()
@@ -122,6 +120,8 @@ class HatracStore(DerivaBinding):
                             return None
                 elapsed = datetime.datetime.now() - start
                 summary = get_transfer_summary(total, elapsed)
+                destfile.flush()
+                os.fsync(destfile.fileno())
                 logging.info("File [%s] transfer successful. %s" % (destfilename, summary))
                 if callback:
                     callback(summary=summary, file_path=destfilename)

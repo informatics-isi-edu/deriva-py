@@ -53,8 +53,6 @@ class FileDownloadQueryProcessor(BaseQueryProcessor):
                         for chunk in r.iter_content(chunk_size=DEFAULT_CHUNK_SIZE):
                             data_file.write(chunk)
                             total += len(chunk)
-                            data_file.flush()
-                            os.fsync(data_file.fileno())
                     elapsed = datetime.datetime.now() - start
                     summary = get_transfer_summary(total, elapsed)
                     logging.info("File [%s] transfer successful. %s" % (output_path, summary))

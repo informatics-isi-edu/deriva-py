@@ -210,13 +210,13 @@ class ErmrestCatalog(DerivaBinding):
                     for buf in r.iter_content(chunk_size=DEFAULT_CHUNK_SIZE):
                         destfile.write(buf)
                         total += len(buf)
-                        destfile.flush()
-                        os.fsync(destfile.fileno())
                         if callback:
                             if not callback(progress="Downloading: %.2f MB transferred" %
                                                      (float(total) / float(Megabyte))):
                                 destfile.close()
                                 return
+                destfile.flush()
+                os.fsync(destfile.fileno())
             else:
                 first_page = True
                 first_line = None
