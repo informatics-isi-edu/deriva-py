@@ -90,7 +90,7 @@ class DerivaBackup(DerivaDownload):
                     query_proc = dict()
                     query_proc["processor"] = data_format
                     query_proc_params = {"query_path": query_path, "output_path": output_path}
-                    if data_format == "json-stream":
+                    if data_format in ("json-stream", "csv"):
                         query_proc_params.update({"paged_query": True, "paged_query_size": 100000})
                     query_proc["processor_params"] = query_proc_params
                     self.config["catalog"]["query_processors"].append(query_proc)
