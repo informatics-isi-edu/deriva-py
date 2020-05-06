@@ -759,7 +759,7 @@ class Export2GEO(object):
 
 
         derivedPairedEnds = {}
-        fileWhitelist = {}
+        # fileTypeWhiteList = {} # https://github.com/informatics-isi-edu/rbk-project/issues/652
         patternR1 = ".*(\.|_)R1(\.|_)[0-9]*(\.|_)*(FASTQ|FQ).GZ"
         patternR2 = ".*(\.|_)R2(\.|_)[0-9]*(\.|_)*(FASTQ|FQ).GZ"
         for replicate_rid, fileList in replicateFileDict.items():
@@ -776,26 +776,29 @@ class Export2GEO(object):
             ## GEO prefer bams/sams, but will accept fastq’s if that is all that is present. 
             ## Add logic to set priority of seq files to export
             ## https://github.com/informatics-isi-edu/rbk-project/issues/652
-            if ( any( re.match( '.*\.(bam|sam|bai)', fileName.lower() ) for fileName in fileList ) ):
-                fileWhitelist[ replicate_rid ] = [ ".bam" ]
-            else:
-                fileWhitelist[ replicate_rid ] = [ ".fastq", ".fastq.gz" ]
-
+            ##
+            ## THIS CHANGE IS PUT ON HOLD!! 
+            ## until we can find a way to filter the files in the export BDBags as well to keep the data consistent.
+            ##############################################################################################################
+            
+            # if ( any( re.match( '.*\.(bam|sam|bai)', fileName.lower() ) for fileName in fileList ) ):
+            #     fileTypeWhiteList[ replicate_rid ] = [ ".bam" ]
+            # else:
+            #     fileTypeWhiteList[ replicate_rid ] = [ ".fastq", ".fastq.gz" ]
 
 
         # 1. set flagWhitelist to False then all the files will pass
         # 2. set flagWhitelist to True and fileEndingList to [] then no file will pass
         # 3. set flagWhitelist to True and fileEndingList to [xxx,yyy] then only files ending with xxx,yyy will pass
         flagWhitelist = True        
-        # fileTypeWhiteList = [".bam",".fastq",".fastq.gz",".bai"]
-
-
+        fileTypeWhiteList = [".bam",".fastq",".fastq.gz",".bai"]
         for pf in self.files:
             validFile = False
             if pf is None or 'Experiment_RID' not in pf.keys():
                 continue
-            elif flagWhitelist and fileWhitelist:
-                for str in fileWhitelist[ pf.get('Replicate_RID' ) ]:
+            elif flagWhitelist and fileTypeWhiteList:
+                # for str in fileTypeWhiteList[ pf.get('Replicate_RID' ) ]: # https://github.com/informatics-isi-edu/rbk-project/issues/652
+                for str in fileTypeWhiteList:
                     if pf.get('File_Name') is not None and pf.get('File_Name').lower().endswith(str):
                         validFile = True
             else:
