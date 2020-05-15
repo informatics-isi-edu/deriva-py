@@ -404,8 +404,8 @@ class Export2GEO(object):
                             local_col_idx += 1
 
                     # the characteristic should show as one column in sample section, if samples has value it
-                    characteristic_list = ['Phenotype', 'Stage_ID', 'Stage_Detail', 'Genotype', 'Strain', 'Wild_Type'
-                        ,'Cell_Line','Passage','Assay_Type','Sex']
+                    characteristic_list = ['Phenotype', 'Stage_ID', 'Stage_Detail', 'Genotype', 'Strain', 'Wild_Type',
+                        'Cell_Line','Passage','Assay_Type','Sex']
                     # foreign_item_list = ['Tissue', 'Source', 'Specimen_Cell_Type', 'Cell_Type']
                     characteristic_exist = []
                     for s in self.specimen:
@@ -416,7 +416,6 @@ class Export2GEO(object):
                                 characteristic_exist.append(c)
                             else:
                                 continue
-
 
                     # check specimen tissue , if exist, add source
                     #/Src:=left(Tissue)=(Vocabulary:Anatomy:ID)
@@ -688,7 +687,8 @@ class Export2GEO(object):
         self.excel.write_cell(self.current_row_idx, 2, 'processed data file format')
         self.current_row_idx += 1
 
-        # export processed datafile names of this study
+    
+    # export processed datafile names of this study
     def export_processed_datafiles(self):
         self.current_row_idx += 1
         self.excel.write_cell(self.current_row_idx, 1,
@@ -706,7 +706,8 @@ class Export2GEO(object):
         # 2. set flagWhitelist to True and fileEndingList to [] then no file will pass
         # 3. set flagWhitelist to True and fileEndingList to [xxx,yyy] then only files ending with xxx,yyy will pass
         flagWhitelist = True
-        fileTypeWhiteList = [".csv",".csv.gz",".txt.gz",".txt",".tsv",".tsv.gz",".xls",".xlsx",".mtx"]
+        # Adding .bw to the Study_File whitelist
+        fileTypeWhiteList = [".csv",".csv.gz",".txt.gz",".txt",".tsv",".tsv.gz",".xls",".xlsx",".mtx",".bw"]
 
         for pf in self.study_files:
             validFile = False
@@ -732,6 +733,7 @@ class Export2GEO(object):
                 self.excel.write_cell(self.header_row_idx, local_col_idx, 'file checksum', Style.HEADER)
                 self.excel.write_cell(self.current_row_idx, local_col_idx, pf.get('MD5', ''))
                 self.current_row_idx += 1
+
 
     # export raw datafile names of this study
     def export_raw_datafiles(self):
@@ -790,8 +792,9 @@ class Export2GEO(object):
         # 1. set flagWhitelist to False then all the files will pass
         # 2. set flagWhitelist to True and fileEndingList to [] then no file will pass
         # 3. set flagWhitelist to True and fileEndingList to [xxx,yyy] then only files ending with xxx,yyy will pass
-        flagWhitelist = True        
-        fileTypeWhiteList = [".bam",".fastq",".fastq.gz",".bai"]
+        flagWhitelist = True
+        # Removing .bai from whitelist, GEO will ignore it as per Gervaise.
+        fileTypeWhiteList = [ ".bam",".fastq",".fastq.gz" ] 
         for pf in self.files:
             validFile = False
             if pf is None or 'Experiment_RID' not in pf.keys():
