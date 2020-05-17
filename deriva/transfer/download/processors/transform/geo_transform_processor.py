@@ -827,9 +827,13 @@ class Export2GEO(object):
                         self.excel.write_cell(self.header_row_idx, current_col_idx, 'instrument model', Style.HEADER)
                         self.excel.write_cell(self.current_row_idx, current_col_idx, es.get('Sequencing_Platform', ''))
                         current_col_idx += 1
-                        self.excel.write_cell(self.header_row_idx, current_col_idx, 'read length', Style.HEADER)
-                        self.excel.write_cell(self.current_row_idx, current_col_idx, es.get('Read_Length', ''))
-                        current_col_idx += 1
+                        
+                        
+                        ## Remove Read_length from the excel ( https://github.com/informatics-isi-edu/rbk-project/issues/667 )
+                        ## If we do add Read Length GEO team will either ignore it (raw file section) or print it if you put it in the data processing.
+                        # self.excel.write_cell(self.header_row_idx, current_col_idx, 'read length', Style.HEADER)
+                        # self.excel.write_cell(self.current_row_idx, current_col_idx, es.get('Read Length', ''))
+                        # current_col_idx += 1
                         
                         ## Modify the paired end logic to fetch derived values.
                         ## https://github.com/informatics-isi-edu/rbk-project/issues/615
@@ -852,7 +856,7 @@ class Export2GEO(object):
                                 single_or_paired = 'single'
                         else:
                             single_or_paired = derivedPairedEnds[ pf['Replicate_RID'] ]                        
-                        # ## MODIFICATION END
+                        ## MODIFICATION END
 
                         self.excel.write_cell(self.header_row_idx, current_col_idx, 'single or paired-end',
                                               Style.HEADER)
