@@ -509,9 +509,7 @@ class Export2GEO(object):
                                             continue
                                         elif v['ID'] == s['Stage_ID']:
                                             characteristic = v['Name']
-                                            self.excel.write_cell(self.header_row_idx, local_col_idx,
-                                                                  'characteristics: Stage',
-                                                                  Style.HEADER)
+                                            self.excel.write_cell(self.header_row_idx, local_col_idx, 'characteristics: Stage', Style.HEADER)
                                             self.excel.write_cell(self.current_row_idx, local_col_idx, characteristic)
                                             local_col_idx += 1
                                             get_stage = 1
@@ -520,28 +518,28 @@ class Export2GEO(object):
                                     # using Stage_Detail if no Stage_ID
                                     if get_stage == 0:
                                         characteristic = s.get('Stage_Detail', '')
-                                        self.excel.write_cell(self.header_row_idx, local_col_idx, 'characteristics:'+'Age', Style.HEADER)
+                                        self.excel.write_cell(self.header_row_idx, local_col_idx, 'characteristics: Age', Style.HEADER)
                                         self.excel.write_cell(self.current_row_idx, local_col_idx, characteristic)
                                         local_col_idx += 1
                                 
                                 # Handling Specimen Allele Information
-                                elif c == 'Allele':
-                                    allele_info = []
-                                    for sa in self.specimen_allele:
-                                        if sa is None:
-                                            continue
-                                        elif s['RID'] == sa['Specimen_RID']:
-                                                for a in self.allele:
-                                                    if a is None:
-                                                        continue
-                                                    elif sa['Allele_RID'] == a['RID']:
-                                                        if a.get('Allele_Type') is not None:
-                                                            allele_info.append( a['Name'] + '(' a['Allele_Type'] + ')' )
-                                                        else:
-                                                            allele_info.append( a['Name'] )
-                                    self.excel.write_cell(self.header_row_idx, local_col_idx, 'characteristics:'+'Allele', Style.HEADER )
-                                    self.excel.write_cell(self.current_row_idx, local_col_idx, ','.join( allele_info ) )
-                                    local_col_idx += 1
+                                # elif c == 'Allele':
+                                #     allele_info = []
+                                #     for sa in self.specimen_allele:
+                                #         if sa is None:
+                                #             continue
+                                #         elif s['RID'] == sa['Specimen_RID']:
+                                #                 for a in self.allele:
+                                #                     if a is None:
+                                #                         continue
+                                #                     elif sa['Allele_RID'] == a['RID']:
+                                #                         if a.get('Allele_Type') is not None:
+                                #                             allele_info.append( a['Name'] + '(' a['Allele_Type'] + ')' )
+                                #                         else:
+                                #                             allele_info.append( a['Name'] )
+                                #     self.excel.write_cell(self.header_row_idx, local_col_idx, 'characteristics: Allele', Style.HEADER )
+                                #     self.excel.write_cell(self.current_row_idx, local_col_idx, ','.join( allele_info ) )
+                                #     local_col_idx += 1
                                     
                                 else:
                                     characteristic = s.get(c, '')
