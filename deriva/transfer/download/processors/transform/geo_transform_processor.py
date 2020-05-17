@@ -390,18 +390,6 @@ class Export2GEO(object):
                     self.excel.write_cell(self.header_row_idx, local_col_idx, 'title', Style.HEADER)
                     self.excel.write_cell(self.current_row_idx, local_col_idx, sample_title)
                     local_col_idx += 1
-                    self.excel.write_cell(self.header_row_idx, local_col_idx, 'organism', Style.HEADER)
-                    self.excel.write_cell(self.current_row_idx, local_col_idx, sample_organism)
-                    local_col_idx += 1
-
-                    for p in self.protocol_type:
-                        # if different contents for protocol_type, need to add column for this protocol_type
-                        # then different samples may has different content to write
-                        if not self.protocol_unique[p]:
-                            self.excel.write_cell(self.header_row_idx, local_col_idx, (p.replace('_', ' ').lower()),
-                                                  Style.HEADER)
-                            self.excel.write_cell(self.current_row_idx, local_col_idx, e[p])
-                            local_col_idx += 1
 
                     # the characteristic should show as one column in sample section, if samples has value it
                     characteristic_list = ['Phenotype', 'Stage_ID', 'Stage_Detail', 'Genotype', 'Strain', 'Wild_Type',
@@ -466,8 +454,27 @@ class Export2GEO(object):
                                                           Style.HEADER)
                                     self.excel.write_cell(self.current_row_idx, local_col_idx, characteristic)
                                     local_col_idx += 1
+
+                    self.excel.write_cell(self.header_row_idx, local_col_idx, 'organism', Style.HEADER)
+                    self.excel.write_cell(self.current_row_idx, local_col_idx, sample_organism)
+                    local_col_idx += 1
+
+                    for p in self.protocol_type:
+                        # if different contents for protocol_type, need to add column for this protocol_type
+                        # then different samples may has different content to write
+                        if not self.protocol_unique[p]:
+                            self.excel.write_cell(self.header_row_idx, local_col_idx, (p.replace('_', ' ').lower()),
+                                                  Style.HEADER)
+                            self.excel.write_cell(self.current_row_idx, local_col_idx, e[p])
+                            local_col_idx += 1
+
+                    for s in self.specimen:
+                        if s is None or 'REPLICATE_RID' not in s.keys():
+                            continue
+                        elif s['RID'] == r['Specimen_RID']:
+                            for c in characteristic_exist:
                                 # handling characteristic cell_type
-                                elif c == "Cell_Type":
+                                if c == "Cell_Type":
                                     cell_type = ''
                                     for p in self.specimen_cell_type:
                                         for q in self.cell_type:
@@ -479,7 +486,7 @@ class Export2GEO(object):
                                                 continue
                                     characteristic = cell_type[:-1] if len(cell_type) > 0 else ''
                                     self.excel.write_cell(self.header_row_idx, local_col_idx,
-                                                          'characteristics: Cell_Type',
+                                                          'characteristics: Cell Type',
                                                           Style.HEADER)
                                     self.excel.write_cell(self.current_row_idx, local_col_idx, characteristic)
                                     local_col_idx += 1
