@@ -523,33 +523,31 @@ class Export2GEO(object):
                                         self.excel.write_cell(self.header_row_idx, local_col_idx, 'characteristics:'+'Age', Style.HEADER)
                                         self.excel.write_cell(self.current_row_idx, local_col_idx, characteristic)
                                         local_col_idx += 1
+                                
+                                # Handling Specimen Allele Information
+                                elif c == 'Allele':
+                                    allele_info = []
+                                    for sa in self.specimen_allele:
+                                        if sa is None:
+                                            continue
+                                        elif s['RID'] == sa['Specimen_RID']:
+                                                for a in self.allele:
+                                                    if a is None:
+                                                        continue
+                                                    elif sa['Allele_RID'] == a['RID']:
+                                                        if a.get('Allele_Type') is not None:
+                                                            allele_info.append( a['Name'] + '(' a['Allele_Type'] + ')' )
+                                                        else:
+                                                            allele_info.append( a['Name'] )
+                                    self.excel.write_cell(self.header_row_idx, local_col_idx, 'characteristics:'+'Allele', Style.HEADER )
+                                    self.excel.write_cell(self.current_row_idx, local_col_idx, ','.join( allele_info ) )
+                                    local_col_idx += 1
+                                    
                                 else:
                                     characteristic = s.get(c, '')
                                     self.excel.write_cell(self.header_row_idx, local_col_idx, 'characteristics: '+c, Style.HEADER)
                                     self.excel.write_cell(self.current_row_idx, local_col_idx, characteristic)
                                     local_col_idx += 1
-                        
-                            
-                            
-                            # Handling Specimen Allele Information
-                            allele_info = []
-                            for sa in self.specimen_allele:
-                                if sa is None:
-                                    continue
-                                else:
-                                    if s['RID'] == sa['Specimen_RID']:
-                                        for a in self.allele:
-                                            if a is None:
-                                                continue
-                                            elif sa['Allele_RID'] == a['RID']:
-                                                if a.get('Allele_Type') is not None:
-                                                    allele_info.append( a['Name'] + '(' a['Allele_Type'] + ')' )
-                                                else:
-                                                    allele_info.append( a['Name'] )
-                            self.excel.write_cell(self.header_row_idx, local_col_idx, 'characteristics:'+'Allele', Style.HEADER )
-                            self.excel.write_cell(self.current_row_idx, local_col_idx, ','.join( allele_info ) )
-                            local_col_idx += 1
-                        
                         else:
                             continue
 
