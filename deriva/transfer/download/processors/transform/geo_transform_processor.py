@@ -390,22 +390,10 @@ class Export2GEO(object):
                     self.excel.write_cell(self.header_row_idx, local_col_idx, 'title', Style.HEADER)
                     self.excel.write_cell(self.current_row_idx, local_col_idx, sample_title)
                     local_col_idx += 1
-                    self.excel.write_cell(self.header_row_idx, local_col_idx, 'organism', Style.HEADER)
-                    self.excel.write_cell(self.current_row_idx, local_col_idx, sample_organism)
-                    local_col_idx += 1
-
-                    for p in self.protocol_type:
-                        # if different contents for protocol_type, need to add column for this protocol_type
-                        # then different samples may has different content to write
-                        if not self.protocol_unique[p]:
-                            self.excel.write_cell(self.header_row_idx, local_col_idx, (p.replace('_', ' ').lower()),
-                                                  Style.HEADER)
-                            self.excel.write_cell(self.current_row_idx, local_col_idx, e[p])
-                            local_col_idx += 1
 
                     # the characteristic should show as one column in sample section, if samples has value it
-                    characteristic_list = ['Phenotype', 'Stage_ID', 'Stage_Detail', 'Genotype', 'Strain', 'Wild_Type'
-                        ,'Cell_Line','Passage','Assay_Type','Sex']
+                    characteristic_list = ['Phenotype', 'Stage_ID', 'Stage_Detail', 'Genotype', 'Strain', 'Wild_Type',
+                        'Cell_Line','Passage','Assay_Type','Sex']
                     # foreign_item_list = ['Tissue', 'Source', 'Specimen_Cell_Type', 'Cell_Type']
                     characteristic_exist = []
                     for s in self.specimen:
@@ -416,7 +404,6 @@ class Export2GEO(object):
                                 characteristic_exist.append(c)
                             else:
                                 continue
-
 
                     # check specimen tissue , if exist, add source
                     #/Src:=left(Tissue)=(Vocabulary:Anatomy:ID)
@@ -467,8 +454,27 @@ class Export2GEO(object):
                                                           Style.HEADER)
                                     self.excel.write_cell(self.current_row_idx, local_col_idx, characteristic)
                                     local_col_idx += 1
+
+                    self.excel.write_cell(self.header_row_idx, local_col_idx, 'organism', Style.HEADER)
+                    self.excel.write_cell(self.current_row_idx, local_col_idx, sample_organism)
+                    local_col_idx += 1
+
+                    for p in self.protocol_type:
+                        # if different contents for protocol_type, need to add column for this protocol_type
+                        # then different samples may has different content to write
+                        if not self.protocol_unique[p]:
+                            self.excel.write_cell(self.header_row_idx, local_col_idx, (p.replace('_', ' ').lower()),
+                                                  Style.HEADER)
+                            self.excel.write_cell(self.current_row_idx, local_col_idx, e[p])
+                            local_col_idx += 1
+
+                    for s in self.specimen:
+                        if s is None or 'REPLICATE_RID' not in s.keys():
+                            continue
+                        elif s['RID'] == r['Specimen_RID']:
+                            for c in characteristic_exist:
                                 # handling characteristic cell_type
-                                elif c == "Cell_Type":
+                                if c == "Cell_Type":
                                     cell_type = ''
                                     for p in self.specimen_cell_type:
                                         for q in self.cell_type:
@@ -480,7 +486,7 @@ class Export2GEO(object):
                                                 continue
                                     characteristic = cell_type[:-1] if len(cell_type) > 0 else ''
                                     self.excel.write_cell(self.header_row_idx, local_col_idx,
-                                                          'characteristics: Cell_Type',
+                                                          'characteristics: Cell Type',
                                                           Style.HEADER)
                                     self.excel.write_cell(self.current_row_idx, local_col_idx, characteristic)
                                     local_col_idx += 1
@@ -688,7 +694,8 @@ class Export2GEO(object):
         self.excel.write_cell(self.current_row_idx, 2, 'processed data file format')
         self.current_row_idx += 1
 
-        # export processed datafile names of this study
+    
+    # export processed datafile names of this study
     def export_processed_datafiles(self):
         self.current_row_idx += 1
         self.excel.write_cell(self.current_row_idx, 1,
@@ -706,7 +713,8 @@ class Export2GEO(object):
         # 2. set flagWhitelist to True and fileEndingList to [] then no file will pass
         # 3. set flagWhitelist to True and fileEndingList to [xxx,yyy] then only files ending with xxx,yyy will pass
         flagWhitelist = True
-        fileTypeWhiteList = [".csv",".csv.gz",".txt.gz",".txt",".tsv",".tsv.gz",".xls",".xlsx",".mtx"]
+        # Adding .bw to the Study_File whitelist
+        fileTypeWhiteList = [".csv",".csv.gz",".txt.gz",".txt",".tsv",".tsv.gz",".xls",".xlsx",".mtx",".bw"]
 
         for pf in self.study_files:
             validFile = False
@@ -732,6 +740,7 @@ class Export2GEO(object):
                 self.excel.write_cell(self.header_row_idx, local_col_idx, 'file checksum', Style.HEADER)
                 self.excel.write_cell(self.current_row_idx, local_col_idx, pf.get('MD5', ''))
                 self.current_row_idx += 1
+
 
     # export raw datafile names of this study
     def export_raw_datafiles(self):
@@ -790,8 +799,9 @@ class Export2GEO(object):
         # 1. set flagWhitelist to False then all the files will pass
         # 2. set flagWhitelist to True and fileEndingList to [] then no file will pass
         # 3. set flagWhitelist to True and fileEndingList to [xxx,yyy] then only files ending with xxx,yyy will pass
-        flagWhitelist = True        
-        fileTypeWhiteList = [".bam",".fastq",".fastq.gz",".bai"]
+        flagWhitelist = True
+        # Removing .bai from whitelist, GEO will ignore it as per Gervaise.
+        fileTypeWhiteList = [ ".bam",".fastq",".fastq.gz" ] 
         for pf in self.files:
             validFile = False
             if pf is None or 'Experiment_RID' not in pf.keys():
@@ -824,9 +834,13 @@ class Export2GEO(object):
                         self.excel.write_cell(self.header_row_idx, current_col_idx, 'instrument model', Style.HEADER)
                         self.excel.write_cell(self.current_row_idx, current_col_idx, es.get('Sequencing_Platform', ''))
                         current_col_idx += 1
-                        self.excel.write_cell(self.header_row_idx, current_col_idx, 'read length', Style.HEADER)
-                        self.excel.write_cell(self.current_row_idx, current_col_idx, es.get('Read_Length', ''))
-                        current_col_idx += 1
+                        
+                        
+                        ## Remove Read_length from the excel ( https://github.com/informatics-isi-edu/rbk-project/issues/667 )
+                        ## If we do add Read Length GEO team will either ignore it (raw file section) or print it if you put it in the data processing.
+                        # self.excel.write_cell(self.header_row_idx, current_col_idx, 'read length', Style.HEADER)
+                        # self.excel.write_cell(self.current_row_idx, current_col_idx, es.get('Read Length', ''))
+                        # current_col_idx += 1
                         
                         ## Modify the paired end logic to fetch derived values.
                         ## https://github.com/informatics-isi-edu/rbk-project/issues/615
@@ -849,7 +863,7 @@ class Export2GEO(object):
                                 single_or_paired = 'single'
                         else:
                             single_or_paired = derivedPairedEnds[ pf['Replicate_RID'] ]                        
-                        # ## MODIFICATION END
+                        ## MODIFICATION END
 
                         self.excel.write_cell(self.header_row_idx, current_col_idx, 'single or paired-end',
                                               Style.HEADER)
