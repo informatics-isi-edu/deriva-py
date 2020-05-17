@@ -192,7 +192,10 @@ class Export2GEO(object):
                 self.source_type = data[0].get('Source')
                 self.specimen_cell_type = data[0].get('Specimen_Cell_Type')
                 self.cell_type = data[0].get('Cell_Type')
-                
+                self.specimen_allele = data[0].get('Specimen_Allele')
+                self.allele = data[0].get('Allele')
+
+
                 # Adding sorting to files based on key ( Replicate-RID, FileName )
                 # https://github.com/informatics-isi-edu/rbk-project/issues/615
                 if self.replicates and len(self.replicates) > 1 and self.replicates[0] is not None:
@@ -419,6 +422,12 @@ class Export2GEO(object):
                         else:
                             characteristic_exist.append('Cell_Type')
                             break
+                    for f in self.specimen_allele:
+                        if f is None:
+                            continue
+                        else:
+                            characteristic_exist.append('Allele')
+                            break
 
                     # consolidated stage column
                     if 'Stage_ID' in characteristic_exist and 'Stage_Detail' in characteristic_exist:
@@ -432,12 +441,13 @@ class Export2GEO(object):
                         characteristic_exist.remove('Stage_Detail')
                         characteristic_exist.append('Stage')
 
+                    # handling source name
                     for s in self.specimen:
                         if s is None or 'REPLICATE_RID' not in s.keys():
                             continue
                         elif s['RID'] == r['Specimen_RID']:
+                            # handling source name
                             for c in characteristic_exist:
-                                # handling source name
                                 if c == "Source":
                                     source_type = ''
                                     for p in self.tissue:
@@ -449,15 +459,15 @@ class Export2GEO(object):
                                             else:
                                                 continue
                                     characteristic = source_type[:-1] if len(source_type) > 0 else ''
-                                    self.excel.write_cell(self.header_row_idx, local_col_idx,
-                                                          'source name',
-                                                          Style.HEADER)
+                                    self.excel.write_cell(self.header_row_idx, local_col_idx, 'source name', Style.HEADER)
                                     self.excel.write_cell(self.current_row_idx, local_col_idx, characteristic)
                                     local_col_idx += 1
 
+                    # handling organism
                     self.excel.write_cell(self.header_row_idx, local_col_idx, 'organism', Style.HEADER)
                     self.excel.write_cell(self.current_row_idx, local_col_idx, sample_organism)
                     local_col_idx += 1
+
 
                     for p in self.protocol_type:
                         # if different contents for protocol_type, need to add column for this protocol_type
@@ -467,6 +477,7 @@ class Export2GEO(object):
                                                   Style.HEADER)
                             self.excel.write_cell(self.current_row_idx, local_col_idx, e[p])
                             local_col_idx += 1
+
 
                     for s in self.specimen:
                         if s is None or 'REPLICATE_RID' not in s.keys():
@@ -509,15 +520,32 @@ class Export2GEO(object):
                                     # using Stage_Detail if no Stage_ID
                                     if get_stage == 0:
                                         characteristic = s.get('Stage_Detail', '')
-                                        self.excel.write_cell(self.header_row_idx, local_col_idx,
-                                                              'characteristics: ' + 'Age',
-                                                              Style.HEADER)
+                                        self.excel.write_cell(self.header_row_idx, local_col_idx, 'characteristics:'+'Age', Style.HEADER)
                                         self.excel.write_cell(self.current_row_idx, local_col_idx, characteristic)
                                         local_col_idx += 1
+                                
+                                # Handling Specimen Allele Information
+                                elif c == 'Allele':
+                                    allele_info = []
+                                    for sa in self.specimen_allele:
+                                        if sa is None:
+                                            continue
+                                        elif s['RID'] == sa['Specimen_RID']:
+                                                for a in self.allele:
+                                                    if a is None:
+                                                        continue
+                                                    elif sa['Allele_RID'] == a['RID']:
+                                                        if a.get('Allele_Type') is not None:
+                                                            allele_info.append( a['Name'] + '(' a['Allele_Type'] + ')' )
+                                                        else:
+                                                            allele_info.append( a['Name'] )
+                                    self.excel.write_cell(self.header_row_idx, local_col_idx, 'characteristics:'+'Allele', Style.HEADER )
+                                    self.excel.write_cell(self.current_row_idx, local_col_idx, ','.join( allele_info ) )
+                                    local_col_idx += 1
+                                    
                                 else:
                                     characteristic = s.get(c, '')
-                                    self.excel.write_cell(self.header_row_idx, local_col_idx, 'characteristics: ' + c,
-                                                          Style.HEADER)
+                                    self.excel.write_cell(self.header_row_idx, local_col_idx, 'characteristics: '+c, Style.HEADER)
                                     self.excel.write_cell(self.current_row_idx, local_col_idx, characteristic)
                                     local_col_idx += 1
                         else:
