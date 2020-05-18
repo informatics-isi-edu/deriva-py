@@ -404,9 +404,13 @@ class DerivaRestore:
                         else:
                             last = None
 
-                        table = self.get_json_recordset(
-                            self.open_json_stream_file(self.get_table_path(sname, tname, is_bag)),
-                            self.data_chunk_size, after=last)
+                        table_path = self.get_table_path(sname, tname, is_bag)
+                        if not os.path.isfile(table_path):
+                            logging.warning("Restoration of table data [%s] incomplete. File not found: %s" %
+                                            (("%s:%s" % (sname, tname)), table_path))
+                            continue
+                        table = self.get_json_recordset(self.open_json_stream_file(table_path),
+                                                        self.data_chunk_size, after=last)
 
                         total = 0
                         table_success = True

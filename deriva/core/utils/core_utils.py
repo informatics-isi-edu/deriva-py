@@ -38,8 +38,8 @@ DEFAULT_GLOBUS_CREDENTIAL_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'globus-crede
 DEFAULT_CONFIG_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'config.json')
 DEFAULT_COOKIE_JAR_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'cookies.txt')
 DEFAULT_SESSION_CONFIG = {
-    "retry_connect": 5,
-    "retry_read": 5,
+    "retry_connect": 2,
+    "retry_read": 4,
     "retry_backoff_factor": 1.0,
     "retry_status_forcelist": [500, 503, 504],
     "cookie_jar": DEFAULT_COOKIE_JAR_FILE
