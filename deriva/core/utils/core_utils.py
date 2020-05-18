@@ -152,7 +152,6 @@ def get_new_requests_session(url=None, session_config=DEFAULT_SESSION_CONFIG):
                     read=session_config['retry_read'],
                     backoff_factor=session_config['retry_backoff_factor'],
                     status_forcelist=session_config['retry_status_forcelist'],
-                    method_whitelist=False,
                     raise_on_status=True)
     if url:
         session.mount(url, HTTPAdapter(max_retries=retries))
