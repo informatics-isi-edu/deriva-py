@@ -1,18 +1,25 @@
 import os
+import io
 import logging
 import datetime
 import codecs
 import csv
+import json
 
 from . import urlquote, datapath, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, Megabyte, Kilobyte, get_transfer_summary, IS_PY2
 from .deriva_binding import DerivaBinding
 from .ermrest_config import CatalogConfig
 from . import ermrest_model
 
+
 class ErmrestCatalogMutationError(Exception):
     pass
 
+
 _clone_state_url = "tag:isrd.isi.edu,2018:clone-status"
+
+DEFAULT_PAGE_SIZE = 100000
+
 
 class ErmrestCatalog(DerivaBinding):
     """Persistent handle for an ERMrest catalog.
@@ -156,37 +163,134 @@ class ErmrestCatalog(DerivaBinding):
             return None
         return entity[0], entity[1]
 
-    def getAsFile(self, path, destfilename, headers=DEFAULT_HEADERS, callback=None, delete_if_empty=False):
+    def getAsFile(self,
+                  path,
+                  destfilename,
+                  headers=DEFAULT_HEADERS,
+                  callback=None,
+                  delete_if_empty=False,
+                  paged=False,
+                  page_size=DEFAULT_PAGE_SIZE):
         """
            Retrieve catalog data streamed to destination file.
            Caller is responsible to clean up file even on error, when the file may or may not be exist.
            If "delete_if_empty" is True, the file will be inspected for "empty" content. In the case of
            json/json-stream content, the presence of a single empty JSON object will be tested for. In the case of
-           CSV content, the file will be parsed with CSV reader to determine that only a single header line and now row
+           CSV content, the file will be parsed with CSV reader to determine that only a single header line and no row
            data is present.
         """
         self.check_path(path)
+
+        # Only entity API supported with paged mode at this time, otherwise fallback. We fallback rather than raise an
+        # exception in the case that the caller might be trying to perform an opportunistic paged request without
+        # knowing a priori if paged support for the given query is available.
+        page_size = page_size if page_size > 0 else DEFAULT_PAGE_SIZE
+        if not path.startswith("/entity") and paged:
+            logging.debug("Paged data retrieval only supported for entity API queries.")
+            paged = False
+
+        # Only "application/x-json-stream" or "text/csv" supported with paged mode at this time, otherwise fallback.
+        accept = headers.get("accept")
+        if accept not in ("application/x-json-stream", "text/csv"):
+            logging.debug("Paged data retrieval not supported for content type: %s" % accept)
+            paged = False
 
         headers = headers.copy()
 
         destfile = open(destfilename, 'w+b')
 
         try:
-            r = self._session.get(self._server_uri + path, headers=headers, stream=True)
-            self._response_raise_for_status(r)
-            content_type = r.headers.get("Content-Type")
-
             total = 0
             start = datetime.datetime.now()
-            logging.debug("Transferring file %s to %s" % (self._server_uri + path, destfilename))
-            for buf in r.iter_content(chunk_size=DEFAULT_CHUNK_SIZE):
-                destfile.write(buf)
-                total += len(buf)
-                if callback:
-                    if not callback(progress="Downloading: %.2f MB transferred" % (float(total) / float(Megabyte))):
-                        destfile.close()
-                        return None
-            destfile.flush()
+            if not paged:
+                with self._session.get(self._server_uri + path, headers=headers, stream=True) as r:
+                    self._response_raise_for_status(r)
+                    content_type = r.headers.get("Content-Type")
+                    logging.debug("Transferring file %s to %s" % (self._server_uri + path, destfilename))
+                    for buf in r.iter_content(chunk_size=DEFAULT_CHUNK_SIZE):
+                        destfile.write(buf)
+                        total += len(buf)
+                        if callback:
+                            if not callback(progress="Downloading: %.2f MB transferred" %
+                                                     (float(total) / float(Megabyte))):
+                                destfile.close()
+                                return
+                destfile.flush()
+                os.fsync(destfile.fileno())
+            else:
+                first_page = True
+                first_line = None
+                last_record = None
+                while True:
+                    qualifier = "@sort(RID)%s?limit=%d" % \
+                               (("@after(%s)" % urlquote(last_record)) if last_record is not None else "", page_size)
+                    # 1. Try to get a page worth of data, back-off page size if query run time errors are encountered
+                    with self._session.get(self._server_uri + path + qualifier, headers=headers) as r:
+                        if r.status_code == 400 and "Query run time limit exceeded" in r.text:
+                            r.close()
+                            page_size //= 2
+                            page_size = 1 if page_size < 1 else page_size
+                            logging.warning("Query runtime exceeded while attempting to transfer rows from %s to file "
+                                            "[%s]. The page size is being reduced to %s and the query will be retried."
+                                            % (self._server_uri + path, destfilename, page_size))
+                            continue
+
+                        # 2. Write the page to disk and determine the last RID processed in order to get the next page
+                        last_line = None
+                        content_type = r.headers.get("Content-Type")
+                        logging.debug("Transferring file %s to %s" % (self._server_uri + path, destfilename))
+                        # CSV processing iterates over lines in the response, skipping the header line(s) in all but
+                        # the first page, and captures the last line of each page to determine the last record processed
+                        if content_type == "text/csv":
+                            skip = 1
+                            line_num = 0
+                            if first_page:
+                                lines = r.iter_lines(decode_unicode=True)
+                                reader = csv.reader(lines)
+                                first_line = next(reader)
+                                skip = reader.line_num
+                            for line in r.iter_lines():
+                                if not first_page:
+                                    line_num += 1
+                                    if line_num <= skip:
+                                        continue
+                                tline = line + b"\n"
+                                destfile.write(tline)
+                                total += len(tline)
+                                last_line = tline
+                            if last_line and last_line != first_line:
+                                reader = csv.DictReader([last_line.decode('utf-8')], first_line)
+                                last_line = next(reader)
+                            first_page = False
+                        # JSON-Stream processing writes the entire buffer to the destination file. The last line is
+                        # captured by reverse seeking in the buffer from right before the last b'\n' newline to the next
+                        # newline or buf[0], then calling readline from the current position
+                        elif content_type == "application/x-json-stream":
+                            buf = r.content
+                            if not buf:
+                                break
+                            destfile.write(buf)
+                            total += len(buf)
+                            b = io.BytesIO(buf)
+                            b.seek(-2, os.SEEK_END)
+                            while b.read(1) != b'\n':
+                                b.seek(-2, os.SEEK_CUR)
+                                if b.tell() == os.SEEK_SET:
+                                    break
+                            last_line = json.loads(b.readline().decode('utf-8'))
+
+                        # 3. Save the last record RID and flush the destination file buffers to disk.
+                        if not last_line:
+                            break
+                        destfile.flush()
+                        os.fsync(destfile.fileno())
+                        last_record = last_line['RID']
+                        if callback:
+                            if not callback(progress="Downloading: %.2f MB transferred" %
+                                                     (float(total) / float(Megabyte))):
+                                destfile.close()
+                                return
+
             elapsed = datetime.datetime.now() - start
             summary = get_transfer_summary(total, elapsed)
 
@@ -221,7 +325,6 @@ class ErmrestCatalog(DerivaBinding):
             if callback:
                 callback(summary=log_msg, file_path=destfilename)
 
-            return r
         finally:
             if destfile:
                 destfile.close()

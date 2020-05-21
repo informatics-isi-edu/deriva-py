@@ -39,6 +39,8 @@ class BaseQueryProcessor(BaseProcessor):
         self.ro_author_orcid = self.kwargs.get("ro_author_orcid")
         self.output_relpath = None
         self.output_abspath = None
+        self.paged_query = self.parameters.get("paged_query", False)
+        self.paged_query_size = self.parameters.get("paged_query_size", 100000)
 
     def process(self):
         resp = self.catalogQuery(headers={'accept': self.content_type})
@@ -68,7 +70,11 @@ class BaseQueryProcessor(BaseProcessor):
             make_dirs(output_dir)
         try:
             if as_file:
-                return self.catalog.getAsFile(self.query, self.output_abspath, headers=headers, delete_if_empty=True)
+                return self.catalog.getAsFile(self.query, self.output_abspath,
+                                              headers=headers,
+                                              delete_if_empty=True,
+                                              paged=self.paged_query,
+                                              page_size=self.paged_query_size)
             else:
                 return self.catalog.get(self.query, headers=headers).json()
         except requests.HTTPError as e:

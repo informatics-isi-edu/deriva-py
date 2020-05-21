@@ -223,6 +223,7 @@ def write_credential(credential_file=DEFAULT_CREDENTIAL_FILE, credential=DEFAULT
             credential_data = unicode(credential_data, 'utf-8')
         cf.write(credential_data)
         cf.flush()
+        os.fsync(cf.fileno())
 
 
 def read_credential(credential_file=DEFAULT_CREDENTIAL_FILE, create_default=False, default=DEFAULT_CREDENTIAL):
