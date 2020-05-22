@@ -877,7 +877,7 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                 return "You are already logged in."
             else:
                 response = self.gnl.login(hosts=args.hosts,
-                                          no_local_server=args.no_local_server,
+                                          no_local_server=args.no_local_server or args.no_browser,
                                           no_browser=args.no_browser,
                                           refresh_tokens=args.refresh,
                                           force=args.force,
@@ -906,13 +906,12 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
         parser.add_argument('--client-id', '-c', metavar='<client id>',
                             help="Use a different client ID than the default.")
         parser.add_argument("--no-local-server", action="store_true",
-                            help="Do not launch a local server to receive the authorization redirect response. "
-                                 "Use this argument along with --no-browser on a \"headless\" system without a GUI "
-                                 "environment where a web browser is not available.")
+                            help="Do not launch a local server to receive the authorization redirect response. You "
+                                 "will be required to input the response token from the authorization request.")
         parser.add_argument("--no-browser", action="store_true",
                             help="Do not launch a browser instance on this system for initiating the login flow. "
-                                 "Use this argument along with --no-local-server on a \"headless\" system without a "
-                                 "GUI environment where a web browser is not available.")
+                                 "Use this argument on a \"headless\" system without a GUI environment where a web "
+                                 "browser is not available.")
         parser.add_argument("--no-bdbag-keychain", action="store_true",
                             help="Do not update the bdbag keychain file with result access tokens. Default false.")
         parser.add_argument('--bdbag-keychain-file', metavar='<file>',
