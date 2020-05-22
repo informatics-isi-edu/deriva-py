@@ -410,24 +410,27 @@ class Export2GEO(object):
 
                     # check specimen tissue , if exist, add source
                     #/Src:=left(Tissue)=(Vocabulary:Anatomy:ID)
-                    for f in self.source_type:
-                        if f is None:
-                            continue
-                        else:
-                            characteristic_exist.append('Source')
-                            break
-                    for f in self.cell_type:
-                        if f is None:
-                            continue
-                        else:
-                            characteristic_exist.append('Cell_Type')
-                            break
-                    for f in self.specimen_allele:
-                        if f is None:
-                            continue
-                        else:
-                            characteristic_exist.append('Allele')
-                            break
+                    if self.source_type:
+                        for f in self.source_type:
+                            if f is None:
+                                continue
+                            else:
+                                characteristic_exist.append('Source')
+                                break
+                    if self.cell_type:
+                        for f in self.cell_type:
+                            if f is None:
+                                continue
+                            else:
+                                characteristic_exist.append('Cell_Type')
+                                break
+                    if self.specimen_allele:
+                        for f in self.specimen_allele:
+                            if f is None:
+                                continue
+                            else:
+                                characteristic_exist.append('Allele')
+                                break
 
                     # consolidated stage column
                     if 'Stage_ID' in characteristic_exist and 'Stage_Detail' in characteristic_exist:
@@ -534,7 +537,7 @@ class Export2GEO(object):
                                                         continue
                                                     elif sa['Allele_RID'] == a['RID']:
                                                         if a.get('Allele_Type') is not None:
-                                                            allele_info.append( a['Name'] + '(' + a['Allele_Type'] + ')' )
+                                                            allele_info.append( a['Name'] + ' (' + a['Allele_Type'] + ')' )
                                                         else:
                                                             allele_info.append( a['Name'] )
                                     
