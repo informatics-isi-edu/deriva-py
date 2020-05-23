@@ -96,6 +96,8 @@ def stob(string):
 
 
 def format_exception(e):
+    if not isinstance(e, Exception):
+        return str(e)
     exc = "".join(("[", type(e).__name__, "] "))
     if isinstance(e, requests.HTTPError):
         resp = " - Server responded: %s" % e.response.text.strip().replace('\n', ': ')

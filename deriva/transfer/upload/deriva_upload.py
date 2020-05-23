@@ -495,7 +495,11 @@ class DerivaUpload(object):
                     if status_callback:
                         status_callback()
                     self.uploadFile(file_path, asset_mapping, groupdict, file_callback)
-                    self.file_status[file_path] = FileUploadState(UploadState.Success, "Complete")._asdict()
+                    if self.cancelled:
+                        self.file_status[file_path] = FileUploadState(UploadState.Cancelled,
+                                                                      "Cancelled by user")._asdict()
+                    else:
+                        self.file_status[file_path] = FileUploadState(UploadState.Success, "Complete")._asdict()
                 except HatracJobPaused:
                     status = self.getTransferStateStatus(file_path)
                     if status:
@@ -561,6 +565,8 @@ class DerivaUpload(object):
             alg = alg.lower()
             self.metadata[alg] = checksum[0]
             self.metadata[alg + "_base64"] = checksum[1]
+        if self.cancelled:
+            return
 
         # 3. Execute any configured preprocessors
         self._execute_processors(file_path, asset_mapping, match_groupdict, processor_list=PRE_PROCESSORS_KEY)
