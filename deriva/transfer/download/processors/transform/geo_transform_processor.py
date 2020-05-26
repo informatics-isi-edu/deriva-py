@@ -577,8 +577,8 @@ class Export2GEO(object):
                         if f is None or 'Replicate_RID' not in f.keys():
                             continue
                         elif flagWhitelist and fileTypeWhiteList:
-                            for str in fileTypeWhiteList:
-                                if f.get('File_Name') is not None and f.get('File_Name').lower().endswith(str):
+                            for extension in fileTypeWhiteList:
+                                if f.get('File_Name') is not None and f.get('File_Name').lower().endswith(extension):
                                     validFile = True
                         else:
                             # if flagWhitelist == False then all the files are valid
