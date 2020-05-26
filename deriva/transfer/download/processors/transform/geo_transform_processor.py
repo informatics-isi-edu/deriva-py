@@ -563,13 +563,28 @@ class Export2GEO(object):
                     self.excel.write_cell(self.current_row_idx, local_col_idx, sample_description)
                     local_col_idx += 1
 
+                    
+                    
                     # processed files in template are write to supplementary file
-
-                    # writing raw file names
+                    # 1. set flagWhitelist to False then all the files will pass
+                    # 2. set flagWhitelist to True and fileEndingList to [] then no file will pass
+                    # 3. set flagWhitelist to True and fileEndingList to [xxx,yyy] then only files ending with xxx,yyy will pass
+                    flagWhitelist = True
+                    fileTypeWhiteList = [ ".bam",".fastq",".fastq.gz" ] 
+                    
                     for f in self.files:
+                        validFile = False
                         if f is None or 'Replicate_RID' not in f.keys():
                             continue
-                        elif f['Replicate_RID'] == r['RID']:
+                        elif flagWhitelist and fileTypeWhiteList:
+                            for str in fileTypeWhiteList:
+                                if f.get('File_Name') is not None and f.get('File_Name').lower().endswith(str):
+                                    validFile = True
+                        else:
+                            # if flagWhitelist == False then all the files are valid
+                            validFile = True
+                        
+                        if validFile and f['Replicate_RID'] == r['RID']:
                             file_path = self.parameters.get("replicate_files_path_template", f.get("File_Name", ""))
                             self.excel.write_cell(self.header_row_idx, local_col_idx, 'raw file', Style.HEADER)
                             self.excel.write_cell(self.current_row_idx, local_col_idx, file_path.format(**f))
