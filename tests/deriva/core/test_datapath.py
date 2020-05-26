@@ -81,7 +81,8 @@ def define_test_schema(catalog):
                 ('Time', _em.builtin_types.timestamptz),
                 ('Type', _em.builtin_types.text),
                 ('Project_Investigator', _em.builtin_types.text),
-                ('Project_Num', _em.builtin_types.int4)
+                ('Project_Num', _em.builtin_types.int4),
+                ('Empty', _em.builtin_types.int4)
             ]
         ],
         key_defs=[
@@ -113,7 +114,8 @@ def _generate_experiment_entities(types, count):
             "Time": "2018-01-{}T01:00:00.0".format(1 + (i % 31)),
             "Type": types[i % TEST_EXPTYPE_MAX]['ID'],
             "Project_Investigator": TEST_PROJ_INVESTIGATOR,
-            "Project_Num": TEST_PROJ_NUM
+            "Project_Num": TEST_PROJ_NUM,
+            "Empty": None
         }
         for i in range(count)
     ]
@@ -465,6 +467,30 @@ class DatapathTests (unittest.TestCase):
                 self.assertIn(bin.name, results[0])
                 self.assertIn(name, results[0])
                 self.assertTrue(compfn(name, results[0], results[1]))
+
+    @unittest.skipUnless(HAS_SUBTESTS, "This test is not available unless running python 3.4+")
+    def test_attributegroup_w_bin_resolution(self):
+        binkey = self.experiment.column_definitions['Empty']
+        binname = 'bin'
+        tests = [
+            ('min_max_valid', 0,    0,      True),
+            ('max_invalid',   0,    None,   False),
+            ('min_invalid',   None, 0,      False),
+            ('both_invalid',  None, None,   False)
+        ]
+        for name, minval, maxval, valid in tests:
+            def _do_query():
+                bin = Bin(binkey, 10, minval, maxval).alias(binname)
+                return self.experiment.groupby(bin).attributes(Avg(binkey).alias(name)).fetch()
+
+            with self.subTest(name=name):
+                if valid:
+                    results = _do_query()
+                    self.assertIn(binname, results[0])
+                    self.assertIn(name, results[0])
+                else:
+                    with self.assertRaises(ValueError):
+                        _do_query()
 
     def test_link_implicit(self):
         results = self.experiment.link(self.experiment_type).entities()

@@ -1515,3 +1515,5 @@ class AttributeGroup (object):
                     result = self._source.aggregates(*aggrs)[0]
                     bin.minval = result.get('minval', bin.minval)
                     bin.maxval = result.get('maxval', bin.maxval)
+                    if (bin.minval is None) or (bin.maxval is None):
+                        raise ValueError('Binning minimum or maximum must not be set to None')
