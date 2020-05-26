@@ -1516,4 +1516,4 @@ class AttributeGroup (object):
                     bin.minval = result.get('minval', bin.minval)
                     bin.maxval = result.get('maxval', bin.maxval)
                     if (bin.minval is None) or (bin.maxval is None):
-                        raise ValueError('Binning minimum or maximum must not be set to None')
+                        raise ValueError('Automatic determination of binning bounds failed.')
