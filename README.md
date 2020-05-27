@@ -14,11 +14,11 @@ Users are encouraged to download official releases from PyPi using `pip`.
 
 If you have root access and wish to install into your system Python directory, use the following command:
 ```
-$ sudo pip install deriva-py
+$ sudo pip install deriva
 ```
 Otherwise, it is recommended that you install into your user directory using the following command:
 ```
-$ pip install --user deriva-py
+$ pip install --user deriva
 ```
 
 #### Installation via Github
