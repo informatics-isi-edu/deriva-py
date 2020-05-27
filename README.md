@@ -8,11 +8,26 @@ Python APIs and CLIs (Command-Line Interfaces) for the DERIVA platform.
 
 ## Installing
 
-This project is mostly in an early development phase. The `master` branch is expect to be stable and usable at every
+#### Installation via PyPi
+
+Users are encouraged to download official releases from PyPi using `pip`.
+
+If you have root access and wish to install into your system Python directory, use the following command:
+```
+$ sudo pip install deriva-py
+```
+Otherwise, it is recommended that you install into your user directory using the following command:
+```
+$ pip install --user deriva-py
+```
+
+#### Installation via Github
+
+This project is actively developed. The `master` branch is expect to be stable and usable at every
 commit. The APIs and CLIs may change in backward-incompatible ways, so if you depend on an interface you should remember
 the GIT commit number.
 
-At this time, we recommend installing from source, which can be accomplished with the `pip` utility.
+Installing from source can also be accomplished with the `pip` utility.
 
 If you have root access and wish to install into your system Python directory, use the following command:
 ```
@@ -23,19 +38,6 @@ Otherwise, it is recommended that you install into your user directory using the
 $ pip install --user git+https://github.com/informatics-isi-edu/deriva-py.git
 ```
 
-## APIs
+## Documentation
 
-The APIs include:
-- low-level ERMrest interface (see `ErmrestCatalog`)
-- low-level Hatrac interface (see `HatracStore`)
-- higher-level APIs (see [documentation and tutorials](./docs/README.md))
-   - ERMrest catalog model and configuration
-   - ERMrest "data path"
-
-## CLIs
-
-The CLIs include:
-- `deriva-acl-config`: a command-line ERMrest ACL configuration utility (see [documentation](docs/cli/deriva-acl-config.md))
-- `deriva-hatrac-cli`: a command-line Hatrac client (see [documentation](docs/cli/deriva-hatrac-cli.md))
-- `deriva-download-cli`: a command-line utility for batch export and  download of tabular data from ERMrest and objects from Hatrac (see [documentation](docs/cli/deriva-download-cli.md))
-- `deriva-upload-cli`: a command-line data upload and metadata update utility
+See the `deriva-py` [documentation](http://docs.derivacloud.org/deriva-py/index.html) for additional information.  
