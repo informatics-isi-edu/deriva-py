@@ -912,7 +912,7 @@ class CatalogKey (NodeConfig):
         try:
             self.constraint_schema, self.constraint_name = _constraint_name_parts(self, key_doc)
         except ValueError:
-            self.constraint_schema, self.constraint_name = None, hash(self)
+            self.constraint_schema, self.constraint_name = None, str(hash(self))
         self.unique_columns = KeyedList([
             table.column_definitions[cname]
             for cname in key_doc['unique_columns']
@@ -990,7 +990,7 @@ class CatalogForeignKey (NodeConfigAclBinding):
         try:
             self.constraint_schema, self.constraint_name = _constraint_name_parts(self, fkey_doc)
         except ValueError:
-            self.constraint_schema, self.constraint_name = None, hash(self)
+            self.constraint_schema, self.constraint_name = None, str(hash(self))
         if self.constraint_schema:
             self.constraint_schema._fkeys[self.constraint_name] = self
         else:
