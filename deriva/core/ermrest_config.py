@@ -552,7 +552,7 @@ class KeyedList (list):
     def append(self, e):
         """Append element to list and record its key."""
         if e.name in self.elements:
-            raise ValueError('Element name %s already exists.' % e.name)
+            raise ValueError('Element name %s already exists.' % (e.name,))
         list.append(self, e)
         self.elements[e.name] = e
 
