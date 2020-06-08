@@ -527,7 +527,6 @@ class GlobusNativeLogin:
         keychain_file = keychain_file or bdbkc.DEFAULT_KEYCHAIN_FILE
         entry = {
             "uri": self.host_to_url(host),
-            "tag": self.__class__.__name__,
             "auth_type": "bearer-token",
             "auth_params": {
                 "token": token,
@@ -882,6 +881,7 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                                           refresh_tokens=args.refresh,
                                           force=args.force,
                                           requested_scopes=args.requested_scopes,
+                                          match_scope_tag=args.match_scope_tag,
                                           exclude_defaults=args.exclude_defaults,
                                           update_bdbag_keychain=not args.no_bdbag_keychain,
                                           bdbag_keychain_file=args.bdbag_keychain_file)
@@ -922,10 +922,12 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                             help="Force a login flow even if the current access token set is valid.")
         parser.add_argument("--show-tokens", action="store_true",
                             help="Display the tokens from the authorization response.")
+        parser.add_argument("--match-scope-tag", metavar="<scope tag>",
+                            help="When using the --hosts argument, specify an explicit scope tag to match against the "
+                                 "list of configured scopes for the given host(s).")
         parser.add_argument("--exclude-defaults", action="store_true",
-                            help="In addition to any specified scopes or host-to-scope mappings, include the default "
-                                 "set of scopes: [%s] and, when using the default client ID, the groups scope [%s]."
-                                 % (", ".join(DEFAULT_SCOPES), GROUPS_SCOPE_NAME))
+                            help="In addition to any specified scopes or host-to-scope mappings, do not include the "
+                                 "default set of scopes: [%s]" % ", ".join(DEFAULT_SCOPES))
         parser.set_defaults(func=login)
 
     def logout_init(self):
@@ -950,9 +952,8 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                                  "If not specified, an attempt will be made to determine the associated scope(s) by "
                                  "checking the local configuration or (if required) contacting each <host>.")
         parser.add_argument("--exclude-defaults", action="store_true",
-                            help="In addition to any specified scopes or host-to-scope mappings, include the default "
-                                 "set of scopes: [%s] and, when using the default client ID, the groups scope [%s]."
-                                 % (", ".join(DEFAULT_SCOPES), GROUPS_SCOPE_NAME))
+                            help="In addition to any specified scopes or host-to-scope mappings, do not include the "
+                                 "default set of scopes: [%s]" % ", ".join(DEFAULT_SCOPES))
         parser.add_argument('--bdbag-keychain-file', metavar='<file>',
                             help="Non-default path to a bdbag keychain file.")
         parser.set_defaults(func=logout)
