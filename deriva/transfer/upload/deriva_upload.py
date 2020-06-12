@@ -10,8 +10,8 @@ import logging
 import platform
 from collections import OrderedDict, namedtuple
 from deriva.core import ErmrestCatalog, HatracStore, HatracJobAborted, HatracJobPaused, \
-    HatracJobTimeout, urlquote, stob, format_exception, get_credential, read_config, write_config, copy_config, \
-    resource_path, make_dirs, lock_file, DEFAULT_CHUNK_SIZE, IS_PY2, __version__ as VERSION
+    HatracJobTimeout, urlquote, urlparse, stob, format_exception, get_credential, read_config, write_config, \
+    copy_config, resource_path, make_dirs, lock_file, DEFAULT_CHUNK_SIZE, IS_PY2, __version__ as VERSION
 from deriva.core.utils import hash_utils as hu, mime_utils as mu, version_utils as vu
 from deriva.transfer.upload import *
 from deriva.transfer.upload.processors import find_processor
@@ -749,11 +749,39 @@ class DerivaUpload(object):
             self.metadata["URI"] = hatrac_templates["hatrac_uri"].format(**self.metadata)
             # overridden content-disposition is optional
             content_disposition = hatrac_templates.get("content-disposition")
-            self.metadata["content-disposition"] = \
-                None if not content_disposition else content_disposition.format(**self.metadata)
+            if content_disposition:
+                filename = content_disposition.format(**self.metadata)
+            else:
+                filename = urlparse(self.metadata["URI"]).path.rsplit("/", 1)[-1]
+
+            sanitized_filename, sanitized_content_disp = \
+                self._validateHatracFilename(filename, asset_mapping.get("hatrac_options", {}))
+            if content_disposition:
+                self.metadata["content-disposition"] = sanitized_content_disp
+            else:
+                self.metadata["URI"] = self.metadata["URI"].replace(filename, sanitized_filename)
+
             self._urlEncodeMetadata(asset_mapping.get("url_encoding_safe_overrides"))
         except KeyError as e:
             raise DerivaUploadConfigurationError("Hatrac template substitution error: %s" % format_exception(e))
+
+    def _validateHatracFilename(self, filename, hatrac_options):
+        if not filename:
+            return None
+
+        sanitize = hatrac_options.get("sanitize_filenames", True)
+        pattern = hatrac_options.get("sanitize_filenames_pattern")
+        is_content_disp = re.match(r"filename\*?=['\"]?(?:UTF-\d['\"]*)?([^;\r\n\"']*)['\"]?;?", filename)
+        if is_content_disp:
+            filename = is_content_disp.group(1)
+        pattern = pattern if pattern else "[^a-zA-Z0-9_.-]"
+        sanitized_filename = urlquote(re.sub(pattern, "_", filename)) if sanitize else filename
+        if is_content_disp:
+            content_disp = is_content_disp.string.replace(filename, sanitized_filename)
+        else:
+            content_disp = "filename*=UTF-8''" + sanitized_filename
+
+        return sanitized_filename, content_disp
 
     def _hatracUpload(self,
                       uri,
@@ -1073,14 +1101,14 @@ class DerivaUpload(object):
             try:
                 self.transfer_state_fh.flush()
                 os.fsync(self.transfer_state_fh.fileno())
-                self.transfer_state_fh.close()
             except Exception as e:
                 logger.warning("Unable to flush/close transfer state file: %s" % format_exception(e))
             finally:
                 for entry in self.transfer_state_locks.values():
                     lock = entry.get("lock")
-                    if lock:
+                    if lock and not lock.fh.closed:
                         lock.release()
+                self.transfer_state_locks.clear()
                 self.transfer_state_fh = None
 
     def getTransferStateStatus(self, file_path):
