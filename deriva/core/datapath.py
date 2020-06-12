@@ -1,4 +1,5 @@
 from . import urlquote
+import copy
 from datetime import date
 import logging
 import re
@@ -135,6 +136,15 @@ class DataPath (object):
         self._identifiers = []
         self._bind_table_instance(root)
 
+    def __deepcopy__(self, memodict={}):
+        cp = DataPath(
+            copy.deepcopy(self._root, memo=memodict)
+        )
+        cp._table_instances = copy.deepcopy(self._table_instances, memo=memodict)
+        cp.context = copy.deepcopy(self._context, memo=memodict)
+        cp._identifiers = copy.deepcopy(self._identifiers, memo=memodict)
+        return cp
+
     def __dir__(self):
         return dir(DataPath) + self._identifiers
 
@@ -143,6 +153,37 @@ class DataPath (object):
             return self._table_instances[a]
         else:
             return getattr(super(DataPath, self), a)
+
+    def extend(self, path):
+        """Extends the current path with the given path.
+
+        The 'path' (right-hand path) must be rooted on a TableAlias that exists (by alias name) within this path
+        (the left-hand path). It _must_ have no other shared table aliases.
+
+        :param path: a datapath to be "joined" onto this path
+        :return: this path mutated by extension with the new right-hand 'path'
+        """
+        if not isinstance(path, DataPath):
+            raise TypeError("path must be a DataPath")
+        if path._root.name not in self._table_instances:
+            raise ValueError("right-hand path must be rooted on a table alias found in this path")
+        if self._table_instances.keys() & path._table_instances.keys() != {path._root.name}:
+            raise ValueError("only the right-hand root table instance may overlap with left-hand table instances")
+
+        # extend self path
+        temp = copy.deepcopy(path._path_expression)
+        temp.rebase(self._path_expression)
+        self._path_expression = temp
+
+        # add extended table instances (validate no funny business)
+        for alias in path._table_instances:
+            if alias not in self.table_instances:
+                self._bind_table_instance(copy.deepcopy(path._table_instances[alias]))
+
+        # set the context
+        self._context = self._table_instances[path._context.name]
+
+        return self
 
     @property
     def table_instances(self):
@@ -475,6 +516,9 @@ class Table (object):
             for cdoc in table_doc.get('column_definitions', [])
         }
 
+    def __deepcopy__(self, memodict={}):
+        return Table(self.sname, self.name, self._table_doc, **self._kwargs)
+
     def __dir__(self):
         return dir(Table) + ['catalog', 'sname', 'name'] + [key for key in self.column_definitions if _isidentifier(key)]
 
@@ -713,6 +757,12 @@ class TableAlias (Table):
         self._base_table = base_table
         self.name = alias_name
         self._parent = None
+
+    def __deepcopy__(self, memodict={}):
+        return TableAlias(
+            copy.deepcopy(self._base_table, memo=memodict),
+            self.name
+        )
 
     @property
     def uname(self):
@@ -1073,6 +1123,9 @@ class PathOperator (object):
             raise Exception("Cannot extend a path after an attribute projection")
         self._r = r
 
+    def __deepcopy__(self, memodict={}):
+        raise NotImplementedError()
+
     @property
     def _path(self):
         assert isinstance(self._r, PathOperator)
@@ -1086,12 +1139,32 @@ class PathOperator (object):
     def __str__(self):
         return "/%s/%s" % (self._mode, self._path)
 
+    def rebase(self, base):
+        """Rebases the current path expression to begin as a reset context following 'base'.
+
+        :param base: a valid path expresion
+        :return: self mutated as described _or_ a new 'ResetContext' instance, if self was the root
+        """
+        if isinstance(self, Root):
+            return ResetContext(base, self._table)
+        else:
+            pathobj = self
+            while not isinstance(pathobj._r, Root):
+                pathobj = self._r
+            pathobj._r = ResetContext(base, pathobj._r._table)
+            return self
+
 
 class Root (PathOperator):
     def __init__(self, r):
         super(Root, self).__init__(r)
         assert isinstance(r, Table)
         self._table = r
+
+    def __deepcopy__(self, memodict={}):
+        return Root(
+            copy.deepcopy(self._table, memo=memodict)
+        )
 
     @property
     def _path(self):
@@ -1110,6 +1183,12 @@ class ResetContext (PathOperator):
         assert isinstance(alias, TableAlias)
         self._alias = alias
 
+    def __deepcopy__(self, memodict={}):
+        return ResetContext(
+            copy.deepcopy(self._r, memo=memodict),
+            copy.deepcopy(self._alias, memo=memodict)
+        )
+
     @property
     def _path(self):
         assert isinstance(self._r, PathOperator)
@@ -1121,6 +1200,12 @@ class Filter(PathOperator):
         super(Filter, self).__init__(r)
         assert isinstance(formula, Predicate)
         self._formula = formula
+
+    def __deepcopy__(self, memodict={}):
+        return Filter(
+            copy.deepcopy(self._r, memo=memodict),
+            copy.deepcopy(self._formula, memo=memodict)
+        )
 
     @property
     def _path(self):
@@ -1141,8 +1226,9 @@ class Project (PathOperator):
         """Initializes the projection component.
 
         :param r: the parent path component.
-        :param projection_type: valid type in MODES
-        :param projection: projection list
+        :param r: the 'mode' of the projection (entity, attribute, etc.)
+        :param projection: projection list.
+        :param group_key: grouping keys list.
         """
         super(Project, self).__init__(r)
         assert mode in self.MODES
@@ -1166,6 +1252,15 @@ class Project (PathOperator):
             self._group_key = [obj.projection_name for obj in group_key]
 
         self._projection = [obj.projection_name for obj in projection]
+
+    def __deepcopy__(self, memodict={}):
+        cp = Project(
+            copy.deepcopy(self._r, memo=memodict)
+        )
+        cp._projection_mode = self._projection_mode
+        cp._projection = copy.deepcopy(self._projection, memo=memodict)
+        cp._group_key = copy.deepcopy(self._group_key, memo=memodict)
+        return cp
 
     @property
     def _path(self):
@@ -1193,6 +1288,14 @@ class Link (PathOperator):
         self._on = on
         self._as = as_
         self._join_type = join_type
+
+    def __deepcopy__(self, memodict={}):
+        return Link(
+            copy.deepcopy(self._r, memo=memodict),
+            copy.deepcopy(self._on, memo=memodict),
+            as_=copy.deepcopy(self._as, memo=memodict),
+            join_type=self._join_type
+        )
 
     @property
     def _path(self):
