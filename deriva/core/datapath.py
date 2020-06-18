@@ -164,39 +164,6 @@ class DataPath (object):
         else:
             return getattr(super(DataPath, self), a)
 
-    def merge(self, path):
-        """Merges the current path with the given path.
-
-        The right-hand 'path' must be rooted on a `TableAlias` object that exists (by alias name) within this path
-        (the left-hand path). It _must not_ have other shared table aliases.
-
-        :param path: a `DataPath` object rooted on a table alias that can be found in this path
-        :return: this path merged with the given (right-hand) path
-        """
-        if not isinstance(path, DataPath):
-            raise TypeError("'path' must be an instance of %s" % type(self).__name__)
-        if path._root.name not in self._table_instances:
-            raise ValueError("right-hand path root not found in this path's table instances")
-        if not path._root.equivalent(self._table_instances[path._root.name]):
-            raise ValueError("right-hand path root is not equivalent to the matching table instance in this path")
-        if self._table_instances.keys() & path._table_instances.keys() != {path._root.name}:
-            raise ValueError("overlapping table instances found in right-hand path")
-
-        # update this path as rebased right-hand path
-        temp = copy.deepcopy(path._path_expression)
-        temp.rebase(self._path_expression, self._table_instances[path._root.name])
-        self._path_expression = temp
-
-        # copy and bind table instances from right-hand path
-        for alias in path._table_instances:
-            if alias not in self.table_instances:
-                self._bind_table_instance(copy.deepcopy(path._table_instances[alias]))
-
-        # set the context
-        self._context = self._table_instances[path._context.name]
-
-        return self
-
     @property
     def table_instances(self):
         return self._table_instances
@@ -444,6 +411,39 @@ class DataPath (object):
                     raise e
 
         return ResultSet(self._base_uri + base_path, fetcher)
+
+    def merge(self, path):
+        """Merges the current path with the given path.
+
+        The right-hand 'path' must be rooted on a `TableAlias` object that exists (by alias name) within this path
+        (the left-hand path). It _must not_ have other shared table aliases.
+
+        :param path: a `DataPath` object rooted on a table alias that can be found in this path
+        :return: this path merged with the given (right-hand) path
+        """
+        if not isinstance(path, DataPath):
+            raise TypeError("'path' must be an instance of %s" % type(self).__name__)
+        if path._root.name not in self._table_instances:
+            raise ValueError("right-hand path root not found in this path's table instances")
+        if not path._root.equivalent(self._table_instances[path._root.name]):
+            raise ValueError("right-hand path root is not equivalent to the matching table instance in this path")
+        if self._table_instances.keys() & path._table_instances.keys() != {path._root.name}:
+            raise ValueError("overlapping table instances found in right-hand path")
+
+        # update this path as rebased right-hand path
+        temp = copy.deepcopy(path._path_expression)
+        temp.rebase(self._path_expression, self._table_instances[path._root.name])
+        self._path_expression = temp
+
+        # copy and bind table instances from right-hand path
+        for alias in path._table_instances:
+            if alias not in self.table_instances:
+                self._bind_table_instance(copy.deepcopy(path._table_instances[alias]))
+
+        # set the context
+        self._context = self._table_instances[path._context.name]
+
+        return self
 
 
 class ResultSet (object):
