@@ -164,28 +164,30 @@ class DataPath (object):
         else:
             return getattr(super(DataPath, self), a)
 
-    def extend(self, path):
-        """Extends the current path with the given path.
+    def merge(self, path):
+        """Merges the current path with the given path.
 
-        The 'path' (right-hand path) must be rooted on a TableAlias that exists (by alias name) within this path
-        (the left-hand path). It _must_ have no other shared table aliases.
+        The right-hand 'path' must be rooted on a `TableAlias` object that exists (by alias name) within this path
+        (the left-hand path). It _must not_ have other shared table aliases.
 
-        :param path: a datapath to be "joined" onto this path
-        :return: this path mutated by extension with the new right-hand 'path'
+        :param path: a `DataPath` object rooted on a table alias that can be found in this path
+        :return: this path merged with the given (right-hand) path
         """
         if not isinstance(path, DataPath):
-            raise TypeError("path must be a DataPath")
+            raise TypeError("'path' must be an instance of %s" % type(self).__name__)
         if path._root.name not in self._table_instances:
-            raise ValueError("right-hand path must be rooted on a table alias found in this path")
+            raise ValueError("right-hand path root not found in this path's table instances")
+        if not path._root.equivalent(self._table_instances[path._root.name]):
+            raise ValueError("right-hand path root is not equivalent to the matching table instance in this path")
         if self._table_instances.keys() & path._table_instances.keys() != {path._root.name}:
-            raise ValueError("only the right-hand root table instance may overlap with left-hand table instances")
+            raise ValueError("overlapping table instances found in right-hand path")
 
-        # extend self path
+        # update this path as rebased right-hand path
         temp = copy.deepcopy(path._path_expression)
-        temp.rebase(self._path_expression)
+        temp.rebase(self._path_expression, self._table_instances[path._root.name])
         self._path_expression = temp
 
-        # add extended table instances (validate no funny business)
+        # copy and bind table instances from right-hand path
         for alias in path._table_instances:
             if alias not in self.table_instances:
                 self._bind_table_instance(copy.deepcopy(path._table_instances[alias]))
@@ -769,6 +771,16 @@ class TableAlias (Table):
         # deep copy implementation of a table alias should not make copies of model objects (ie, the base table)
         return TableAlias(self._base_table, self.name)
 
+    def equivalent(self, alias):
+        """Equivalence comparison between table aliases.
+
+        :param alias: another table alias
+        :return: True, if the base table and alias name match, else False
+        """
+        if not isinstance(alias, TableAlias):
+            raise TypeError("'alias' must be an instance of '%s'" % type(self).__name__)
+        return self.name == alias.name and self._base_table == alias._base_table
+
     @property
     def uname(self):
         """the url encoded name"""
@@ -1148,19 +1160,23 @@ class PathOperator (object):
     def __str__(self):
         return "/%s/%s" % (self._mode, self._path)
 
-    def rebase(self, base):
+    def rebase(self, base, root_context):
         """Rebases the current path expression to begin as a reset context following 'base'.
 
         :param base: a valid path expresion
-        :return: self mutated as described _or_ a new 'ResetContext' instance, if self was the root
+        :param root_context: root context on which to rebase this path expression
+        :return: rebased expresion _or_ a new `ResetContext` instance if `self` was the root
         """
+        assert isinstance(base, PathOperator)
+        assert isinstance(root_context, TableAlias)
         if isinstance(self, Root):
             return ResetContext(base, self._table)
         else:
             pathobj = self
             while not isinstance(pathobj._r, Root):
                 pathobj = self._r
-            pathobj._r = ResetContext(base, pathobj._r._table)
+            assert root_context.equivalent(pathobj._r._table)
+            pathobj._r = ResetContext(base, root_context)
             return self
 
 

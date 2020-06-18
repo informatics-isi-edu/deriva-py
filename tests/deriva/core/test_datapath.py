@@ -707,6 +707,18 @@ class DatapathTests (unittest.TestCase):
                 self.assertNotEqual(path, cp)
                 self.assertEqual(path.uri, cp.uri)
 
+    def test_merge_paths(self):
+        path1 = self.experiment.filter(self.experiment.Amount >= 0)
+        path2 = self.experiment.link(self.experiment_type).filter(self.experiment_type.ID >= '0')
+        path3 = self.experiment.link(self.project).filter(self.project.Num >= 0)
+        original_uri = path1.uri
+
+        # merge paths 1..3
+        path1.merge(path2).merge(path3)
+        self.assertNotEqual(path1.uri, original_uri, "Merged path's URI should have changed from its original URI")
+        self.assertEqual(path1.context.name, path3.context.name, "Context of merged paths should equal far right-hand path's context")
+        self.assertGreater(len(path1.Experiment.entities()), 0, "Should have returned results")
+
 
 if __name__ == '__main__':
     sys.exit(unittest.main())
