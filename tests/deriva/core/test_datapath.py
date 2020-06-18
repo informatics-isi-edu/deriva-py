@@ -5,6 +5,7 @@
 #  DERIVA_PY_TEST_CREDENTIAL: user credential, if none, it will attempt to get credentail for given hostname
 #  DERIVA_PY_TEST_VERBOSE: set for verbose logging output to stdout
 
+from copy import deepcopy
 import logging
 from operator import itemgetter
 import os
@@ -671,6 +672,40 @@ class DatapathTests (unittest.TestCase):
         ig = itemgetter(*nondefaults)
         for i in range(TEST_EXP_MAX):
             self.assertEqual(ig(results[i]), ig(entities_copy[i]), 'copied values do not match')
+
+    @unittest.skipUnless(HAS_SUBTESTS, "This test is not available unless running python 3.4+")
+    def test_deepcopy_of_paths(self):
+        paths = [
+            self.experiment.path,
+            self.experiment.link(self.experiment_type),
+            self.experiment.link(self.experiment_type, on=(self.experiment.Type == self.experiment_type.ID)),
+            self.experiment.link(
+                self.project,
+                on=(
+                        (self.experiment.Project_Investigator == self.project.Investigator) &
+                        (self.experiment.Project_Num == self.project.Num)
+                )
+            ),
+            self.project.filter(self.project.Num < 1000).link(self.experiment).link(self.experiment_type),
+            self.experiment.alias('Exp').link(self.experiment_type.alias('ExpType')),
+            self.experiment.filter(self.experiment.column_definitions['Name'] == TEST_EXP_NAME_FORMAT.format(1)),
+            self.experiment.filter(self.experiment.column_definitions['Amount'] < 10),
+            self.experiment.filter(
+                self.experiment.column_definitions['Name'].ciregexp(TEST_EXP_NAME_FORMAT.format(0)[10:])
+            ),
+            self.experiment.filter(
+                ~ (self.experiment.column_definitions['Name'].ciregexp(TEST_EXP_NAME_FORMAT.format(0)[10:]))
+            ),
+            self.experiment.filter(
+                self.experiment.column_definitions['Name'].ciregexp(TEST_EXP_NAME_FORMAT.format(0)[10:])
+                & (self.experiment.column_definitions['Amount'] == 0)
+            )
+        ]
+        for path in paths:
+            with self.subTest(name=path.uri):
+                cp = deepcopy(path)
+                self.assertNotEqual(path, cp)
+                self.assertEqual(path.uri, cp.uri)
 
 
 if __name__ == '__main__':

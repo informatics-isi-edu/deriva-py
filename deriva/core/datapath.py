@@ -4,7 +4,6 @@ from datetime import date
 import logging
 import re
 from requests import HTTPError
-import warnings
 
 logger = logging.getLogger(__name__)
 """Logger for this module"""
@@ -137,12 +136,23 @@ class DataPath (object):
         self._bind_table_instance(root)
 
     def __deepcopy__(self, memodict={}):
-        cp = DataPath(
-            copy.deepcopy(self._root, memo=memodict)
-        )
-        cp._table_instances = copy.deepcopy(self._table_instances, memo=memodict)
-        cp.context = copy.deepcopy(self._context, memo=memodict)
-        cp._identifiers = copy.deepcopy(self._identifiers, memo=memodict)
+        cp = DataPath(copy.deepcopy(self._root, memo=memodict))
+        for alias in copy.deepcopy(self._table_instances, memo=memodict).values():
+            if alias != cp._root:
+                cp._bind_table_instance(alias)
+        cp._context = cp._table_instances[self._context.name]
+        cp._path_expression = copy.deepcopy(self._path_expression, memo=memodict)
+        assert not cp._table_instances.keys() - set(cp._identifiers)
+        assert cp._table_instances.keys() == self._table_instances.keys()
+        assert cp._identifiers == self._identifiers
+        assert cp._root.name in cp._table_instances
+        assert cp._root == cp._table_instances[cp._root.name]
+        assert cp._root != self._root
+        assert cp._root.name == self._root.name
+        assert cp._context != self._context
+        assert cp._context.name == self._context.name
+        assert str(cp._path_expression) == str(self._path_expression)
+        assert cp._path_expression != self._path_expression
         return cp
 
     def __dir__(self):
@@ -516,9 +526,6 @@ class Table (object):
             for cdoc in table_doc.get('column_definitions', [])
         }
 
-    def __deepcopy__(self, memodict={}):
-        return Table(self.sname, self.name, self._table_doc, **self._kwargs)
-
     def __dir__(self):
         return dir(Table) + ['catalog', 'sname', 'name'] + [key for key in self.column_definitions if _isidentifier(key)]
 
@@ -759,10 +766,8 @@ class TableAlias (Table):
         self._parent = None
 
     def __deepcopy__(self, memodict={}):
-        return TableAlias(
-            copy.deepcopy(self._base_table, memo=memodict),
-            self.name
-        )
+        # deep copy implementation of a table alias should not make copies of model objects (ie, the base table)
+        return TableAlias(self._base_table, self.name)
 
     @property
     def uname(self):
@@ -984,7 +989,11 @@ class ColumnAlias (object):
         assert isinstance(base_column, Column)
         super(ColumnAlias, self).__init__()
         self.name = alias_name
-        self.base_column = base_column
+        self._base_column = base_column
+
+    def __deepcopy__(self, memodict={}):
+        # deep copy implementation of a column alias should not make copies of model objects (ie, the base column)
+        return ColumnAlias(self._base_column, self.name)
 
     def describe(self):
         """Provides a description of the model element.
@@ -992,7 +1001,7 @@ class ColumnAlias (object):
         :return: a user-friendly string representation of the model element.
         """
         return "Column name: '%s'\tAlias for: %s" % \
-               (self.name, self.base_column.describe())
+               (self.name, self._base_column.describe())
 
     def _repr_html_(self):
         return self.describe()
@@ -1005,16 +1014,16 @@ class ColumnAlias (object):
     @property
     def fqname(self):
         """the url encoded fully qualified name"""
-        return self.base_column.fqname
+        return self._base_column.fqname
 
     @property
     def instancename(self):
-        return self.base_column.instancename
+        return self._base_column.instancename
 
     @property
     def projection_name(self):
         """In a projection, the object uses this name."""
-        return "%s:=%s" % (self.uname, self.base_column.instancename)
+        return "%s:=%s" % (self.uname, self._base_column.instancename)
 
     @property
     def desc(self):
@@ -1030,7 +1039,7 @@ class ColumnAlias (object):
         :param other: `None` or any other literal value.
         :return: a filter predicate object
         """
-        return self.base_column.eq(other)
+        return self._base_column.eq(other)
 
     __eq__ = eq
 
@@ -1040,7 +1049,7 @@ class ColumnAlias (object):
         :param other: a literal value.
         :return: a filter predicate object
         """
-        return self.base_column.lt(other)
+        return self._base_column.lt(other)
 
     __lt__ = lt
 
@@ -1050,7 +1059,7 @@ class ColumnAlias (object):
         :param other: a literal value.
         :return: a filter predicate object
         """
-        return self.base_column.le(other)
+        return self._base_column.le(other)
 
     __le__ = le
 
@@ -1060,7 +1069,7 @@ class ColumnAlias (object):
         :param other: a literal value.
         :return: a filter predicate object
         """
-        return self.base_column.gt(other)
+        return self._base_column.gt(other)
 
     __gt__ = gt
 
@@ -1070,7 +1079,7 @@ class ColumnAlias (object):
         :param other: a literal value.
         :return: a filter predicate object
         """
-        return self.base_column.ge(other)
+        return self._base_column.ge(other)
 
     __ge__ = ge
 
@@ -1080,7 +1089,7 @@ class ColumnAlias (object):
         :param other: a _string_ literal value.
         :return: a filter predicate object
         """
-        return self.base_column.regexp(other)
+        return self._base_column.regexp(other)
 
     def ciregexp(self, other):
         """Returns a 'case-insensitive regular expression' comparison predicate.
@@ -1088,7 +1097,7 @@ class ColumnAlias (object):
         :param other: a _string_ literal value.
         :return: a filter predicate object
         """
-        return self.base_column.ciregexp(other)
+        return self._base_column.ciregexp(other)
 
     def ts(self, other):
         """Returns a 'text search' comparison predicate.
@@ -1096,7 +1105,7 @@ class ColumnAlias (object):
         :param other: a _string_ literal value.
         :return: a filter predicate object
         """
-        return self.base_column.ts(other)
+        return self._base_column.ts(other)
 
 
 class SortDescending (object):
@@ -1118,13 +1127,13 @@ class SortDescending (object):
 
 class PathOperator (object):
     def __init__(self, r):
-        assert isinstance(r, PathOperator) or isinstance(r, Table)
+        assert isinstance(r, PathOperator) or isinstance(r, TableAlias)
         if isinstance(r, Project):
             raise Exception("Cannot extend a path after an attribute projection")
         self._r = r
 
     def __deepcopy__(self, memodict={}):
-        raise NotImplementedError()
+        return type(self)(copy.deepcopy(self._r, memo=memodict))
 
     @property
     def _path(self):
@@ -1158,13 +1167,8 @@ class PathOperator (object):
 class Root (PathOperator):
     def __init__(self, r):
         super(Root, self).__init__(r)
-        assert isinstance(r, Table)
+        assert isinstance(r, TableAlias)
         self._table = r
-
-    def __deepcopy__(self, memodict={}):
-        return Root(
-            copy.deepcopy(self._table, memo=memodict)
-        )
 
     @property
     def _path(self):
@@ -1184,10 +1188,7 @@ class ResetContext (PathOperator):
         self._alias = alias
 
     def __deepcopy__(self, memodict={}):
-        return ResetContext(
-            copy.deepcopy(self._r, memo=memodict),
-            copy.deepcopy(self._alias, memo=memodict)
-        )
+        return ResetContext(copy.deepcopy(self._r, memo=memodict), copy.deepcopy(self._alias, memo=memodict))
 
     @property
     def _path(self):
@@ -1202,10 +1203,7 @@ class Filter(PathOperator):
         self._formula = formula
 
     def __deepcopy__(self, memodict={}):
-        return Filter(
-            copy.deepcopy(self._r, memo=memodict),
-            copy.deepcopy(self._formula, memo=memodict)
-        )
+        return Filter(copy.deepcopy(self._r, memo=memodict), copy.deepcopy(self._formula, memo=memodict))
 
     @property
     def _path(self):
@@ -1254,9 +1252,7 @@ class Project (PathOperator):
         self._projection = [obj.projection_name for obj in projection]
 
     def __deepcopy__(self, memodict={}):
-        cp = Project(
-            copy.deepcopy(self._r, memo=memodict)
-        )
+        cp = super(Project, self).__deepcopy__(memodict=memodict)
         cp._projection_mode = self._projection_mode
         cp._projection = copy.deepcopy(self._projection, memo=memodict)
         cp._group_key = copy.deepcopy(self._group_key, memo=memodict)
@@ -1280,9 +1276,16 @@ class Project (PathOperator):
 
 class Link (PathOperator):
     def __init__(self, r, on, as_=None, join_type=''):
+        """Initialize the Link operator
+
+        :param r: parent path operator
+        :param on: a table alias, a comparison predicate, or a conjunction of comparisons
+        :param as_: table alias
+        :param join_type: left, right or full for outer join semantics, or '' for inner join semantics
+        """
         super(Link, self).__init__(r)
-        assert isinstance(on, ComparisonPredicate) or isinstance(on, Table) or (
-                isinstance(on, ConjunctionPredicate) and on.is_valid_join_condition)
+        assert isinstance(on, ComparisonPredicate) or isinstance(on, TableAlias) or (
+                isinstance(on, ConjunctionPredicate) and on.is_valid_join_condition), "Invalid join 'on' clause"
         assert as_ is None or isinstance(as_, TableAlias)
         assert join_type == '' or (join_type in ('left', 'right', 'full') and isinstance(on, Predicate))
         self._on = on
@@ -1362,6 +1365,10 @@ class ComparisonPredicate (Predicate):
         self._lop = lop
         self._op = op
         self._rop = rop
+
+    def __deepcopy__(self, memodict={}):
+        # deep copy of predicate should not deep copy the model object references (i.e., Column objects)
+        return ComparisonPredicate(self._lop, self._op, self._rop)
 
     @property
     def is_equality(self):
