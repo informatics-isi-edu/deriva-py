@@ -82,6 +82,30 @@ class Catalog (object):
         else:
             return getattr(super(Catalog, self), a)
 
+    @classmethod
+    def compose(cls, *paths):
+        """Compose path fragments into a path.
+
+        The root of any path fragment must be found in the table instances of the currently composed path from left
+        to right, _but_ it does not have to be the current context (last table instance) of the last left hand path.
+
+        Paths must not have overlapping table instances with the currently composed path from left to right, except for
+        each subsequent path's root table instance which _must_ be defined in one of the left hand paths.
+
+        No input path in 'paths' will be mutated.
+
+        :param paths: instances of `DataPath`
+        :return: a new `DataPath` instance composed from the 'paths'
+        """
+        if not paths:
+            raise ValueError("No input path(s) given")
+        if not all(isinstance(path, DataPath) for path in paths):
+            raise TypeError("Input 'paths' must be an instance of %s" % type(DataPath).__name__)
+        base = copy.deepcopy(paths[0])
+        for path in paths[1:]:
+            base.merge(path)
+        return base
+
 
 class Schema (object):
     """Represents a Schema.

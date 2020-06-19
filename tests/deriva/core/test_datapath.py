@@ -719,6 +719,21 @@ class DatapathTests (unittest.TestCase):
         self.assertEqual(path1.context.name, path3.context.name, "Context of merged paths should equal far right-hand path's context")
         self.assertGreater(len(path1.Experiment.entities()), 0, "Should have returned results")
 
+    def test_compose_paths(self):
+        path1 = self.experiment.filter(self.experiment.Amount >= 0)
+        path2 = self.experiment.link(self.experiment_type).filter(self.experiment_type.ID >= '0')
+        path3 = self.experiment.link(self.project).filter(self.project.Num >= 0)
+        original_uri = path1.uri
+
+        # compose paths 1..3
+        path = self.paths.compose(path1, path2, path3)
+        self.assertNotEqual(path, path1, "Compose should have copied the first path rather than mutate it")
+        self.assertNotEqual(path.uri, path1.uri, "Composed path URI should not match the first path URI")
+        self.assertEqual(path1.uri, original_uri, "First path was changed")
+        self.assertNotEqual(path.uri, original_uri, "Merged path's URI should have changed from its original URI")
+        self.assertEqual(path.context.name, path3.context.name, "Context of composed paths should equal far right-hand path's context")
+        self.assertGreater(len(path.Experiment.entities()), 0, "Should have returned results")
+
 
 if __name__ == '__main__':
     sys.exit(unittest.main())
