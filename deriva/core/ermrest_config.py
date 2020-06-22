@@ -665,7 +665,7 @@ class CatalogTable (NodeConfigAclBinding):
             raise ValueError('column %s object is not from this table object' % (column,))
         elif column in self.column_definitions.elements:
             return self.column_definitions[column]
-        raise ValueError('value %s does not name a defined column in this table' % (c,))
+        raise ValueError('value %s does not name a defined column in this table' % (column,))
 
     def key_by_columns(self, unique_columns, raise_nomatch=True):
         """Return key from self.keys with matching unique columns.
