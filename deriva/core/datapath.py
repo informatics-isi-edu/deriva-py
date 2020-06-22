@@ -277,80 +277,89 @@ class DataPath (object):
 
         return self
 
-    def entities(self, *attributes, **renamed_attributes):
+    def entities(self):
         """Returns a results set of whole entities from this data path's current context.
 
         ```
         results1 = my_path.entities()
-        results2 = my_path.entities(col1, col2)  # WARNING. Deprecated usage. Use the `attributes(...)` method instead.
         ```
 
-        :param attributes: DEPRECATED.
-        :param renamed_attributes: DEPRECATED.
         :return: a result set of entities where each element is a whole entity per the table definition and policy.
         """
-        if attributes or renamed_attributes:
-            warnings.warn("Use of 'attributes' or 'renamed_attributes' in 'entities(...)' is deprecated. Use 'attributes(...)' instead.", DeprecationWarning)
-        return self._query(attributes, renamed_attributes)
+        return self._query()
 
-    def aggregates(self, **functions):
+    def aggregates(self, *functions):
         """Returns a results set of computed aggregates from this data path.
 
-        By using the built-in subclasses of the `AggregateFunction` class, including `Min`, `Max`, `Avg`, `Cnt`, `CntD`,
-        `Array`, and `ArrayD`, aggregates can be computed and fetched. These aggregates must be passed as named
+        By using the built-in subclasses of the `AggregateFunction` class, including `Min`, `Max`, `Sum`, `Avg`, `Cnt`,
+        `CntD`, `Array`, and `ArrayD`, aggregates can be computed and fetched. These aggregates must be passed as named
         parameters since they require _alias names_.
 
         ```
-        results1 = my_path.aggregates(min_col1=Min(col1), arr_col2=Array(col2))
-        results2 = my_path.aggregates(Min(col1), Array(col2))  # Error! Aggregates must be named.
-        results3 = my_path.aggregates(col1, arr_col2=Array(col2))  # Error! Cannot mix columns and aggregate functions.
+        results1 = my_path.aggregates(Min(col1).alias('mincol1'), Array(col2).alias('arrcol2'))
+        results2 = my_path.aggregates(Min(col1), Array(col2))  # Error! Aggregates must be aliased.
+        results3 = my_path.aggregates(col1, Array(col2).alias('arrcol2'))  # Error! Cannot mix columns and aggregate functions.
         ```
 
-        :param functions: named parameters of type AggregateFunction
+        :param functions: aliased functions of type AggregateFunctionAlias
         :return: a results set with a single row of results.
         """
-        return self._query([], functions)
+        return self._query(mode=Project.AGGREGATE, projection=list(functions))
 
-    def attributegroups(self, group_key, **functions):
-        """Returns a results set of computed aggregates for groups of attributes from this data path.
-
-        Aggregates over groups, as specified by a `group_key`, can be computed and fetched. Note that the `group_key`
-        named parameter is therefore _reserved_ for any invocation of the `attributegroups(...)` method.
-
-        ```
-        results1 = my_path.attributegroups(group_key=col1, min_col1=Min(col2), arr_col2=Array(col3))  # 1 group key
-        results2 = my_path.attributegroups(group_key=(col1, col2), min_col1=Min(col3), arr_col2=Array(col4))  # >1 group keys
-        ```
-
-        As with aggregation, callers must not mix ordinary columns in with grouped aggregates.
-
-        :param group_key: a Column or a set of Columns to be used as the group key for grouping the computations on.
-        :param functions: named parameters of type AggregateFunction
-        :return: a results set with a row of results for each group.
-        """
-        functions['group_key'] = group_key
-        return self._query([], functions)
-
-    def attributes(self, *attributes, **renamed_attributes):
+    def attributes(self, *attributes):
         """Returns a results set of attributes projected and optionally renamed from this data path.
 
         ```
         results1 = my_path.attributes(col1, col2)  # fetch a subset of attributes of the path
-        results2 = my_path.attributes(foo=col1, bar=col2)  # fetch and rename the attributes
-        results3 = my_path.attributes(col1, bar=col2)  # rename some but not others
+        results2 = my_path.attributes(col1.alias('col_1'), col2.alias('col_2'))  # fetch and rename the attributes
+        results3 = my_path.attributes(col1, col2.alias('col_2'))  # rename some but not others
         ```
 
         :param attributes: a list of Columns.
-        :param renamed_attributes: a list of renamed Columns.
         :return: a results set of the projected attributes from this data path.
         """
-        return self._query(attributes, renamed_attributes)
+        return self._query(mode=Project.ATTRIBUTE, projection=list(attributes))
 
-    def _query(self, attributes, renamed_attributes, context=None):
+    def groupby(self, *keys):
+        """Returns an attribute group object.
+
+        The attribute group object returned by this method can be used to get a results set of computed aggregates for
+        groups of attributes from this data path.
+
+        With a single group key:
+        ```
+        results1 = my_path.groupby(col1).attributes(Min(col2).alias('min_col1'), Array(col3).alias('arr_col2'))
+        ```
+
+        With more than one group key:
+        ```
+        results2 = my_path.groupby(col1, col2).attributes(Min(col3).alias('min_col1'), Array(col4).alias('arr_col2'))
+        ```
+
+        With aliased group keys:
+        ```
+        results3 = my_path.groupby(col1.alias('key_one'), col2.alias('keyTwo'))\
+                          .attributes(Min(col3).alias('min_col1'), Array(col4).alias('arr_col2'))
+        ```
+
+        With binning:
+        ```
+        results3 = my_path.groupby(col1.alias('key_one'), Bin(col2;10;0;9999).alias('my_bin'))\
+                          .attributes(Min(col3).alias('min_col1'), Array(col4).alias('arr_col2'))
+        ```
+
+        :param keys: a list of columns, aliased columns, or aliased bins, to be used as the grouping key.
+        :return: an attribute group that supports an `.attributes(...)` method that accepts columns, aliased columns,
+        and/or aliased aggregate functions as its arguments.
+        """
+        return AttributeGroup(self, self._query, keys)
+
+    def _query(self, mode='entity', projection=[], group_key=[], context=None):
         """Internal method for querying the data path from the perspective of the given 'context'.
 
-        :param attributes: a list of Columns.
-        :param renamed_attributes: a list of renamed Columns or AggregateFunctions
+        :param mode: a valid mode in Project.MODES
+        :param projection: a projection list.
+        :param group_key: a group key list (only for attributegroup queries).
         :param context: optional context for the query.
         :return: a results set.
         """
@@ -360,8 +369,8 @@ class DataPath (object):
         expression = self._path_expression
         if context:
             expression = ResetContext(expression, context)
-        if attributes or renamed_attributes:
-            expression = Project(expression, attributes, renamed_attributes)
+        if mode != Project.ENTITY:
+            expression = Project(expression, mode, projection, group_key)
         base_path = str(expression)
 
         def fetcher(limit=None, sort=None):
@@ -399,7 +408,7 @@ class ResultSet (object):
         assert fetcher_fn is not None
         self._fetcher_fn = fetcher_fn
         self._results_doc = None
-        self._dataframe = None
+        self._sort_keys = None
         self.uri = uri
 
     @property
@@ -407,18 +416,6 @@ class ResultSet (object):
         if self._results_doc is None:
             self.fetch()
         return self._results_doc
-
-    @property
-    def dataframe(self):
-        """Pandas DataFrame representation of this path.
-
-        :return: a pandas dataframe object
-        :raise ImportError: exception if the 'pandas' library is not available
-        """
-        if not self._dataframe:
-            from pandas import DataFrame
-            self._dataframe = DataFrame(self._results)
-        return self._dataframe
 
     def __len__(self):
         return len(self._results)
@@ -429,17 +426,29 @@ class ResultSet (object):
     def __iter__(self):
         return iter(self._results)
 
-    def fetch(self, limit=None, sort=None):
+    def sort(self, *attributes):
+        """Orders the results set by the given attributes.
+
+        :param keys: Columns, column aliases, or aggregate function aliases. The sort attributes must be projected by
+        the originating query.
+        :return: self
+        """
+        if not attributes:
+            raise ValueError("No sort attributes given.")
+        if not all(isinstance(a, Column) or isinstance(a, ColumnAlias) or (a, AggregateFunctionAlias) for a in attributes):
+            raise ValueError("Sort keys must be column, column alias, or aggregate function alias")
+        self._sort_keys = attributes
+        self._results_doc = None
+        return self
+
+    def fetch(self, limit=None):
         """Fetches the results from the catalog.
 
         :param limit: maximum number of results to fetch from the catalog.
-        :param sort: collection of columns to use for sorting. Note that if using the `attributes(...)` query interface,
-        the columns in the sort list _must_ be explicitly listed in the `attributes(...)` call.
         :return: self
         """
         limit = int(limit) if limit else None
-        self._results_doc = self._fetcher_fn(limit, sort)
-        self._dataframe = None  # clear potentially cached state
+        self._results_doc = self._fetcher_fn(limit, self._sort_keys)
         logger.debug("Fetched %d entities" % len(self._results_doc))
         return self
 
@@ -505,6 +514,11 @@ class Table (object):
         return '*'
 
     @property
+    def projection_name(self):
+        """In a projection, the object uses this name."""
+        return self.instancename
+
+    @property
     def fromname(self):
         return self.fqname
 
@@ -547,40 +561,37 @@ class Table (object):
         """See the docs for this method in `DataPath` for more information."""
         return self._contextualized_path.link(right, on, join_type)
 
-    def _query(self, attributes, renamed_attributes):
+    def _query(self, mode='entity', projection=[], group_key=[], context=None):
         """Invokes query on the path for this table."""
-        return self.path._query(attributes, renamed_attributes)
+        return self.path._query(mode, projection, group_key=group_key, context=context)
 
-    def entities(self, *attributes, **renamed_attributes):
+    def entities(self):
         """Returns a results set of whole entities from this data path's current context.
 
         See the docs for this method in `DataPath` for more information.
         """
-        if attributes or renamed_attributes:
-            warnings.warn("Use of 'attributes' or 'renamed_attributes' in 'entities(...)' is deprecated. Use 'attributes(...)' instead.", DeprecationWarning)
-        return self._query(attributes, renamed_attributes)
+        return self._query()
 
-    def aggregates(self, **functions):
+    def aggregates(self, *functions):
         """Returns a results set of computed aggregates from this data path.
 
         See the docs for this method in `DataPath` for more information.
         """
-        return self._query([], functions)
+        return self._query(mode=Project.AGGREGATE, projection=list(functions))
 
-    def attributegroups(self, group_key, **functions):
-        """Returns a results set of computed aggregates for groups of attributes from this data path.
-
-        See the docs for this method in `DataPath` for more information.
-        """
-        functions['group_key'] = group_key
-        return self._query([], functions)
-
-    def attributes(self, *attributes, **renamed_attributes):
+    def attributes(self, *attributes):
         """Returns a results set of attributes projected and optionally renamed from this data path.
 
         See the docs for this method in `DataPath` for more information.
         """
-        return self._query(attributes, renamed_attributes)
+        return self._query(mode=Project.ATTRIBUTE, projection=list(attributes))
+
+    def groupby(self, *keys):
+        """Returns an attribute group object.
+
+        See the docs for this method in `DataPath` for more information.
+        """
+        return AttributeGroup(self, self._query, keys)
 
     def insert(self, entities, defaults=set(), nondefaults=set(), add_system_defaults=True):
         """Inserts entities into the table.
@@ -718,6 +729,11 @@ class TableAlias (Table):
         return self.uname + ":*"
 
     @property
+    def projection_name(self):
+        """In a projection, the object uses this name."""
+        return self.instancename
+
+    @property
     def fromname(self):
         return "%s:=%s" % (self.uname, self._base_table.fqname)
 
@@ -752,9 +768,9 @@ class TableAlias (Table):
     def uri(self):
         return self.path._contextualized_uri(self)
 
-    def _query(self, attributes, renamed_attributes):
+    def _query(self, mode='entity', projection=[], group_key=[], context=None):
         """Overridden method to set context of query to this table instance."""
-        return self.path._query(attributes, renamed_attributes, self)
+        return self.path._query(mode, projection, group_key=group_key, context=self)
 
 
 class Column (object):
@@ -804,6 +820,11 @@ class Column (object):
             return "%s:%s" % (self._table.uname, self.uname)
         else:
             return self.uname
+
+    @property
+    def projection_name(self):
+        """In a projection, the object uses this name."""
+        return self.instancename
 
     @property
     def desc(self):
@@ -896,22 +917,153 @@ class Column (object):
             logger.warning("'ts' method comparison only supports string literals.")
         return ComparisonPredicate(self, "::ts::", other)
 
+    def alias(self, name):
+        """Returns an alias for this column."""
+        return ColumnAlias(self, name)
 
-class SortDescending (object):
-    """Represents a descending sort condition.
+
+class ColumnAlias (object):
+    """Represents an (output) alias for a column instance in a path.
     """
-    def __init__(self, col):
-        """Creates sort descending object.
+    def __init__(self, base_column, alias_name):
+        """Initializes the column alias.
 
-        :param col: a column object
+        :param base_column: the base column to be given an alias name
+        :param alias_name: the alias name
         """
-        assert isinstance(col, Column)
-        self.col = col
+        assert isinstance(base_column, Column)
+        super(ColumnAlias, self).__init__()
+        self.name = alias_name
+        self.base_column = base_column
+
+    def describe(self):
+        """Provides a description of the model element.
+
+        :return: a user-friendly string representation of the model element.
+        """
+        return "Column name: '%s'\tAlias for: %s" % \
+               (self.name, self.base_column.describe())
+
+    def _repr_html_(self):
+        return self.describe()
 
     @property
     def uname(self):
         """the url encoded name"""
-        return urlquote(self.col.uname) + "::desc::"
+        return urlquote(self.name)
+
+    @property
+    def fqname(self):
+        """the url encoded fully qualified name"""
+        return self.base_column.fqname
+
+    @property
+    def instancename(self):
+        return self.base_column.instancename
+
+    @property
+    def projection_name(self):
+        """In a projection, the object uses this name."""
+        return "%s:=%s" % (self.uname, self.base_column.instancename)
+
+    @property
+    def desc(self):
+        """A descending sort modifier based on this column."""
+        return SortDescending(self)
+
+    def __str__(self):
+        return self.name
+
+    def eq(self, other):
+        """Returns an 'equality' comparison predicate.
+
+        :param other: `None` or any other literal value.
+        :return: a filter predicate object
+        """
+        return self.base_column.eq(other)
+
+    __eq__ = eq
+
+    def lt(self, other):
+        """Returns a 'less than' comparison predicate.
+
+        :param other: a literal value.
+        :return: a filter predicate object
+        """
+        return self.base_column.lt(other)
+
+    __lt__ = lt
+
+    def le(self, other):
+        """Returns a 'less than or equal' comparison predicate.
+
+        :param other: a literal value.
+        :return: a filter predicate object
+        """
+        return self.base_column.le(other)
+
+    __le__ = le
+
+    def gt(self, other):
+        """Returns a 'greater than' comparison predicate.
+
+        :param other: a literal value.
+        :return: a filter predicate object
+        """
+        return self.base_column.gt(other)
+
+    __gt__ = gt
+
+    def ge(self, other):
+        """Returns a 'greater than or equal' comparison predicate.
+
+        :param other: a literal value.
+        :return: a filter predicate object
+        """
+        return self.base_column.ge(other)
+
+    __ge__ = ge
+
+    def regexp(self, other):
+        """Returns a 'regular expression' comparison predicate.
+
+        :param other: a _string_ literal value.
+        :return: a filter predicate object
+        """
+        return self.base_column.regexp(other)
+
+    def ciregexp(self, other):
+        """Returns a 'case-insensitive regular expression' comparison predicate.
+
+        :param other: a _string_ literal value.
+        :return: a filter predicate object
+        """
+        return self.base_column.ciregexp(other)
+
+    def ts(self, other):
+        """Returns a 'text search' comparison predicate.
+
+        :param other: a _string_ literal value.
+        :return: a filter predicate object
+        """
+        return self.base_column.ts(other)
+
+
+class SortDescending (object):
+    """Represents a descending sort condition.
+    """
+    def __init__(self, attr):
+        """Creates sort descending object.
+
+        :param attr: a column, column alias, or aggrfn alias object
+        """
+        assert isinstance(attr, Column) or isinstance(attr, ColumnAlias) or isinstance(attr, AggregateFunctionAlias)
+        self._attr = attr
+
+    @property
+    def uname(self):
+        """the url encoded name"""
+        return urlquote(self._attr.uname) + "::desc::"
 
 
 class PathOperator (object):
@@ -977,72 +1129,58 @@ class Filter(PathOperator):
 
 
 class Project (PathOperator):
-    def __init__(self, r, attributes, renamed_attributes):
+    """Projection path component."""
+
+    ENTITY = 'entity'
+    ATTRIBUTE = 'attribute'
+    AGGREGATE = 'aggregate'
+    ATTRGROUP = 'attributegroup'
+    MODES = (ENTITY, ATTRIBUTE, AGGREGATE, ATTRGROUP)
+
+    def __init__(self, r, mode=ENTITY, projection=[], group_key=[]):
+        """Initializes the projection component.
+
+        :param r: the parent path component.
+        :param projection_type: valid type in MODES
+        :param projection: projection list
+        """
         super(Project, self).__init__(r)
-        assert len(attributes) > 0 or len(renamed_attributes) > 0
-        self._attrs = []
+        assert mode in self.MODES
+        assert mode == self.ENTITY or mode == self.ATTRGROUP or len(projection) > 0
+        assert mode != self.ATTRGROUP or len(group_key) > 0
+        self._projection_mode = mode
+        self._projection = []
         self._group_key = []
-        self._inferred_mode = 'attribute'
 
-        # Validate attributes
-        for elem in attributes:
-            if not (isinstance(elem, Column) or isinstance(elem, Table)):
-                message = "Invalid value in attributes: %s." % str(elem)
-                if isinstance(elem, AggregateFunction):
-                    message += " Aggregate functions not allowed in attributes list, use renamed attributes instead."
-                elif isinstance(elem, str):
-                    message += " Try using the explicit syntax of \"path_or_table.column_definitions['your_column_name']\"."
-                raise ValueError(message)
+        if mode == self.ATTRIBUTE:
+            if not all(isinstance(obj, Table) or isinstance(obj, TableAlias) or isinstance(obj, Column) or isinstance(obj, ColumnAlias) for obj in projection):
+                raise ValueError("Only columns or column aliases can be retrieved by an 'attribute' query.")
+        elif mode == self.AGGREGATE:
+            if not all(isinstance(obj, AggregateFunctionAlias) for obj in projection):
+                raise ValueError("Only aggregate function aliases can be retrieved by an 'aggregate' query.")
+        elif mode == self.ATTRGROUP:
+            if not all(isinstance(obj, Column) or isinstance(obj, ColumnAlias) or isinstance(obj, AggregateFunctionAlias) for obj in projection):
+                raise ValueError("Only columns, column aliases, or aggregate function aliases can be retrieved by an 'attributegroup' query.")
+            if not all(isinstance(obj, Column) or isinstance(obj, ColumnAlias) or isinstance(obj, AggregateFunctionAlias) for obj in group_key):
+                raise ValueError("Only column aliases or aggregate function aliases can be used to group an 'attributegroup' query.")
+            self._group_key = [obj.projection_name for obj in group_key]
 
-        # Validate renamed attributes
-        for key in renamed_attributes:
-            elem = renamed_attributes[key]
-            if not (isinstance(elem, Column) or isinstance(elem, AggregateFunction)):
-                message = "Invalid value in renamed attributes: %s=%s." % (str(key), str(elem))
-                if isinstance(elem, str):
-                    message += " Try using the explicit syntax of \"%s=path_or_table.column_definitions['your_column_name']\"." % key
-                raise ValueError(message)
-
-        # Validate group_key, if it exists
-        if 'group_key' in renamed_attributes:
-            group_key = renamed_attributes['group_key']
-            del renamed_attributes['group_key']
-            if isinstance(group_key, Column):
-                self._group_key = [group_key.instancename]
-            elif not all(isinstance(col, Column) for col in group_key):
-                raise ValueError("Group keys must be Column objects.")
-            else:
-                self._group_key = [col.instancename for col in group_key]
-            self._inferred_mode = 'attributegroup'
-
-        # Validate generalized projection, if applicable
-        aggregates = [isinstance(elem, AggregateFunction) for elem in renamed_attributes.values()]
-        if any(aggregates):
-            if not all(aggregates):
-                raise ValueError("Aggregate functions must be used exclusively or not at all.")
-            if not self._group_key:
-                self._inferred_mode = 'aggregate'
-
-        # Build the projection list
-        self._attrs = [
-            attr.instancename for attr in attributes
-        ] + [
-            "%s:=%s" % (urlquote(out_alias), attr.instancename) for out_alias, attr in renamed_attributes.items()
-        ]
+        self._projection = [obj.projection_name for obj in projection]
 
     @property
     def _path(self):
         assert isinstance(self._r, PathOperator)
-        grouping = ','.join(self._group_key)
-        projection = ','.join(self._attrs)
-        if grouping and projection:
+        projection = ','.join(self._projection)
+        if self._projection_mode == self.ATTRGROUP:
+            assert self._group_key
+            grouping = ','.join(self._group_key)
             return "%s/%s;%s" % (self._r._path, grouping, projection)
         else:
-            return "%s/%s" % (self._r._path, grouping or projection)
+            return "%s/%s" % (self._r._path, projection)
 
     @property
     def _mode(self):
-        return self._inferred_mode
+        return self._projection_mode
 
 
 class Link (PathOperator):
@@ -1207,22 +1345,26 @@ class NegationPredicate (Predicate):
 
 class AggregateFunction (object):
     """Base class of all aggregate functions."""
-    def __init__(self, name, operand):
+    def __init__(self, op, operand):
         """Initializes the aggregate function.
 
-        :param name: name of the function per ERMrest specification.
+        :param op: name of the function per ERMrest specification.
         :param operand: single operand of the function; a Column, Table, or TableAlias object.
         """
         super(AggregateFunction, self).__init__()
-        self.name = name
+        self.op = op
         self.operand = operand
 
     def __str__(self):
-        return "%s(%s)" % (self.name, self.operand)
+        return "%s(%s)" % (self.op, self.operand)
 
     @property
     def instancename(self):
-        return "%s(%s)" % (self.name, self.operand.instancename)
+        return "%s(%s)" % (self.op, self.operand.instancename)
+
+    def alias(self, alias_name):
+        """Returns an (output) alias for this aggregate function instance."""
+        return AggregateFunctionAlias(self, alias_name)
 
 
 class Min (AggregateFunction):
@@ -1237,8 +1379,14 @@ class Max (AggregateFunction):
         super(Max, self).__init__('max', operand)
 
 
+class Sum (AggregateFunction):
+    """Aggregate function for sum of non-NULL values."""
+    def __init__(self, operand):
+        super(Sum, self).__init__('sum', operand)
+
+
 class Avg (AggregateFunction):
-    """Aggregate function for average non-NULL value."""
+    """Aggregate function for average of non-NULL values."""
     def __init__(self, operand):
         super(Avg, self).__init__('avg', operand)
 
@@ -1265,3 +1413,107 @@ class ArrayD (AggregateFunction):
     """Aggregate function for an array containing distinct values (including NULL)."""
     def __init__(self, operand):
         super(ArrayD, self).__init__('array_d', operand)
+
+
+class Bin (AggregateFunction):
+    """Binning function."""
+    def __init__(self, operand, nbins, minval=None, maxval=None):
+        """Initialize the bin function.
+
+        If `minval` or `maxval` are not given, they will be set based on the min and/or max values for the column
+        (`operand` parameter) as determined by issuing an aggregate query over the current data path.
+
+        :param operand: a column or aliased column instance
+        :param nbins: number of bins
+        :param minval: minimum value (optional)
+        :param maxval: maximum value (optional)
+        """
+        super(Bin, self).__init__('bin', operand)
+        if not (isinstance(operand, Column) or isinstance(operand, ColumnAlias)):
+            raise ValueError("Bin operand must be a column or column alias")
+        self.nbins = nbins
+        self.minval = minval
+        self.maxval = maxval
+
+    def __str__(self):
+        return "%s(%s;%s;%s;%s)" % (self.op, self.operand, self.nbins, self.minval, self.maxval)
+
+    @property
+    def instancename(self):
+        return "%s(%s;%s;%s;%s)" % (self.op, self.operand.instancename, self.nbins, self.minval, self.maxval)
+
+
+class AggregateFunctionAlias (object):
+    """Alias for aggregate functions."""
+    def __init__(self, fn, alias_name):
+        """Initializes the aggregate function alias.
+
+        :param fn: aggregate function instance
+        :param alias_name: alias name
+        """
+        super(AggregateFunctionAlias, self).__init__()
+        assert isinstance(fn, AggregateFunction)
+        self.fn = fn
+        self.name = alias_name
+
+    def __str__(self):
+        return str(self.fn)
+
+    @property
+    def uname(self):
+        return urlquote(self.name)
+
+    @property
+    def projection_name(self):
+        """In a projection, the object uses this name."""
+        return "%s:=%s" % (self.uname, self.fn.instancename)
+
+    @property
+    def desc(self):
+        """A descending sort modifier based on this alias."""
+        return SortDescending(self)
+
+
+class AttributeGroup (object):
+    """A computed attribute group."""
+    def __init__(self, source, queryfn, keys):
+        """Initializes an attribute group instance.
+
+        :param source: the source object for the group (DataPath, Table, TableAlias)
+        :param queryfn: a query function that takes mode, projection, and group_key parameters
+        :param keys: an iterable collection of group keys
+        """
+        super(AttributeGroup, self).__init__()
+        assert any(isinstance(source, valid_type) for valid_type in [DataPath, Table, TableAlias])
+        assert isinstance(keys, tuple)
+        if not keys:
+            raise ValueError("No groupby keys.")
+        self._source = source
+        self._queryfn = queryfn
+        self._grouping_keys = list(keys)
+
+    def attributes(self, *attributes):
+        """Returns a results set of attributes projected and optionally renamed from this group.
+
+        :param attributes: the columns, aliased columns, and/or aliased aggregate functions to be retrieved for this group.
+        :return: a results set of the projected attributes from this group.
+        """
+        self._resolve_binning_ranges()
+        return self._queryfn(mode=Project.ATTRGROUP, projection=list(attributes), group_key=self._grouping_keys)
+
+    def _resolve_binning_ranges(self):
+        """Helper method to resolve any unspecified binning ranges."""
+        for key in self._grouping_keys:
+            if isinstance(key, AggregateFunctionAlias) and isinstance(key.fn, Bin):
+                bin = key.fn
+                aggrs = []
+                if bin.minval is None:
+                    aggrs.append(Min(bin.operand).alias('minval'))
+                if bin.maxval is None:
+                    aggrs.append(Max(bin.operand).alias('maxval'))
+                if aggrs:
+                    result = self._source.aggregates(*aggrs)[0]
+                    bin.minval = result.get('minval', bin.minval)
+                    bin.maxval = result.get('maxval', bin.maxval)
+                    if (bin.minval is None) or (bin.maxval is None):
+                        raise ValueError('Automatic determination of binning bounds failed.')

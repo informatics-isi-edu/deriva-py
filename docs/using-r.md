@@ -2,11 +2,6 @@
 
 The [reticulate](https://rstudio.github.io/reticulate/) package can be used to call deriva-py functions from R. This writeup assumes familiarity with R and with the python-based examples in the deriva-py datapath tutorials.
 
-To call deriva-py within R, first install the python `pandas` library:
-```
-pip install --user --upgrade pandas
-```
-
 Then, in R, install reticulate:
 ```
 install.packages("reticulate")
@@ -69,19 +64,23 @@ A couple things to notice: `catalog_number` is set to "1L"; setting it to "1" wo
 At this point, we could look at the contents of the entire dataset:
 
 ```
-dataset$entities().dataframe
+results <- dataset$entities()
+iterate(results, print)
 ```
 
 But that's a large table, so let's do some filtering. In Python, this is how we'd get a data frame of all dataset
 records that were created more recently than November 1, 2018:
 ```
-dataset.filter(dataset.RCT > "2018-11-01").entities().dataframe
+dataset.filter(dataset.RCT > "2018-11-01").entities()
 ```
 
 The `>` filter operator won't work in R, so we need to use an alternate syntax:
 ```
-dataset$filter(dataset$RCT$gt("2018-11-01"))$entities()$dataframe
+results <- dataset$filter(dataset$RCT$gt("2018-11-01"))$entities()
+iterate(results, print)
 ```
+
+Other filters may be converted similarly.
 
 | Python filter syntax | R filter syntax |
 |  --- | --- |
@@ -91,5 +90,10 @@ dataset$filter(dataset$RCT$gt("2018-11-01"))$entities()$dataframe
 | col > val | col$gt(val) |
 | col >= val | col$ge(val) |
 
-For more information, see the datapath tutorial and the [reticulate documentation](https://rstudio.github.io/reticulate/index.html).
+Datapath results can also be converted into dataframes via the python `pandas` library.
+```
+pandas <- import("pandas")
+results <- pandas$DataFrame(iterate(dataset$entities()))
+```
 
+For more information, see the datapath tutorial and the [reticulate documentation](https://rstudio.github.io/reticulate/index.html).

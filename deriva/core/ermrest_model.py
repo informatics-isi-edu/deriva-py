@@ -492,7 +492,7 @@ class KeyedList (list):
     def append(self, e):
         """Append element to list and record its key."""
         if e.name in self.elements:
-            raise ValueError('Element name %s already exists.' % e.name)
+            raise ValueError('Element name %s already exists.' % (e.name,))
         list.append(self, e)
         self.elements[e.name] = e
 
@@ -520,6 +520,11 @@ class Table (object):
             for fkdoc in table_doc.get('foreign_keys', [])
         ])
         self.referenced_by = KeyedList([])
+
+    @property
+    def columns(self):
+        """Sugared access to self.column_definitions"""
+        return self.column_definitions
 
     @property
     def catalog(self):
@@ -677,7 +682,7 @@ class Table (object):
             add_vocab_columns(column_defs),
             add_vocab_keys(key_defs),
             fkey_defs,
-            comment if comment is not None else 'A set of controlled vocabular terms.',
+            comment,
             acls,
             acl_bindings,
             annotations,
@@ -936,7 +941,7 @@ class Table (object):
             raise ValueError('column %s object is not from this table object' % (column,))
         elif column in self.column_definitions.elements:
             return self.column_definitions[column]
-        raise ValueError('value %s does not name a defined column in this table' % (c,))
+        raise ValueError('value %s does not name a defined column in this table' % (column,))
 
     def _create_table_part(self, subapi, registerfunc, constructor, doc):
         r = self.catalog.post(
@@ -1299,8 +1304,11 @@ class Column (object):
         Returns self (to allow for optional chained access).
 
         """
-        if type is not nochange and not isinstance(type, Type):
-            raise TypeError('Parameter "type" %s should be an instance of Type.' % (type,))
+        if type is not nochange:
+            if not isinstance(type, Type):
+                raise TypeError('Parameter "type" %s should be an instance of Type.' % (type,))
+            type = type.prejson()
+
         changes = strip_nochange({
             'name': name,
             'type': type,
@@ -1404,11 +1412,16 @@ class Key (object):
         try:
             self.constraint_schema, self.constraint_name = _constraint_name_parts(self, key_doc)
         except ValueError:
-            self.constraint_schema, self.constraint_name = None, hash(self)
-        self.unique_columns = [
+            self.constraint_schema, self.constraint_name = None, str(hash(self))
+        self.unique_columns = KeyedList([
             table.column_definitions[cname]
             for cname in key_doc['unique_columns']
-        ]
+        ])
+
+    @property
+    def columns(self):
+        """Sugared access to self.unique_columns"""
+        return self.unique_columns
 
     @property
     def catalog(self):
@@ -1542,10 +1555,10 @@ class Key (object):
     def drop(self):
         """Remove this key from the remote database.
         """
-        if self.names[0] not in self.table.keys.elements:
+        if self.name not in self.table.keys.elements:
             raise ValueError('Key %s does not appear to belong to table %s.' % (self, self.table))
-        self.catalog.delete(self.uri_path).raise_for_status()
-        del self.table.keys[self.names[0]]
+        self.catalog.delete(self.update_uri_path).raise_for_status()
+        del self.table.keys[self.name]
 
 class ForeignKey (object):
     """Named foreign key.
@@ -1562,15 +1575,15 @@ class ForeignKey (object):
         try:
             self.constraint_schema, self.constraint_name = _constraint_name_parts(self, fkey_doc)
         except ValueError:
-            self.constraint_schema, self.constraint_name = None, hash(self)
+            self.constraint_schema, self.constraint_name = None, str(hash(self))
         if self.constraint_schema:
             self.constraint_schema._fkeys[self.constraint_name] = self
         else:
             self.table.schema.model._pseudo_fkeys[self.constraint_name] = self
-        self.foreign_key_columns = [
+        self.foreign_key_columns = KeyedList([
             table.column_definitions[coldoc['column_name']]
             for coldoc in fkey_doc['foreign_key_columns']
-        ]
+        ])
         self._referenced_columns_doc = fkey_doc['referenced_columns']
         self.referenced_columns = None
 
@@ -1580,12 +1593,25 @@ class ForeignKey (object):
             pk_sname = self._referenced_columns_doc[0]['schema_name']
             pk_tname = self._referenced_columns_doc[0]['table_name']
             self.pk_table = model.schemas[pk_sname].tables[pk_tname]
-            self.referenced_columns = [
+            self.referenced_columns = KeyedList([
                 self.pk_table.column_definitions[coldoc['column_name']]
                 for coldoc in self._referenced_columns_doc
-            ]
+            ])
             self._referenced_columns_doc = None
             self.pk_table.referenced_by.append(self)
+
+    @property
+    def column_map(self):
+        """Mapping of foreign_key_columns elements to referenced_columns elements."""
+        return {
+            fk_col: pk_col
+            for fk_col, pk_col in zip(self.foreign_key_columns, self.referenced_columns)
+        }
+
+    @property
+    def columns(self):
+        """Sugared access to self.column_definitions"""
+        return self.foreign_key_columns
 
     @property
     def catalog(self):

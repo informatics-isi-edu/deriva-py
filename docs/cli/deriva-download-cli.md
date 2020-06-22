@@ -52,7 +52,7 @@ All operations are performed with respect to a specific host and most hosts will
 require authentication. If the `--host HOSTNAME` option is not given, `localhost` will be assumed.
 
 #### `<config file>`
-A path to a configuration file is required.  The format and syntax of the file is described [below](#configuration_file)
+A path to a configuration file is required.  The format and syntax of the can be [configuration file](#example-configuration-file) is described below.
 
 #### `<output dir>`
 A path to a output base directory is required. This can be an absolute path or a path relative to the current working directory.
@@ -89,7 +89,8 @@ The `bag` object is an OPTIONAL element which, if present, declares that the agg
 `catalog:queries` array should be packaged as a [`bagit`](ttps://en.wikipedia.org/wiki/BagIt) formatted container.  The `bag` element contains
 various optional parameters which control bag creation specifics.
 
-Example configuration file:
+<a name="example-configuration-file"></a>
+#### Example configuration file:
 ```json
 {
   "env": {
@@ -129,8 +130,9 @@ Example configuration file:
       {
         "processor": "fetch",
         "processor_params": {
-          "query_path": "/attribute/D:=isa:dataset/accession={accession}/E:=isa:experiment/experiment_type:=isa:experiment_type/term=Chip-seq/$E/TARGET:=vocabulary:target_of_assay/$E/R:=isa:replicate/SAMPLE:=isa:biosample/SPEC:=vocabulary:species/$R/SEQ:=isa:sequencing_data/PAIRED:=vocabulary:paired_end_or_single_read/$SEQ/file_format:=vocabulary:file_format/term=FastQ/$SEQ/dataset:=D:accession,experiment:=E:RID,biosample:=SAMPLE:RID,technical_replicate_num:=R:technical_replicate_number,file:=SEQ:RID,filename:=SEQ:filename,size:=SEQ:byte_count,md5:=SEQ:md5,url:=SEQ:url",
-          "output_path": "{dataset}/{experiment}/{biosample}/seq"
+          "query_path": "/attribute/D:=isa:dataset/accession={accession}/E:=isa:experiment/experiment_type:=isa:experiment_type/term=Chip-seq/$E/TARGET:=vocabulary:target_of_assay/$E/R:=isa:replicate/SAMPLE:=isa:biosample/SPEC:=vocabulary:species/$R/SEQ:=isa:sequencing_data/PAIRED:=vocabulary:paired_end_or_single_read/$SEQ/file_format:=vocabulary:file_format/term=FastQ/$SEQ/dataset:=D:accession,experiment:=E:RID,biosample:=SAMPLE:RID,technical_replicate_num:=R:technical_replicate_number,rid:=SEQ:RID,filename:=SEQ:filename,size:=SEQ:byte_count,md5:=SEQ:md5,url:=SEQ:url",
+          "output_path": "{dataset}/{experiment}/{biosample}/seq",
+          "output_filename": "{rid}_{filename}"
         }
       }
     ]
@@ -155,8 +157,9 @@ Example:
       {
         "processor": "fetch",
         "processor_params": {
-          "query_path": "/attribute/D:=isa:dataset/accession={accession}/E:=isa:experiment/experiment_type:=isa:experiment_type/term=Chip-seq/$E/TARGET:=vocabulary:target_of_assay/$E/R:=isa:replicate/SAMPLE:=isa:biosample/SPEC:=vocabulary:species/$R/SEQ:=isa:sequencing_data/PAIRED:=vocabulary:paired_end_or_single_read/$SEQ/file_format:=vocabulary:file_format/term=FastQ/$SEQ/dataset:=D:accession,experiment:=E:RID,biosample:=SAMPLE:RID,technical_replicate_num:=R:technical_replicate_number,file:=SEQ:RID,filename:=SEQ:filename,size:=SEQ:byte_count,md5:=SEQ:md5,url:=SEQ:url",
-          "output_path": "{dataset}/{experiment}/{biosample}/seq"
+          "query_path": "/attribute/D:=isa:dataset/accession={accession}/E:=isa:experiment/experiment_type:=isa:experiment_type/term=Chip-seq/$E/TARGET:=vocabulary:target_of_assay/$E/R:=isa:replicate/SAMPLE:=isa:biosample/SPEC:=vocabulary:species/$R/SEQ:=isa:sequencing_data/PAIRED:=vocabulary:paired_end_or_single_read/$SEQ/file_format:=vocabulary:file_format/term=FastQ/$SEQ/dataset:=D:accession,experiment:=E:RID,biosample:=SAMPLE:RID,technical_replicate_num:=R:technical_replicate_number,rid:=SEQ:RID,filename:=SEQ:filename,size:=SEQ:byte_count,md5:=SEQ:md5,url:=SEQ:url",
+          "output_path": "{dataset}/{experiment}/{biosample}/seq",
+          "output_filename": "{rid}_{filename}"
         }
       }
     ]
@@ -168,12 +171,13 @@ Parameters:
 | Parent Object | Parameter | Description|Interpolatable
 | --- | --- | --- | --- |
 |root|*catalog*|This is the parent object for all catalog related parameters.|No
-|*catalog*|*queries*|This is an array of objects representing a list of `ERMRest` queries and the logical outputs of these queries. The logical outputs of each query are then in turn processed by an *output format processor*, which can either be one of a set of default processors, or an external class conforming to a specified interface.|No
-|*queries*|*processor*|This is a string value used to select from one of the built-in query output processor formats. Valid values are `env`, `csv`, `json`, `json-stream`, `download`, or `fetch`.|No
-|*queries*|*processor_type*|A fully qualified Python class name declaring an external processor class instance to use. If this parameter is present, it OVERRIDES the default value mapped to the specified `processor`. This class MUST be derived from the base class `deriva.transfer.download.processors.BaseDownloadProcessor`. For example, `"processor_type": "deriva.transfer.download.processors.CSVDownloadProcessor"`.|No
-|*queries*|*processor_params*|This is an extensible JSON Object that contains processor implementation-specific parameters.|No
-|*processor_params*|*query_path*|This is string representing the actual `ERMRest` query path to be used in the HTTP(S) GET request. It SHOULD already be percent-encoded per [RFC 3986](https://tools.ietf.org/html/rfc3986#section-2.1) if it contains any characters outside of the unreserved set.|Yes
-|*processor_params*|*output_path*|This is a POSIX-compliant path fragment indicating the target location of the retrieved data relative to the specified base download directory.|Yes
+|catalog|*queries*|This is an array of objects representing a list of `ERMRest` queries and the logical outputs of these queries. The logical outputs of each query are then in turn processed by an *output format processor*, which can either be one of a set of default processors, or an external class conforming to a specified interface.|No
+|queries|*processor*|This is a string value used to select from one of the built-in query output processor formats. Valid values are `env`, `csv`, `json`, `json-stream`, `download`, or `fetch`.|No
+|queries|*processor_type*|A fully qualified Python class name declaring an external processor class instance to use. If this parameter is present, it OVERRIDES the default value mapped to the specified `processor`. This class MUST be derived from the base class `deriva.transfer.download.processors.BaseDownloadProcessor`. For example, `"processor_type": "deriva.transfer.download.processors.CSVDownloadProcessor"`.|No
+|queries|*processor_params*|This is an extensible JSON Object that contains processor implementation-specific parameters.|No
+|processor_params|*query_path*|This is string representing the actual `ERMRest` query path to be used in the HTTP(S) GET request. It SHOULD already be percent-encoded per [RFC 3986](https://tools.ietf.org/html/rfc3986#section-2.1) if it contains any characters outside of the unreserved set.|Yes
+|processor_params|*output_path*|This is a POSIX-compliant path fragment indicating the target location of the retrieved data relative to the specified base download directory.|Yes
+|processor_params|*output_filename*|This is a POSIX-compliant path fragment indicating the OVERRIDE filename of the retrieved data relative to the specified base download directory and the value of `output_path`, if any.|Yes
 
 #### Configuration file element: `bag`
 Example:
@@ -194,9 +198,9 @@ Parameters:
 | Parent Object | Parameter | Description|
 | --- | --- | --- |
 |root|*bag*|This is the parent object for all bag-related defaults.
-|*bag*|*bag_algorithms*|This is an array of strings representing the default checksum algorithms to use for bag manifests, if not otherwise specified.  Valid values are "md5", "sha1", "sha256", and "sha512".
-|*bag*|*bag_archiver*|This is a string representing the default archiving format to use if not otherwise specified.  Valid values are "zip", "tar", and "tgz".
-|*bag*|*bag_metadata*|This is a list of simple JSON key-value pairs that will be written as-is to bag-info.txt.
+|bag|*bag_algorithms*|This is an array of strings representing the default checksum algorithms to use for bag manifests, if not otherwise specified.  Valid values are "md5", "sha1", "sha256", and "sha512".
+|bag|*bag_archiver*|This is a string representing the default archiving format to use if not otherwise specified.  Valid values are "zip", "tar", and "tgz".
+|bag|*bag_metadata*|This is a list of simple JSON key-value pairs that will be written as-is to bag-info.txt.
 
 
 #### Configuration file element: `env`
@@ -214,7 +218,7 @@ Parameters:
 | Parent Object | Parameter | Description|
 | --- | --- | --- |
 |root|*env*|This is the parent object for all global "environment" variables. Note that the usage of _"env"_ in this case does not refer to the set of OS environment variables, but rather a combination of key-value pairs from the JSON configuration file and CLI arguments.
-|*env*|*[any, 0-N]*|Any number of arguments of the form `key:value` where `value` is a `string`.
+|env|*key:value, ...*|Any number of arguments in the form `key:value` where `value` is a `string`.
 
 ## Supported processors
 The following `processor` tag values are supported by default:
@@ -224,7 +228,7 @@ The following `processor` tag values are supported by default:
 |[`env`](#env)|Metadata|Populates the context metadata ("environment") with values returned by the query.
 |[`csv`](#csv)|CSV|CSV format with column header row
 |[`json`](#json)|JSON|JSON Array of row objects.
-|[`json-stream`](#jsons)|"Streaming" JSON|Newline-delimited, multi-object JSON.
+|[`json-stream`](#json-stream)|"Streaming" JSON|Newline-delimited, multi-object JSON.
 |[`download`](#download)|Asset download|File assets referenced by URL are download to local storage relative to `output_path`.
 |[`fetch`](#fetch)|Asset reference|`Bag`-based. File assets referenced by URL are assigned as remote file references via `fetch.txt`.
 
@@ -259,7 +263,7 @@ Example output:
  {"subject_id":"CNP0002_F15","sample_id":"600018902293","snp_id":"rs6265","gt":"0/0","chipset":"HumanOmniExpress"}]
  ```
 
-<a name="jsons"></a>
+<a name="json-stream"></a>
 ### `json-stream`
 This `processor` generates a text file containing multiple lines of individual JSON objects terminated by the _newline_ line terminator `\n`. This
 format is generally used when the result set is too prohibitively large to parse as a single JSON object and instead can be processed on a line-by-line basis.
@@ -273,11 +277,13 @@ Example output:
 <a name="download"></a>
 ### `download`
 This `processor` performs multiple actions. First, it issues a `json-stream` catalog query against the specified `query_path`,
-in order to generate a _file download manifest_ file named `download-manifest.json`. This manifest is simply a set of rows which MUST contain at least one field named `url`, and MAY contain a field named `filename`,
-and MAY contain other abritrary fields. If the `filename` field is present, it will be appended to the final (calculated) `output_path`, otherwise the application will perform a _HEAD_ HTTP request against
-the `url` for the `Content-Disposition` of the referenced file asset. If this query fails to determine the filename, the application falls back to using the final string component of the `url` field after the last `/` character.
+in order to generate a _file download manifest_ file named `download-manifest.json`. This manifest is simply a set of rows which MUST contain at least one field named `url`, MAY contain a field named `filename`,
+and MAY contain other arbitrary fields.
 
-If other fields are present, they are available for variable substitution in other parameters that support interpolation, e.g., `output_path`.
+If the `filename` field is present, it will be appended to the final (calculated) `output_path`, otherwise the application will perform a _HEAD_ HTTP request against
+the `url` for the `Content-Disposition` of the referenced file asset. If this query fails to determine the filename, the application falls back to using the final string component of the `url` field after the last `/` character.
+The `output_filename` field may be used to override all of the `output_path` filename computation logic stated above, in order to explicitly declare the desired filename.
+If other fields are present, they are available for variable substitution in other parameters that support interpolation, e.g., `output_path` and `output_filename`.
 
 After the _file download manifest_ is generated, the application attempts to download the files referenced in each `url` field to the local filesystem, storing them at the base relative path specified by `output_path`.
 
@@ -321,9 +327,10 @@ If the required values cannot be determined this way, it is an error condition a
 
 Similar to the `download` processor, the output of the catalog query MAY contain other fields. If the `filename` field is present, it will be appended to the final (calculated) `output_path`, otherwise the application will perform a _HEAD_ HTTP request against
 the `url` for the `Content-Disposition` of the referenced file asset. If this query fails to determine the filename, the application falls back to using the final name component of the `url` field after the last `/` character.
-If other fields are present, they are also available for variable substitution in other parameters that support interpolation, e.g., `output_path`.
+The `output_filename` field may be used to override all of the `output_path` filename computation logic stated above, in order to explicitly declare the desired filename.
+If other fields are present, they are available for variable substitution in other parameters that support interpolation, e.g., `output_path` and `output_filename`.
 
-Unlike the `download` processor, the `fetch` processor does not actually download any asset files, but rather uses the query results to create a `bag` with checksummed manifest entries that reference each remote asset via the `bag`'s `fetch.txt` file.
+Unlike the `download` processor, the `fetch` processor does not actually download any asset files, but rather uses the query results to create a `bag` with check-summed manifest entries that reference each remote asset via the `bag`'s `fetch.txt` file.
 
 ## Supported transform_processors
 The following `transform_processor` tag values are supported by default:
@@ -331,7 +338,7 @@ The following `transform_processor` tag values are supported by default:
 | Tag | Type | Description|
 | --- | --- | --- |
 |[`strsub`](#strsub)|Transform|String substitution transformation.
-|[`interpolation`](#csv)|Transform|Performs a string interpolation.
+|[`interpolation`](#interpolation)|Transform|Performs a string interpolation.
 |[`cat`](#cat)|Transform|Concatenates multiple files.
 
 ## Transform Processor details
@@ -348,6 +355,7 @@ the name of the object attribute to process, and `output` is the name of the obj
 The following example would strip off the version suffix (`...:version-id`) from Hatrac versioned URLs.
 
 ```json
+{
   "transform_processors": [
     {
       "processor":"strsub",
@@ -363,7 +371,9 @@ The following example would strip off the version suffix (`...:version-id`) from
           }
         ]
       }
-    },
+    }
+  ]
+}
 ```
 
 <a name="interpolation"></a>

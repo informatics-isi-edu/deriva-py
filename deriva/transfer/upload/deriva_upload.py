@@ -10,8 +10,8 @@ import logging
 import platform
 from collections import OrderedDict, namedtuple
 from deriva.core import ErmrestCatalog, HatracStore, HatracJobAborted, HatracJobPaused, \
-    HatracJobTimeout, urlquote, stob, format_exception, get_credential, read_config, write_config, copy_config, \
-    resource_path, make_dirs, lock_file, DEFAULT_CHUNK_SIZE, IS_PY2, __version__ as VERSION
+    HatracJobTimeout, urlquote, urlparse, stob, format_exception, get_credential, read_config, write_config, \
+    copy_config, resource_path, make_dirs, lock_file, DEFAULT_CHUNK_SIZE, IS_PY2, __version__ as VERSION
 from deriva.core.utils import hash_utils as hu, mime_utils as mu, version_utils as vu
 from deriva.transfer.upload import *
 from deriva.transfer.upload.processors import find_processor
@@ -61,9 +61,10 @@ class DerivaUpload(object):
     DefaultTransferStateBaseName = ".deriva-upload-state"
     DefaultTransferStateFileName = "%s-%s.json"
 
-    def __init__(self, config_file=None, credential_file=None, server=None, dcctx_id=None):
+    def __init__(self, config_file=None, credential_file=None, server=None, dcctx_cid=None):
         self.server_url = None
         self.catalog = None
+        self.catalog_model = None
         self.store = None
         self.config = None
         self.credentials = None
@@ -82,7 +83,7 @@ class DerivaUpload(object):
         self.override_config_file = config_file
         self.override_credential_file = credential_file
         self.server = self.getDefaultServer() if not server else server
-        self.dcctx_id = dcctx_id if dcctx_id else self.__class__.__name__
+        self.dcctx_cid = dcctx_cid if dcctx_cid else self.__class__.__name__
         self.initialize()
 
     def __del__(self):
@@ -125,7 +126,7 @@ class DerivaUpload(object):
         self.store = HatracStore(protocol, host, self.credentials, session_config=session_config)
 
         # init dcctx cid to a default
-        self.set_dcctx_cid(self.dcctx_id)
+        self.set_dcctx_cid(self.dcctx_cid)
 
         """
          Configuration initialization - this is a bit complex because we allow for:
@@ -181,6 +182,7 @@ class DerivaUpload(object):
         self.reset()
         self.config = None
         self.credentials = None
+        self.catalog_model = None
 
     def setServer(self, server):
         cleanup = self.server != server
@@ -482,6 +484,7 @@ class DerivaUpload(object):
         return None, None, None
 
     def uploadFiles(self, status_callback=None, file_callback=None):
+        self.catalog_model = self.catalog.getCatalogModel()
         for group, assets in self.file_list.items():
             for asset_group_num, asset_mapping, groupdict, file_path in assets:
                 if self.cancelled:
@@ -492,7 +495,11 @@ class DerivaUpload(object):
                     if status_callback:
                         status_callback()
                     self.uploadFile(file_path, asset_mapping, groupdict, file_callback)
-                    self.file_status[file_path] = FileUploadState(UploadState.Success, "Complete")._asdict()
+                    if self.cancelled:
+                        self.file_status[file_path] = FileUploadState(UploadState.Cancelled,
+                                                                      "Cancelled by user")._asdict()
+                    else:
+                        self.file_status[file_path] = FileUploadState(UploadState.Success, "Complete")._asdict()
                 except HatracJobPaused:
                     status = self.getTransferStateStatus(file_path)
                     if status:
@@ -558,6 +565,8 @@ class DerivaUpload(object):
             alg = alg.lower()
             self.metadata[alg] = checksum[0]
             self.metadata[alg + "_base64"] = checksum[1]
+        if self.cancelled:
+            return
 
         # 3. Execute any configured preprocessors
         self._execute_processors(file_path, asset_mapping, match_groupdict, processor_list=PRE_PROCESSORS_KEY)
@@ -601,8 +610,14 @@ class DerivaUpload(object):
         column_map = asset_mapping.get("column_map", {})
         updated_record = self.interpolateDict(self.metadata, column_map)
         if updated_record != record:
+            record_update_template = asset_mapping.get("record_update_template")
+            require_record_update_template = stob(asset_mapping.get("require_record_update_template", False))
+            if require_record_update_template and not record_update_template:
+                raise DerivaUploadCatalogUpdateError(
+                    "A required 'record_update_template' parameter for this asset mapping could not be found in the "
+                    "configuration. The record will not be updated.")
             logger.info("Updating catalog for file [%s]" % self.getFileDisplayName(file_path))
-            self._catalogRecordUpdate(self.metadata['target_table'], record, updated_record)
+            self._catalogRecordUpdate(self.metadata['target_table'], record, updated_record, record_update_template)
 
         # 9. Execute any configured post_processors
         self._execute_processors(file_path, asset_mapping, match_groupdict, processor_list=POST_PROCESSORS_KEY)
@@ -734,11 +749,39 @@ class DerivaUpload(object):
             self.metadata["URI"] = hatrac_templates["hatrac_uri"].format(**self.metadata)
             # overridden content-disposition is optional
             content_disposition = hatrac_templates.get("content-disposition")
-            self.metadata["content-disposition"] = \
-                None if not content_disposition else content_disposition.format(**self.metadata)
+            if content_disposition:
+                filename = content_disposition.format(**self.metadata)
+            else:
+                filename = urlparse(self.metadata["URI"]).path.rsplit("/", 1)[-1]
+
+            sanitized_filename, sanitized_content_disp = \
+                self._validateHatracFilename(filename, asset_mapping.get("hatrac_options", {}))
+            if content_disposition:
+                self.metadata["content-disposition"] = sanitized_content_disp
+            else:
+                self.metadata["URI"] = self.metadata["URI"].replace(filename, sanitized_filename)
+
             self._urlEncodeMetadata(asset_mapping.get("url_encoding_safe_overrides"))
         except KeyError as e:
             raise DerivaUploadConfigurationError("Hatrac template substitution error: %s" % format_exception(e))
+
+    def _validateHatracFilename(self, filename, hatrac_options):
+        if not filename:
+            return None
+
+        sanitize = hatrac_options.get("sanitize_filenames", True)
+        pattern = hatrac_options.get("sanitize_filenames_pattern")
+        is_content_disp = re.match(r"filename\*?=['\"]?(?:UTF-\d['\"]*)?([^;\r\n\"']*)['\"]?;?", filename)
+        if is_content_disp:
+            filename = is_content_disp.group(1)
+        pattern = pattern if pattern else "[^a-zA-Z0-9_.-]"
+        sanitized_filename = urlquote(re.sub(pattern, "_", filename)) if sanitize else filename
+        if is_content_disp:
+            content_disp = is_content_disp.string.replace(filename, sanitized_filename)
+        else:
+            content_disp = "filename*=UTF-8''" + sanitized_filename
+
+        return sanitized_filename, content_disp
 
     def _hatracUpload(self,
                       uri,
@@ -803,6 +846,16 @@ class DerivaUpload(object):
     def _validate_catalog_row_columns(self, row, table):
         return set(row.keys()) - self._get_catalog_table_columns(table)
 
+    def _validate_row_key_constraints(self, catalog_table, row):
+        schema_name, table_name = self.catalog.splitQualifiedCatalogName(catalog_table)
+        schema = self.catalog_model.schemas.get(schema_name)
+        table = schema.tables.get(table_name)
+        non_null_correlations = {cname for cname, cval in row.items() if cval is not None}
+        for key in table.keys:
+            if set(key.unique_columns).issubset(non_null_correlations):
+                return True  # it is safe
+        return False  # it is not safe
+
     def _get_catalog_default_columns(self, row, table, exclude=None, quote_url=True):
         columns = self._get_catalog_table_columns(table)
         if isinstance(exclude, list):
@@ -847,7 +900,7 @@ class DerivaUpload(object):
             (etype, value, traceback) = sys.exc_info()
             raise DerivaUploadCatalogCreateError(format_exception(value))
 
-    def _catalogRecordUpdate(self, catalog_table, old_row, new_row):
+    def _catalogRecordUpdate(self, catalog_table, old_row, new_row, record_update_template=None):
         """
 
         :param catalog_table:
@@ -865,22 +918,30 @@ class DerivaUpload(object):
                 raise RuntimeError("Cannot update catalog - "
                                    "new row column list and old row column list do not match: New: %s != Old: %s" %
                                    (keys, old_keys))
-            combined_row = {
+            o_keys = ','.join(["o%d:=%s" % (i, urlquote(keys[i])) for i in range(len(keys))])
+            n_keys = ','.join(["n%d:=%s" % (i, urlquote(keys[i])) for i in range(len(keys))])
+            update_row = {
                 'o%d' % i: old_row[keys[i]]
                 for i in range(len(keys))
             }
-            combined_row.update({
+            update_row.update({
                 'n%d' % i: new_row[keys[i]]
                 for i in range(len(keys))
             })
-            update_uri = '/attributegroup/%s/%s;%s' % (
-                catalog_table,
-                ','.join(["o%d:=%s" % (i, urlquote(keys[i])) for i in range(len(keys))]),
-                ','.join(["n%d:=%s" % (i, urlquote(keys[i])) for i in range(len(keys))])
-            )
+            if record_update_template:
+                update_uri = record_update_template.format(**self.metadata)
+                update_row = new_row
+            else:
+                update_uri = '/attributegroup/%s/%s;%s' % (catalog_table, o_keys, n_keys)
+                if self.config.get("strict_update_check", True) and not \
+                        self._validate_row_key_constraints(catalog_table, old_row):
+                    raise ValueError(
+                        "Potential unsafe attributegroup update [%s]: at least one pre-existing, non-null correlation "
+                        "key is required. Old values: %s, New values: %s" %
+                        (update_uri, json.dumps(old_row), json.dumps(new_row)))
             logger.debug(
-                "Attempting catalog record update [%s] with data: %s" % (update_uri, json.dumps(combined_row)))
-            return self.catalog.put(update_uri, json=[combined_row]).json()
+                "Attempting catalog record update [%s] with data: %s" % (update_uri, json.dumps(update_row)))
+            return self.catalog.put(update_uri, json=[update_row]).json()
         except:
             (etype, value, traceback) = sys.exc_info()
             raise DerivaUploadCatalogUpdateError(format_exception(value))
@@ -1031,6 +1092,7 @@ class DerivaUpload(object):
             self.transfer_state_fh.truncate()
             json.dump(self.transfer_state, self.transfer_state_fh, indent=2)
             self.transfer_state_fh.flush()
+            os.fsync(self.transfer_state_fh.fileno())
         except Exception as e:
             logger.warning("Unable to write transfer state file: %s" % format_exception(e))
 
@@ -1038,14 +1100,15 @@ class DerivaUpload(object):
         if self.transfer_state_fh and not self.transfer_state_fh.closed:
             try:
                 self.transfer_state_fh.flush()
-                self.transfer_state_fh.close()
+                os.fsync(self.transfer_state_fh.fileno())
             except Exception as e:
                 logger.warning("Unable to flush/close transfer state file: %s" % format_exception(e))
             finally:
                 for entry in self.transfer_state_locks.values():
                     lock = entry.get("lock")
-                    if lock:
+                    if lock and not lock.fh.closed:
                         lock.release()
+                self.transfer_state_locks.clear()
                 self.transfer_state_fh = None
 
     def getTransferStateStatus(self, file_path):
@@ -1058,8 +1121,12 @@ class DerivaUpload(object):
 
 class GenericUploader(DerivaUpload):
 
-    def __init__(self, config_file=None, credential_file=None, server=None):
-        DerivaUpload.__init__(self, config_file=config_file, credential_file=credential_file, server=server)
+    def __init__(self, config_file=None, credential_file=None, server=None, dcctx_cid=None):
+        DerivaUpload.__init__(self,
+                              config_file=config_file,
+                              credential_file=credential_file,
+                              server=server,
+                              dcctx_cid=dcctx_cid)
 
     @classmethod
     def getVersion(cls):

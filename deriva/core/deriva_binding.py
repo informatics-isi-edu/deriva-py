@@ -142,6 +142,7 @@ class DerivaBinding (object):
 
         if not session_config:
             session_config = DEFAULT_SESSION_CONFIG
+        self._session = None
         self._get_new_session(session_config)
 
         self._caching = caching
@@ -157,6 +158,7 @@ class DerivaBinding (object):
         return self._server_uri
 
     def _get_new_session(self, session_config):
+        self._close_session()
         self._session = get_new_requests_session(self._server_uri + '/', session_config)
 
     def _pre_get(self, path, headers):
@@ -210,14 +212,16 @@ class DerivaBinding (object):
         return r
 
     def set_credentials(self, credentials, server):
+        if not credentials:
+            return
         assert self._session is not None
-        if credentials and ('cookie' in credentials):
+        if 'cookie' in credentials:
             cname, cval = credentials['cookie'].split('=', 1)
             self._session.cookies.set(cname, cval, domain=server, path='/')
-        elif credentials and ('username' in credentials and 'password' in credentials):
-            self.post_authn_session(credentials)
-        if credentials and ('bearer-token' in credentials):
+        elif 'bearer-token' in credentials:
             self._session.headers.update({'Authorization': 'Bearer {token}'.format(token=credentials['bearer-token'])})
+        elif 'username' in credentials and 'password' in credentials:
+            self.post_authn_session(credentials)
 
     def get_authn_session(self):
         headers = { 'deriva-client-context': self.dcctx.encoded() }
@@ -341,3 +345,9 @@ class DerivaBinding (object):
         r = self._session.delete(url, headers=headers)
         return self._raise_for_status_412(r)
 
+    def _close_session(self):
+        if self._session is not None:
+            self._session.close()
+
+    def __del__(self):
+        self._close_session()

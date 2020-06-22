@@ -11,7 +11,7 @@ import os
 import unittest
 import sys
 from deriva.core import DerivaServer, get_credential, ermrest_model as _em
-from deriva.core.datapath import DataPathException, Min, Max, Avg, Cnt, CntD, Array, ArrayD
+from deriva.core.datapath import DataPathException, Min, Max, Sum, Avg, Cnt, CntD, Array, ArrayD, Bin
 
 # unittests did not support 'subTests' until 3.4
 if sys.version_info[0] < 3 or sys.version_info[1] < 4:
@@ -81,7 +81,8 @@ def define_test_schema(catalog):
                 ('Time', _em.builtin_types.timestamptz),
                 ('Type', _em.builtin_types.text),
                 ('Project_Investigator', _em.builtin_types.text),
-                ('Project_Num', _em.builtin_types.int4)
+                ('Project_Num', _em.builtin_types.int4),
+                ('Empty', _em.builtin_types.int4)
             ]
         ],
         key_defs=[
@@ -113,7 +114,8 @@ def _generate_experiment_entities(types, count):
             "Time": "2018-01-{}T01:00:00.0".format(1 + (i % 31)),
             "Type": types[i % TEST_EXPTYPE_MAX]['ID'],
             "Project_Investigator": TEST_PROJ_INVESTIGATOR,
-            "Project_Num": TEST_PROJ_NUM
+            "Project_Num": TEST_PROJ_NUM,
+            "Empty": None
         }
         for i in range(count)
     ]
@@ -184,12 +186,12 @@ class DatapathTests (unittest.TestCase):
         self.assertLess({'name', 'tables', 'describe'}, set(dir(self.paths.schemas['ISA'])))
 
     def test_datapath_dir_base(self):
-        self.assertLess({'aggregates', 'attributegroups', 'attributes', 'context', 'delete', 'entities', 'filter',
+        self.assertLess({'aggregates', 'groupby', 'attributes', 'context', 'delete', 'entities', 'filter',
                          'link', 'table_instances', 'uri'}, set(dir(self.paths.schemas['ISA'].tables['Experiment'].path)))
 
     def test_table_dir_base(self):
-        self.assertLess({'aggregates', 'alias', 'attributegroups', 'attributes', 'catalog', 'describe', 'entities',
-                         'filter', 'fqname', 'fromname', 'insert', 'instancename', 'link', 'name', 'path', 'sname',
+        self.assertLess({'aggregates', 'alias', 'groupby', 'attributes', 'catalog', 'describe', 'entities',
+                         'filter', 'fqname', 'fromname', 'insert', 'link', 'name', 'path', 'sname',
                          'uname', 'update', 'uri'}, set(dir(self.paths.schemas['ISA'].tables['Experiment'])))
 
     def test_catalog_dir_with_schemas(self):
@@ -225,46 +227,46 @@ class DatapathTests (unittest.TestCase):
 
     def test_fetch_with_sort(self):
         results = self.experiment.entities()
-        results.fetch(sort=[self.experiment.column_definitions['Amount']])
+        results.sort(self.experiment.column_definitions['Amount'])
         self.assertEqual(results[0]['Amount'], 0)
 
     def test_fetch_attributes_with_sort(self):
         results = self.experiment.attributes(self.experiment.RID, self.experiment.Amount)
-        results.fetch(sort=[self.experiment.Amount])
+        results.sort(self.experiment.Amount)
         self.assertEqual(results[0]['Amount'], 0)
 
     def test_fetch_all_attributes_with_sort(self):
         results = self.experiment.attributes(self.experiment)
-        results.fetch(sort=[self.experiment.Amount])
+        results.sort(self.experiment.Amount)
         self.assertEqual(results[0]['Amount'], 0)
 
     def test_fetch_all_attributes_with_sort_desc(self):
         results = self.experiment.attributes(self.experiment)
-        results.fetch(sort=[self.experiment.Amount.desc])
+        results.sort(self.experiment.Amount.desc)
         self.assertEqual(results[0]['Amount'], TEST_EXP_MAX-1)
 
-    def test_fetch_from_path_attributes_with_sort_on_alias(self):
+    def test_fetch_from_path_attributes_with_sort_on_talias(self):
         path = self.experiment.path
         results = path.Experiment.attributes(path.Experiment.RID, path.Experiment.Amount)
-        results.fetch(sort=[path.Experiment.Amount])
+        results.sort(path.Experiment.Amount)
         self.assertEqual(results[0]['Amount'], 0)
 
-    def test_fetch_from_path_attributes_with_sort_on_alias_desc(self):
+    def test_fetch_from_path_attributes_with_sort_on_talias_desc(self):
         path = self.experiment.path
         results = path.Experiment.attributes(path.Experiment.RID, path.Experiment.Amount)
-        results.fetch(sort=[path.Experiment.Amount.desc])
+        results.sort(path.Experiment.Amount.desc)
         self.assertEqual(results[0]['Amount'], TEST_EXP_MAX-1)
 
-    def test_fetch_from_path_all_attributes_with_sort_on_alias(self):
+    def test_fetch_from_path_all_attributes_with_sort_on_talias(self):
         path = self.experiment.path
         results = path.Experiment.attributes(*path.Experiment.column_definitions.values())
-        results.fetch(sort=[path.Experiment.Amount])
+        results.sort(path.Experiment.Amount)
         self.assertEqual(results[0]['Amount'], 0)
 
     def test_fetch_from_path_all_attributes_with_sort_on_alias_desc(self):
         path = self.experiment.path
         results = path.Experiment.attributes(*path.Experiment.column_definitions.values())
-        results.fetch(sort=[path.Experiment.Amount.desc])
+        results.sort(path.Experiment.Amount.desc)
         self.assertEqual(results[0]['Amount'], TEST_EXP_MAX-1)
 
     def test_attribute_projection(self):
@@ -282,31 +284,17 @@ class DatapathTests (unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.experiment.attributes(getattr(self.experiment, attr))
 
-    def test_attribute_rename_err_table_attr(self):
-        table_attr = ['name', 'sname', 'catalog']
-        for attr in table_attr:
-            with self.assertRaises(ValueError):
-                self.experiment.attributes(**{attr: getattr(self.experiment, attr)})
-
-    def test_attribute_err_no_targets(self):
+    def test_update_err_no_targets(self):
         entities = [{'RID': 1234}]
         with self.assertRaises(ValueError):
             self.experiment.update(entities)
 
-    @unittest.skipUnless(HAS_ASSERTWARNS, "This tests is not available unless running python 3.2+")
-    def test_deprecated_entities_projection(self):
-        with self.assertWarns(DeprecationWarning):
-            self.experiment.entities(
-                self.experiment.column_definitions['Name'],
-                self.experiment.column_definitions['Amount']
-            )
-
     def test_aggregate_w_invalid_attributes(self):
-        with self.assertRaises(TypeError):
+        with self.assertRaises(ValueError):
             self.experiment.aggregates(Min(self.experiment.column_definitions['Amount']))
 
     def test_aggregate_w_invalid_renames(self):
-        with self.assertRaises(TypeError):
+        with self.assertRaises(ValueError):
             self.experiment.aggregates(
                 self.experiment.column_definitions['Name'],
                 Min(self.experiment.column_definitions['Amount'])
@@ -317,6 +305,7 @@ class DatapathTests (unittest.TestCase):
         tests = [
             ('min_amount',      Min,    0),
             ('max_amount',      Max,    TEST_EXP_MAX-1),
+            ('sum_amount',      Sum,    sum(range(TEST_EXP_MAX))),
             ('avg_amount',      Avg,    sum(range(TEST_EXP_MAX))/TEST_EXP_MAX),
             ('cnt_amount',      Cnt,    TEST_EXP_MAX),
             ('cnt_d_amount',    CntD,   TEST_EXP_MAX),
@@ -325,15 +314,16 @@ class DatapathTests (unittest.TestCase):
         ]
         for name, Fn, value in tests:
             with self.subTest(name=name):
-                results = self.experiment.aggregates(**{name: Fn(self.experiment.column_definitions['Amount'])})
+                # results = self.experiment.aggregates(**{name: Fn(self.experiment.column_definitions['Amount'])})
+                results = self.experiment.aggregates(Fn(self.experiment.column_definitions['Amount']).alias(name))
                 result = results.fetch()[0]
                 self.assertIn(name, result)
                 self.assertEqual(result[name], value)
 
     def test_aggregate_w_2_fns(self):
         results = self.experiment.aggregates(
-            min_amount=Min(self.experiment.column_definitions['Amount']),
-            max_amount=Max(self.experiment.column_definitions['Amount'])
+            Min(self.experiment.column_definitions['Amount']).alias('min_amount'),
+            Max(self.experiment.column_definitions['Amount']).alias('max_amount')
         )
         result = results.fetch()[0]
         self.assertIn('min_amount', result)
@@ -351,7 +341,7 @@ class DatapathTests (unittest.TestCase):
             ('arrayd_alias_star', ArrayD, path,            path.Experiment)
         ]
         for name, Fn, path, instance in tests:
-            results = path.aggregates(arr=Fn(instance))
+            results = path.aggregates(Fn(instance).alias('arr'))
             with self.subTest(name=name):
                 result = results.fetch()[0]
                 self.assertIn('arr', result)
@@ -366,7 +356,7 @@ class DatapathTests (unittest.TestCase):
             ('cnt_alias_star', Cnt, path,            path.Experiment)
         ]
         for name, Fn, path, instance in tests:
-            results = path.aggregates(cnt=Fn(instance))
+            results = path.aggregates(Fn(instance).alias('cnt'))
             with self.subTest(name=name):
                 result = results.fetch()[0]
                 self.assertIn('cnt', result)
@@ -374,10 +364,22 @@ class DatapathTests (unittest.TestCase):
 
     @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
     def test_attributegroup_fns(self):
-        group_key = self.experiment.column_definitions['Type']
+        tests = [
+            ('one group key',     [self.experiment.column_definitions['Type']]),
+            ('two group keys',    [self.experiment.column_definitions['Project_Num'], self.experiment.column_definitions['Type']]),
+            ('aliased group key', [self.experiment.column_definitions['Type'].alias('The Type')])
+        ]
+        for test_name, group_key in tests:
+            with self.subTest(name=test_name):
+                self._do_attributegroup_fn_subtests(group_key)
+
+    @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
+    def _do_attributegroup_fn_subtests(self, group_key):
+        """Helper method for running common attributegroup subtests for different group keys."""
         tests = [
             ('min_amount',      Min,    0),
             ('max_amount',      Max,    TEST_EXP_MAX-TEST_EXPTYPE_MAX),
+            ('sum_amount',      Sum,    sum(range(0, TEST_EXP_MAX, TEST_EXPTYPE_MAX))),
             ('avg_amount',      Avg,    sum(range(0, TEST_EXP_MAX, TEST_EXPTYPE_MAX))/TEST_EXPTYPE_MAX),
             ('cnt_amount',      Cnt,    TEST_EXPTYPE_MAX),
             ('cnt_d_amount',    CntD,   TEST_EXPTYPE_MAX),
@@ -386,13 +388,109 @@ class DatapathTests (unittest.TestCase):
         ]
         for name, Fn, value in tests:
             with self.subTest(name=name):
-                results = self.experiment.attributegroups(group_key=self.experiment.column_definitions['Type'],
-                                                    **{name: Fn(self.experiment.column_definitions['Amount'])}
-                                                    ).fetch(sort=[group_key])
+                results = self.experiment.groupby(*group_key).attributes(
+                    Fn(self.experiment.column_definitions['Amount']).alias(name)).sort(*group_key)
+
                 result = results[0]
-                self.assertIn(group_key.name, result)
+                self.assertEqual(len(results), TEST_EXPTYPE_MAX)
+                self.assertTrue(all(key.name in result for key in group_key))
                 self.assertIn(name, result)
                 self.assertEqual(result[name], value)
+
+    @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
+    def test_attributegroup_w_bin(self):
+        tests = [
+            ('min/max given',     0,    TEST_EXP_MAX),
+            ('min/max not given', None, None),
+            ('min only given',    0,    None),
+            ('max only given',    None, TEST_EXP_MAX)
+        ]
+        for testname, minval, maxval in tests:
+            with self.subTest(name=testname):
+                self._do_bin_subtests(minval, maxval)
+
+    def _do_bin_subtests(self, minval, maxval):
+        """Helper method for running common binning tests with & without min/max values."""
+        new_name, bin_name = 'TheProj', 'ABin'
+        nbins = int(TEST_EXP_MAX/20)
+        group_key = [
+            self.experiment.column_definitions['Project_Num'].alias(new_name),
+            Bin(self.experiment.column_definitions['Amount'], nbins, minval=minval, maxval=maxval).alias(bin_name)
+        ]
+        tests = [
+            ('min_amount',      Min,    lambda a, b: a >= b[1]),
+            ('max_amount',      Max,    lambda a, b: a <= b[2]),
+            ('sum_amount',      Sum,    lambda a, b: a >= b[1] + b[2]),
+            ('avg_amount',      Avg,    lambda a, b: b[1] <= a <= b[2]),
+            ('cnt_amount',      Cnt,    lambda a, b: a == TEST_EXP_MAX/nbins),
+            ('cnt_d_amount',    CntD,   lambda a, b: a == TEST_EXP_MAX/nbins),
+            ('array_amount',    Array,  lambda a, b: all(b[1] <= a_i <= b[2] for a_i in a)),
+            ('array_d_amount',  ArrayD, lambda a, b: all(b[1] <= a_i <= b[2] for a_i in a))
+        ]
+        for name, Fn, compare in tests:
+            with self.subTest(name=name):
+                results = self.experiment.groupby(*group_key).attributes(
+                    Fn(self.experiment.column_definitions['Amount']).alias(name)).fetch()
+
+                self.assertTrue(all(key.name in results[0] for key in group_key))
+                self.assertIn(name, results[0])
+                for result in results:
+                    bin = result[bin_name]
+                    if not maxval and (bin[0] >= nbins):
+                        # skip the last 2 bins when maxval was resolved; those bins are not aligned like the others
+                        continue
+                    self.assertTrue(compare(result[name], bin))
+
+    @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
+    def test_attributegroup_w_bin_sort(self):
+        bin_name = 'bin'
+        nbins = int(TEST_EXP_MAX/20)
+        bin = Bin(self.experiment.column_definitions['Amount'], nbins, 0, TEST_EXP_MAX).alias(bin_name)
+        bin_desc = bin.desc
+        asc_fn = lambda n, a, b: a[n] <= b[n]
+        desc_fn = lambda n, a, b: a[n] >= b[n]
+        tests = [
+            ('min_amount', Min, bin,      asc_fn),
+            ('max_amount', Max, bin,      asc_fn),
+            ('sum_amount', Sum, bin,      asc_fn),
+            ('avg_amount', Avg, bin,      asc_fn),
+            ('min_amount', Min, bin_desc, desc_fn),
+            ('max_amount', Max, bin_desc, desc_fn),
+            ('sum_amount', Sum, bin_desc, desc_fn),
+            ('avg_amount', Avg, bin_desc, desc_fn)
+        ]
+        for name, Fn, sort_key, compfn in tests:
+            with self.subTest(name=name):
+                results = self.experiment.groupby(bin).attributes(
+                    Fn(self.experiment.column_definitions['Amount']).alias(name)).sort(sort_key).fetch()
+
+                self.assertIn(bin.name, results[0])
+                self.assertIn(name, results[0])
+                self.assertTrue(compfn(name, results[0], results[1]))
+
+    @unittest.skipUnless(HAS_SUBTESTS, "This test is not available unless running python 3.4+")
+    def test_attributegroup_w_bin_resolution(self):
+        binkey = self.experiment.column_definitions['Empty']
+        binname = 'bin'
+        tests = [
+            ('min_max_valid', 0,    0,      True),
+            ('max_invalid',   0,    None,   False),
+            ('min_invalid',   None, 0,      False),
+            ('both_invalid',  None, None,   False)
+        ]
+        for name, minval, maxval, valid in tests:
+            def _do_query():
+                bin = Bin(binkey, 10, minval, maxval).alias(binname)
+                return self.experiment.groupby(bin).attributes(Avg(binkey).alias(name)).fetch()
+
+            with self.subTest(name=name):
+                if valid:
+                    results = _do_query()
+                    self.assertIn(binname, results[0])
+                    self.assertIn(name, results[0])
+                else:
+                    with self.assertRaises(ValueError):
+                        _do_query()
 
     def test_link_implicit(self):
         results = self.experiment.link(self.experiment_type).entities()
@@ -447,27 +545,34 @@ class DatapathTests (unittest.TestCase):
         ).entities()
         self.assertEqual(len(results), 1)
 
+    def test_attribute_deprecated_rename(self):
+        with self.assertRaises(TypeError):
+            self.experiment.attributes(
+                self.experiment.column_definitions['Name'],
+                howmuch=self.experiment.column_definitions['Amount']
+            )
+
     def test_attribute_rename(self):
         results = self.experiment.attributes(
             self.experiment.column_definitions['Name'],
-            howmuch=self.experiment.column_definitions['Amount']
+            self.experiment.column_definitions['Amount'].alias('How many of them ?'),
+            self.experiment.column_definitions['Project_Num'].alias('Project #')
         )
         result = results.fetch(limit=1)[0]
         self.assertIn('Name', result)
-        self.assertIn('howmuch', result)
+        self.assertIn('How many of them ?', result)
+        self.assertIn('Project #', result)
 
     def test_attribute_rename_special_chars(self):
         # first test with only the `:` character present which would trigger a lexical error from ermrest
         special_character_out_alias = self.experiment.name + ':' + self.experiment.column_definitions['Name'].name
-        renames = {special_character_out_alias: self.experiment.column_definitions['Name']}
-        results = self.experiment.attributes(**renames)
+        results = self.experiment.attributes(self.experiment.column_definitions['Name'].alias(special_character_out_alias))
         result = results.fetch(limit=1)[0]
         self.assertIn(special_character_out_alias, result)
 
         # second test with url unsafe characters present which would trigger a bad request from the web server
         special_character_out_alias = '`~!@#$%^&*()_+-={}|[]\\;:"\',./<>?'
-        renames = {special_character_out_alias: self.experiment.column_definitions['Name']}
-        results = self.experiment.attributes(**renames)
+        results = self.experiment.attributes(self.experiment.column_definitions['Name'].alias(special_character_out_alias))
         result = results.fetch(limit=1)[0]
         self.assertIn(special_character_out_alias, result)
 
@@ -486,7 +591,7 @@ class DatapathTests (unittest.TestCase):
         results = path.Experiment.attributes(
             path.Experiment,
             path.Experiment_Type.column_definitions['URI'],
-            exptype=path.Experiment_Type.column_definitions['Name']
+            path.Experiment_Type.column_definitions['Name'].alias('exptype')
         )
         result = results.fetch(limit=1)[0]
         self.assertIn('Experiment:Name', result)
@@ -497,7 +602,7 @@ class DatapathTests (unittest.TestCase):
     @unittest.skipUnless(HAS_PANDAS, "pandas library not available")
     def test_dataframe(self):
         results = self.experiment.entities()
-        df = results.dataframe
+        df = DataFrame(results)
         self.assertEqual(len(df), TEST_EXP_MAX)
 
     def test_insert_empty_entities(self):
