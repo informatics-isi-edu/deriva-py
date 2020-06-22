@@ -38,8 +38,8 @@ DEFAULT_GLOBUS_CREDENTIAL_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'globus-crede
 DEFAULT_CONFIG_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'config.json')
 DEFAULT_COOKIE_JAR_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'cookies.txt')
 DEFAULT_SESSION_CONFIG = {
-    "retry_connect": 5,
-    "retry_read": 5,
+    "retry_connect": 2,
+    "retry_read": 4,
     "retry_backoff_factor": 1.0,
     "retry_status_forcelist": [500, 503, 504],
     "cookie_jar": DEFAULT_COOKIE_JAR_FILE
@@ -96,6 +96,8 @@ def stob(string):
 
 
 def format_exception(e):
+    if not isinstance(e, Exception):
+        return str(e)
     exc = "".join(("[", type(e).__name__, "] "))
     if isinstance(e, requests.HTTPError):
         resp = " - Server responded: %s" % e.response.text.strip().replace('\n', ': ')
@@ -152,7 +154,6 @@ def get_new_requests_session(url=None, session_config=DEFAULT_SESSION_CONFIG):
                     read=session_config['retry_read'],
                     backoff_factor=session_config['retry_backoff_factor'],
                     status_forcelist=session_config['retry_status_forcelist'],
-                    method_whitelist=False,
                     raise_on_status=True)
     if url:
         session.mount(url, HTTPAdapter(max_retries=retries))
@@ -224,7 +225,7 @@ def write_credential(credential_file=DEFAULT_CREDENTIAL_FILE, credential=DEFAULT
             credential_data = unicode(credential_data, 'utf-8')
         cf.write(credential_data)
         cf.flush()
-        cf.close()
+        os.fsync(cf.fileno())
 
 
 def read_credential(credential_file=DEFAULT_CREDENTIAL_FILE, create_default=False, default=DEFAULT_CREDENTIAL):

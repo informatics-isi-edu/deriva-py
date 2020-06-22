@@ -334,7 +334,7 @@ class Table (_ec.CatalogTable):
             add_vocab_columns(column_defs),
             add_vocab_keys(key_defs),
             fkey_defs,
-            comment if comment is not None else 'A set of controlled vocabular terms.',
+            comment,
             acls,
             acl_bindings,
             annotations,

@@ -25,7 +25,7 @@ class DerivaDownloadCLI(BaseCLI):
 
     @classmethod
     def get_downloader(cls, *args, **kwargs):
-        return GenericDownloader(*args, **kwargs)
+        return GenericDownloader(*args, dcctx_cid="cli/" + DerivaDownloadCLI.__name__, **kwargs)
 
     @classmethod
     def download(cls, args):
@@ -42,7 +42,6 @@ class DerivaDownloadCLI(BaseCLI):
             server["host"] = args.host
 
         downloader = cls.get_downloader(server, **vars(args))
-        downloader.set_dcctx_cid(downloader.__class__.__name__)
 
         return downloader.download()
 

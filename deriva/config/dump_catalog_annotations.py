@@ -130,7 +130,7 @@ class Annotations:
         annotations = self.find_relevant_annotations(table.annotations)
         if annotations is not None:
             for v in annotations:
-                v["schema"] = table.sname
+                v["schema"] = table.schema.name
                 v["table"] = table.name
                 if not self.consolidated_table_annotation(v):
                     self.annotations["table_annotations"].append(v)
@@ -143,7 +143,7 @@ class Annotations:
         annotations = self.find_relevant_annotations(column.annotations)
         if annotations is not None:
             for v in annotations:
-                v["schema"] = table.sname
+                v["schema"] = table.schema.name
                 v["table"] = table.name
                 v["column"] = column.name
                 if not self.consolidated_column_annotation(v):
@@ -155,8 +155,8 @@ class Annotations:
             if len(fkey.names) < 1:
                 raise ValueError("foreign key without a name")
             for v in annotations:
-                v["schema"] = fkey.sname
-                v["table"] = fkey.tname
+                v["schema"] = fkey.table.schema.name
+                v["table"] = fkey.table.name
                 v["foreign_key_schema"] = fkey.names[0][0]
                 v["foreign_key"] = fkey.names[0][1]
                 if not self.consolidated_foreign_key_annotation(v):

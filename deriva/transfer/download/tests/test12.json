@@ -1,5 +1,5 @@
 {
-  "comment": "use with: RID=TMJ genome=FACEBASE%3A1-4FZE",
+  "comment": "use with: RID=1-3SXY genome=mm10",
   "bag": {
     "bag_name": "custom-tracks-test",
     "bag_algorithms":["md5"],
@@ -13,7 +13,7 @@
         "processor": "json-stream",
         "processor_params": {
           "output_path": "track-metadata.json",
-          "query_path": "/attribute/D:=isa:dataset/RID={RID}/T:=isa:track_data/mapping_assembly={genome}/FF:=vocab:file_format/$T/RID,filename,url,type:=FF:name"
+          "query_path": "/attribute/D:=isa:dataset/RID={RID}/T:=isa:track_data/vocab:mapping_assembly/name={genome}/$T/FF:=vocab:file_format/$T/T:RID,dataset_RID:=D:RID,T:filename,T:url,type:=FF:name"
         }
       }
     ]

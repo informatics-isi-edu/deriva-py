@@ -212,14 +212,16 @@ class DerivaBinding (object):
         return r
 
     def set_credentials(self, credentials, server):
+        if not credentials:
+            return
         assert self._session is not None
-        if credentials and ('cookie' in credentials):
+        if 'cookie' in credentials:
             cname, cval = credentials['cookie'].split('=', 1)
             self._session.cookies.set(cname, cval, domain=server, path='/')
-        elif credentials and ('username' in credentials and 'password' in credentials):
-            self.post_authn_session(credentials)
-        if credentials and ('bearer-token' in credentials):
+        elif 'bearer-token' in credentials:
             self._session.headers.update({'Authorization': 'Bearer {token}'.format(token=credentials['bearer-token'])})
+        elif 'username' in credentials and 'password' in credentials:
+            self.post_authn_session(credentials)
 
     def get_authn_session(self):
         headers = { 'deriva-client-context': self.dcctx.encoded() }

@@ -109,17 +109,19 @@ class HatracStore(DerivaBinding):
                 total = 0
                 start = datetime.datetime.now()
                 logging.debug("Transferring file %s to %s" % (self._server_uri + path, destfilename))
-                for buf in r.iter_content(chunk_size=Megabyte):
+                for buf in r.iter_content(chunk_size=DEFAULT_CHUNK_SIZE):
                     destfile.write(buf)
                     total += len(buf)
                     if callback:
                         if not callback(progress="Downloading: %.2f MB transferred" % (total / Megabyte)):
                             destfile.close()
+                            r.close()
                             os.remove(destfilename)
                             return None
-                destfile.flush()
                 elapsed = datetime.datetime.now() - start
                 summary = get_transfer_summary(total, elapsed)
+                destfile.flush()
+                os.fsync(destfile.fileno())
                 logging.info("File [%s] transfer successful. %s" % (destfilename, summary))
                 if callback:
                     callback(summary=summary, file_path=destfilename)
@@ -144,7 +146,15 @@ class HatracStore(DerivaBinding):
             if destfile is not None:
                 destfile.close()
 
-    def put_obj(self, path, data, headers=DEFAULT_HEADERS, md5=None, sha256=None, parents=True):
+    def put_obj(self,
+                path,
+                data,
+                headers=DEFAULT_HEADERS,
+                md5=None,
+                sha256=None,
+                parents=True,
+                content_type=None,
+                content_disposition=None):
         """Idempotent upload of object, returning object location URI.
 
            Arguments:
@@ -154,6 +164,8 @@ class HatracStore(DerivaBinding):
               md5: a base64 encoded md5 digest may be provided in order to skip the automatic hash computation
               sha256: a base64 encoded sha256 digest may be provided in order to skip the automatic hash computation
               parents: automatically create parent namespace(s) if missing
+              content_type: the content-type of the object (optional)
+              content_disposition: the preferred content-disposition of the object (optional)
            Automatically computes and sends Content-MD5 if no digests provided.
 
            If an object-version already exists under the same name
@@ -191,6 +203,10 @@ class HatracStore(DerivaBinding):
         headers['Content-SHA256'] = sha256
 
         headers['deriva-client-context'] = self.dcctx.merged(headers.get('deriva-client-context', {})).encoded()
+        if content_type:
+            headers['Content-Type'] = content_type
+        if content_disposition:
+            headers['Content-Disposition'] = content_disposition
 
         url = self._server_uri + path
         url = '%s%s' % (url.rstrip("/") if url.endswith("/") else url,
@@ -241,7 +257,14 @@ class HatracStore(DerivaBinding):
         self.check_path(path)
 
         if not chunked:
-            return self.put_obj(path, file_path, headers, md5, sha256)
+            return self.put_obj(path,
+                                file_path,
+                                headers,
+                                md5,
+                                sha256,
+                                content_type=content_type,
+                                content_disposition=content_disposition,
+                                parents=create_parents)
 
         if not (md5 or sha256):
             md5 = hu.compute_file_hashes(file_path, hashes=['md5'])['md5'][1]
@@ -249,7 +272,8 @@ class HatracStore(DerivaBinding):
         try:
             r = self.head(path)
             if r.status_code == 200 and \
-                    (md5 and r.headers.get('Content-MD5') == md5 or sha256 and r.headers.get('Content-SHA256') == sha256):
+                    (md5 and r.headers.get('Content-MD5') == md5 or
+                     sha256 and r.headers.get('Content-SHA256') == sha256):
                 # object already has same content so skip upload
                 return r.headers.get('Content-Location')
             elif not allow_versioning:
@@ -261,7 +285,10 @@ class HatracStore(DerivaBinding):
             pass
 
         try:
-            job_id = self.create_upload_job(path, file_path, md5, sha256,
+            job_id = self.create_upload_job(path,
+                                            file_path,
+                                            md5,
+                                            sha256,
                                             content_type=content_type,
                                             content_disposition=content_disposition,
                                             create_parents=create_parents)
