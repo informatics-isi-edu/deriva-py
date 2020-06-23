@@ -5,6 +5,7 @@
 #  DERIVA_PY_TEST_CREDENTIAL: user credential, if none, it will attempt to get credentail for given hostname
 #  DERIVA_PY_TEST_VERBOSE: set for verbose logging output to stdout
 
+from copy import deepcopy
 import logging
 from operator import itemgetter
 import os
@@ -671,6 +672,67 @@ class DatapathTests (unittest.TestCase):
         ig = itemgetter(*nondefaults)
         for i in range(TEST_EXP_MAX):
             self.assertEqual(ig(results[i]), ig(entities_copy[i]), 'copied values do not match')
+
+    @unittest.skipUnless(HAS_SUBTESTS, "This test is not available unless running python 3.4+")
+    def test_deepcopy_of_paths(self):
+        paths = [
+            self.experiment.path,
+            self.experiment.link(self.experiment_type),
+            self.experiment.link(self.experiment_type, on=(self.experiment.Type == self.experiment_type.ID)),
+            self.experiment.link(
+                self.project,
+                on=(
+                        (self.experiment.Project_Investigator == self.project.Investigator) &
+                        (self.experiment.Project_Num == self.project.Num)
+                )
+            ),
+            self.project.filter(self.project.Num < 1000).link(self.experiment).link(self.experiment_type),
+            self.experiment.alias('Exp').link(self.experiment_type.alias('ExpType')),
+            self.experiment.filter(self.experiment.column_definitions['Name'] == TEST_EXP_NAME_FORMAT.format(1)),
+            self.experiment.filter(self.experiment.column_definitions['Amount'] < 10),
+            self.experiment.filter(
+                self.experiment.column_definitions['Name'].ciregexp(TEST_EXP_NAME_FORMAT.format(0)[10:])
+            ),
+            self.experiment.filter(
+                ~ (self.experiment.column_definitions['Name'].ciregexp(TEST_EXP_NAME_FORMAT.format(0)[10:]))
+            ),
+            self.experiment.filter(
+                self.experiment.column_definitions['Name'].ciregexp(TEST_EXP_NAME_FORMAT.format(0)[10:])
+                & (self.experiment.column_definitions['Amount'] == 0)
+            )
+        ]
+        for path in paths:
+            with self.subTest(name=path.uri):
+                cp = deepcopy(path)
+                self.assertNotEqual(path, cp)
+                self.assertEqual(path.uri, cp.uri)
+
+    def test_merge_paths(self):
+        path1 = self.experiment.filter(self.experiment.Amount >= 0)
+        path2 = self.experiment.link(self.experiment_type).filter(self.experiment_type.ID >= '0')
+        path3 = self.experiment.link(self.project).filter(self.project.Num >= 0)
+        original_uri = path1.uri
+
+        # merge paths 1..3
+        path1.merge(path2).merge(path3)
+        self.assertNotEqual(path1.uri, original_uri, "Merged path's URI should have changed from its original URI")
+        self.assertEqual(path1.context.name, path3.context.name, "Context of merged paths should equal far right-hand path's context")
+        self.assertGreater(len(path1.Experiment.entities()), 0, "Should have returned results")
+
+    def test_compose_paths(self):
+        path1 = self.experiment.filter(self.experiment.Amount >= 0)
+        path2 = self.experiment.link(self.experiment_type).filter(self.experiment_type.ID >= '0')
+        path3 = self.experiment.link(self.project).filter(self.project.Num >= 0)
+        original_uri = path1.uri
+
+        # compose paths 1..3
+        path = self.paths.compose(path1, path2, path3)
+        self.assertNotEqual(path, path1, "Compose should have copied the first path rather than mutate it")
+        self.assertNotEqual(path.uri, path1.uri, "Composed path URI should not match the first path URI")
+        self.assertEqual(path1.uri, original_uri, "First path was changed")
+        self.assertNotEqual(path.uri, original_uri, "Merged path's URI should have changed from its original URI")
+        self.assertEqual(path.context.name, path3.context.name, "Context of composed paths should equal far right-hand path's context")
+        self.assertGreater(len(path.Experiment.entities()), 0, "Should have returned results")
 
 
 if __name__ == '__main__':
