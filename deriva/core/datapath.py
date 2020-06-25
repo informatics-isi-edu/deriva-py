@@ -304,10 +304,10 @@ class DataPath (object):
         :return: self
         """
         if not isinstance(right, _TableWrapper):
-            raise ValueError("'right' must be a '_TableWrapper' instance")
+            raise TypeError("'right' must be a '_TableWrapper' instance")
         if on and not (isinstance(on, ComparisonPredicate) or (isinstance(on, ConjunctionPredicate) and
                                                                on.is_valid_join_condition)):
-            raise ValueError("'on' must be a comparison or conjuction of comparisons")
+            raise TypeError("'on' must be a comparison or conjuction of comparisons")
         if join_type and on is None:
             raise ValueError("'on' must be specified for outer joins")
         if right._schema._catalog != self._root._schema._catalog:
@@ -526,8 +526,9 @@ class ResultSet (object):
         """
         if not attributes:
             raise ValueError("No sort attributes given.")
-        if not all(isinstance(a, _ColumnWrapper) or isinstance(a, _ColumnAlias) or (a, AggregateFunctionAlias) for a in attributes):
-            raise ValueError("Sort keys must be column, column alias, or aggregate function alias")
+        if not all(isinstance(a, _ColumnWrapper) or isinstance(a, _ColumnAlias) or isinstance(a, AggregateFunctionAlias)
+                   or isinstance(a, SortDescending) for a in attributes):
+            raise TypeError("Sort keys must be column, column alias, or aggregate function alias")
         self._sort_keys = attributes
         self._results_doc = None
         return self
@@ -697,12 +698,12 @@ class _TableWrapper (object):
 
         # JSONEncoder does not handle general iterable objects, so we have to make sure its an acceptable collection
         if not hasattr(entities, '__iter__'):
-            raise ValueError('entities is not iterable')
+            raise TypeError('entities is not iterable')
         entities = entities if isinstance(entities, (list, tuple)) else list(entities)
 
         # test the first entity element to make sure that it looks like a dictionary
         if not hasattr(entities[0], 'keys'):
-            raise ValueError('entities[0] does not look like a dictionary -- does not have a "keys()" method')
+            raise TypeError('entities[0] does not look like a dictionary -- does not have a "keys()" method')
 
         try:
             resp = self._schema._catalog._wrapped_catalog.post(path, json=entities, headers={'Content-Type': 'application/json'})
@@ -734,12 +735,12 @@ class _TableWrapper (object):
 
         # JSONEncoder does not handle general iterable objects, so we have to make sure its an acceptable collection
         if not hasattr(entities, '__iter__'):
-            raise ValueError('entities is not iterable')
+            raise TypeError('entities is not iterable')
         entities = entities if isinstance(entities, (list, tuple)) else list(entities)
 
         # test the first entity element to make sure that it looks like a dictionary
         if not hasattr(entities[0], 'keys'):
-            raise ValueError('entities[0] does not look like a dictionary -- does not have a "keys()" method')
+            raise TypeError('entities[0] does not look like a dictionary -- does not have a "keys()" method')
 
         # Form the correlation keys and the targets
         correlation_cnames = {urlquote(str(c)) for c in correlation}
@@ -1219,15 +1220,15 @@ class _Project (_PathOperator):
 
         if mode == self.ATTRIBUTE:
             if not all(isinstance(obj, _TableWrapper) or isinstance(obj, _TableAlias) or isinstance(obj, _ColumnWrapper) or isinstance(obj, _ColumnAlias) for obj in projection):
-                raise ValueError("Only columns or column aliases can be retrieved by an 'attribute' query.")
+                raise TypeError("Only columns or column aliases can be retrieved by an 'attribute' query.")
         elif mode == self.AGGREGATE:
             if not all(isinstance(obj, AggregateFunctionAlias) for obj in projection):
-                raise ValueError("Only aggregate function aliases can be retrieved by an 'aggregate' query.")
+                raise TypeError("Only aggregate function aliases can be retrieved by an 'aggregate' query.")
         elif mode == self.ATTRGROUP:
             if not all(isinstance(obj, _ColumnWrapper) or isinstance(obj, _ColumnAlias) or isinstance(obj, AggregateFunctionAlias) for obj in projection):
-                raise ValueError("Only columns, column aliases, or aggregate function aliases can be retrieved by an 'attributegroup' query.")
+                raise TypeError("Only columns, column aliases, or aggregate function aliases can be retrieved by an 'attributegroup' query.")
             if not all(isinstance(obj, _ColumnWrapper) or isinstance(obj, _ColumnAlias) or isinstance(obj, AggregateFunctionAlias) for obj in group_key):
-                raise ValueError("Only column aliases or aggregate function aliases can be used to group an 'attributegroup' query.")
+                raise TypeError("Only column aliases or aggregate function aliases can be used to group an 'attributegroup' query.")
             self._group_key = [obj._projection_name for obj in group_key]
 
         self._projection = [obj._projection_name for obj in projection]
@@ -1306,7 +1307,7 @@ class Predicate (object):
         :return: a junction predicate object.
         """
         if not isinstance(other, Predicate):
-            raise ValueError("Invalid comparison with object that is not a Predicate instance.")
+            raise TypeError("Invalid comparison with object that is not a Predicate instance.")
         return ConjunctionPredicate([self, other])
 
     __and__ = and_
@@ -1318,7 +1319,7 @@ class Predicate (object):
         :return: a junction predicate object.
         """
         if not isinstance(other, Predicate):
-            raise ValueError("Invalid comparison with object that is not a Predicate instance.")
+            raise TypeError("Invalid comparison with object that is not a Predicate instance.")
         return DisjunctionPredicate([self, other])
 
     __or__ = or_
@@ -1521,7 +1522,7 @@ class Bin (AggregateFunction):
         """
         super(Bin, self).__init__('bin', arg)
         if not (isinstance(arg, _ColumnWrapper) or isinstance(arg, _ColumnAlias)):
-            raise ValueError("Bin operand must be a column or column alias")
+            raise TypeError("Bin operand must be a column or column alias")
         self.nbins = nbins
         self.minval = minval
         self.maxval = maxval

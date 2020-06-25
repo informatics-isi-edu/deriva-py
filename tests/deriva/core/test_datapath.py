@@ -284,7 +284,7 @@ class DatapathTests (unittest.TestCase):
     def test_attribute_err_table_attr(self):
         table_attr = ['_name', '_schema']
         for attr in table_attr:
-            with self.assertRaises(ValueError):
+            with self.assertRaises(TypeError):
                 self.experiment.attributes(getattr(self.experiment, attr))
 
     def test_update_err_no_targets(self):
@@ -293,11 +293,11 @@ class DatapathTests (unittest.TestCase):
             self.experiment.update(entities)
 
     def test_aggregate_w_invalid_attributes(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(TypeError):
             self.experiment.aggregates(Min(self.experiment.column_definitions['Amount']))
 
     def test_aggregate_w_invalid_renames(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(TypeError):
             self.experiment.aggregates(
                 self.experiment.column_definitions['Name'],
                 Min(self.experiment.column_definitions['Amount'])
@@ -615,13 +615,13 @@ class DatapathTests (unittest.TestCase):
         self.assertEqual(len(results), 0)
 
     def test_insert_entities_not_iterable(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(TypeError):
             self.experiment_type.insert(1)
 
     def test_insert_entities0_not_dict(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(TypeError):
             self.experiment_type.insert([1])
-        with self.assertRaises(ValueError):
+        with self.assertRaises(TypeError):
             self.experiment_type.insert('this is not a dict')
 
     def test_insert(self):
@@ -646,13 +646,13 @@ class DatapathTests (unittest.TestCase):
         self.assertEqual(len(results), 0)
 
     def test_update_entities_not_iterable(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(TypeError):
             self.experiment_type.update(1)
 
     def test_update_entities0_not_dict(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(TypeError):
             self.experiment_type.update([1])
-        with self.assertRaises(ValueError):
+        with self.assertRaises(TypeError):
             self.experiment_type.update('this is not a dict')
 
     def test_nondefaults(self):
