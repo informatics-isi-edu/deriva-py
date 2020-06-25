@@ -184,16 +184,15 @@ class DatapathTests (unittest.TestCase):
         self.assertIn('schemas', dir(self.paths))
 
     def test_schema_dir_base(self):
-        self.assertLess({'name', 'tables', 'describe'}, set(dir(self.paths.schemas['ISA'])))
+        self.assertLess({'_name', 'tables', 'describe'}, set(dir(self.paths.schemas['ISA'])))
 
     def test_datapath_dir_base(self):
         self.assertLess({'aggregates', 'groupby', 'attributes', 'context', 'delete', 'entities', 'filter',
                          'link', 'table_instances', 'uri'}, set(dir(self.paths.schemas['ISA'].tables['Experiment'].path)))
 
     def test_table_dir_base(self):
-        self.assertLess({'aggregates', 'alias', 'groupby', 'attributes', 'catalog', 'describe', 'entities',
-                         'filter', 'fqname', 'fromname', 'insert', 'link', 'name', 'path', 'sname',
-                         'uname', 'update', 'uri'}, set(dir(self.paths.schemas['ISA'].tables['Experiment'])))
+        self.assertLess({'aggregates', 'alias', 'groupby', 'attributes', 'describe', 'entities', 'filter', 'insert',
+                         'link', 'path', 'update', 'uri'}, set(dir(self.paths.schemas['ISA'].tables['Experiment'])))
 
     def test_catalog_dir_with_schemas(self):
         self.assertLess({'ISA', 'Vocab'}, set(dir(self.paths)))
@@ -208,13 +207,16 @@ class DatapathTests (unittest.TestCase):
         self.assertIn('Experiment', dir(self.paths.ISA.Experiment.path))
 
     def test_describe_schema(self):
-        self.assertTrue(self.paths.schemas['ISA'].describe())
+        with self.assertWarns(DeprecationWarning):
+            self.paths.schemas['ISA'].describe()
 
     def test_describe_table(self):
-        self.assertTrue(self.paths.schemas['ISA'].tables['Experiment'].describe())
+        with self.assertWarns(DeprecationWarning):
+            self.paths.schemas['ISA'].tables['Experiment'].describe()
 
     def test_describe_column(self):
-        self.assertTrue(self.paths.schemas['ISA'].tables['Experiment'].column_definitions['Name'].describe())
+        with self.assertWarns(DeprecationWarning):
+            self.paths.schemas['ISA'].tables['Experiment'].column_definitions['Name'].describe()
 
     def test_unfiltered_fetch(self):
         results = self.experiment.entities()
@@ -280,7 +282,7 @@ class DatapathTests (unittest.TestCase):
         self.assertIn('Amount', result)
 
     def test_attribute_err_table_attr(self):
-        table_attr = ['name', 'sname', 'catalog']
+        table_attr = ['_name', '_schema']
         for attr in table_attr:
             with self.assertRaises(ValueError):
                 self.experiment.attributes(getattr(self.experiment, attr))
@@ -394,7 +396,7 @@ class DatapathTests (unittest.TestCase):
 
                 result = results[0]
                 self.assertEqual(len(results), TEST_EXPTYPE_MAX)
-                self.assertTrue(all(key.name in result for key in group_key))
+                self.assertTrue(all(key._name in result for key in group_key))
                 self.assertIn(name, result)
                 self.assertEqual(result[name], value)
 
@@ -433,7 +435,7 @@ class DatapathTests (unittest.TestCase):
                 results = self.experiment.groupby(*group_key).attributes(
                     Fn(self.experiment.column_definitions['Amount']).alias(name)).fetch()
 
-                self.assertTrue(all(key.name in results[0] for key in group_key))
+                self.assertTrue(all(key._name in results[0] for key in group_key))
                 self.assertIn(name, results[0])
                 for result in results:
                     bin = result[bin_name]
@@ -465,7 +467,7 @@ class DatapathTests (unittest.TestCase):
                 results = self.experiment.groupby(bin).attributes(
                     Fn(self.experiment.column_definitions['Amount']).alias(name)).sort(sort_key).fetch()
 
-                self.assertIn(bin.name, results[0])
+                self.assertIn(bin._name, results[0])
                 self.assertIn(name, results[0])
                 self.assertTrue(compfn(name, results[0], results[1]))
 
@@ -566,7 +568,7 @@ class DatapathTests (unittest.TestCase):
 
     def test_attribute_rename_special_chars(self):
         # first test with only the `:` character present which would trigger a lexical error from ermrest
-        special_character_out_alias = self.experiment.name + ':' + self.experiment.column_definitions['Name'].name
+        special_character_out_alias = self.experiment._name + ':' + self.experiment.column_definitions['Name']._name
         results = self.experiment.attributes(self.experiment.column_definitions['Name'].alias(special_character_out_alias))
         result = results.fetch(limit=1)[0]
         self.assertIn(special_character_out_alias, result)
@@ -716,7 +718,7 @@ class DatapathTests (unittest.TestCase):
         # merge paths 1..3
         path1.merge(path2).merge(path3)
         self.assertNotEqual(path1.uri, original_uri, "Merged path's URI should have changed from its original URI")
-        self.assertEqual(path1.context.name, path3.context.name, "Context of merged paths should equal far right-hand path's context")
+        self.assertEqual(path1.context._name, path3.context._name, "Context of merged paths should equal far right-hand path's context")
         self.assertGreater(len(path1.Experiment.entities()), 0, "Should have returned results")
 
     def test_compose_paths(self):
@@ -731,7 +733,7 @@ class DatapathTests (unittest.TestCase):
         self.assertNotEqual(path.uri, path1.uri, "Composed path URI should not match the first path URI")
         self.assertEqual(path1.uri, original_uri, "First path was changed")
         self.assertNotEqual(path.uri, original_uri, "Merged path's URI should have changed from its original URI")
-        self.assertEqual(path.context.name, path3.context.name, "Context of composed paths should equal far right-hand path's context")
+        self.assertEqual(path.context._name, path3.context._name, "Context of composed paths should equal far right-hand path's context")
         self.assertGreater(len(path.Experiment.entities()), 0, "Should have returned results")
 
 
