@@ -76,7 +76,7 @@ class _CatalogWrapper (object):
         }
 
     def __dir__(self):
-        return dir(_CatalogWrapper) + ['schemas'] + [key for key in self.schemas if _isidentifier(key)]
+        return super().__dir__() + [key for key in self.schemas if _isidentifier(key)]
 
     def __getattr__(self, a):
         if a in self.schemas:
@@ -188,7 +188,7 @@ class DataPath (object):
         return cp
 
     def __dir__(self):
-        return dir(DataPath) + self._identifiers
+        return super().__dir__() + self._identifiers
 
     def __getattr__(self, a):
         if a in self._table_instances:
@@ -198,14 +198,17 @@ class DataPath (object):
 
     @property
     def table_instances(self):
+        """Collection of the table instances in this datapath expression."""
         return self._table_instances
 
     @property
     def context(self):
+        """Context (i.e., last bound table instance) of this datapath expression."""
         return self._context
 
     @context.setter
     def context(self, value):
+        """Updates the context of this datapath expression (must be a table instance bound to this expression)."""
         assert isinstance(value, TableAlias)
         assert value._name in self._table_instances
         if self._context != value:
@@ -214,6 +217,7 @@ class DataPath (object):
 
     @property
     def uri(self):
+        """The current URI serialization of this datapath expression."""
         return self._base_uri + str(self._path_expression)
 
     def _contextualized_uri(self, context):
@@ -548,8 +552,8 @@ class _TableWrapper (object):
         :param table: the wrapped table
         """
         self._schema = schema
-        self._name = table.name
         self._wrapped_table = table
+        self._name = table.name
 
         self.column_definitions = {
             v.name: _ColumnWrapper(self, v)
@@ -557,7 +561,7 @@ class _TableWrapper (object):
         }
 
     def __dir__(self):
-        return dir(_TableWrapper) + ['sname', 'name'] + [key for key in self.column_definitions if _isidentifier(key)]
+        return super().__dir__() + [key for key in self.column_definitions if _isidentifier(key)]
 
     def __getattr__(self, a):
         if a in self.column_definitions:
@@ -584,7 +588,6 @@ class _TableWrapper (object):
 
     @property
     def _uname(self):
-        """the url encoded name"""
         return urlquote(self._name)
 
     @property
