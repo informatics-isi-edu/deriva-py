@@ -343,13 +343,13 @@ factory methods on a catalog or snapshot object:
    - `deriva.core.datapath.Catalog` path builder for catalog (or snapshot)
    - Allows higher-level data access idioms as described previously.
 - `model_root = catalog.getCatalogModel()`
-   - The `model_root` object roots a tree of objects isomorphic to the catalog model
-   - Allows inspection of catalog/snapshot annotations and policies.
-   - Allows mutation to draft a new configuration objective.
-   - Draft changes are applied with `model_root.apply()`
+   - `deriva.core.ermrest_model.Model` object for catalog (or snapshot)
+   - The `model_root` object roots a tree of objects isomorphic to the catalog model, organizing model definitions according to each part of the model.
    - Allows inspection of catalog/snapshot models (schemas, tables, columns, constraints)
-   - Some model management idioms are exposed as methods on individual objects in the model hierarchy.
-- `config_root = catalog.getCatalogConfig()` **deprecated**
+   - Allows inspection of catalog/snapshot annotations and policies.
+   - Allows configuration field mutation to draft a new configuration objective.
+   - Draft changes are applied with `model_root.apply()`
+   - Many model management idioms are exposed as methods on individual objects in the model hierarchy.
 
 ### Low-Level HTTP Methods
 

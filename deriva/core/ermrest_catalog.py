@@ -8,7 +8,6 @@ import json
 
 from . import urlquote, datapath, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, Megabyte, Kilobyte, get_transfer_summary, IS_PY2
 from .deriva_binding import DerivaBinding
-from .ermrest_config import CatalogConfig
 from . import ermrest_model
 
 
@@ -91,14 +90,8 @@ class ErmrestCatalog(DerivaBinding):
         return ErmrestSnapshot(self._scheme, self._server, self._catalog_id, r.json()['snaptime'],
                                self._credentials, self._caching, self._session_config)
 
-    def getCatalogConfig(self):
-        return CatalogConfig.fromcatalog(self)
-
     def getCatalogModel(self):
         return ermrest_model.Model.fromcatalog(self)
-
-    def applyCatalogConfig(self, config):
-        return config.apply()
 
     def getCatalogSchema(self):
         path = '/schema'

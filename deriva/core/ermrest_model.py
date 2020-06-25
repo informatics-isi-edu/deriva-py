@@ -1,19 +1,9 @@
 
-from . import ermrest_config as _ec
-from .ermrest_config import equivalent
+from collections import OrderedDict
+import json
 import re
 
-def _kwargs(**kwargs):
-    """Helper for extending ermrest_config with sub-types for the whole model tree."""
-    kwargs2 = {
-        'schema_class': Schema,
-        'table_class': Table,
-        'column_class': Column,
-        'key_class': Key,
-        'foreign_key_class': ForeignKey,
-    }
-    kwargs2.update(kwargs)
-    return kwargs2
+from . import urlquote
 
 class NoChange (object):
     """Special class used to distinguish no-change default arguments to methods.
@@ -27,11 +17,226 @@ class NoChange (object):
 # singletone to use in APIs below
 nochange = NoChange()
 
-class Model (_ec.CatalogConfig):
+class AttrDict (dict):
+    """Dictionary with optional attribute-based lookup.
+
+       For keys that are valid attributes, self.key is equivalent to
+       self[key].
+    """
+    def __getattr__(self, a):
+        try:
+            return self[a]
+        except KeyError as e:
+            raise AttributeError(str(e))
+
+    def __setattr__(self, a, v):
+        self[a] = v
+
+    def update(self, d):
+        dict.update(self, d)
+
+# convenient enumeration of common annotation tags
+tag = AttrDict({
+    'generated':          'tag:isrd.isi.edu,2016:generated',
+    'immutable':          'tag:isrd.isi.edu,2016:immutable',
+    'display':            'tag:misd.isi.edu,2015:display',
+    'visible_columns':    'tag:isrd.isi.edu,2016:visible-columns',
+    'visible_foreign_keys': 'tag:isrd.isi.edu,2016:visible-foreign-keys',
+    'foreign_key':        'tag:isrd.isi.edu,2016:foreign-key',
+    'table_display':      'tag:isrd.isi.edu,2016:table-display',
+    'table_alternatives': 'tag:isrd.isi.edu,2016:table-alternatives',
+    'column_display':     'tag:isrd.isi.edu,2016:column-display',
+    'asset':              'tag:isrd.isi.edu,2017:asset',
+    'bulk_upload':        'tag:isrd.isi.edu,2017:bulk-upload',
+    'export':             'tag:isrd.isi.edu,2016:export',
+    'chaise_config':      'tag:isrd.isi.edu,2019:chaise-config',
+})
+
+def presence_annotation(tag_uri):
+    """Decorator to establish property getter/setter/deleter for presence annotations.
+
+       Usage example:
+
+          @presence_annotation(tag.generated)
+          def generated(self): pass
+
+       The stub method will be discarded.
+    """
+    def helper(ignore):
+        docstr = "Convenience property for managing presence of annotation %s" % tag_uri
+
+        def getter(self):
+            return tag_uri in self.annotations
+
+        def setter(self, present):
+            if present:
+                self.annotations[tag_uri] = None
+            else:
+                self.annotations.pop(tag_uri, None)
+
+        def deleter(self):
+            self.annotations.pop(tag_uri, None)
+
+        return property(getter, setter, deleter, docstr)
+
+    return helper
+
+def object_annotation(tag_uri):
+    """Decorator to establish property getter/setter/deleter for object annotations.
+
+       Usage example:
+
+          @presence_annotation(tag.display)
+          def display(self): pass
+
+       The stub method will be discarded.
+    """
+    def helper(ignore):
+        docstr = "Convenience property for managing content of object annotation %s" % tag_uri
+
+        def getter(self):
+            if tag_uri not in self.annotations:
+                self.annotations[tag_uri] = AttrDict({})
+            return self.annotations[tag_uri]
+
+        def setter(self, value):
+            if not isinstance(value, (dict, AttrDict)):
+                raise TypeError('Unexpected object type %s for annotation %s' % (type(value), tag_uri))
+            self.annotations[tag_uri] = AttrDict(value)
+
+        def deleter(self):
+            self.annotations.pop(tag_uri, None)
+
+        return property(getter, setter, deleter, docstr)
+
+    return helper
+
+def equivalent(doc1, doc2, method=None):
+    """Determine whether two dict/array/literal documents are structurally equivalent."""
+    if method == 'acl_binding':
+        # fill in defaults to avoid some false negatives on acl binding comparison
+        if not isinstance(doc1, dict):
+            return False
+        def canonicalize(d):
+            if not isinstance(d, dict):
+                return d
+            def helper(b):
+                if not isinstance(b, dict):
+                    return b
+                return {
+                    'projection': b['projection'],
+                    'projection_type': b.get('projection_type'), # we can't provide default w/o type inference!
+                    'types': b['types'],
+                    'scope_acl': b.get('scope_acl', ['*']), # this is a common omission...
+                }
+            return {
+                binding_name: helper(binding)
+                for binding_name, binding in d.items()
+            }
+        return equivalent(canonicalize(doc1), canonicalize(doc2))
+    elif isinstance(doc1, dict) and isinstance(doc2, dict):
+        return equivalent(sorted(doc1.items()), sorted(doc2.items()))
+    elif isinstance(doc1, (list, tuple)) and isinstance(doc2, (list, tuple)):
+        if len(doc1) != len(doc2):
+            return False
+        for e1, e2 in zip(doc1, doc2):
+            if not equivalent(e1, e2):
+                return False
+        return True
+    return doc1 == doc2
+
+class Model (object):
     """Top-level catalog model.
     """
-    def __init__(self, catalog, model_doc, **kwargs):
-        super(Model, self).__init__(catalog, model_doc, **_kwargs(**kwargs))
+    def __init__(self, catalog, model_doc):
+        self._catalog = catalog
+        self._pseudo_fkeys = {}
+        self.acls = AttrDict(model_doc.get('acls', {}))
+        self.annotations = dict(model_doc.get('annotations', {}))
+        self.schemas = {
+            sname: Schema(self, sname, sdoc)
+            for sname, sdoc in model_doc.get('schemas', {}).items()
+        }
+        self.digest_fkeys()
+
+    def prejson(self, prune=True):
+        """Produce a representation of configuration as generic Python data structures"""
+        return {
+            "acls": self.acls,
+            "annotations": self.annotations,
+            "schemas": {
+                sname: schema.prejson()
+                for sname, schema in self.schemas.items()
+            }
+        }
+
+    def digest_fkeys(self):
+        """Finish second-pass digestion of foreign key definitions using full model w/ all schemas and tables.
+        """
+        for schema in self.schemas.values():
+            for referer in schema.tables.values():
+                for fkey in list(referer.foreign_keys):
+                    try:
+                        fkey.digest_referenced_columns(self)
+                    except KeyError:
+                        del referer.foreign_keys[fkey.name]
+
+    @property
+    def catalog(self):
+        return self._catalog
+
+    @property
+    def uri_path(self):
+        """URI to this model resource."""
+        return "/schema"
+
+    @classmethod
+    def fromcatalog(cls, catalog):
+        """Retrieve catalog config as a Model management object."""
+        return cls(catalog, catalog.get("/schema").json())
+
+    @classmethod
+    def fromfile(cls, catalog, schema_file):
+        """Deserialize a JSON schema file as a Model management object."""
+        with open(schema_file) as sf:
+            schema = sf.read()
+        return cls(catalog, json.loads(schema, object_pairs_hook=OrderedDict))
+
+    def clear(self, clear_comment=False):
+        """Clear all configuration in catalog and children.
+
+        NOTE: as a backwards-compatible heuristic, comments are
+        retained by default so that a typical configuration-management
+        client does not strip useful documentation from existing models.
+        """
+        self.annotations.clear()
+        self.acls.clear()
+        for schema in self.schemas.values():
+            schema.clear(clear_comment=clear_comment)
+
+    def apply(self, existing=None):
+        """Apply catalog configuration to catalog unless existing already matches.
+
+        :param existing: An instance comparable to self.
+
+        The configuration in self will be applied recursively to the
+        corresponding model nodes in schema.
+
+        If existing is not provided (default), the current whole
+        configuration will be retrieved from the catalog and used
+        automatically to determine whether the configuration goals
+        under this Model tree are already met or need to be remotely
+        applied.
+
+        """
+        if existing is None:
+            existing = self.fromcatalog(self.catalog)
+        if not equivalent(self.annotations, existing.annotations):
+            self.catalog.put('/annotation', json=self.annotations)
+        if not equivalent(self.acls, existing.acls):
+            self.catalog.put('/acl', json=self.acls)
+        for sname, schema in self.schemas.items():
+            schema.apply(existing.schemas[sname])
 
     def create_schema(self, schema_def):
         """Add a new schema to this model in the remote database based on schema_def.
@@ -56,6 +261,39 @@ class Model (_ec.CatalogConfig):
         self.digest_fkeys()
         return newschema
 
+    def table(self, sname, tname):
+        """Return table configuration for table with given name."""
+        return self.schemas[sname].tables[tname]
+
+    def column(self, sname, tname, cname):
+        """Return column configuration for column with given name."""
+        return self.table(sname, tname).column_definitions[cname]
+
+    def fkey(self, constraint_name_pair):
+        """Return configuration for foreign key with given name pair.
+
+        Accepts (schema_name, constraint_name) pairs as found in many
+        faceting annotations and (schema_obj, constraint_name) pairs
+        as found in fkey.name fields.
+
+        """
+        sname, cname = constraint_name_pair
+        if isinstance(sname, CatalogSchema):
+            if self.schemas[sname.name] is sname:
+                return sname._fkeys[cname]
+            else:
+                raise ValueError('schema object %s is not from same model tree' % (sname,))
+        elif sname is None or sname == '':
+            return self._pseudo_fkeys[cname]
+        else:
+            return self.schemas[sname]._fkeys[cname]
+
+    @object_annotation(tag.bulk_upload)
+    def bulk_upload(self): pass
+
+    @object_annotation(tag.display)
+    def display(self): pass
+
 def strip_nochange(d):
     return {
         k: v
@@ -63,12 +301,29 @@ def strip_nochange(d):
         if v is not nochange
     }
 
-class Schema (_ec.CatalogSchema):
+class Schema (object):
     """Named schema.
     """
-    def __init__(self, model, sname, schema_doc, **kwargs):
-        super(Schema, self).__init__(model, sname, schema_doc, **_kwargs(**kwargs))
+    def __init__(self, model, sname, schema_doc):
+        self.model = model
+        self.name = sname
+        self.acls = AttrDict(schema_doc.get('acls', {}))
+        self.annotations = dict(schema_doc.get('annotations', {}))
         self.comment = schema_doc.get('comment')
+        self._fkeys = {}
+        self.tables = {
+            tname: Table(self, tname, tdoc)
+            for tname, tdoc in schema_doc.get('tables', {}).items()
+        }
+
+    @property
+    def catalog(self):
+        return self.model.catalog
+
+    @property
+    def uri_path(self):
+        """URI to this model resource."""
+        return "/schema/%s" % urlquote(self.name)
 
     @classmethod
     def define(cls, sname, comment=None, acls={}, annotations={}):
@@ -82,11 +337,31 @@ class Schema (_ec.CatalogSchema):
         }
 
     def prejson(self, prune=True):
-        d = super(Schema, self).prejson(prune)
-        d.update({
-            'comment': self.comment,
-        })
-        return d
+        """Produce native Python representation of schema, suitable for JSON serialization."""
+        return {
+            "schema_name": self.name,
+            "acls": self.acls,
+            "annotations": self.annotations,
+            "comment": self.comment,
+            "tables": {
+                tname: table.prejson()
+                for tname, table in self.tables.items()
+            }
+        }
+
+    def clear(self, clear_comment=False):
+        """Clear all configuration in schema and children.
+
+        NOTE: as a backwards-compatible heuristic, comments are
+        retained by default so that a typical configuration-management
+        client does not strip useful documentation from existing models.
+        """
+        self.acls.clear()
+        self.annotations.clear()
+        if clear_comment:
+            self.comment = None
+        for table in self.tables.values():
+            table.clear(clear_comment=clear_comment)
 
     def apply(self, existing=None):
         """Apply configuration to corresponding schema in catalog unless existing already matches.
@@ -98,8 +373,8 @@ class Schema (_ec.CatalogSchema):
         corresponding state in existing.
         """
         changes = {}
-        if existing is None or not equivalent(self._comment, existing._comment):
-            changes['comment'] = self._comment
+        if existing is None or not equivalent(self.comment, existing.comment):
+            changes['comment'] = self.comment
         if existing is None or not equivalent(self.annotations, existing.annotations):
             changes['annotations'] = self.annotations
         if existing is None or not equivalent(self.acls, existing.acls):
@@ -138,7 +413,7 @@ class Schema (_ec.CatalogSchema):
             self.model.schemas[self.name] = self
 
         if 'comment' in changes:
-            self._comment = changed['comment']
+            self.comment = changed['comment']
 
         if 'acls' in changes:
             self.acls.clear()
@@ -179,13 +454,86 @@ class Schema (_ec.CatalogSchema):
         self.catalog.delete(self.uri_path).raise_for_status()
         del self.model.schemas[self.name]
 
-class Table (_ec.CatalogTable):
+    @object_annotation(tag.display)
+    def display(self): pass
+
+class KeyedList (list):
+    """Keyed list."""
+    def __init__(self, l):
+        list.__init__(self, l)
+        self.elements = {
+            e.name: e
+            for e in l
+        }
+
+    def __getitem__(self, idx):
+        """Get element by key or by list index or slice."""
+        if isinstance(idx, (int, slice)):
+            return list.__getitem__(self, idx)
+        else:
+            return self.elements[idx]
+
+    def __delitem__(self, idx):
+        """Delete element by key or by list index or slice."""
+        if isinstance(idx, int):
+            victim = list.__getitem__(self, idx)
+            list.__delitem__(self, idx)
+            del self.elements[victim.name]
+        elif isinstance(idx, slice):
+            victims = [list.__getitem__(self, idx)]
+            list.__delslice__(self, idx)
+            for victim in victims:
+                del self.elements[victim.name]
+        else:
+            victim = self.elements[idx]
+            list.__delitem__(self, self.index(victim))
+            del self.elements[victim.name]
+
+    def append(self, e):
+        """Append element to list and record its key."""
+        if e.name in self.elements:
+            raise ValueError('Element name %s already exists.' % (e.name,))
+        list.append(self, e)
+        self.elements[e.name] = e
+
+class Table (object):
     """Named table.
     """
-    def __init__(self, schema, tname, table_doc, **kwargs):
-        super(Table, self).__init__(schema, tname, table_doc, **_kwargs(**kwargs))
+    def __init__(self, schema, tname, table_doc):
+        self.schema = schema
+        self.name = tname
+        self.acls = AttrDict(table_doc.get('acls', {}))
+        self.acl_bindings = AttrDict(table_doc.get('acl_bindings', {}))
+        self.annotations = dict(table_doc.get('annotations', {}))
         self.comment = table_doc.get('comment')
         self.kind = table_doc.get('kind')
+        self.column_definitions = KeyedList([
+            Column(self, cdoc)
+            for cdoc in table_doc.get('column_definitions', [])
+        ])
+        self.keys = KeyedList([
+            Key(self, kdoc)
+            for kdoc in table_doc.get('keys', [])
+        ])
+        self.foreign_keys = KeyedList([
+            ForeignKey(self, fkdoc)
+            for fkdoc in table_doc.get('foreign_keys', [])
+        ])
+        self.referenced_by = KeyedList([])
+
+    @property
+    def columns(self):
+        """Sugared access to self.column_definitions"""
+        return self.column_definitions
+
+    @property
+    def catalog(self):
+        return self.schema.model.catalog
+
+    @property
+    def uri_path(self):
+        """URI to this model element."""
+        return "%s/table/%s" % (self.schema.uri_path, urlquote(self.name))
 
     @classmethod
     def system_column_defs(cls, custom=[]):
@@ -397,14 +745,14 @@ class Table (_ec.CatalogTable):
 
         def add_asset_columns(custom):
             asset_annotation = {
-                _ec.tag.asset: {
+                tag.asset: {
                     'filename_column': 'Filename',
                     'byte_count_column': 'Length',
                     'md5': 'MD5',
                 }
             }
             if hatrac_template:
-                asset_annotation[_ec.tag.asset]['url_pattern'] = hatrac_template
+                asset_annotation[tag.asset]['url_pattern'] = hatrac_template
             return [
                 col_def
                 for col_def in [
@@ -447,11 +795,46 @@ class Table (_ec.CatalogTable):
         )
 
     def prejson(self, prune=True):
-        d = super(Table, self).prejson(prune)
-        d.update({
-            'comment': self.comment,
-        })
-        return d
+        return {
+            "schema_name": self.schema.name,
+            "table_name": self.name,
+            "acls": self.acls,
+            "acl_bindings": self.acl_bindings,
+            "annotations": self.annotations,
+            "comment": self.comment,
+
+            "column_definitions": [
+                c.prejson()
+                for c in self.column_definitions
+            ],
+            "keys": [
+                key.prejson()
+                for key in self.keys
+            ],
+            "foreign_keys": [
+                fkey.prejson()
+                for fkey in self.foreign_keys
+            ]
+        }
+
+    def clear(self, clear_comment=False):
+        """Clear all configuration in table and children.
+
+        NOTE: as a backwards-compatible heuristic, comments are
+        retained by default so that a typical configuration-management
+        client does not strip useful documentation from existing models.
+        """
+        self.acls.clear()
+        self.acl_bindings.clear()
+        self.annotations.clear()
+        if clear_comment:
+            self.comment = None
+        for col in self.column_definitions:
+            col.clear(clear_comment=clear_comment)
+        for key in self.keys:
+            key.clear(clear_comment=clear_comment)
+        for fkey in self.foreign_keys:
+            fkey.clear(clear_comment=clear_comment)
 
     def apply(self, existing=None):
         """Apply configuration to corresponding table in catalog unless existing already matches.
@@ -463,8 +846,8 @@ class Table (_ec.CatalogTable):
         match their corresponding state in existing.
         """
         changes = {}
-        if existing is None or not equivalent(self._comment, existing._comment):
-            changes['comment'] = self._comment
+        if existing is None or not equivalent(self.comment, existing.comment):
+            changes['comment'] = self.comment
         if existing is None or not equivalent(self.annotations, existing.annotations):
             changes['annotations'] = self.annotations
         if existing is None or not equivalent(self.acls, existing.acls):
@@ -535,7 +918,7 @@ class Table (_ec.CatalogTable):
             self.schema.tables[self.name] = self
 
         if 'comment' in changes:
-            self._comment = changed['comment']
+            self.comment = changed['comment']
 
         if 'acls' in changes:
             self.acls.clear()
@@ -550,6 +933,15 @@ class Table (_ec.CatalogTable):
             self.annotations.update(changed['annotations'])
 
         return self
+
+    def _own_column(self, column):
+        if isinstance(column, Column):
+            if self.column_definitions[column.name] is column:
+                return column
+            raise ValueError('column %s object is not from this table object' % (column,))
+        elif column in self.column_definitions.elements:
+            return self.column_definitions[column]
+        raise ValueError('value %s does not name a defined column in this table' % (column,))
 
     def _create_table_part(self, subapi, registerfunc, constructor, doc):
         r = self.catalog.post(
@@ -614,15 +1006,225 @@ class Table (_ec.CatalogTable):
         self.catalog.delete(self.uri_path).raise_for_status()
         del self.schema.tables[self.name]
 
-class Column (_ec.CatalogColumn):
+    def key_by_columns(self, unique_columns, raise_nomatch=True):
+        """Return key from self.keys with matching unique columns.
+
+        unique_columns: iterable of column instances or column names
+        raise_nomatch: for True, raise KeyError on non-match, else return None
+        """
+        cset = { self._own_column(c) for c in unique_columns }
+        for key in self.keys:
+            if cset == { c for c in key.unique_columns }:
+                return key
+        if raise_nomatch:
+            raise KeyError(cset)
+
+    def fkeys_by_columns(self, from_columns, partial=False, raise_nomatch=True):
+        """Iterable of fkeys from self.foreign_keys with matching columns.
+
+        from_columns: iterable of referencing column instances or column names
+        partial: include fkeys which cover a superset of from_columns
+        raise_nomatch: for True, raise KeyError on empty iterable
+        """
+        cset = { self._own_column(c) for c in from_columns }
+        if not cset:
+            raise ValueError('from_columns must be non-empty')
+        to_table = None
+        for fkey in self.foreign_keys:
+            fkey_cset = set(fkey.foreign_key_columns)
+            if cset == fkey_cset or partial and cset.issubset(fkey_cset):
+                raise_nomatch = False
+                yield fkey
+        if raise_nomatch:
+            raise KeyError(cset)
+
+    def fkey_by_column_map(self, from_to_map, raise_nomatch=True):
+        """Return fkey from self.foreign_keys with matching {referencing: referenced} column mapping.
+
+        from_to_map: dict-like mapping with items() method yielding (from_col, to_col) pairs
+        raise_nomatch: for True, raise KeyError on non-match, else return None
+        """
+        colmap = {
+            self._own_column(from_col): to_col
+            for from_col, to_col in from_to_map.items()
+        }
+        if not colmap:
+            raise ValueError('column mapping must be non-empty')
+        to_table = None
+        for c in colmap.values():
+            if to_table is None:
+                to_table = c.table
+            elif to_table is not c.table:
+                raise ValueError('to-columns must all be part of same table')
+        for fkey in self.foreign_keys:
+            if colmap == fkey.column_map:
+                return fkey
+        if raise_nomatch:
+            raise KeyError(from_to_map)
+
+    def is_association(self, min_arity=2, max_arity=2, unqualified=True, pure=True, no_overlap=True):
+        """Return (truthy) integer arity if self is a matching association, else False.
+
+        min_arity: minimum number of associated fkeys (default 2)
+        max_arity: maximum number of associated fkeys (default 2) or None
+        unqualified: reject qualified associations when True (default True)
+        pure: reject impure assocations when True (default True)
+        no_overlap: reject overlapping associations when True (default True)
+
+        The default behavior with no arguments is to test for pure,
+        unqualified, non-overlapping, binary assocations.
+
+        An association is comprised of several foreign keys which are
+        covered by a non-nullable composite row key. This allows
+        specific combinations of foreign keys to appear at most once.
+
+        The arity of an association is the number of foreign keys
+        being associated. A typical binary association has arity=2.
+
+        An unqualified association contains *only* the foreign key
+        material in its row key. Conversely, a qualified association
+        mixes in other material which means that a specific
+        combination of foreign keys may repeat with different
+        qualifiers.
+
+        A pure association contains *only* row key
+        material. Conversely, an impure association includes
+        additional metadata columns not covered by the row key. Unlike
+        qualifiers, impure metadata merely decorates an association
+        without augmenting its identifying characteristics.
+
+        A non-overlapping association does not share any columns
+        between multiple foreign keys. This means that all
+        combinations of foreign keys are possible. Conversely, an
+        overlapping association shares some columns between multiple
+        foreign keys, potentially limiting the combinations which can
+        be represented in an association row.
+
+        These tests ignore the five ERMrest system columns and any
+        corresponding constraints.
+
+        """
+        if min_arity < 2:
+            raise ValueError('An assocation cannot have arity < 2')
+        if max_arity is not None and max_arity < min_arity:
+            raise ValueError('max_arity cannot be less than min_arity')
+
+        # TODO: revisit whether there are any other cases we might
+        # care about where system columns are involved?
+        non_sys_cols = {
+            col
+            for col in self.column_definitions
+            if col.name not in {'RID', 'RCT', 'RMT', 'RCB', 'RMB'}
+        }
+        non_sys_key_colsets = {
+            frozenset(key.unique_columns)
+            for key in self.keys
+            if set(key.unique_columns).issubset(non_sys_cols)
+            and len(key.unique_columns) > 1
+        }
+
+        if not non_sys_key_colsets:
+            # reject: not association
+            return False
+
+        # choose longest compound key (arbitrary choice with ties!)
+        row_key = sorted(non_sys_key_colsets, key=lambda s: len(s), reverse=True)[0]
+        covered_fkeys = {
+            fkey
+            for fkey in self.foreign_keys
+            if set(fkey.foreign_key_columns).issubset(row_key)
+        }
+        covered_fkey_cols = set()
+
+        if len(covered_fkeys) < min_arity:
+            # reject: not enough fkeys in association
+            return False
+        elif max_arity is not None and len(covered_fkeys) > max_arity:
+            # reject: too many fkeys in association
+            return False
+
+        for fkey in covered_fkeys:
+            fkcols = set(fkey.foreign_key_columns)
+            if no_overlap and fkcols.intersection(covered_fkey_cols):
+                # reject: overlapping fkeys in association
+                return False
+            covered_fkey_cols.update(fkcols)
+
+        if unqualified and row_key.difference(covered_fkey_cols):
+            # reject: qualified association
+            return False
+
+        if pure and non_sys_cols.difference(row_key):
+            # reject: impure association
+            return False
+
+        # return (truthy) arity
+        return len(covered_fkeys)
+
+    @presence_annotation(tag.immutable)
+    def immutable(self): pass
+
+    @presence_annotation(tag.generated)
+    def generated(self): pass
+
+    @object_annotation(tag.display)
+    def display(self): pass
+
+    @object_annotation(tag.table_alternatives)
+    def alternatives(self): pass
+
+    @object_annotation(tag.table_display)
+    def table_display(self): pass
+
+    @object_annotation(tag.visible_columns)
+    def visible_columns(self): pass
+
+    @object_annotation(tag.visible_foreign_keys)
+    def visible_foreign_keys(self): pass
+
+class Column (object):
     """Named column.
     """
-    def __init__(self, table, column_doc, **kwargs):
-        super(Column, self).__init__(table, column_doc, **_kwargs(**kwargs))
-        self.type = make_type(column_doc['type'], **_kwargs(**kwargs))
+    def __init__(self, table, column_doc):
+        self.table = table
+        self.name = column_doc['name']
+        self.acls = AttrDict(column_doc.get('acls', {}))
+        self.acl_bindings = AttrDict(column_doc.get('acl_bindings', {}))
+        self.annotations = dict(column_doc.get('annotations', {}))
+        self.comment = column_doc.get('comment')
+        self.type = make_type(column_doc['type'])
         self.nullok = bool(column_doc.get('nullok', True))
         self.default = column_doc.get('default')
         self.comment = column_doc.get('comment')
+
+    @property
+    def catalog(self):
+        return self.table.schema.model.catalog
+
+    @property
+    def uri_path(self):
+        """URI to this model resource."""
+        return "%s/column/%s" % (self.table.uri_path, urlquote(self.name))
+
+    def prejson_colref(self):
+        return {
+            "schema_name": self.table.schema.name,
+            "table_name": self.table.name,
+            "column_name": self.name,
+        }
+
+    def prejson(self, prune=True):
+        """Produce a representation of configuration as generic Python data structures"""
+        return {
+            "name": self.name,
+            "acls": self.acls,
+            "acl_bindings": self.acl_bindings,
+            "annotations": self.annotations,
+            "comment": self.comment,
+            "type": self.type.prejson(prune),
+            "nullok": self.nullok,
+            "default": self.default,
+        }
 
     @classmethod
     def define(cls, cname, ctype, nullok=True, default=None, comment=None, acls={}, acl_bindings={}, annotations={}):
@@ -642,6 +1244,19 @@ class Column (_ec.CatalogColumn):
             'annotations': annotations,
         }
 
+    def clear(self, clear_comment=False):
+        """Clear all configuration in column
+
+        NOTE: as a backwards-compatible heuristic, comments are
+        retained by default so that a typical configuration-management
+        client does not strip useful documentation from existing models.
+        """
+        self.acls.clear()
+        self.acl_bindings.clear()
+        self.annotations.clear()
+        if clear_comment:
+            self.comment = None
+
     def apply(self, existing=None):
         """Apply configuration to corresponding column in catalog unless existing already matches.
 
@@ -652,8 +1267,8 @@ class Column (_ec.CatalogColumn):
         match their corresponding state in existing.
         """
         changes = {}
-        if existing is None or not equivalent(self._comment, existing._comment):
-            changes['comment'] = self._comment
+        if existing is None or not equivalent(self.comment, existing.comment):
+            changes['comment'] = self.comment
         if existing is None or not equivalent(self.annotations, existing.annotations):
             changes['annotations'] = self.annotations
         if existing is None or not equivalent(self.acls, existing.acls):
@@ -724,7 +1339,7 @@ class Column (_ec.CatalogColumn):
             self.default = changed['default']
 
         if 'comment' in changes:
-            self._comment = changed['comment']
+            self.comment = changed['comment']
 
         if 'acls' in changes:
             self.acls.clear()
@@ -758,12 +1373,102 @@ class Column (_ec.CatalogColumn):
         self.catalog.delete(self.uri_path).raise_for_status()
         del self.table.column_definitions[self.name]
 
-class Key (_ec.CatalogKey):
+    @presence_annotation(tag.immutable)
+    def immutable(self): pass
+
+    @presence_annotation(tag.generated)
+    def generated(self): pass
+
+    @object_annotation(tag.display)
+    def display(self): pass
+
+    @object_annotation(tag.asset)
+    def asset(self): pass
+
+    @object_annotation(tag.column_display)
+    def column_display(self): pass
+
+def _constraint_name_parts(constraint, doc):
+    # modern systems should have 0 or 1 names here
+    names = doc.get('names', [])[0:1]
+    if not names:
+        raise ValueError('Unexpected constraint without any name.')
+    if names[0][0] == '':
+        constraint_schema = None
+    elif names[0][0] == constraint.table.schema.name:
+        constraint_schema = constraint.table.schema
+    else:
+        raise ValueError('Unexpected schema name in constraint %s' % (names[0],))
+    constraint_name = names[0][1]
+    return (constraint_schema, constraint_name)
+
+class Key (object):
     """Named key.
     """
-    def __init__(self, table, key_doc, **kwargs):
-        super(Key, self).__init__(table, key_doc, **_kwargs(**kwargs))
+    def __init__(self, table, key_doc):
+        self.table = table
+        self.annotations = dict(key_doc.get('annotations', {}))
         self.comment = key_doc.get('comment')
+        try:
+            self.constraint_schema, self.constraint_name = _constraint_name_parts(self, key_doc)
+        except ValueError:
+            self.constraint_schema, self.constraint_name = None, str(hash(self))
+        self.unique_columns = KeyedList([
+            table.column_definitions[cname]
+            for cname in key_doc['unique_columns']
+        ])
+
+    @property
+    def columns(self):
+        """Sugared access to self.unique_columns"""
+        return self.unique_columns
+
+    @property
+    def catalog(self):
+        return self.table.schema.model.catalog
+
+    @property
+    def uri_path(self):
+        """URI to this model resource."""
+        return '%s/key/%s' % (
+            self.table.uri_path,
+            ','.join([ urlquote(c.name) for c in self.unique_columns ])
+        )
+
+    @property
+    def name(self):
+        """Constraint name (schemaobj, name_str) used in API dictionaries."""
+        return (self.constraint_schema, self.constraint_name)
+
+    def name_in_model(self, model):
+        """Constraint name (schemaobj, name_str) used in API dictionaries fetching schema from model.
+
+        While self.name works as a key within the same model tree,
+        self.name_in_model(dstmodel) works in dstmodel tree by finding
+        the equivalent schemaobj in that model via schema name lookup.
+
+        """
+        return (
+            model.schemas[self.constraint_schema.name] if self.constraint_schema else None,
+            self.constraint_name
+        )
+
+    @property
+    def names(self):
+        """Constraint names field as seen in JSON document."""
+        return [ [self.constraint_schema.name if self.constraint_schema else '', self.constraint_name] ]
+
+    def prejson(self, prune=True):
+        """Produce a representation of configuration as generic Python data structures"""
+        return {
+            'annotations': self.annotations,
+            'comment': self.comment,
+            'unique_columns': [
+                c.name
+                for c in self.unique_columns
+            ],
+            'names': self.names,
+        }
 
     @classmethod
     def define(cls, colnames, constraint_names=[], comment=None, annotations={}):
@@ -777,6 +1482,17 @@ class Key (_ec.CatalogKey):
             'annotations': annotations,
         }
 
+    def clear(self, clear_comment=False):
+        """Clear all configuration in key
+
+        NOTE: as a backwards-compatible heuristic, comments are
+        retained by default so that a typical configuration-management
+        client does not strip useful documentation from existing models.
+        """
+        self.annotations.clear()
+        if clear_comment:
+            self.comment = None
+
     def apply(self, existing=None):
         """Apply configuration to corresponding table in catalog unless existing already matches.
 
@@ -787,8 +1503,8 @@ class Key (_ec.CatalogKey):
         existing.
         """
         changes = {}
-        if existing is None or not equivalent(self._comment, existing._comment):
-            changes['comment'] = self._comment
+        if existing is None or not equivalent(self.comment, existing.comment):
+            changes['comment'] = self.comment
         if existing is None or not equivalent(self.annotations, existing.annotations):
             changes['annotations'] = self.annotations
         if changes:
@@ -828,20 +1544,13 @@ class Key (_ec.CatalogKey):
             self.constraint_name = changed['names'][0][1]
 
         if 'comment' in changes:
-            self._comment = changed['comment']
+            self.comment = changed['comment']
 
         if 'annotations' in changes:
             self.annotations.clear()
             self.annotations.update(changed['annotations'])
 
         return self
-
-    def prejson(self, prune=True):
-        d = super(Key, self).prejson(prune)
-        d.update({
-            'comment': self.comment,
-        })
-        return d
 
     def drop(self):
         """Remove this key from the remote database.
@@ -851,14 +1560,123 @@ class Key (_ec.CatalogKey):
         self.catalog.delete(self.update_uri_path).raise_for_status()
         del self.table.keys[self.name]
 
-class ForeignKey (_ec.CatalogForeignKey):
+class ForeignKey (object):
     """Named foreign key.
     """
-    def __init__(self, table, fkey_doc, **kwargs):
-        super(ForeignKey, self).__init__(table, fkey_doc, **_kwargs(**kwargs))
+    def __init__(self, table, fkey_doc):
+        self.table = table
+        self.pk_table = None
+        self.acls = AttrDict(fkey_doc.get('acls', {}))
+        self.acl_bindings = AttrDict(fkey_doc.get('acl_bindings', {}))
+        self.annotations = dict(fkey_doc.get('annotations', {}))
         self.comment = fkey_doc.get('comment')
         self.on_delete = fkey_doc.get('on_delete')
         self.on_update = fkey_doc.get('on_update')
+        try:
+            self.constraint_schema, self.constraint_name = _constraint_name_parts(self, fkey_doc)
+        except ValueError:
+            self.constraint_schema, self.constraint_name = None, str(hash(self))
+        if self.constraint_schema:
+            self.constraint_schema._fkeys[self.constraint_name] = self
+        else:
+            self.table.schema.model._pseudo_fkeys[self.constraint_name] = self
+        self.foreign_key_columns = KeyedList([
+            table.column_definitions[coldoc['column_name']]
+            for coldoc in fkey_doc['foreign_key_columns']
+        ])
+        self._referenced_columns_doc = fkey_doc['referenced_columns']
+        self.referenced_columns = None
+
+    def digest_referenced_columns(self, model):
+        """Finish construction deferred until model is known with all tables."""
+        if self.referenced_columns is None:
+            pk_sname = self._referenced_columns_doc[0]['schema_name']
+            pk_tname = self._referenced_columns_doc[0]['table_name']
+            self.pk_table = model.schemas[pk_sname].tables[pk_tname]
+            self.referenced_columns = KeyedList([
+                self.pk_table.column_definitions[coldoc['column_name']]
+                for coldoc in self._referenced_columns_doc
+            ])
+            self._referenced_columns_doc = None
+            self.pk_table.referenced_by.append(self)
+
+    @property
+    def column_map(self):
+        """Mapping of foreign_key_columns elements to referenced_columns elements."""
+        return {
+            fk_col: pk_col
+            for fk_col, pk_col in zip(self.foreign_key_columns, self.referenced_columns)
+        }
+
+    @property
+    def columns(self):
+        """Sugared access to self.column_definitions"""
+        return self.foreign_key_columns
+
+    @property
+    def catalog(self):
+        return self.table.schema.model.catalog
+
+    @property
+    def uri_path(self):
+        """URI to this model resource."""
+        return '%s/foreignkey/%s/reference/%s:%s/%s' % (
+            self.table.uri_path,
+            ','.join([ urlquote(c.name) for c in self.foreign_key_columns ]),
+            urlquote(self.pk_table.schema.name),
+            urlquote(self.pk_table.name),
+            ','.join([ urlquote(c.name) for c in self.referenced_columns ]),
+        )
+
+    @property
+    def name(self):
+        """Constraint name (schemaobj, name_str) used in API dictionaries."""
+        return (self.constraint_schema, self.constraint_name)
+
+    def name_in_model(self, model):
+        """Constraint name (schemaobj, name_str) used in API dictionaries fetching schema from model.
+
+        While self.name works as a key within the same model tree,
+        self.name_in_model(dstmodel) works in dstmodel tree by finding
+        the equivalent schemaobj in that model via schema name lookup.
+
+        """
+        return (
+            model.schemas[self.constraint_schema.name] if self.constraint_schema else None,
+            self.constraint_name
+        )
+
+    @property
+    def names(self):
+        """Constraint names field as seen in JSON document."""
+        return [ [self.constraint_schema.name if self.constraint_schema else '', self.constraint_name] ]
+
+    @property
+    def column_map(self):
+        return {
+            fk_col: pk_col
+            for fk_col, pk_col in zip(self.foreign_key_columns, self.referenced_columns)
+        }
+
+    def prejson(self, prune=True):
+        """Produce a representation of configuration as generic Python data structures"""
+        return {
+            'acls': self.acls,
+            'acl_bindings': self.acl_bindings,
+            'annotations': self.annotations,
+            'comment': self.comment,
+            'foreign_key_columns': [
+                c.prejson_colref()
+                for c in self.foreign_key_columns
+            ],
+            'referenced_columns': [
+                c.prejson_colref()
+                for c in self.referenced_columns
+            ],
+            'names': self.names,
+            'on_delete': self.on_delete,
+            'on_update': self.on_update,
+        }
 
     @classmethod
     def define(cls, fk_colnames, pk_sname, pk_tname, pk_colnames, on_update='NO ACTION', on_delete='NO ACTION', constraint_names=[], comment=None, acls={}, acl_bindings={}, annotations={}):
@@ -888,6 +1706,19 @@ class ForeignKey (_ec.CatalogForeignKey):
             'annotations': annotations,
         }
 
+    def clear(self, clear_comment=False):
+        """Clear all configuration in foreign key
+
+        NOTE: as a backwards-compatible heuristic, comments are
+        retained by default so that a typical configuration-management
+        client does not strip useful documentation from existing models.
+        """
+        self.acls.clear()
+        self.acl_bindings.clear()
+        self.annotations.clear()
+        if clear_comment:
+            self.comment = None
+
     def apply(self, existing=None):
         """Apply configuration to corresponding table in catalog unless existing already matches.
 
@@ -898,8 +1729,8 @@ class ForeignKey (_ec.CatalogForeignKey):
         match their corresponding state in existing.
         """
         changes = {}
-        if existing is None or not equivalent(self._comment, existing._comment):
-            changes['comment'] = self._comment
+        if existing is None or not equivalent(self.comment, existing.comment):
+            changes['comment'] = self.comment
         if existing is None or not equivalent(self.annotations, existing.annotations):
             changes['annotations'] = self.annotations
         if existing is None or not equivalent(self.acls, existing.acls):
@@ -969,7 +1800,7 @@ class ForeignKey (_ec.CatalogForeignKey):
             self.on_delete = changed['on_delete']
 
         if 'comment' in changes:
-            self._comment = changed['comment']
+            self.comment = changed['comment']
 
         if 'annotations' in changes:
             self.annotations.clear()
@@ -985,37 +1816,31 @@ class ForeignKey (_ec.CatalogForeignKey):
 
         return self
 
-    def prejson(self, prune=True):
-        d = super(ForeignKey, self).prejson(prune)
-        d.update({
-            'comment': self.comment,
-            'on_delete': self.on_delete,
-            'on_update': self.on_update,
-        })
-        return d
-
     def drop(self):
         """Remove this foreign key from the remote database.
         """
         if self.name not in self.table.foreign_keys.elements:
             raise ValueError('Foreign key %s does not appear to belong to table %s.' % (self, self.table))
-        self.catalog.delete(self.update_uri_path).raise_for_status()
+        self.catalog.delete(self.uri_path).raise_for_status()
         del self.table.foreign_keys[self.name]
         del self.pk_table.referenced_by[self.name]
 
-def make_type(type_doc, **kwargs):
+    @object_annotation(tag.foreign_key)
+    def foreign_key(self): pass
+
+def make_type(type_doc):
     """Create instance of Type, DomainType, or ArrayType as appropriate for type_doc."""
     if type_doc.get('is_domain', False):
-        return DomainType(type_doc, **kwargs)
+        return DomainType(type_doc)
     elif type_doc.get('is_array', False):
-        return ArrayType(type_doc, **kwargs)
+        return ArrayType(type_doc)
     else:
-        return Type(type_doc, **kwargs)
+        return Type(type_doc)
 
 class Type (object):
     """Named type.
     """
-    def __init__(self, type_doc, **kwargs):
+    def __init__(self, type_doc):
         self.typename = type_doc['typename']
         self.is_domain = False
         self.is_array = False
@@ -1029,10 +1854,10 @@ class Type (object):
 class DomainType (Type):
     """Named domain type.
     """
-    def __init__(self, type_doc, **kwargs):
-        super(DomainType, self).__init__(type_doc, **kwargs)
+    def __init__(self, type_doc):
+        super(DomainType, self).__init__(type_doc)
         self.is_domain = True
-        self.base_type = make_type(type_doc['base_type'], **kwargs)
+        self.base_type = make_type(type_doc['base_type'])
         
     def prejson(self, prune=True):
         d = super(DomainType, self).prejson(prune)
@@ -1045,10 +1870,10 @@ class DomainType (Type):
 class ArrayType (Type):
     """Named domain type.
     """
-    def __init__(self, type_doc, **kwargs):
-        super(ArrayType, self).__init__(type_doc, **kwargs)
+    def __init__(self, type_doc):
+        super(ArrayType, self).__init__(type_doc)
         is_array = True
-        self.base_type = make_type(type_doc['base_type'], **kwargs)
+        self.base_type = make_type(type_doc['base_type'])
 
     def prejson(self, prune=True):
         d = super(ArrayType, self).prejson(prune)
@@ -1058,7 +1883,7 @@ class ArrayType (Type):
         })
         return d
 
-builtin_types = _ec.AttrDict(
+builtin_types = AttrDict(
     # first define standard scalar types
     {
         typename: Type({'typename': typename})
