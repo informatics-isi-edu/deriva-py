@@ -554,6 +554,11 @@ class _TableWrapper (object):
         self._schema = schema
         self._wrapped_table = table
         self._name = table.name
+        self._uname = urlquote(table.name)
+        self._fqname = "%s:%s" % (urlquote(self._schema._name), self._uname)
+        self._instancename = '*'
+        self._projection_name = self._instancename
+        self._fromname = self._fqname
 
         self.column_definitions = {
             v.name: _ColumnWrapper(self, v)
@@ -585,28 +590,6 @@ class _TableWrapper (object):
     @deprecated
     def _repr_html_(self):
         return self.describe()
-
-    @property
-    def _uname(self):
-        return urlquote(self._name)
-
-    @property
-    def _fqname(self):
-        """the url encoded fully qualified name"""
-        return "%s:%s" % (urlquote(self._schema._name), self._uname)
-
-    @property
-    def _instancename(self):
-        return '*'
-
-    @property
-    def _projection_name(self):
-        """In a projection, the object uses this name."""
-        return self._instancename
-
-    @property
-    def _fromname(self):
-        return self._fqname
 
     @property
     def path(self):
@@ -796,9 +779,14 @@ class TableAlias (_TableWrapper):
         """
         assert isinstance(base_table, _TableWrapper)
         super(TableAlias, self).__init__(base_table._schema, base_table._wrapped_table)
+        self._parent = None
         self._base_table = base_table
         self._name = alias_name
-        self._parent = None
+        self._uname = urlquote(alias_name)
+        self._fqname = self._base_table._fqname
+        self._instancename = self._uname + ":*"
+        self._projection_name = self._instancename
+        self._fromname = "%s:=%s" % (self._uname, self._base_table._fqname)
 
     def __deepcopy__(self, memodict={}):
         # deep copy implementation of a table alias should not make copies of model objects (ie, the base table)
@@ -813,29 +801,6 @@ class TableAlias (_TableWrapper):
         if not isinstance(alias, TableAlias):
             raise TypeError("'alias' must be an instance of '%s'" % type(self).__name__)
         return self._name == alias._name and self._base_table == alias._base_table
-
-    @property
-    def _uname(self):
-        """the url encoded name"""
-        return urlquote(self._name)
-
-    @property
-    def _fqname(self):
-        """the url encoded fully qualified name"""
-        return self._base_table._fqname
-
-    @property
-    def _instancename(self):
-        return self._uname + ":*"
-
-    @property
-    def _projection_name(self):
-        """In a projection, the object uses this name."""
-        return self._instancename
-
-    @property
-    def _fromname(self):
-        return "%s:=%s" % (self._uname, self._base_table._fqname)
 
     @property
     def path(self):
@@ -887,6 +852,11 @@ class _ColumnWrapper (object):
         self._table = table
         self._wrapped_column = column
         self._name = column.name
+        self._uname = urlquote(self._name)
+        self._fqname = "%s:%s" % (self._table._fqname, self._uname)
+        self._instancename = "%s:%s" % (self._table._uname, self._uname) \
+                              if isinstance(self._table, TableAlias) else self._uname
+        self._projection_name = self._instancename
 
     @deprecated
     def describe(self):
@@ -900,28 +870,6 @@ class _ColumnWrapper (object):
     @deprecated
     def _repr_html_(self):
         return self.describe()
-
-    @property
-    def _uname(self):
-        """the url encoded name"""
-        return urlquote(self._name)
-
-    @property
-    def _fqname(self):
-        """the url encoded fully qualified name"""
-        return "%s:%s" % (self._table._fqname, self._uname)
-
-    @property
-    def _instancename(self):
-        if isinstance(self._table, TableAlias):
-            return "%s:%s" % (self._table._uname, self._uname)
-        else:
-            return self._uname
-
-    @property
-    def _projection_name(self):
-        """In a projection, the object uses this name."""
-        return self._instancename
 
     @property
     def desc(self):
@@ -1032,6 +980,10 @@ class ColumnAlias (object):
         super(ColumnAlias, self).__init__()
         self._name = alias_name
         self._base_column = base_column
+        self._uname = urlquote(self._name)
+        self._fqname = self._base_column._fqname
+        self._instancename = self._base_column._instancename
+        self._projection_name = "%s:=%s" % (self._uname, self._base_column._instancename)
 
     def __deepcopy__(self, memodict={}):
         # deep copy implementation of a column alias should not make copies of model objects (ie, the base column)
@@ -1049,25 +1001,6 @@ class ColumnAlias (object):
     @deprecated
     def _repr_html_(self):
         return self.describe()
-
-    @property
-    def _uname(self):
-        """the url encoded name"""
-        return urlquote(self._name)
-
-    @property
-    def _fqname(self):
-        """the url encoded fully qualified name"""
-        return self._base_column._fqname
-
-    @property
-    def _instancename(self):
-        return self._base_column._instancename
-
-    @property
-    def _projection_name(self):
-        """In a projection, the object uses this name."""
-        return "%s:=%s" % (self._uname, self._base_column._instancename)
 
     @property
     def desc(self):
@@ -1162,11 +1095,7 @@ class SortDescending (object):
         """
         assert isinstance(attr, _ColumnWrapper) or isinstance(attr, ColumnAlias) or isinstance(attr, AggregateFunctionAlias)
         self._attr = attr
-
-    @property
-    def _uname(self):
-        """the url encoded name"""
-        return urlquote(self._attr._uname) + "::desc::"
+        self._uname = urlquote(self._attr._uname) + "::desc::"
 
 
 class _PathOperator (object):
@@ -1503,22 +1432,22 @@ class NegationPredicate (Predicate):
 
 class AggregateFunction (object):
     """Base class of all aggregate functions."""
-    def __init__(self, op, operand):
+    def __init__(self, fn_name, arg):
         """Initializes the aggregate function.
 
-        :param op: name of the function per ERMrest specification.
-        :param operand: single operand of the function; a _ColumnWrapper, _TableWrapper, or TableAlias object.
+        :param fn_name: name of the function per ERMrest specification.
+        :param arg: argument of the function; a _ColumnWrapper, _TableWrapper, or TableAlias object.
         """
         super(AggregateFunction, self).__init__()
-        self.op = op
-        self.operand = operand
+        self._fn_name = fn_name
+        self._arg = arg
 
     def __str__(self):
-        return "%s(%s)" % (self.op, self.operand)
+        return "%s(%s)" % (self._fn_name, self._arg)
 
     @property
     def _instancename(self):
-        return "%s(%s)" % (self.op, self.operand._instancename)
+        return "%s(%s)" % (self._fn_name, self._arg._instancename)
 
     def alias(self, alias_name):
         """Returns an (output) alias for this aggregate function instance."""
@@ -1527,78 +1456,78 @@ class AggregateFunction (object):
 
 class Min (AggregateFunction):
     """Aggregate function for minimum non-NULL value."""
-    def __init__(self, operand):
-        super(Min, self).__init__('min', operand)
+    def __init__(self, arg):
+        super(Min, self).__init__('min', arg)
 
 
 class Max (AggregateFunction):
     """Aggregate function for maximum non-NULL value."""
-    def __init__(self, operand):
-        super(Max, self).__init__('max', operand)
+    def __init__(self, arg):
+        super(Max, self).__init__('max', arg)
 
 
 class Sum (AggregateFunction):
     """Aggregate function for sum of non-NULL values."""
-    def __init__(self, operand):
-        super(Sum, self).__init__('sum', operand)
+    def __init__(self, arg):
+        super(Sum, self).__init__('sum', arg)
 
 
 class Avg (AggregateFunction):
     """Aggregate function for average of non-NULL values."""
-    def __init__(self, operand):
-        super(Avg, self).__init__('avg', operand)
+    def __init__(self, arg):
+        super(Avg, self).__init__('avg', arg)
 
 
 class Cnt (AggregateFunction):
     """Aggregate function for count of non-NULL values."""
-    def __init__(self, operand):
-        super(Cnt, self).__init__('cnt', operand)
+    def __init__(self, arg):
+        super(Cnt, self).__init__('cnt', arg)
 
 
 class CntD (AggregateFunction):
     """Aggregate function for count of distinct non-NULL values."""
-    def __init__(self, operand):
-        super(CntD, self).__init__('cnt_d', operand)
+    def __init__(self, arg):
+        super(CntD, self).__init__('cnt_d', arg)
 
 
 class Array (AggregateFunction):
     """Aggregate function for an array containing all values (including NULL)."""
-    def __init__(self, operand):
-        super(Array, self).__init__('array', operand)
+    def __init__(self, arg):
+        super(Array, self).__init__('array', arg)
 
 
 class ArrayD (AggregateFunction):
     """Aggregate function for an array containing distinct values (including NULL)."""
-    def __init__(self, operand):
-        super(ArrayD, self).__init__('array_d', operand)
+    def __init__(self, arg):
+        super(ArrayD, self).__init__('array_d', arg)
 
 
 class Bin (AggregateFunction):
     """Binning function."""
-    def __init__(self, operand, nbins, minval=None, maxval=None):
+    def __init__(self, arg, nbins, minval=None, maxval=None):
         """Initialize the bin function.
 
         If `minval` or `maxval` are not given, they will be set based on the min and/or max values for the column
         (`operand` parameter) as determined by issuing an aggregate query over the current data path.
 
-        :param operand: a column or aliased column instance
+        :param arg: a column or aliased column instance
         :param nbins: number of bins
         :param minval: minimum value (optional)
         :param maxval: maximum value (optional)
         """
-        super(Bin, self).__init__('bin', operand)
-        if not (isinstance(operand, _ColumnWrapper) or isinstance(operand, ColumnAlias)):
+        super(Bin, self).__init__('bin', arg)
+        if not (isinstance(arg, _ColumnWrapper) or isinstance(arg, ColumnAlias)):
             raise ValueError("Bin operand must be a column or column alias")
         self.nbins = nbins
         self.minval = minval
         self.maxval = maxval
 
     def __str__(self):
-        return "%s(%s;%s;%s;%s)" % (self.op, self.operand, self.nbins, self.minval, self.maxval)
+        return "%s(%s;%s;%s;%s)" % (self._fn_name, self._arg, self.nbins, self.minval, self.maxval)
 
     @property
     def _instancename(self):
-        return "%s(%s;%s;%s;%s)" % (self.op, self.operand._instancename, self.nbins, self.minval, self.maxval)
+        return "%s(%s;%s;%s;%s)" % (self._fn_name, self._arg._instancename, self.nbins, self.minval, self.maxval)
 
 
 class AggregateFunctionAlias (object):
@@ -1613,13 +1542,10 @@ class AggregateFunctionAlias (object):
         assert isinstance(fn, AggregateFunction)
         self.fn = fn
         self._name = alias_name
+        self._uname = urlquote(self._name)
 
     def __str__(self):
         return str(self.fn)
-
-    @property
-    def _uname(self):
-        return urlquote(self._name)
 
     @property
     def _projection_name(self):
@@ -1666,9 +1592,9 @@ class AttributeGroup (object):
                 bin = key.fn
                 aggrs = []
                 if bin.minval is None:
-                    aggrs.append(Min(bin.operand).alias('minval'))
+                    aggrs.append(Min(bin._arg).alias('minval'))
                 if bin.maxval is None:
-                    aggrs.append(Max(bin.operand).alias('maxval'))
+                    aggrs.append(Max(bin._arg).alias('maxval'))
                 if aggrs:
                     result = self._source.aggregates(*aggrs)[0]
                     bin.minval = result.get('minval', bin.minval)
