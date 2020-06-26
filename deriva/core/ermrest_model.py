@@ -278,7 +278,7 @@ class Model (object):
 
         """
         sname, cname = constraint_name_pair
-        if isinstance(sname, CatalogSchema):
+        if isinstance(sname, Schema):
             if self.schemas[sname.name] is sname:
                 return sname._fkeys[cname]
             else:
