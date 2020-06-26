@@ -243,7 +243,7 @@ class DataPath (object):
         """Binds a new table instance into this path.
         """
         assert isinstance(alias, _TableAlias)
-        alias.path = self
+        alias._bind(self)
         self._table_instances[alias._name] = self._context = alias
         if _isidentifier(alias._name):
             self._identifiers.append(alias._name)
@@ -606,12 +606,6 @@ class _TableWrapper (object):
         """
         return DataPath(self.alias(self._name))
 
-    @path.setter
-    def path(self, value):
-        """Not allowed on base tables.
-        """
-        raise Exception("Path assignment not allowed on base table objects.")
-
     @property
     def _contextualized_path(self):
         """Returns the path as contextualized for this table instance.
@@ -819,13 +813,13 @@ class _TableAlias (_TableWrapper):
             self._parent = DataPath(self)
         return self._parent
 
-    @path.setter
-    def path(self, value):
+    def _bind(self, parent_path):
+        """Binds this table instance to the given parent path."""
         if self._parent:
-            raise Exception("Cannot bind a table instance that has already been bound.")
-        elif not isinstance(value, DataPath):
-            raise Exception("value must be a DataPath instance.")
-        self._parent = value
+            raise ValueError("Cannot bind a table instance that has already been bound.")
+        elif not isinstance(parent_path, DataPath):
+            raise TypeError("value must be a DataPath instance.")
+        self._parent = parent_path
 
     @property
     def _contextualized_path(self):
