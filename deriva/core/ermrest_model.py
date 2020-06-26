@@ -1355,16 +1355,6 @@ class Column (object):
 
         return self
 
-    def prejson(self, prune=True):
-        d = super(Column, self).prejson(prune)
-        d.update({
-            'type': self.type.prejson(prune),
-            'nullok': self.nullok,
-            'default': self.default,
-            'comment': self.comment,
-        })
-        return d
-        
     def drop(self):
         """Remove this column from the remote database.
         """
