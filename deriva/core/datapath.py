@@ -1,3 +1,5 @@
+"""Definitions and implementations for data-path expressions to query and manipulate (insert, update, delete)."""
+
 from . import urlquote
 import copy
 from datetime import date
@@ -5,6 +7,8 @@ import logging
 import re
 from requests import HTTPError
 import warnings
+
+__all__ = ['DataPathException', 'Min', 'Max', 'Sum', 'Avg', 'Cnt', 'CntD', 'Array', 'ArrayD', 'Bin']
 
 logger = logging.getLogger(__name__)
 """Logger for this module"""
@@ -261,10 +265,10 @@ class DataPath (object):
     def filter(self, filter_expression):
         """Filters the path based on the specified formula.
 
-        :param filter_expression: should be a valid Predicate object
+        :param filter_expression: should be a valid _Predicate object
         :return: self
         """
-        assert isinstance(filter_expression, Predicate)
+        assert isinstance(filter_expression, _Predicate)
         self._path_expression = _Filter(self._path_expression, filter_expression)
         return self
 
@@ -305,8 +309,8 @@ class DataPath (object):
         """
         if not isinstance(right, _TableWrapper):
             raise TypeError("'right' must be a '_TableWrapper' instance")
-        if on and not (isinstance(on, ComparisonPredicate) or (isinstance(on, ConjunctionPredicate) and
-                                                               on.is_valid_join_condition)):
+        if on and not (isinstance(on, _ComparisonPredicate) or (isinstance(on, _ConjunctionPredicate) and
+                                                                on.is_valid_join_condition)):
             raise TypeError("'on' must be a comparison or conjuction of comparisons")
         if join_type and on is None:
             raise ValueError("'on' must be specified for outer joins")
@@ -359,7 +363,7 @@ class DataPath (object):
         results3 = my_path.aggregates(col1, Array(col2).alias('arrcol2'))  # Error! Cannot mix columns and aggregate functions.
         ```
 
-        :param functions: aliased functions of type AggregateFunctionAlias
+        :param functions: aliased aggregate functions
         :return: a results set with a single row of results.
         """
         return self._query(mode=_Project.AGGREGATE, projection=list(functions))
@@ -410,7 +414,7 @@ class DataPath (object):
         :return: an attribute group that supports an `.attributes(...)` method that accepts columns, aliased columns,
         and/or aliased aggregate functions as its arguments.
         """
-        return AttributeGroup(self, self._query, keys)
+        return _AttributeGroup(self, self._query, keys)
 
     def _query(self, mode='entity', projection=[], group_key=[], context=None):
         """Internal method for querying the data path from the perspective of the given 'context'.
@@ -448,7 +452,7 @@ class DataPath (object):
                 else:
                     raise e
 
-        return ResultSet(self._base_uri + base_path, fetcher)
+        return _ResultSet(self._base_uri + base_path, fetcher)
 
     def merge(self, path):
         """Merges the current path with the given path.
@@ -484,15 +488,15 @@ class DataPath (object):
         return self
 
 
-class ResultSet (object):
+class _ResultSet (object):
     """A set of results for various queries or data manipulations.
 
-    The ResultSet is produced by a path. The results may be explicitly fetched. The ResultSet behaves like a
-    container. If the ResultSet has not been fetched explicitly, on first use of container operations, it will
+    The result set is produced by a path. The results may be explicitly fetched. The result set behaves like a
+    container. If the result set has not been fetched explicitly, on first use of container operations, it will
     be implicitly fetched from the catalog.
     """
     def __init__(self, uri, fetcher_fn):
-        """Initializes the ResultSet.
+        """Initializes the _ResultSet.
         :param uri: the uri for the entity set in the catalog.
         :param fetcher_fn: a function that fetches the entities from the catalog.
         """
@@ -526,8 +530,8 @@ class ResultSet (object):
         """
         if not attributes:
             raise ValueError("No sort attributes given.")
-        if not all(isinstance(a, _ColumnWrapper) or isinstance(a, _ColumnAlias) or isinstance(a, AggregateFunctionAlias)
-                   or isinstance(a, SortDescending) for a in attributes):
+        if not all(isinstance(a, _ColumnWrapper) or isinstance(a, _ColumnAlias) or isinstance(a, _AggregateFunctionAlias)
+                   or isinstance(a, _SortDescending) for a in attributes):
             raise TypeError("Sort keys must be column, column alias, or aggregate function alias")
         self._sort_keys = attributes
         self._results_doc = None
@@ -664,7 +668,7 @@ class _TableWrapper (object):
 
         See the docs for this method in `DataPath` for more information.
         """
-        return AttributeGroup(self, self._query, keys)
+        return _AttributeGroup(self, self._query, keys)
 
     def insert(self, entities, defaults=set(), nondefaults=set(), add_system_defaults=True):
         """Inserts entities into the table.
@@ -673,11 +677,11 @@ class _TableWrapper (object):
         :param defaults: optional, set of column names to be assigned the default expression value.
         :param nondefaults: optional, set of columns names to override implicit system defaults
         :param add_system_defaults: flag to add system columns to the set of default columns.
-        :return a ResultSet of newly created entities.
+        :return a collection of newly created entities.
         """
         # empty entities will be accepted but results are therefore an empty entity set
         if not entities:
-            return ResultSet(self.path.uri, lambda ignore1, ignore2: [])
+            return _ResultSet(self.path.uri, lambda ignore1, ignore2: [])
 
         options = []
 
@@ -707,7 +711,7 @@ class _TableWrapper (object):
 
         try:
             resp = self._schema._catalog._wrapped_catalog.post(path, json=entities, headers={'Content-Type': 'application/json'})
-            return ResultSet(self.path.uri, lambda ignore1, ignore2: resp.json())
+            return _ResultSet(self.path.uri, lambda ignore1, ignore2: resp.json())
         except HTTPError as e:
             logger.debug(e.response.text)
             if 400 <= e.response.status_code < 500:
@@ -727,11 +731,11 @@ class _TableWrapper (object):
         :param correlation: an iterable collection of column names used to correlate input set to the set of rows to be
         updated in the catalog. E.g., `{'col name'}` or `{mytable.mycolumn}` will work if you pass a _ColumnWrapper object.
         :param targets: an iterable collection of column names used as the targets of the update operation.
-        :return: a ResultSet of updated entities as returned by the corresponding ERMrest interface.
+        :return: a collection of updated entities as returned by the corresponding ERMrest interface.
         """
         # empty entities will be accepted but results are therefore an empty entity set
         if not entities:
-            return ResultSet(self.path.uri, lambda ignore1, ignore2: [])
+            return _ResultSet(self.path.uri, lambda ignore1, ignore2: [])
 
         # JSONEncoder does not handle general iterable objects, so we have to make sure its an acceptable collection
         if not hasattr(entities, '__iter__'):
@@ -764,7 +768,7 @@ class _TableWrapper (object):
 
         try:
             resp = self._schema._catalog._wrapped_catalog.put(path, json=entities, headers={'Content-Type': 'application/json'})
-            return ResultSet(self.path.uri, lambda ignore1, ignore2: resp.json())
+            return _ResultSet(self.path.uri, lambda ignore1, ignore2: resp.json())
         except HTTPError as e:
             logger.debug(e.response.text)
             if 400 <= e.response.status_code < 500:
@@ -879,7 +883,7 @@ class _ColumnWrapper (object):
     @property
     def desc(self):
         """A descending sort modifier based on this column."""
-        return SortDescending(self)
+        return _SortDescending(self)
 
     def __str__(self):
         return self._name
@@ -891,9 +895,9 @@ class _ColumnWrapper (object):
         :return: a filter predicate object
         """
         if other is None:
-            return ComparisonPredicate(self, "::null::", '')
+            return _ComparisonPredicate(self, "::null::", '')
         else:
-            return ComparisonPredicate(self, "=", other)
+            return _ComparisonPredicate(self, "=", other)
 
     __eq__ = eq
 
@@ -903,7 +907,7 @@ class _ColumnWrapper (object):
         :param other: a literal value.
         :return: a filter predicate object
         """
-        return ComparisonPredicate(self, "::lt::", other)
+        return _ComparisonPredicate(self, "::lt::", other)
 
     __lt__ = lt
 
@@ -913,7 +917,7 @@ class _ColumnWrapper (object):
         :param other: a literal value.
         :return: a filter predicate object
         """
-        return ComparisonPredicate(self, "::leq::", other)
+        return _ComparisonPredicate(self, "::leq::", other)
 
     __le__ = le
 
@@ -923,7 +927,7 @@ class _ColumnWrapper (object):
         :param other: a literal value.
         :return: a filter predicate object
         """
-        return ComparisonPredicate(self, "::gt::", other)
+        return _ComparisonPredicate(self, "::gt::", other)
 
     __gt__ = gt
 
@@ -933,7 +937,7 @@ class _ColumnWrapper (object):
         :param other: a literal value.
         :return: a filter predicate object
         """
-        return ComparisonPredicate(self, "::geq::", other)
+        return _ComparisonPredicate(self, "::geq::", other)
 
     __ge__ = ge
 
@@ -945,7 +949,7 @@ class _ColumnWrapper (object):
         """
         if not isinstance(other, str):
             logger.warning("'regexp' method comparison only supports string literals.")
-        return ComparisonPredicate(self, "::regexp::", other)
+        return _ComparisonPredicate(self, "::regexp::", other)
 
     def ciregexp(self, other):
         """Returns a 'case-insensitive regular expression' comparison predicate.
@@ -955,7 +959,7 @@ class _ColumnWrapper (object):
         """
         if not isinstance(other, str):
             logger.warning("'ciregexp' method comparison only supports string literals.")
-        return ComparisonPredicate(self, "::ciregexp::", other)
+        return _ComparisonPredicate(self, "::ciregexp::", other)
 
     def ts(self, other):
         """Returns a 'text search' comparison predicate.
@@ -965,7 +969,7 @@ class _ColumnWrapper (object):
         """
         if not isinstance(other, str):
             logger.warning("'ts' method comparison only supports string literals.")
-        return ComparisonPredicate(self, "::ts::", other)
+        return _ComparisonPredicate(self, "::ts::", other)
 
     def alias(self, name):
         """Returns an alias for this column."""
@@ -1010,7 +1014,7 @@ class _ColumnAlias (object):
     @property
     def desc(self):
         """A descending sort modifier based on this column."""
-        return SortDescending(self)
+        return _SortDescending(self)
 
     def __str__(self):
         return self._name
@@ -1090,15 +1094,15 @@ class _ColumnAlias (object):
         return self._base_column.ts(other)
 
 
-class SortDescending (object):
-    """Represents a descending sort condition.
-    """
+class _SortDescending (object):
+    """A descending sort condition."""
+
     def __init__(self, attr):
         """Creates sort descending object.
 
         :param attr: a column, column alias, or aggrfn alias object
         """
-        assert isinstance(attr, _ColumnWrapper) or isinstance(attr, _ColumnAlias) or isinstance(attr, AggregateFunctionAlias)
+        assert isinstance(attr, _ColumnWrapper) or isinstance(attr, _ColumnAlias) or isinstance(attr, _AggregateFunctionAlias)
         self._attr = attr
         self._uname = urlquote(self._attr._uname) + "::desc::"
 
@@ -1181,7 +1185,7 @@ class _ResetContext (_PathOperator):
 class _Filter(_PathOperator):
     def __init__(self, r, formula):
         super(_Filter, self).__init__(r)
-        assert isinstance(formula, Predicate)
+        assert isinstance(formula, _Predicate)
         self._formula = formula
 
     def __deepcopy__(self, memodict={}):
@@ -1222,12 +1226,12 @@ class _Project (_PathOperator):
             if not all(isinstance(obj, _TableWrapper) or isinstance(obj, _TableAlias) or isinstance(obj, _ColumnWrapper) or isinstance(obj, _ColumnAlias) for obj in projection):
                 raise TypeError("Only columns or column aliases can be retrieved by an 'attribute' query.")
         elif mode == self.AGGREGATE:
-            if not all(isinstance(obj, AggregateFunctionAlias) for obj in projection):
+            if not all(isinstance(obj, _AggregateFunctionAlias) for obj in projection):
                 raise TypeError("Only aggregate function aliases can be retrieved by an 'aggregate' query.")
         elif mode == self.ATTRGROUP:
-            if not all(isinstance(obj, _ColumnWrapper) or isinstance(obj, _ColumnAlias) or isinstance(obj, AggregateFunctionAlias) for obj in projection):
+            if not all(isinstance(obj, _ColumnWrapper) or isinstance(obj, _ColumnAlias) or isinstance(obj, _AggregateFunctionAlias) for obj in projection):
                 raise TypeError("Only columns, column aliases, or aggregate function aliases can be retrieved by an 'attributegroup' query.")
-            if not all(isinstance(obj, _ColumnWrapper) or isinstance(obj, _ColumnAlias) or isinstance(obj, AggregateFunctionAlias) for obj in group_key):
+            if not all(isinstance(obj, _ColumnWrapper) or isinstance(obj, _ColumnAlias) or isinstance(obj, _AggregateFunctionAlias) for obj in group_key):
                 raise TypeError("Only column aliases or aggregate function aliases can be used to group an 'attributegroup' query.")
             self._group_key = [obj._projection_name for obj in group_key]
 
@@ -1266,10 +1270,10 @@ class _Link (_PathOperator):
         :param join_type: left, right or full for outer join semantics, or '' for inner join semantics
         """
         super(_Link, self).__init__(r)
-        assert isinstance(on, ComparisonPredicate) or isinstance(on, _TableAlias) or (
-                isinstance(on, ConjunctionPredicate) and on.is_valid_join_condition), "Invalid join 'on' clause"
+        assert isinstance(on, _ComparisonPredicate) or isinstance(on, _TableAlias) or (
+                isinstance(on, _ConjunctionPredicate) and on.is_valid_join_condition), "Invalid join 'on' clause"
         assert as_ is None or isinstance(as_, _TableAlias)
-        assert join_type == '' or (join_type in ('left', 'right', 'full') and isinstance(on, Predicate))
+        assert join_type == '' or (join_type in ('left', 'right', 'full') and isinstance(on, _Predicate))
         self._on = on
         self._as = as_
         self._join_type = join_type
@@ -1288,16 +1292,16 @@ class _Link (_PathOperator):
         assign = '' if self._as is None else "%s:=" % self._as._uname
         if isinstance(self._on, _TableWrapper):
             cond = self._on._fqname
-        elif isinstance(self._on, ComparisonPredicate):
+        elif isinstance(self._on, _ComparisonPredicate):
             cond = str(self._on)
-        elif isinstance(self._on, ConjunctionPredicate):
+        elif isinstance(self._on, _ConjunctionPredicate):
             cond = self._on.as_join_condition
         else:
             raise DataPathException("Invalid join condition: " + str(self._on))
         return "%s/%s%s%s" % (self._r._path, assign, self._join_type, cond)
 
 
-class Predicate (object):
+class _Predicate (object):
     """Common base class for all predicate types."""
 
     def and_(self, other):
@@ -1306,9 +1310,9 @@ class Predicate (object):
         :param other: a predicate object.
         :return: a junction predicate object.
         """
-        if not isinstance(other, Predicate):
-            raise TypeError("Invalid comparison with object that is not a Predicate instance.")
-        return ConjunctionPredicate([self, other])
+        if not isinstance(other, _Predicate):
+            raise TypeError("Invalid comparison with object that is not a _Predicate instance.")
+        return _ConjunctionPredicate([self, other])
 
     __and__ = and_
 
@@ -1318,9 +1322,9 @@ class Predicate (object):
         :param other: a predicate object.
         :return: a junction predicate object.
         """
-        if not isinstance(other, Predicate):
-            raise TypeError("Invalid comparison with object that is not a Predicate instance.")
-        return DisjunctionPredicate([self, other])
+        if not isinstance(other, _Predicate):
+            raise TypeError("Invalid comparison with object that is not a _Predicate instance.")
+        return _DisjunctionPredicate([self, other])
 
     __or__ = or_
 
@@ -1331,14 +1335,15 @@ class Predicate (object):
 
         :return: a negation predicate object.
         """
-        return NegationPredicate(self)
+        return _NegationPredicate(self)
 
     __invert__ = negate
 
 
-class ComparisonPredicate (Predicate):
+class _ComparisonPredicate (_Predicate):
+    """Comparison (left-operand operator right-operand) predicate"""
     def __init__(self, lop, op, rop):
-        super(ComparisonPredicate, self).__init__()
+        super(_ComparisonPredicate, self).__init__()
         assert isinstance(lop, _ColumnWrapper)
         assert isinstance(rop, _ColumnWrapper) or isinstance(rop, int) or \
                isinstance(rop, float) or isinstance(rop, str) or \
@@ -1350,7 +1355,7 @@ class ComparisonPredicate (Predicate):
 
     def __deepcopy__(self, memodict={}):
         # deep copy of predicate should not deep copy the model object references (i.e., _ColumnWrapper objects)
-        return ComparisonPredicate(self._lop, self._op, self._rop)
+        return _ComparisonPredicate(self._lop, self._op, self._rop)
 
     @property
     def is_equality(self):
@@ -1373,11 +1378,12 @@ class ComparisonPredicate (Predicate):
             return "%s%s%s" % (self._lop._instancename, self._op, urlquote(str(self._rop)))
 
 
-class JunctionPredicate (Predicate):
+class _JunctionPredicate (_Predicate):
+    """Junction (and/or) of child predicates."""
     def __init__(self, op, operands):
-        super(JunctionPredicate, self).__init__()
+        super(_JunctionPredicate, self).__init__()
         assert operands and hasattr(operands, '__iter__') and len(operands) > 1
-        assert all(isinstance(operand, Predicate) for operand in operands)
+        assert all(isinstance(operand, _Predicate) for operand in operands)
         assert isinstance(op, str)
         self._operands = operands
         self._op = op
@@ -1386,17 +1392,18 @@ class JunctionPredicate (Predicate):
         return self._op.join(["(%s)" % operand for operand in self._operands])
 
 
-class ConjunctionPredicate (JunctionPredicate):
+class _ConjunctionPredicate (_JunctionPredicate):
+    """Conjunction (and) or child predicates."""
     def __init__(self, operands):
-        super(ConjunctionPredicate, self).__init__('&', operands)
+        super(_ConjunctionPredicate, self).__init__('&', operands)
 
     def and_(self, other):
-        return ConjunctionPredicate(self._operands + [other])
+        return _ConjunctionPredicate(self._operands + [other])
 
     @property
     def is_valid_join_condition(self):
         """Tests if this conjunction is a valid join condition."""
-        return all(isinstance(o, ComparisonPredicate) and o.is_equality for o in self._operands)
+        return all(isinstance(o, _ComparisonPredicate) and o.is_equality for o in self._operands)
 
     @property
     def as_join_condition(self):
@@ -1405,7 +1412,7 @@ class ConjunctionPredicate (JunctionPredicate):
         rhs = []
 
         for operand in self._operands:
-            assert isinstance(operand, ComparisonPredicate) and operand.is_equality
+            assert isinstance(operand, _ComparisonPredicate) and operand.is_equality
             assert isinstance(operand.left, _ColumnWrapper)
             assert isinstance(operand.right, _ColumnWrapper)
             lhs.append(operand.left)
@@ -1417,18 +1424,20 @@ class ConjunctionPredicate (JunctionPredicate):
         )
 
 
-class DisjunctionPredicate (JunctionPredicate):
+class _DisjunctionPredicate (_JunctionPredicate):
+    """Disjunction (or) of child predicates."""
     def __init__(self, operands):
-        super(DisjunctionPredicate, self).__init__(';', operands)
+        super(_DisjunctionPredicate, self).__init__(';', operands)
 
     def or_(self, other):
-        return DisjunctionPredicate(self._operands + [other])
+        return _DisjunctionPredicate(self._operands + [other])
 
 
-class NegationPredicate (Predicate):
+class _NegationPredicate (_Predicate):
+    """Negates the child predicate."""
     def __init__(self, child):
-        super(NegationPredicate, self).__init__()
-        assert isinstance(child, Predicate)
+        super(_NegationPredicate, self).__init__()
+        assert isinstance(child, _Predicate)
         self._child = child
 
     def __str__(self):
@@ -1441,7 +1450,7 @@ class AggregateFunction (object):
         """Initializes the aggregate function.
 
         :param fn_name: name of the function per ERMrest specification.
-        :param arg: argument of the function; a _ColumnWrapper, _TableWrapper, or _TableAlias object.
+        :param arg: argument of the function per ERMrest specification.
         """
         super(AggregateFunction, self).__init__()
         self._fn_name = fn_name
@@ -1456,7 +1465,7 @@ class AggregateFunction (object):
 
     def alias(self, alias_name):
         """Returns an (output) alias for this aggregate function instance."""
-        return AggregateFunctionAlias(self, alias_name)
+        return _AggregateFunctionAlias(self, alias_name)
 
 
 class Min (AggregateFunction):
@@ -1522,7 +1531,7 @@ class Bin (AggregateFunction):
         """
         super(Bin, self).__init__('bin', arg)
         if not (isinstance(arg, _ColumnWrapper) or isinstance(arg, _ColumnAlias)):
-            raise TypeError("Bin operand must be a column or column alias")
+            raise TypeError("Bin argument must be a column or column alias")
         self.nbins = nbins
         self.minval = minval
         self.maxval = maxval
@@ -1535,7 +1544,7 @@ class Bin (AggregateFunction):
         return "%s(%s;%s;%s;%s)" % (self._fn_name, self._arg._instancename, self.nbins, self.minval, self.maxval)
 
 
-class AggregateFunctionAlias (object):
+class _AggregateFunctionAlias (object):
     """Alias for aggregate functions."""
     def __init__(self, fn, alias_name):
         """Initializes the aggregate function alias.
@@ -1543,27 +1552,27 @@ class AggregateFunctionAlias (object):
         :param fn: aggregate function instance
         :param alias_name: alias name
         """
-        super(AggregateFunctionAlias, self).__init__()
+        super(_AggregateFunctionAlias, self).__init__()
         assert isinstance(fn, AggregateFunction)
-        self.fn = fn
+        self._fn = fn
         self._name = alias_name
         self._uname = urlquote(self._name)
 
     def __str__(self):
-        return str(self.fn)
+        return str(self._fn)
 
     @property
     def _projection_name(self):
         """In a projection, the object uses this name."""
-        return "%s:=%s" % (self._uname, self.fn._instancename)
+        return "%s:=%s" % (self._uname, self._fn._instancename)
 
     @property
     def desc(self):
         """A descending sort modifier based on this alias."""
-        return SortDescending(self)
+        return _SortDescending(self)
 
 
-class AttributeGroup (object):
+class _AttributeGroup (object):
     """A computed attribute group."""
     def __init__(self, source, queryfn, keys):
         """Initializes an attribute group instance.
@@ -1572,7 +1581,7 @@ class AttributeGroup (object):
         :param queryfn: a query function that takes mode, projection, and group_key parameters
         :param keys: an iterable collection of group keys
         """
-        super(AttributeGroup, self).__init__()
+        super(_AttributeGroup, self).__init__()
         assert any(isinstance(source, valid_type) for valid_type in [DataPath, _TableWrapper, _TableAlias])
         assert isinstance(keys, tuple)
         if not keys:
@@ -1593,8 +1602,8 @@ class AttributeGroup (object):
     def _resolve_binning_ranges(self):
         """Helper method to resolve any unspecified binning ranges."""
         for key in self._grouping_keys:
-            if isinstance(key, AggregateFunctionAlias) and isinstance(key.fn, Bin):
-                bin = key.fn
+            if isinstance(key, _AggregateFunctionAlias) and isinstance(key._fn, Bin):
+                bin = key._fn
                 aggrs = []
                 if bin.minval is None:
                     aggrs.append(Min(bin._arg).alias('minval'))
