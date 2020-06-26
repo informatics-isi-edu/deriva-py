@@ -1651,13 +1651,6 @@ class ForeignKey (object):
         """Constraint names field as seen in JSON document."""
         return [ [self.constraint_schema.name if self.constraint_schema else '', self.constraint_name] ]
 
-    @property
-    def column_map(self):
-        return {
-            fk_col: pk_col
-            for fk_col, pk_col in zip(self.foreign_key_columns, self.referenced_columns)
-        }
-
     def prejson(self, prune=True):
         """Produce a representation of configuration as generic Python data structures"""
         return {
