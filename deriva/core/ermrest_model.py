@@ -1557,7 +1557,7 @@ class Key (object):
         """
         if self.name not in self.table.keys.elements:
             raise ValueError('Key %s does not appear to belong to table %s.' % (self, self.table))
-        self.catalog.delete(self.update_uri_path).raise_for_status()
+        self.catalog.delete(self.uri_path).raise_for_status()
         del self.table.keys[self.name]
 
 class ForeignKey (object):
