@@ -215,8 +215,10 @@ class DataPath (object):
     @context.setter
     def context(self, value):
         """Updates the context of this datapath expression (must be a table instance bound to this expression)."""
-        assert isinstance(value, _TableAlias)
-        assert value._name in self._table_instances
+        if not isinstance(value, _TableAlias):
+            raise TypeError('context must be a table alias object')
+        if value._name not in self._table_instances:
+            raise ValueError('table alias must be bound in this path')
         if self._context != value:
             self._path_expression = _ResetContext(self._path_expression, value)
             self._context = value
