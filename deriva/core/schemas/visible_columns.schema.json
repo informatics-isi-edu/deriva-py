@@ -1,0 +1,285 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "http://docs.derivacloud.org/schemas/visible-columns.schema.json",
+    "title": "tag:isrd.isi.edu,2016:visible-columns",
+    "description": "Schema document for the 'visible-columns' annotation.",
+    "definitions": {
+
+        "visible-columns-entry": {
+            "oneOf": [
+                 { "$ref": "#/definitions/context-name" },
+                 { "$ref": "#/definitions/column-list" }
+            ]
+        },
+
+        "context-name": { "type": "string" },
+
+        "column-list": {
+            "type": "array",
+            "items": {
+                "anyOf": [
+                    { "$ref": "#/definitions/column-name" },
+                    { "$ref": "#/definitions/constraint-name" },
+                    { "$ref": "#/definitions/pseudo-column" }
+                ]
+            }
+        },
+
+        "column-name": { 
+            "type": "string",
+            "validate-model": true
+        },
+
+        "constraint-name": {
+            "type": "array",
+            "items": { "type": "string"},
+            "minItems": 2,
+            "maxItems": 2,
+            "validate-model": true
+        },
+
+        "pseudo-column": {
+
+            "type": "object",
+
+            "properties": {
+
+                "source": { "$ref": "#/definitions/source-entry" },
+                "sourcekey": { "$ref": "#/definitions/source-key" },
+
+                "entity": { "type": "boolean" },
+                "aggregate": {
+                    "type": "string",
+                    "enum": [ "min", "max", "cnt", "cnt_d", "array", "array_d" ]
+                },
+                "self_link": { "type": "boolean" },
+                
+                "markdown_name": { "type": "string" },
+                "comment": { "type": "string" },
+                "display": { "$ref": "#/definitions/display" },
+                "array_options": { "$ref": "#/definitions/array-options" },
+
+                "array_display": {
+                    "deprecated": true,
+                    "comment": "This property is deprecated. Please use 'array_ux_mode'.",
+                    "type": "string",
+                    "enum": [ "raw", "csv", "olist", "ulist" ]
+                }
+            },
+
+            "additionalProperties": false,
+
+            "anyOf": [
+                { 
+                    "required": [ "source" ],
+                    "not": { "required": [ "sourcekey" ] }
+                },
+                {
+                    "required": [ "sourcekey" ],
+                    "allOf": [
+                        { "not": { "required": [ "source" ] } },
+                        { "not": { "required": [ "entity" ] } },
+                        { "not": { "required": [ "aggregate" ] } },
+                        { "not": { "required": [ "self_link" ] } }
+                    ]
+                },
+                {
+                    "not": { "required": [ "source", "sourcekey" ] },
+                    "required": [ "markdown_name", "display" ]
+                }
+            ]
+        },
+
+        "source-entry": {
+
+            "validate-model": true,
+
+            "oneOf": [
+                { "$ref": "#/definitions/column-name" },
+                {
+                    "type": "array",
+                    "items": {
+                        "anyOf": [
+                            { "$ref": "#/definitions/column-name" },
+                            { "$ref": "#/definitions/foreign-key-path" }
+                        ]
+                    },
+                    "minItems": 1
+                }
+            ]
+        },
+
+        "source-key": { "type": "string", "pattern": "^[^$].*" },
+
+        "foreign-key-path": {
+            "type": "object",
+            "properties": {
+                "inbound": { "$ref": "#/definitions/constraint-name" },
+                "outbound": { "$ref": "#/definitions/constraint-name" }
+            },
+            "minProperties": 1,
+            "maxProperties": 1
+        },
+
+        "display": {
+
+            "type": "object",
+
+            "properties": {
+
+                "markdown_pattern": { "type": "string" },
+
+                "template_engine": { 
+                    "type": "string",
+                    "enum": [ "handlebars", "mustache" ]
+                },
+
+                "wait_for": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                },
+
+                "show_foreign_key_link": { "type": "boolean" },
+
+                "array_ux_mode": {
+                    "type": "string",
+                    "enum": [ "raw", "csv", "olist", "ulist" ]
+                }
+            },
+
+            "dependencies": {
+                "template_engine": [ "markdown_pattern" ]
+            },
+
+            "additionalProperties": false
+        },
+
+        "array-options": {
+
+            "type": "object",
+
+            "properties": {
+
+                "order": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "column": { "$ref": "#/definitions/column-name" },
+                            "descending": { "type": "boolean" }
+                        },
+                        "required": [ "column" ],
+                        "additionalProperties": false
+                    },
+                    "minItems": 1
+                },
+
+                "max_length": {
+                    "type": "number",
+                    "multipleOf": 1,
+                    "minimum": 1
+                }
+            },
+
+            "additionalProperties": false
+        },
+
+        "facet-entry": {
+
+            "type": "object",
+
+            "properties": {
+
+                "source": { "$ref": "#/definitions/source-entry" },
+                "sourcekey": { "$ref": "#/definitions/source-key" },
+
+                "choices": { 
+                    "type": "array",
+                    "items": {
+                        "type": ["string", "number", "boolean", "null"]
+                    }
+                },
+                "ranges": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "min": { "type": "number" },
+                            "max": { "type": "number" },
+                            "min_exclusive": { "type": "boolean" },
+                            "max_exclusive": { "type": "boolean" }
+                        },
+                        "additionalProperties": false,
+                        "anyOf": [
+                            { "required": [ "min" ] },
+                            { "required": [ "max" ] }
+                        ],
+                        "dependencies": {
+                            "min_exclusive": [ "min" ],
+                            "max_exclusive": [ "max" ]
+                        }
+                    }
+                },
+                "search": { "type": "string" },
+                "not_null": { 
+                    "type": "boolean",
+                    "const": true
+                },
+
+                "entity": { "type": "boolean" },
+                "markdown_name": { "type": "string" },
+                "comment": { "type": "string" },
+                "open": { "type": "boolean" },
+                "bar_plot": { "type": "boolean" },
+                "ux_mode": {
+                    "type": "string",
+                    "enum": [ "choices", "ranges", "check_presence" ]
+                },
+                "hide_null_choice": { "type": "boolean" },
+                "hide_not_null_choice": { "type": "boolean" },
+                "n_bins": { "type": "number", "minimum": 1 }
+            },
+
+            "additionalProperties": false,
+
+            "anyOf": [
+                { 
+                    "required": [ "source" ],
+                    "not": { "required": [ "sourcekey" ] }
+                },
+                {
+                    "required": [ "sourcekey" ],
+                    "allOf": [
+                        { "not": { "required": [ "source" ] } },
+                        { "not": { "required": [ "entity" ] } }
+                    ]
+                }
+            ]
+        }
+    },
+
+    "type": "object",
+    "properties": {
+        "*": { "$ref": "#/definitions/visible-columns-entry" },
+        "compact": { "$ref": "#/definitions/visible-columns-entry" },
+        "compact/brief": { "$ref": "#/definitions/visible-columns-entry" },
+        "compact/brief/inline": { "$ref": "#/definitions/visible-columns-entry" },
+        "compact/select": { "$ref": "#/definitions/visible-columns-entry" },
+        "detailed": { "$ref": "#/definitions/visible-columns-entry" },
+        "entry": { "$ref": "#/definitions/visible-columns-entry" },
+        "entry/edit": { "$ref": "#/definitions/visible-columns-entry" },
+        "entry/create": { "$ref": "#/definitions/visible-columns-entry" },
+        "export" :{ "$ref": "#/definitions/visible-columns-entry" },
+        "filter": { 
+            "type": "object",
+            "properties": {
+                "and": { 
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/facet-entry" }
+                }
+            },
+            "additionalProperties": false
+        }
+    },
+    "additionalProperties": false
+}
