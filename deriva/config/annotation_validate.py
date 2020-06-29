@@ -13,7 +13,7 @@ class AnnotationValidateCLI (BaseCLI):
 
     def __init__(self):
         super(AnnotationValidateCLI, self).__init__(__doc__, _epilog, hostname_required=True)
-        # self.remove_options('<config file>')
+        self.remove_options(['--config-file'])
         self.parser.add_argument('catalog', metavar='<catalog>', help="Catalog identifier.")
         self.parser.add_argument('-s', '--schema', metavar='<schema>', default='.*', help="Regular expression pattern for schema name")
         self.parser.add_argument('-t', '--table', metavar='<table>', default='.*', help="Regular expression pattern for table name")
