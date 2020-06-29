@@ -49,7 +49,6 @@ def validate(model_obj, tag_name=None):
     if not tag_name:
         errors = []
         for tag_name in model_obj.annotations:
-            print(tag_name)
             errors.extend(_validate(model_obj, tag_name))
         return errors
     else:
@@ -64,9 +63,12 @@ def _validate(model_obj, tag_name):
     :return: a list of validation errors, if any
     """
     try:
-        return jsonschema.validate(model_obj.annotations[tag_name], _schemas[tag_name]) or []
+        if tag_name in model_obj.annotations:
+            jsonschema.validate(model_obj.annotations[tag_name], _schemas[tag_name])
+    except jsonschema.ValidationError as e:
+        return [e]
     except KeyError as e:
         return [jsonschema.ValidationError('Unkown annotation tag name "%s"' % tag_name, cause=e)]
     except FileNotFoundError as e:
-        warnings.warn('No schema document found for tag "%s": %s' % (tag_name, e))
+        warnings.warn('No schema document found for tag "%s": %s' % (tag_name, e), stacklevel=3)
     return []

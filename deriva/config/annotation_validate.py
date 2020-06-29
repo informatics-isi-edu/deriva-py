@@ -1,5 +1,6 @@
 """DERIVA command-line interface for validating annotations."""
 
+import re
 from deriva.core import BaseCLI, DerivaServer, tag, annotation
 
 _epilog = """
@@ -14,9 +15,9 @@ class AnnotationValidateCLI (BaseCLI):
         super(AnnotationValidateCLI, self).__init__(__doc__, _epilog, hostname_required=True)
         # self.remove_options('<config file>')
         self.parser.add_argument('catalog', metavar='<catalog>', help="Catalog identifier.")
-        self.parser.add_argument('schema', metavar='<schema>', help="Schema")
-        self.parser.add_argument('table', metavar='<table>', help="Table")
-        self.parser.add_argument('tag', metavar='<tag>', help="Tag name of annotation")
+        self.parser.add_argument('-s', '--schema', metavar='<schema>', default='.*', help="Regular expression pattern for schema name")
+        self.parser.add_argument('-t', '--table', metavar='<table>', default='.*', help="Regular expression pattern for table name")
+        self.parser.add_argument('-a', '--tag', metavar='<tag>', default=None, help="Tag name of annotation")
 
     def main(self):
         args = self.parse_cli()
@@ -24,11 +25,20 @@ class AnnotationValidateCLI (BaseCLI):
         server = DerivaServer('https', hostname)
         catalog = server.connect_ermrest(args.catalog)
         model = catalog.getCatalogModel()
-        obj = model.schemas[args.schema].tables[args.table]
-        errors = annotation.validate(obj, args.tag)
-        for err in errors:
-            print(err)
-        return 1 if errors else 0
+        has_errors = False
+        for schema_name in model.schemas:
+            if not re.search(args.schema, schema_name):
+                continue
+            for table_name in model.schemas[schema_name].tables:
+                if not re.search(args.table, table_name):
+                    continue
+                print("Validating '%s:%s'..." % (schema_name, table_name))
+                obj = model.schemas[schema_name].tables[table_name]
+                errors = annotation.validate(obj, tag_name=args.tag)
+                has_errors = has_errors or len(errors) > 0
+                for err in errors:
+                    print(err)
+        return 1 if has_errors else 0
 
 
 def main():
