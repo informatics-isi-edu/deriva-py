@@ -11,6 +11,14 @@ Subpackages
 Submodules
 ----------
 
+deriva.core.annotation module
+----------------------------
+
+.. automodule:: deriva.core.annotation
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 deriva.core.base\_cli module
 ----------------------------
 
