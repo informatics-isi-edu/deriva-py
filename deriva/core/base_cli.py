@@ -43,7 +43,7 @@ class BaseCLI(object):
     def remove_options(self, options):
         for option in options:
             for action in self.parser._actions:
-                if vars(action)['option_strings'][0] == option:
+                if option in vars(action)['option_strings']:
                     self.parser._handle_conflict_resolve(None, [(option, action)])
                     break
 
