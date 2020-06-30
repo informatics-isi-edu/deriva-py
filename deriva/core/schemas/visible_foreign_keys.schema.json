@@ -1,0 +1,139 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "http://docs.derivacloud.org/schemas/visible_foreign_keys.schema.json",
+    "title": "tag:isrd.isi.edu,2016:visible-foreign-keys",
+    "description": "Schema document for the 'visible-foreign-keys' annotation.",
+    "definitions": {
+
+        "visible-fkeys-entry": {
+            "oneOf": [
+                 { "$ref": "#/definitions/context-name" },
+                 { "$ref": "#/definitions/fkey-list" }
+            ]
+        },
+
+        "context-name": { "type": "string" },
+
+        "fkey-list": {
+            "type": "array",
+            "items": {
+                "anyOf": [
+                    { "$ref": "#/definitions/constraint-name" },
+                    { "$ref": "#/definitions/pseudo-column" }
+                ]
+            }
+        },
+
+        "column-name": {
+            "type": "string",
+            "validate-model": true
+        },
+
+        "constraint-name": {
+            "type": "array",
+            "items": { "type": "string"},
+            "minItems": 2,
+            "maxItems": 2,
+            "validate-model": true
+        },
+
+        "pseudo-column": {
+
+            "type": "object",
+
+            "properties": {
+
+                "source": { "$ref": "#/definitions/source-entry" },
+                "sourcekey": { "$ref": "#/definitions/source-key" },
+
+                "entity": { "type":  "boolean", "const": true },
+                "markdown_name": { "type": "string" },
+                "display": { "$ref": "#/definitions/display" }
+            },
+
+            "additionalProperties": false,
+
+            "anyOf": [
+                {
+                    "required": [ "source" ],
+                    "not": { "required": [ "sourcekey" ] }
+                },
+                {
+                    "required": [ "sourcekey" ],
+                    "not": { "required": [ "source" ] }
+                }
+            ]
+        },
+
+        "source-entry": {
+
+            "validate-model": true,
+
+            "oneOf": [
+                { "$ref": "#/definitions/column-name" },
+                {
+                    "type": "array",
+                    "items": {
+                        "anyOf": [
+                            { "$ref": "#/definitions/column-name" },
+                            { "$ref": "#/definitions/foreign-key-path" }
+                        ]
+                    },
+                    "minItems": 1
+                }
+            ]
+        },
+
+        "source-key": { "type": "string", "pattern": "^[^$].*" },
+
+        "foreign-key-path": {
+            "type": "object",
+            "properties": {
+                "inbound": { "$ref": "#/definitions/constraint-name" },
+                "outbound": { "$ref": "#/definitions/constraint-name" }
+            },
+            "minProperties": 1,
+            "maxProperties": 1
+        },
+
+        "display": {
+
+            "type": "object",
+
+            "properties": {
+
+                "markdown_pattern": { "type": "string" },
+
+                "template_engine": {
+                    "type": "string",
+                    "enum": [ "handlebars", "mustache" ]
+                },
+
+                "wait_for": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                },
+
+                "show_foreign_key_link": { "type": "boolean" },
+
+                "array_ux_mode": {
+                    "type": "string",
+                    "enum": [ "raw", "csv", "olist", "ulist" ]
+                }
+            },
+
+            "dependencies": {
+                "template_engine": [ "markdown_pattern" ]
+            },
+
+            "additionalProperties": false
+        }
+    },
+
+    "type": "object",
+    "properties": {
+        "*": { "$ref": "#/definitions/visible-fkeys-entry" },
+        "detailed": { "$ref": "#/definitions/visible-fkeys-entry" }
+    },
+    "additionalProperties": false
+}

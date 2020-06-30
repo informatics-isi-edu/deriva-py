@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "http://docs.derivacloud.org/schemas/table_display.schema.json",
+  "title": "tag:isrd.isi.edu,2016:table-display",
+  "description": "Schema document for the 'table-display' annotation.",
+  "definitions": {
+
+    "table-display-entry": {
+      "oneOf": [
+        { "$ref": "#/definitions/context-name" },
+        { "$ref": "#/definitions/table-display-options" },
+        { "type": "null" }
+      ]
+    },
+
+    "context-name": { "type": "string" },
+
+    "table-display-options": {
+      "type": "object",
+      "properties": {
+        "row_order": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/sort-key" }
+        },
+        "page_size": { "type": "number" },
+        "collapse_toc_panel": { "type": "boolean" },
+        "hide_column_headers": { "type": "boolean" },
+        "page_markdown_pattern": { "type": "string" },
+        "row_markdown_pattern": { "type": "string" },
+        "separator_markdown": { "type": "string" },
+        "prefix_markdown": { "type": "string" },
+        "suffix_markdown": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+
+    "sort-key": {
+      "$comment": "A sort key can be either a column name or an object with column and descending (boolean)",
+      "oneOf": [
+        { "$ref": "#/definitions/column-name" },
+        {
+          "type": "object",
+          "properties": {
+            "column": {
+              "$ref": "#/definitions/column-name"
+            },
+            "descending": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "required": ["column"],
+          "additionalProperties": false
+        }
+      ]
+    },
+
+    "column-name": {
+      "type": "string",
+      "validate-model": true
+    }
+  },
+
+  "type": "object",
+  "patternProperties": {
+    "^[*]$|^detailed$|^row_name.*$|^compact.*$": {
+      "$ref": "#/definitions/table-display-entry"
+    }
+  },
+  "additionalProperties": false
+}

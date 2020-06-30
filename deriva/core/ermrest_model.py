@@ -37,19 +37,26 @@ class AttrDict (dict):
 
 # convenient enumeration of common annotation tags
 tag = AttrDict({
-    'generated':          'tag:isrd.isi.edu,2016:generated',
-    'immutable':          'tag:isrd.isi.edu,2016:immutable',
     'display':            'tag:misd.isi.edu,2015:display',
-    'visible_columns':    'tag:isrd.isi.edu,2016:visible-columns',
-    'visible_foreign_keys': 'tag:isrd.isi.edu,2016:visible-foreign-keys',
-    'foreign_key':        'tag:isrd.isi.edu,2016:foreign-key',
-    'table_display':      'tag:isrd.isi.edu,2016:table-display',
     'table_alternatives': 'tag:isrd.isi.edu,2016:table-alternatives',
     'column_display':     'tag:isrd.isi.edu,2016:column-display',
-    'asset':              'tag:isrd.isi.edu,2017:asset',
-    'bulk_upload':        'tag:isrd.isi.edu,2017:bulk-upload',
+    'key_display':        'tag:isrd.isi.edu,2017:key-display',
+    'foreign_key':        'tag:isrd.isi.edu,2016:foreign-key',
+    'generated':          'tag:isrd.isi.edu,2016:generated',
+    'immutable':          'tag:isrd.isi.edu,2016:immutable',
+    'non_deletable':      'tag:isrd.isi.edu,2016:non-deletable',
+    'app_links':          'tag:isrd.isi.edu,2016:app-links',
+    'table_display':      'tag:isrd.isi.edu,2016:table-display',
+    'visible_columns':    'tag:isrd.isi.edu,2016:visible-columns',
+    'visible_foreign_keys': 'tag:isrd.isi.edu,2016:visible-foreign-keys',
     'export':             'tag:isrd.isi.edu,2016:export',
+    'asset':              'tag:isrd.isi.edu,2017:asset',
+    'citation':           'tag:isrd.isi.edu,2018:citation',
+    'required':           'tag:isrd.isi.edu,2018:required',
+    'indexing_preferences': 'tag:isrd.isi.edu,2018:indexing-preferences',
+    'bulk_upload':        'tag:isrd.isi.edu,2017:bulk-upload',
     'chaise_config':      'tag:isrd.isi.edu,2019:chaise-config',
+    'source_definitions': 'tag:isrd.isi.edu,2019:source-definitions'
 })
 
 def presence_annotation(tag_uri):

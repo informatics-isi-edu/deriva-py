@@ -1,0 +1,76 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "http://docs.derivacloud.org/schemas/key_display.schema.json",
+  "title": "tag:isrd.isi.edu,2016:key-display",
+  "description": "Schema document for the 'key-display' annotation.",
+  "definitions": {
+
+    "key-display-entry": {
+      "oneOf": [
+        { "$ref": "#/definitions/context-name" },
+        { "$ref": "#/definitions/key-display-options" }
+      ]
+    },
+
+    "context-name": { "type": "string" },
+
+    "key-display-options": {
+      "type": "object",
+      "properties": {
+
+        "markdown_pattern": { "type": "string" },
+
+        "column_order": {
+          "oneOf": [
+            {
+              "$comment": "Use this pattern to disable sort options on this column",
+              "type": "boolean",
+              "const": false
+            },
+            {
+              "$comment": "Use this pattern to specify the alternate sort key for this column",
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/definitions/sort-key" }
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "sort-key": {
+      "$comment": "A sort key can be either a column name or an object with column and descending (boolean)",
+      "oneOf": [
+        { "$ref": "#/definitions/column-name" },
+        {
+          "type": "object",
+          "properties": {
+            "column": {
+              "$ref": "#/definitions/column-name"
+            },
+            "descending": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "required": ["column"],
+          "additionalProperties": false
+        }
+      ]
+    },
+
+    "column-name": {
+      "type": "string",
+      "validate-model": true
+    }
+  },
+
+  "type": "object",
+  "patternProperties": {
+    "^[*]$|^detailed$|^compact.*$": {
+      "$ref": "#/definitions/key-display-entry"
+    }
+  },
+  "additionalProperties": false
+}

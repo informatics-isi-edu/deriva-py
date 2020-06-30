@@ -1,6 +1,6 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
-    "$id": "http://docs.derivacloud.org/schemas/visible-columns.schema.json",
+    "$id": "http://docs.derivacloud.org/schemas/visible_columns.schema.json",
     "title": "tag:isrd.isi.edu,2016:visible-columns",
     "description": "Schema document for the 'visible-columns' annotation.",
     "definitions": {

@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "http://docs.derivacloud.org/schemas/table_alternatives.schema.json",
+  "title": "tag:isrd.isi.edu,2016:table-alternatives",
+  "description": "Schema document for the 'table-alternatives' annotation.",
+  "definitions": {
+    "fq-table-name": {
+      "$comment": "A fully-qualified table name as a pair of names, [ schema_name, table_name ]",
+      "type": "array",
+      "items": { "type": "string"},
+      "minItems": 2,
+      "maxItems": 2,
+      "validate-model": true
+    }
+  },
+  "type": "object",
+  "patternProperties": {
+    "^[*]$|^detailed$|^compact.*$|^entry([/]edit|[/]create)?$": {
+      "$ref": "#/definitions/fq-table-name"
+    }
+  },
+  "additionalProperties": false
+}

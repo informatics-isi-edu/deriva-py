@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "http://docs.derivacloud.org/schemas/citation.schema.json",
+  "title": "tag:isrd.isi.edu,2018:citation",
+  "description": "Schema document for the 'citation' annotation.",
+  "definitions": {
+    "source-key": {
+      "type": "string",
+      "validate-model": true
+    }
+  },
+  "type": "object",
+  "properties": {
+    "journal_pattern": { "type": "string" },
+    "author_pattern": { "type": "string" },
+    "title_pattern": { "type": "string" },
+    "year_pattern": { "type": "string" },
+    "url_pattern": { "type": "string" },
+    "id_pattern": { "type": "string" },
+    "template_engine": {
+        "type": "string",
+        "enum": [ "handlebars", "mustache" ]
+    },
+    "wait_for": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/source-key" },
+      "minItems": 1
+    }
+  },
+  "additionalProperties": false
+}
