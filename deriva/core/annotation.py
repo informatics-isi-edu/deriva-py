@@ -1,12 +1,14 @@
 """Definitions and implementation for validating ERMrest schema annotations."""
 
 import json
+import logging
 import pkgutil
 import jsonschema
-import warnings
 
 from .. import core
 from .ermrest_model import tag
+
+logger = logging.getLogger(__name__)
 
 
 class _AnnotationSchemas (object):
@@ -49,6 +51,7 @@ def validate(model_obj, tag_name=None):
     if not tag_name:
         errors = []
         for tag_name in model_obj.annotations:
+            logger.info("Validating against schema for %s" % tag_name)
             errors.extend(_validate(model_obj, tag_name))
         return errors
     else:
@@ -66,9 +69,12 @@ def _validate(model_obj, tag_name):
         if tag_name in model_obj.annotations:
             jsonschema.validate(model_obj.annotations[tag_name], _schemas[tag_name])
     except jsonschema.ValidationError as e:
+        logger.error(e)
         return [e]
     except KeyError as e:
-        return [jsonschema.ValidationError('Unkown annotation tag name "%s"' % tag_name, cause=e)]
+        msg = 'Unknown annotation tag name "%s"' % tag_name
+        logger.error(msg)
+        return [jsonschema.ValidationError(msg, cause=e)]
     except FileNotFoundError as e:
-        warnings.warn('No schema document found for tag "%s": %s' % (tag_name, e), stacklevel=3)
+        logger.warning('No schema document found for tag name %s : %s' % (tag_name, e))
     return []
