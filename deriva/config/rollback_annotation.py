@@ -11,10 +11,10 @@ def rollback_annotation(host, catalog_id, snaptime=None, prot='https', credentia
     server = DerivaServer(prot, host, credentials=credential)
 
     good_catalog = server.connect_ermrest(catalog_id, snaptime)
-    good_config = good_catalog.getCatalogConfig()
+    good_config = good_catalog.getCatalogModel()
 
     live_catalog = server.connect_ermrest(catalog_id)
-    live_config = live_catalog.getCatalogConfig()
+    live_config = live_catalog.getCatalogModel()
 
     # copy over annotations
 

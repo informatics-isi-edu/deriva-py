@@ -44,7 +44,7 @@ class Annotations:
             if k in self.annotations_to_delete:
                 raise ValueError("{k} is both 'managed' and 'to_delete'".format(k=k))
         self.catalog = ErmrestCatalog('https', server, catalog, credentials)
-        self.catalog_config = self.catalog.getCatalogConfig()
+        self.catalog_config = self.catalog.getCatalogModel()
         if self.catalog_config.annotations is not None:
             self.add_catalog_annotations(self.catalog_config)
         if self.catalog_config.schemas is not None:
