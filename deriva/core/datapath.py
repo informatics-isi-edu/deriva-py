@@ -1,9 +1,14 @@
+"""Definitions and implementations for data-path expressions to query and manipulate (insert, update, delete)."""
+
 from . import urlquote
 import copy
 from datetime import date
 import logging
 import re
 from requests import HTTPError
+import warnings
+
+__all__ = ['DataPathException', 'Min', 'Max', 'Sum', 'Avg', 'Cnt', 'CntD', 'Array', 'ArrayD', 'Bin']
 
 logger = logging.getLogger(__name__)
 """Logger for this module"""
@@ -12,28 +17,28 @@ _system_defaults = {'RID', 'RCT', 'RCB', 'RMT', 'RMB'}
 """Set of system default column names"""
 
 
-def _kwargs(**kwargs):
-    """Helper for extending datapath with sub-types for the whole model tree."""
-    kwargs2 = {
-        'schema_class': Schema,
-        'table_class': Table,
-        'column_class': Column
-    }
-    kwargs2.update(kwargs)
-    return kwargs2
+def deprecated(f):
+    """A simple 'deprecated' function decorator."""
+    def wrapper(*args, **kwargs):
+        warnings.warn("'%s' has been deprecated" % f.__name__, DeprecationWarning, stacklevel=2)
+        return f(*args, **kwargs)
+    return wrapper
 
 
 def from_catalog(catalog):
-    """Creates a datapath.Catalog object from an ErmrestCatalog object.
+    """Wraps an ErmrestCatalog object for use in datapath expressions.
+
     :param catalog: an ErmrestCatalog object
-    :return: a datapath.Catalog object
+    :return: a datapath._CatalogWrapper object
     """
-    return Catalog(catalog.getCatalogSchema(), **_kwargs(catalog=catalog))
+    return _CatalogWrapper(catalog)
 
 
 def _isidentifier(a):
     """Tests if string is a valid python identifier.
+
     This function is intended for internal usage within this module.
+
     :param a: a string
     """
     if hasattr(a, 'isidentifier'):
@@ -49,7 +54,7 @@ def _http_error_message(e):
 
 
 class DataPathException (Exception):
-    """DataPath exception
+    """Exception in a datapath expression.
     """
     def __init__(self, message, reason=None):
         super(DataPathException, self).__init__(message, reason)
@@ -60,27 +65,30 @@ class DataPathException (Exception):
         return self.message
 
 
-class Catalog (object):
-    """Handle to a Catalog.
+class _CatalogWrapper (object):
+    """Wraps a Catalog for datapath expressions.
     """
-    def __init__(self, model_doc, **kwargs):
-        """Creates the Catalog.
-        :param model_doc: the schema document for the catalog
+    def __init__(self, catalog):
+        """Creates the _CatalogWrapper.
+
+        :param catalog: ErmrestCatalog object
         """
-        super(Catalog, self).__init__()
+        super(_CatalogWrapper, self).__init__()
+        self._wrapped_catalog = catalog
+        self._wrapped_model = catalog.getCatalogModel()
         self.schemas = {
-            sname: kwargs.get('schema_class', Schema)(sname, sdoc, **kwargs)
-            for sname, sdoc in model_doc.get('schemas', {}).items()
+            k: _SchemaWrapper(self, v)
+            for k, v in self._wrapped_model.schemas.items()
         }
 
     def __dir__(self):
-        return dir(Catalog) + ['schemas'] + [key for key in self.schemas if _isidentifier(key)]
+        return super(_CatalogWrapper, self).__dir__() + [key for key in self.schemas if _isidentifier(key)]
 
     def __getattr__(self, a):
         if a in self.schemas:
             return self.schemas[a]
         else:
-            return getattr(super(Catalog, self), a)
+            return getattr(super(_CatalogWrapper, self), a)
 
     @classmethod
     def compose(cls, *paths):
@@ -107,54 +115,60 @@ class Catalog (object):
         return base
 
 
-class Schema (object):
-    """Represents a Schema.
+class _SchemaWrapper (object):
+    """Wraps a Schema for datapath expressions.
     """
-    def __init__(self, sname, schema_doc, **kwargs):
-        """Creates the Schema.
-        :param sname: the schema's name
-        :param schema_doc: the schema document
+    def __init__(self, catalog, schema):
+        """Creates the _SchemaWrapper.
+
+        :param catalog: the catalog wrapper to which this schema wrapper belongs
+        :param schema: the wrapped schema object
         """
-        super(Schema, self).__init__()
-        self.name = sname
+        super(_SchemaWrapper, self).__init__()
+        self._catalog = catalog
+        self._wrapped_schema = schema
+        self._name = schema.name
         self.tables = {
-            tname: kwargs.get('table_class', Table)(sname, tname, tdoc, **kwargs)
-            for tname, tdoc in schema_doc.get('tables', {}).items()
+            k: _TableWrapper(self, v)
+            for k, v in schema.tables.items()
         }
 
     def __dir__(self):
-        return dir(Schema) + ['name', 'tables'] + [key for key in self.tables if _isidentifier(key)]
+        return super(_SchemaWrapper, self).__dir__() + [key for key in self.tables if _isidentifier(key)]
 
     def __getattr__(self, a):
         if a in self.tables:
             return self.tables[a]
         else:
-            return getattr(super(Schema, self), a)
+            return getattr(super(_SchemaWrapper, self), a)
 
+    @deprecated
     def describe(self):
         """Provides a description of the model element.
 
         :return: a user-friendly string representation of the model element.
         """
-        s = "Schema name: '%s'\nList of tables:\n" % self.name
+        s = "_SchemaWrapper name: '%s'\nList of tables:\n" % self._name
         if len(self.tables) == 0:
             s += "none"
         else:
             s += "\n".join("  '%s'" % tname for tname in self.tables)
         return s
 
+    @deprecated
     def _repr_html_(self):
         return self.describe()
 
 
 class DataPath (object):
-    """Represents an arbitrary data path."""
+    """Represents a datapath expression.
+    """
     def __init__(self, root):
-        assert isinstance(root, TableAlias)
-        self._path_expression = Root(root)
+        assert isinstance(root, _TableAlias)
+        self._path_expression = _Root(root)
         self._root = root
-        self._base_uri = root.catalog._server_uri
-        self._table_instances = dict()  # map of alias_name => TableAlias object
+        self._base_uri = root._schema._catalog._wrapped_catalog._server_uri
+        self._table_instances = dict()  # map of alias_name => _TableAlias object
         self._context = None
         self._identifiers = []
         self._bind_table_instance(root)
@@ -164,23 +178,23 @@ class DataPath (object):
         for alias in copy.deepcopy(self._table_instances, memo=memodict).values():
             if alias != cp._root:
                 cp._bind_table_instance(alias)
-        cp._context = cp._table_instances[self._context.name]
+        cp._context = cp._table_instances[self._context._name]
         cp._path_expression = copy.deepcopy(self._path_expression, memo=memodict)
         assert not cp._table_instances.keys() - set(cp._identifiers)
         assert cp._table_instances.keys() == self._table_instances.keys()
         assert cp._identifiers == self._identifiers
-        assert cp._root.name in cp._table_instances
-        assert cp._root == cp._table_instances[cp._root.name]
+        assert cp._root._name in cp._table_instances
+        assert cp._root == cp._table_instances[cp._root._name]
         assert cp._root != self._root
-        assert cp._root.name == self._root.name
+        assert cp._root._name == self._root._name
         assert cp._context != self._context
-        assert cp._context.name == self._context.name
+        assert cp._context._name == self._context._name
         assert str(cp._path_expression) == str(self._path_expression)
         assert cp._path_expression != self._path_expression
         return cp
 
     def __dir__(self):
-        return dir(DataPath) + self._identifiers
+        return super(DataPath, self).__dir__() + self._identifiers
 
     def __getattr__(self, a):
         if a in self._table_instances:
@@ -190,22 +204,28 @@ class DataPath (object):
 
     @property
     def table_instances(self):
+        """Collection of the table instances in this datapath expression."""
         return self._table_instances
 
     @property
     def context(self):
+        """Context (i.e., last bound table instance) of this datapath expression."""
         return self._context
 
     @context.setter
     def context(self, value):
-        assert isinstance(value, TableAlias)
-        assert value.name in self._table_instances
+        """Updates the context of this datapath expression (must be a table instance bound to this expression)."""
+        if not isinstance(value, _TableAlias):
+            raise TypeError('context must be a table alias object')
+        if value._name not in self._table_instances:
+            raise ValueError('table alias must be bound in this path')
         if self._context != value:
-            self._path_expression = ResetContext(self._path_expression, value)
+            self._path_expression = _ResetContext(self._path_expression, value)
             self._context = value
 
     @property
     def uri(self):
+        """The current URI serialization of this datapath expression."""
         return self._base_uri + str(self._path_expression)
 
     def _contextualized_uri(self, context):
@@ -214,21 +234,21 @@ class DataPath (object):
         :param context: a table instance that is bound to this path
         :return: string representation of the path uri
         """
-        assert isinstance(context, TableAlias)
-        assert context.name in self._table_instances
+        assert isinstance(context, _TableAlias)
+        assert context._name in self._table_instances
         if self._context != context:
-            return self._base_uri + str(ResetContext(self._path_expression, context))
+            return self._base_uri + str(_ResetContext(self._path_expression, context))
         else:
             return self.uri
 
     def _bind_table_instance(self, alias):
         """Binds a new table instance into this path.
         """
-        assert isinstance(alias, TableAlias)
-        alias.path = self
-        self._table_instances[alias.name] = self._context = alias
-        if _isidentifier(alias.name):
-            self._identifiers.append(alias.name)
+        assert isinstance(alias, _TableAlias)
+        alias._bind(self)
+        self._table_instances[alias._name] = self._context = alias
+        if _isidentifier(alias._name):
+            self._identifiers.append(alias._name)
 
     def delete(self):
         """Deletes the entity set referenced by the data path.
@@ -236,7 +256,7 @@ class DataPath (object):
         try:
             path = str(self._path_expression)
             logger.debug("Deleting: {p}".format(p=path))
-            self._root.catalog.delete(path)
+            self._root._schema._catalog._wrapped_catalog.delete(path)
         except HTTPError as e:
             logger.debug(e.response.text)
             if 400 <= e.response.status_code < 500:
@@ -247,11 +267,11 @@ class DataPath (object):
     def filter(self, filter_expression):
         """Filters the path based on the specified formula.
 
-        :param filter_expression: should be a valid Predicate object
+        :param filter_expression: should be a valid _Predicate object
         :return: self
         """
-        assert isinstance(filter_expression, Predicate)
-        self._path_expression = Filter(self._path_expression, filter_expression)
+        assert isinstance(filter_expression, _Predicate)
+        self._path_expression = _Filter(self._path_expression, filter_expression)
         return self
 
     def link(self, right, on=None, join_type=''):
@@ -289,20 +309,20 @@ class DataPath (object):
         join link by default.
         :return: self
         """
-        if not isinstance(right, Table):
-            raise ValueError("'right' must be a 'Table' instance")
-        if on and not (isinstance(on, ComparisonPredicate) or (isinstance(on, ConjunctionPredicate) and
-                                                               on.is_valid_join_condition)):
-            raise ValueError("'on' must be a comparison or conjuction of comparisons")
+        if not isinstance(right, _TableWrapper):
+            raise TypeError("'right' must be a '_TableWrapper' instance")
+        if on and not (isinstance(on, _ComparisonPredicate) or (isinstance(on, _ConjunctionPredicate) and
+                                                                on.is_valid_join_condition)):
+            raise TypeError("'on' must be a comparison or conjuction of comparisons")
         if join_type and on is None:
             raise ValueError("'on' must be specified for outer joins")
-        if right.catalog != self._root.catalog:
+        if right._schema._catalog != self._root._schema._catalog:
             raise ValueError("'right' is from a different catalog. Cannot link across catalogs.")
-        if isinstance(right, TableAlias) and right.name in self._table_instances:
+        if isinstance(right, _TableAlias) and right._name in self._table_instances:
             raise ValueError("'right' is a table alias that has already been used.")
         else:
             # Generate an unused alias name for the table
-            table_name = right.name
+            table_name = right._name
             alias_name = table_name
             counter = 1
             while alias_name in self._table_instances:
@@ -314,7 +334,7 @@ class DataPath (object):
             on = right
 
         # Extend path expression
-        self._path_expression = Link(self._path_expression, on, right, join_type)
+        self._path_expression = _Link(self._path_expression, on, right, join_type)
 
         # Bind alias and this data path
         self._bind_table_instance(right)
@@ -345,10 +365,10 @@ class DataPath (object):
         results3 = my_path.aggregates(col1, Array(col2).alias('arrcol2'))  # Error! Cannot mix columns and aggregate functions.
         ```
 
-        :param functions: aliased functions of type AggregateFunctionAlias
+        :param functions: aliased aggregate functions
         :return: a results set with a single row of results.
         """
-        return self._query(mode=Project.AGGREGATE, projection=list(functions))
+        return self._query(mode=_Project.AGGREGATE, projection=list(functions))
 
     def attributes(self, *attributes):
         """Returns a results set of attributes projected and optionally renamed from this data path.
@@ -362,7 +382,7 @@ class DataPath (object):
         :param attributes: a list of Columns.
         :return: a results set of the projected attributes from this data path.
         """
-        return self._query(mode=Project.ATTRIBUTE, projection=list(attributes))
+        return self._query(mode=_Project.ATTRIBUTE, projection=list(attributes))
 
     def groupby(self, *keys):
         """Returns an attribute group object.
@@ -396,7 +416,7 @@ class DataPath (object):
         :return: an attribute group that supports an `.attributes(...)` method that accepts columns, aliased columns,
         and/or aliased aggregate functions as its arguments.
         """
-        return AttributeGroup(self, self._query, keys)
+        return _AttributeGroup(self, self._query, keys)
 
     def _query(self, mode='entity', projection=[], group_key=[], context=None):
         """Internal method for querying the data path from the perspective of the given 'context'.
@@ -407,21 +427,21 @@ class DataPath (object):
         :param context: optional context for the query.
         :return: a results set.
         """
-        assert context is None or isinstance(context, TableAlias)
-        catalog = self._root.catalog
+        assert context is None or isinstance(context, _TableAlias)
+        catalog = self._root._schema._catalog._wrapped_catalog
 
         expression = self._path_expression
         if context:
-            expression = ResetContext(expression, context)
-        if mode != Project.ENTITY:
-            expression = Project(expression, mode, projection, group_key)
+            expression = _ResetContext(expression, context)
+        if mode != _Project.ENTITY:
+            expression = _Project(expression, mode, projection, group_key)
         base_path = str(expression)
 
         def fetcher(limit=None, sort=None):
             assert limit is None or isinstance(limit, int)
             assert sort is None or hasattr(sort, '__iter__')
             limiting = '?limit=%d' % limit if limit else ''
-            sorting = '@sort(' + ','.join([col.uname for col in sort]) + ')' if sort else ''
+            sorting = '@sort(' + ','.join([col._uname for col in sort]) + ')' if sort else ''
             path = base_path + sorting + limiting
             logger.debug("Fetching " + path)
             try:
@@ -434,12 +454,12 @@ class DataPath (object):
                 else:
                     raise e
 
-        return ResultSet(self._base_uri + base_path, fetcher)
+        return _ResultSet(self._base_uri + base_path, fetcher)
 
     def merge(self, path):
         """Merges the current path with the given path.
 
-        The right-hand 'path' must be rooted on a `TableAlias` object that exists (by alias name) within this path
+        The right-hand 'path' must be rooted on a `_TableAlias` object that exists (by alias name) within this path
         (the left-hand path). It _must not_ have other shared table aliases.
 
         :param path: a `DataPath` object rooted on a table alias that can be found in this path
@@ -447,16 +467,16 @@ class DataPath (object):
         """
         if not isinstance(path, DataPath):
             raise TypeError("'path' must be an instance of %s" % type(self).__name__)
-        if path._root.name not in self._table_instances:
+        if path._root._name not in self._table_instances:
             raise ValueError("right-hand path root not found in this path's table instances")
-        if not path._root.equivalent(self._table_instances[path._root.name]):
+        if not path._root._equivalent(self._table_instances[path._root._name]):
             raise ValueError("right-hand path root is not equivalent to the matching table instance in this path")
-        if self._table_instances.keys() & path._table_instances.keys() != {path._root.name}:
+        if self._table_instances.keys() & path._table_instances.keys() != {path._root._name}:
             raise ValueError("overlapping table instances found in right-hand path")
 
         # update this path as rebased right-hand path
         temp = copy.deepcopy(path._path_expression)
-        temp.rebase(self._path_expression, self._table_instances[path._root.name])
+        temp.rebase(self._path_expression, self._table_instances[path._root._name])
         self._path_expression = temp
 
         # copy and bind table instances from right-hand path
@@ -465,20 +485,20 @@ class DataPath (object):
                 self._bind_table_instance(copy.deepcopy(path._table_instances[alias]))
 
         # set the context
-        self._context = self._table_instances[path._context.name]
+        self._context = self._table_instances[path._context._name]
 
         return self
 
 
-class ResultSet (object):
+class _ResultSet (object):
     """A set of results for various queries or data manipulations.
 
-    The ResultSet is produced by a path. The results may be explicitly fetched. The ResultSet behaves like a
-    container. If the ResultSet has not been fetched explicitly, on first use of container operations, it will
+    The result set is produced by a path. The results may be explicitly fetched. The result set behaves like a
+    container. If the result set has not been fetched explicitly, on first use of container operations, it will
     be implicitly fetched from the catalog.
     """
     def __init__(self, uri, fetcher_fn):
-        """Initializes the ResultSet.
+        """Initializes the _ResultSet.
         :param uri: the uri for the entity set in the catalog.
         :param fetcher_fn: a function that fetches the entities from the catalog.
         """
@@ -512,8 +532,9 @@ class ResultSet (object):
         """
         if not attributes:
             raise ValueError("No sort attributes given.")
-        if not all(isinstance(a, Column) or isinstance(a, ColumnAlias) or (a, AggregateFunctionAlias) for a in attributes):
-            raise ValueError("Sort keys must be column, column alias, or aggregate function alias")
+        if not all(isinstance(a, _ColumnWrapper) or isinstance(a, _ColumnAlias) or isinstance(a, _AggregateFunctionAlias)
+                   or isinstance(a, _SortDescending) for a in attributes):
+            raise TypeError("Sort keys must be column, column alias, or aggregate function alias")
         self._sort_keys = attributes
         self._results_doc = None
         return self
@@ -530,87 +551,62 @@ class ResultSet (object):
         return self
 
 
-class Table (object):
-    """Represents a Table.
+class _TableWrapper (object):
+    """Wraps a Table for datapath expressions.
     """
-    def __init__(self, sname, tname, table_doc, **kwargs):
-        """Creates a Table object.
-        :param sname: name of the schema
-        :param tname: name of the table
-        :param table_doc: deserialized json document of the table definition
-        :param kwargs: must include `catalog`
-        """
-        self.catalog = kwargs['catalog']
-        self.sname = sname
-        self.name = tname
-        self._table_doc = table_doc
-        self._kwargs = kwargs
+    def __init__(self, schema, table):
+        """Creates a _TableWrapper object.
 
-        kwargs.update(table=self)
+        :param schema: the schema objec to which this table belongs
+        :param table: the wrapped table
+        """
+        self._schema = schema
+        self._wrapped_table = table
+        self._name = table.name
+        self._uname = urlquote(table.name)
+        self._fqname = "%s:%s" % (urlquote(self._schema._name), self._uname)
+        self._instancename = '*'
+        self._projection_name = self._instancename
+        self._fromname = self._fqname
+
         self.column_definitions = {
-            cdoc['name']: kwargs.get('column_class', Column)(sname, tname, cdoc, **kwargs)
-            for cdoc in table_doc.get('column_definitions', [])
+            v.name: _ColumnWrapper(self, v)
+            for v in table.column_definitions
         }
 
     def __dir__(self):
-        return dir(Table) + ['catalog', 'sname', 'name'] + [key for key in self.column_definitions if _isidentifier(key)]
+        return super(_TableWrapper, self).__dir__() + [key for key in self.column_definitions if _isidentifier(key)]
 
     def __getattr__(self, a):
         if a in self.column_definitions:
             return self.column_definitions[a]
         else:
-            return getattr(super(Table, self), a)
+            return getattr(super(_TableWrapper, self), a)
 
+    @deprecated
     def describe(self):
         """Provides a description of the model element.
 
         :return: a user-friendly string representation of the model element.
         """
-        s = "Table name: '%s'\nList of columns:\n" % self.name
+        s = "_TableWrapper name: '%s'\nList of columns:\n" % self._name
         if len(self.column_definitions) == 0:
             s += "none"
         else:
-            s += "\n".join("  %s" % col.name for col in self.column_definitions.values())
+            s += "\n".join("  %s" % col._name for col in self.column_definitions.values())
         return s
 
+    @deprecated
     def _repr_html_(self):
         return self.describe()
 
     @property
-    def uname(self):
-        """the url encoded name"""
-        return urlquote(self.name)
-
-    @property
-    def fqname(self):
-        """the url encoded fully qualified name"""
-        return "%s:%s" % (urlquote(self.sname), self.uname)
-
-    @property
-    def instancename(self):
-        return '*'
-
-    @property
-    def projection_name(self):
-        """In a projection, the object uses this name."""
-        return self.instancename
-
-    @property
-    def fromname(self):
-        return self.fqname
-
-    @property
     def path(self):
         """Always a new DataPath instance that is rooted at this table.
+
         Note that this table will be automatically aliased using its own table name.
         """
-        return DataPath(self.alias(self.name))
-
-    @path.setter
-    def path(self, value):
-        """Not allowed on base tables.
-        """
-        raise Exception("Path assignment not allowed on base table objects.")
+        return DataPath(self.alias(self._name))
 
     @property
     def _contextualized_path(self):
@@ -621,6 +617,7 @@ class Table (object):
         return self.path
 
     @property
+    @deprecated
     def uri(self):
         return self.path.uri
 
@@ -628,7 +625,7 @@ class Table (object):
         """Returns a table alias object.
         :param alias_name: a string to use as the alias name
         """
-        return TableAlias(self, alias_name)
+        return _TableAlias(self, alias_name)
 
     def filter(self, filter_expression):
         """See the docs for this method in `DataPath` for more information."""
@@ -654,33 +651,34 @@ class Table (object):
 
         See the docs for this method in `DataPath` for more information.
         """
-        return self._query(mode=Project.AGGREGATE, projection=list(functions))
+        return self._query(mode=_Project.AGGREGATE, projection=list(functions))
 
     def attributes(self, *attributes):
         """Returns a results set of attributes projected and optionally renamed from this data path.
 
         See the docs for this method in `DataPath` for more information.
         """
-        return self._query(mode=Project.ATTRIBUTE, projection=list(attributes))
+        return self._query(mode=_Project.ATTRIBUTE, projection=list(attributes))
 
     def groupby(self, *keys):
         """Returns an attribute group object.
 
         See the docs for this method in `DataPath` for more information.
         """
-        return AttributeGroup(self, self._query, keys)
+        return _AttributeGroup(self, self._query, keys)
 
     def insert(self, entities, defaults=set(), nondefaults=set(), add_system_defaults=True):
         """Inserts entities into the table.
+
         :param entities: an iterable collection of entities (i.e., rows) to be inserted into the table.
         :param defaults: optional, set of column names to be assigned the default expression value.
         :param nondefaults: optional, set of columns names to override implicit system defaults
         :param add_system_defaults: flag to add system columns to the set of default columns.
-        :return a ResultSet of newly created entities.
+        :return a collection of newly created entities.
         """
         # empty entities will be accepted but results are therefore an empty entity set
         if not entities:
-            return ResultSet(self.path.uri, lambda ignore1, ignore2: [])
+            return _ResultSet(self.path.uri, lambda ignore1, ignore2: [])
 
         options = []
 
@@ -694,23 +692,23 @@ class Table (object):
             nondefaults_enc = {urlquote(cname) for cname in nondefaults}
             options.append("nondefaults={cols}".format(cols=','.join(nondefaults_enc)))
 
-        path = '/entity/' + self.fqname
+        path = '/entity/' + self._fqname
         if options:
             path += "?" + "&".join(options)
         logger.debug("Inserting entities to path: {path}".format(path=path))
 
         # JSONEncoder does not handle general iterable objects, so we have to make sure its an acceptable collection
         if not hasattr(entities, '__iter__'):
-            raise ValueError('entities is not iterable')
+            raise TypeError('entities is not iterable')
         entities = entities if isinstance(entities, (list, tuple)) else list(entities)
 
         # test the first entity element to make sure that it looks like a dictionary
         if not hasattr(entities[0], 'keys'):
-            raise ValueError('entities[0] does not look like a dictionary -- does not have a "keys()" method')
+            raise TypeError('entities[0] does not look like a dictionary -- does not have a "keys()" method')
 
         try:
-            resp = self.catalog.post(path, json=entities, headers={'Content-Type': 'application/json'})
-            return ResultSet(self.path.uri, lambda ignore1, ignore2: resp.json())
+            resp = self._schema._catalog._wrapped_catalog.post(path, json=entities, headers={'Content-Type': 'application/json'})
+            return _ResultSet(self.path.uri, lambda ignore1, ignore2: resp.json())
         except HTTPError as e:
             logger.debug(e.response.text)
             if 400 <= e.response.status_code < 500:
@@ -728,22 +726,22 @@ class Table (object):
 
         :param entities: an iterable collection of entities (i.e., rows) to be updated in the table.
         :param correlation: an iterable collection of column names used to correlate input set to the set of rows to be
-        updated in the catalog. E.g., `{'col name'}` or `{mytable.mycolumn}` will work if you pass a Column object.
+        updated in the catalog. E.g., `{'col name'}` or `{mytable.mycolumn}` will work if you pass a _ColumnWrapper object.
         :param targets: an iterable collection of column names used as the targets of the update operation.
-        :return: a ResultSet of updated entities as returned by the corresponding ERMrest interface.
+        :return: a collection of updated entities as returned by the corresponding ERMrest interface.
         """
         # empty entities will be accepted but results are therefore an empty entity set
         if not entities:
-            return ResultSet(self.path.uri, lambda ignore1, ignore2: [])
+            return _ResultSet(self.path.uri, lambda ignore1, ignore2: [])
 
         # JSONEncoder does not handle general iterable objects, so we have to make sure its an acceptable collection
         if not hasattr(entities, '__iter__'):
-            raise ValueError('entities is not iterable')
+            raise TypeError('entities is not iterable')
         entities = entities if isinstance(entities, (list, tuple)) else list(entities)
 
         # test the first entity element to make sure that it looks like a dictionary
         if not hasattr(entities[0], 'keys'):
-            raise ValueError('entities[0] does not look like a dictionary -- does not have a "keys()" method')
+            raise TypeError('entities[0] does not look like a dictionary -- does not have a "keys()" method')
 
         # Form the correlation keys and the targets
         correlation_cnames = {urlquote(str(c)) for c in correlation}
@@ -760,14 +758,14 @@ class Table (object):
 
         # Form the path
         path = '/attributegroup/{table}/{correlation};{targets}'.format(
-            table=self.fqname,
+            table=self._fqname,
             correlation=','.join(correlation_cnames),
             targets=','.join(target_cnames)
         )
 
         try:
-            resp = self.catalog.put(path, json=entities, headers={'Content-Type': 'application/json'})
-            return ResultSet(self.path.uri, lambda ignore1, ignore2: resp.json())
+            resp = self._schema._catalog._wrapped_catalog.put(path, json=entities, headers={'Content-Type': 'application/json'})
+            return _ResultSet(self.path.uri, lambda ignore1, ignore2: resp.json())
         except HTTPError as e:
             logger.debug(e.response.text)
             if 400 <= e.response.status_code < 500:
@@ -776,8 +774,8 @@ class Table (object):
                 raise e
 
 
-class TableAlias (Table):
-    """Represents a table alias.
+class _TableAlias (_TableWrapper):
+    """Represents a table alias in datapath expressions.
     """
     def __init__(self, base_table, alias_name):
         """Initializes the table alias.
@@ -785,48 +783,30 @@ class TableAlias (Table):
         :param base_table: the base table to be given an alias name
         :param alias_name: the alias name
         """
-        assert isinstance(base_table, Table)
-        super(TableAlias, self).__init__(base_table.sname, base_table.name, base_table._table_doc, **base_table._kwargs)
-        self._base_table = base_table
-        self.name = alias_name
+        assert isinstance(base_table, _TableWrapper)
+        super(_TableAlias, self).__init__(base_table._schema, base_table._wrapped_table)
         self._parent = None
+        self._base_table = base_table
+        self._name = alias_name
+        self._uname = urlquote(alias_name)
+        self._fqname = self._base_table._fqname
+        self._instancename = self._uname + ":*"
+        self._projection_name = self._instancename
+        self._fromname = "%s:=%s" % (self._uname, self._base_table._fqname)
 
     def __deepcopy__(self, memodict={}):
         # deep copy implementation of a table alias should not make copies of model objects (ie, the base table)
-        return TableAlias(self._base_table, self.name)
+        return _TableAlias(self._base_table, self._name)
 
-    def equivalent(self, alias):
+    def _equivalent(self, alias):
         """Equivalence comparison between table aliases.
 
         :param alias: another table alias
         :return: True, if the base table and alias name match, else False
         """
-        if not isinstance(alias, TableAlias):
+        if not isinstance(alias, _TableAlias):
             raise TypeError("'alias' must be an instance of '%s'" % type(self).__name__)
-        return self.name == alias.name and self._base_table == alias._base_table
-
-    @property
-    def uname(self):
-        """the url encoded name"""
-        return urlquote(self.name)
-
-    @property
-    def fqname(self):
-        """the url encoded fully qualified name"""
-        return self._base_table.fqname
-
-    @property
-    def instancename(self):
-        return self.uname + ":*"
-
-    @property
-    def projection_name(self):
-        """In a projection, the object uses this name."""
-        return self.instancename
-
-    @property
-    def fromname(self):
-        return "%s:=%s" % (self.uname, self._base_table.fqname)
+        return self._name == alias._name and self._base_table == alias._base_table
 
     @property
     def path(self):
@@ -836,13 +816,13 @@ class TableAlias (Table):
             self._parent = DataPath(self)
         return self._parent
 
-    @path.setter
-    def path(self, value):
+    def _bind(self, parent_path):
+        """Binds this table instance to the given parent path."""
         if self._parent:
-            raise Exception("Cannot bind a table instance that has already been bound.")
-        elif not isinstance(value, DataPath):
-            raise Exception("value must be a DataPath instance.")
-        self._parent = value
+            raise ValueError("Cannot bind a table instance that has already been bound.")
+        elif not isinstance(parent_path, DataPath):
+            raise TypeError("value must be a DataPath instance.")
+        self._parent = parent_path
 
     @property
     def _contextualized_path(self):
@@ -856,7 +836,9 @@ class TableAlias (Table):
         return path
 
     @property
+    @deprecated
     def uri(self):
+        warnings.warn("'uri' has been deprecated", DeprecationWarning, stacklevel=2)
         return self.path._contextualized_uri(self)
 
     def _query(self, mode='entity', projection=[], group_key=[], context=None):
@@ -864,66 +846,46 @@ class TableAlias (Table):
         return self.path._query(mode, projection, group_key=group_key, context=self)
 
 
-class Column (object):
-    """Represents a column in a table.
+class _ColumnWrapper (object):
+    """Wraps a Column for datapath expressions.
     """
-    def __init__(self, sname, tname, column_doc, **kwargs):
-        """Creates a Column object.
-        :param sname: schema name
-        :param tname: table name
-        :param column_doc: column definition document
-        :param kwargs: kwargs must include `table` a Table instance
-        """
-        super(Column, self).__init__()
-        assert 'table' in kwargs
-        assert isinstance(kwargs['table'], Table)
-        self._table = kwargs['table']
-        self.sname = sname
-        self.tname = tname
-        self.name = column_doc['name']
-        self.type = column_doc['type']
-        self.comment = column_doc['comment']
 
+    def __init__(self, table, column):
+        """Creates a _ColumnWrapper object.
+
+        :param table: the table to which this column belongs
+        :param column: the wrapped column
+        """
+        super(_ColumnWrapper, self).__init__()
+        self._table = table
+        self._wrapped_column = column
+        self._name = column.name
+        self._uname = urlquote(self._name)
+        self._fqname = "%s:%s" % (self._table._fqname, self._uname)
+        self._instancename = "%s:%s" % (self._table._uname, self._uname) \
+                              if isinstance(self._table, _TableAlias) else self._uname
+        self._projection_name = self._instancename
+
+    @deprecated
     def describe(self):
         """Provides a description of the model element.
 
         :return: a user-friendly string representation of the model element.
         """
-        return "Column name: '%s'\tType: %s\tComment: '%s'" % \
-               (self.name, self.type['typename'], self.comment)
+        return "_ColumnWrapper name: '%s'\tType: %s\tComment: '%s'" % \
+               (self._name, self._wrapped_column.type.typename, self._wrapped_column.comment)
 
+    @deprecated
     def _repr_html_(self):
         return self.describe()
 
     @property
-    def uname(self):
-        """the url encoded name"""
-        return urlquote(self.name)
-
-    @property
-    def fqname(self):
-        """the url encoded fully qualified name"""
-        return "%s:%s" % (self._table.fqname, self.uname)
-
-    @property
-    def instancename(self):
-        if isinstance(self._table, TableAlias):
-            return "%s:%s" % (self._table.uname, self.uname)
-        else:
-            return self.uname
-
-    @property
-    def projection_name(self):
-        """In a projection, the object uses this name."""
-        return self.instancename
-
-    @property
     def desc(self):
         """A descending sort modifier based on this column."""
-        return SortDescending(self)
+        return _SortDescending(self)
 
     def __str__(self):
-        return self.name
+        return self._name
 
     def eq(self, other):
         """Returns an 'equality' comparison predicate.
@@ -932,9 +894,9 @@ class Column (object):
         :return: a filter predicate object
         """
         if other is None:
-            return ComparisonPredicate(self, "::null::", '')
+            return _ComparisonPredicate(self, "::null::", '')
         else:
-            return ComparisonPredicate(self, "=", other)
+            return _ComparisonPredicate(self, "=", other)
 
     __eq__ = eq
 
@@ -944,7 +906,7 @@ class Column (object):
         :param other: a literal value.
         :return: a filter predicate object
         """
-        return ComparisonPredicate(self, "::lt::", other)
+        return _ComparisonPredicate(self, "::lt::", other)
 
     __lt__ = lt
 
@@ -954,7 +916,7 @@ class Column (object):
         :param other: a literal value.
         :return: a filter predicate object
         """
-        return ComparisonPredicate(self, "::leq::", other)
+        return _ComparisonPredicate(self, "::leq::", other)
 
     __le__ = le
 
@@ -964,7 +926,7 @@ class Column (object):
         :param other: a literal value.
         :return: a filter predicate object
         """
-        return ComparisonPredicate(self, "::gt::", other)
+        return _ComparisonPredicate(self, "::gt::", other)
 
     __gt__ = gt
 
@@ -974,7 +936,7 @@ class Column (object):
         :param other: a literal value.
         :return: a filter predicate object
         """
-        return ComparisonPredicate(self, "::geq::", other)
+        return _ComparisonPredicate(self, "::geq::", other)
 
     __ge__ = ge
 
@@ -986,7 +948,7 @@ class Column (object):
         """
         if not isinstance(other, str):
             logger.warning("'regexp' method comparison only supports string literals.")
-        return ComparisonPredicate(self, "::regexp::", other)
+        return _ComparisonPredicate(self, "::regexp::", other)
 
     def ciregexp(self, other):
         """Returns a 'case-insensitive regular expression' comparison predicate.
@@ -996,7 +958,7 @@ class Column (object):
         """
         if not isinstance(other, str):
             logger.warning("'ciregexp' method comparison only supports string literals.")
-        return ComparisonPredicate(self, "::ciregexp::", other)
+        return _ComparisonPredicate(self, "::ciregexp::", other)
 
     def ts(self, other):
         """Returns a 'text search' comparison predicate.
@@ -1006,15 +968,15 @@ class Column (object):
         """
         if not isinstance(other, str):
             logger.warning("'ts' method comparison only supports string literals.")
-        return ComparisonPredicate(self, "::ts::", other)
+        return _ComparisonPredicate(self, "::ts::", other)
 
     def alias(self, name):
         """Returns an alias for this column."""
-        return ColumnAlias(self, name)
+        return _ColumnAlias(self, name)
 
 
-class ColumnAlias (object):
-    """Represents an (output) alias for a column instance in a path.
+class _ColumnAlias (object):
+    """Represents an (output) alias for a column instance in a datapath expression.
     """
     def __init__(self, base_column, alias_name):
         """Initializes the column alias.
@@ -1022,52 +984,39 @@ class ColumnAlias (object):
         :param base_column: the base column to be given an alias name
         :param alias_name: the alias name
         """
-        assert isinstance(base_column, Column)
-        super(ColumnAlias, self).__init__()
-        self.name = alias_name
+        assert isinstance(base_column, _ColumnWrapper)
+        super(_ColumnAlias, self).__init__()
+        self._name = alias_name
         self._base_column = base_column
+        self._uname = urlquote(self._name)
+        self._fqname = self._base_column._fqname
+        self._instancename = self._base_column._instancename
+        self._projection_name = "%s:=%s" % (self._uname, self._base_column._instancename)
 
     def __deepcopy__(self, memodict={}):
         # deep copy implementation of a column alias should not make copies of model objects (ie, the base column)
-        return ColumnAlias(self._base_column, self.name)
+        return _ColumnAlias(self._base_column, self._name)
 
+    @deprecated
     def describe(self):
         """Provides a description of the model element.
 
         :return: a user-friendly string representation of the model element.
         """
-        return "Column name: '%s'\tAlias for: %s" % \
-               (self.name, self._base_column.describe())
+        return "_ColumnWrapper name: '%s'\tAlias for: %s" % \
+               (self._name, self._base_column.describe())
 
+    @deprecated
     def _repr_html_(self):
         return self.describe()
 
     @property
-    def uname(self):
-        """the url encoded name"""
-        return urlquote(self.name)
-
-    @property
-    def fqname(self):
-        """the url encoded fully qualified name"""
-        return self._base_column.fqname
-
-    @property
-    def instancename(self):
-        return self._base_column.instancename
-
-    @property
-    def projection_name(self):
-        """In a projection, the object uses this name."""
-        return "%s:=%s" % (self.uname, self._base_column.instancename)
-
-    @property
     def desc(self):
         """A descending sort modifier based on this column."""
-        return SortDescending(self)
+        return _SortDescending(self)
 
     def __str__(self):
-        return self.name
+        return self._name
 
     def eq(self, other):
         """Returns an 'equality' comparison predicate.
@@ -1144,27 +1093,23 @@ class ColumnAlias (object):
         return self._base_column.ts(other)
 
 
-class SortDescending (object):
-    """Represents a descending sort condition.
-    """
+class _SortDescending (object):
+    """A descending sort condition."""
+
     def __init__(self, attr):
         """Creates sort descending object.
 
         :param attr: a column, column alias, or aggrfn alias object
         """
-        assert isinstance(attr, Column) or isinstance(attr, ColumnAlias) or isinstance(attr, AggregateFunctionAlias)
+        assert isinstance(attr, _ColumnWrapper) or isinstance(attr, _ColumnAlias) or isinstance(attr, _AggregateFunctionAlias)
         self._attr = attr
-
-    @property
-    def uname(self):
-        """the url encoded name"""
-        return urlquote(self._attr.uname) + "::desc::"
+        self._uname = urlquote(self._attr._uname) + "::desc::"
 
 
-class PathOperator (object):
+class _PathOperator (object):
     def __init__(self, r):
-        assert isinstance(r, PathOperator) or isinstance(r, TableAlias)
-        if isinstance(r, Project):
+        assert isinstance(r, _PathOperator) or isinstance(r, _TableAlias)
+        if isinstance(r, _Project):
             raise Exception("Cannot extend a path after an attribute projection")
         self._r = r
 
@@ -1173,12 +1118,12 @@ class PathOperator (object):
 
     @property
     def _path(self):
-        assert isinstance(self._r, PathOperator)
+        assert isinstance(self._r, _PathOperator)
         return self._r._path
 
     @property
     def _mode(self):
-        assert isinstance(self._r, PathOperator)
+        assert isinstance(self._r, _PathOperator)
         return self._r._mode
 
     def __str__(self):
@@ -1189,69 +1134,69 @@ class PathOperator (object):
 
         :param base: a valid path expresion
         :param root_context: root context on which to rebase this path expression
-        :return: rebased expresion _or_ a new `ResetContext` instance if `self` was the root
+        :return: rebased expresion _or_ a new `_ResetContext` instance if `self` was the root
         """
-        assert isinstance(base, PathOperator)
-        assert isinstance(root_context, TableAlias)
-        if isinstance(self, Root):
-            return ResetContext(base, self._table)
+        assert isinstance(base, _PathOperator)
+        assert isinstance(root_context, _TableAlias)
+        if isinstance(self, _Root):
+            return _ResetContext(base, self._table)
         else:
             pathobj = self
-            while not isinstance(pathobj._r, Root):
+            while not isinstance(pathobj._r, _Root):
                 pathobj = self._r
-            assert root_context.equivalent(pathobj._r._table)
-            pathobj._r = ResetContext(base, root_context)
+            assert root_context._equivalent(pathobj._r._table)
+            pathobj._r = _ResetContext(base, root_context)
             return self
 
 
-class Root (PathOperator):
+class _Root (_PathOperator):
     def __init__(self, r):
-        super(Root, self).__init__(r)
-        assert isinstance(r, TableAlias)
+        super(_Root, self).__init__(r)
+        assert isinstance(r, _TableAlias)
         self._table = r
 
     @property
     def _path(self):
-        return self._table.fromname
+        return self._table._fromname
 
     @property
     def _mode(self):
         return 'entity'
 
 
-class ResetContext (PathOperator):
+class _ResetContext (_PathOperator):
     def __init__(self, r, alias):
-        if isinstance(r, ResetContext):
+        if isinstance(r, _ResetContext):
             r = r._r  # discard the previous context reset operator
-        super(ResetContext, self).__init__(r)
-        assert isinstance(alias, TableAlias)
+        super(_ResetContext, self).__init__(r)
+        assert isinstance(alias, _TableAlias)
         self._alias = alias
 
     def __deepcopy__(self, memodict={}):
-        return ResetContext(copy.deepcopy(self._r, memo=memodict), copy.deepcopy(self._alias, memo=memodict))
+        return _ResetContext(copy.deepcopy(self._r, memo=memodict), copy.deepcopy(self._alias, memo=memodict))
 
     @property
     def _path(self):
-        assert isinstance(self._r, PathOperator)
-        return "%s/$%s" % (self._r._path, self._alias.uname)
+        assert isinstance(self._r, _PathOperator)
+        return "%s/$%s" % (self._r._path, self._alias._uname)
 
 
-class Filter(PathOperator):
+class _Filter(_PathOperator):
     def __init__(self, r, formula):
-        super(Filter, self).__init__(r)
-        assert isinstance(formula, Predicate)
+        super(_Filter, self).__init__(r)
+        assert isinstance(formula, _Predicate)
         self._formula = formula
 
     def __deepcopy__(self, memodict={}):
-        return Filter(copy.deepcopy(self._r, memo=memodict), copy.deepcopy(self._formula, memo=memodict))
+        return _Filter(copy.deepcopy(self._r, memo=memodict), copy.deepcopy(self._formula, memo=memodict))
 
     @property
     def _path(self):
-        assert isinstance(self._r, PathOperator)
+        assert isinstance(self._r, _PathOperator)
         return "%s/%s" % (self._r._path, str(self._formula))
 
 
-class Project (PathOperator):
+class _Project (_PathOperator):
     """Projection path component."""
 
     ENTITY = 'entity'
@@ -1268,7 +1213,7 @@ class Project (PathOperator):
         :param projection: projection list.
         :param group_key: grouping keys list.
         """
-        super(Project, self).__init__(r)
+        super(_Project, self).__init__(r)
         assert mode in self.MODES
         assert mode == self.ENTITY or mode == self.ATTRGROUP or len(projection) > 0
         assert mode != self.ATTRGROUP or len(group_key) > 0
@@ -1277,22 +1222,22 @@ class Project (PathOperator):
         self._group_key = []
 
         if mode == self.ATTRIBUTE:
-            if not all(isinstance(obj, Table) or isinstance(obj, TableAlias) or isinstance(obj, Column) or isinstance(obj, ColumnAlias) for obj in projection):
-                raise ValueError("Only columns or column aliases can be retrieved by an 'attribute' query.")
+            if not all(isinstance(obj, _TableWrapper) or isinstance(obj, _TableAlias) or isinstance(obj, _ColumnWrapper) or isinstance(obj, _ColumnAlias) for obj in projection):
+                raise TypeError("Only columns or column aliases can be retrieved by an 'attribute' query.")
         elif mode == self.AGGREGATE:
-            if not all(isinstance(obj, AggregateFunctionAlias) for obj in projection):
-                raise ValueError("Only aggregate function aliases can be retrieved by an 'aggregate' query.")
+            if not all(isinstance(obj, _AggregateFunctionAlias) for obj in projection):
+                raise TypeError("Only aggregate function aliases can be retrieved by an 'aggregate' query.")
         elif mode == self.ATTRGROUP:
-            if not all(isinstance(obj, Column) or isinstance(obj, ColumnAlias) or isinstance(obj, AggregateFunctionAlias) for obj in projection):
-                raise ValueError("Only columns, column aliases, or aggregate function aliases can be retrieved by an 'attributegroup' query.")
-            if not all(isinstance(obj, Column) or isinstance(obj, ColumnAlias) or isinstance(obj, AggregateFunctionAlias) for obj in group_key):
-                raise ValueError("Only column aliases or aggregate function aliases can be used to group an 'attributegroup' query.")
-            self._group_key = [obj.projection_name for obj in group_key]
+            if not all(isinstance(obj, _ColumnWrapper) or isinstance(obj, _ColumnAlias) or isinstance(obj, _AggregateFunctionAlias) for obj in projection):
+                raise TypeError("Only columns, column aliases, or aggregate function aliases can be retrieved by an 'attributegroup' query.")
+            if not all(isinstance(obj, _ColumnWrapper) or isinstance(obj, _ColumnAlias) or isinstance(obj, _AggregateFunctionAlias) for obj in group_key):
+                raise TypeError("Only column aliases or aggregate function aliases can be used to group an 'attributegroup' query.")
+            self._group_key = [obj._projection_name for obj in group_key]
 
-        self._projection = [obj.projection_name for obj in projection]
+        self._projection = [obj._projection_name for obj in projection]
 
     def __deepcopy__(self, memodict={}):
-        cp = super(Project, self).__deepcopy__(memodict=memodict)
+        cp = super(_Project, self).__deepcopy__(memodict=memodict)
         cp._projection_mode = self._projection_mode
         cp._projection = copy.deepcopy(self._projection, memo=memodict)
         cp._group_key = copy.deepcopy(self._group_key, memo=memodict)
@@ -1300,7 +1245,7 @@ class Project (PathOperator):
 
     @property
     def _path(self):
-        assert isinstance(self._r, PathOperator)
+        assert isinstance(self._r, _PathOperator)
         projection = ','.join(self._projection)
         if self._projection_mode == self.ATTRGROUP:
             assert self._group_key
@@ -1314,26 +1259,26 @@ class Project (PathOperator):
         return self._projection_mode
 
 
-class Link (PathOperator):
+class _Link (_PathOperator):
     def __init__(self, r, on, as_=None, join_type=''):
-        """Initialize the Link operator
+        """Initialize the _Link operator
 
         :param r: parent path operator
         :param on: a table alias, a comparison predicate, or a conjunction of comparisons
         :param as_: table alias
         :param join_type: left, right or full for outer join semantics, or '' for inner join semantics
         """
-        super(Link, self).__init__(r)
-        assert isinstance(on, ComparisonPredicate) or isinstance(on, TableAlias) or (
-                isinstance(on, ConjunctionPredicate) and on.is_valid_join_condition), "Invalid join 'on' clause"
-        assert as_ is None or isinstance(as_, TableAlias)
-        assert join_type == '' or (join_type in ('left', 'right', 'full') and isinstance(on, Predicate))
+        super(_Link, self).__init__(r)
+        assert isinstance(on, _ComparisonPredicate) or isinstance(on, _TableAlias) or (
+                isinstance(on, _ConjunctionPredicate) and on.is_valid_join_condition), "Invalid join 'on' clause"
+        assert as_ is None or isinstance(as_, _TableAlias)
+        assert join_type == '' or (join_type in ('left', 'right', 'full') and isinstance(on, _Predicate))
         self._on = on
         self._as = as_
         self._join_type = join_type
 
     def __deepcopy__(self, memodict={}):
-        return Link(
+        return _Link(
             copy.deepcopy(self._r, memo=memodict),
             copy.deepcopy(self._on, memo=memodict),
             as_=copy.deepcopy(self._as, memo=memodict),
@@ -1342,20 +1287,20 @@ class Link (PathOperator):
 
     @property
     def _path(self):
-        assert isinstance(self._r, PathOperator)
-        assign = '' if self._as is None else "%s:=" % self._as.uname
-        if isinstance(self._on, Table):
-            cond = self._on.fqname
-        elif isinstance(self._on, ComparisonPredicate):
+        assert isinstance(self._r, _PathOperator)
+        assign = '' if self._as is None else "%s:=" % self._as._uname
+        if isinstance(self._on, _TableWrapper):
+            cond = self._on._fqname
+        elif isinstance(self._on, _ComparisonPredicate):
             cond = str(self._on)
-        elif isinstance(self._on, ConjunctionPredicate):
+        elif isinstance(self._on, _ConjunctionPredicate):
             cond = self._on.as_join_condition
         else:
             raise DataPathException("Invalid join condition: " + str(self._on))
         return "%s/%s%s%s" % (self._r._path, assign, self._join_type, cond)
 
 
-class Predicate (object):
+class _Predicate (object):
     """Common base class for all predicate types."""
 
     def and_(self, other):
@@ -1364,9 +1309,9 @@ class Predicate (object):
         :param other: a predicate object.
         :return: a junction predicate object.
         """
-        if not isinstance(other, Predicate):
-            raise ValueError("Invalid comparison with object that is not a Predicate instance.")
-        return ConjunctionPredicate([self, other])
+        if not isinstance(other, _Predicate):
+            raise TypeError("Invalid comparison with object that is not a _Predicate instance.")
+        return _ConjunctionPredicate([self, other])
 
     __and__ = and_
 
@@ -1376,9 +1321,9 @@ class Predicate (object):
         :param other: a predicate object.
         :return: a junction predicate object.
         """
-        if not isinstance(other, Predicate):
-            raise ValueError("Invalid comparison with object that is not a Predicate instance.")
-        return DisjunctionPredicate([self, other])
+        if not isinstance(other, _Predicate):
+            raise TypeError("Invalid comparison with object that is not a _Predicate instance.")
+        return _DisjunctionPredicate([self, other])
 
     __or__ = or_
 
@@ -1389,26 +1334,27 @@ class Predicate (object):
 
         :return: a negation predicate object.
         """
-        return NegationPredicate(self)
+        return _NegationPredicate(self)
 
     __invert__ = negate
 
 
-class ComparisonPredicate (Predicate):
+class _ComparisonPredicate (_Predicate):
+    """Comparison (left-operand operator right-operand) predicate"""
     def __init__(self, lop, op, rop):
-        super(ComparisonPredicate, self).__init__()
-        assert isinstance(lop, Column)
-        assert isinstance(rop, Column) or isinstance(rop, int) or \
-            isinstance(rop, float) or isinstance(rop, str) or \
-            isinstance(rop, date)
+        super(_ComparisonPredicate, self).__init__()
+        assert isinstance(lop, _ColumnWrapper)
+        assert isinstance(rop, _ColumnWrapper) or isinstance(rop, int) or \
+               isinstance(rop, float) or isinstance(rop, str) or \
+               isinstance(rop, date)
         assert isinstance(op, str)
         self._lop = lop
         self._op = op
         self._rop = rop
 
     def __deepcopy__(self, memodict={}):
-        # deep copy of predicate should not deep copy the model object references (i.e., Column objects)
-        return ComparisonPredicate(self._lop, self._op, self._rop)
+        # deep copy of predicate should not deep copy the model object references (i.e., _ColumnWrapper objects)
+        return _ComparisonPredicate(self._lop, self._op, self._rop)
 
     @property
     def is_equality(self):
@@ -1423,19 +1369,20 @@ class ComparisonPredicate (Predicate):
         return self._rop
 
     def __str__(self):
-        if isinstance(self._rop, Column):
-            # The only valid circumstance for a Column rop is in a link 'on' predicate for simple key/fkey joins
-            return "(%s)=(%s)" % (self._lop.instancename, self._rop.fqname)
+        if isinstance(self._rop, _ColumnWrapper):
+            # The only valid circumstance for a _ColumnWrapper rop is in a link 'on' predicate for simple key/fkey joins
+            return "(%s)=(%s)" % (self._lop._instancename, self._rop._fqname)
         else:
             # All other comparisons are serialized per the usual form
-            return "%s%s%s" % (self._lop.instancename, self._op, urlquote(str(self._rop)))
+            return "%s%s%s" % (self._lop._instancename, self._op, urlquote(str(self._rop)))
 
 
-class JunctionPredicate (Predicate):
+class _JunctionPredicate (_Predicate):
+    """Junction (and/or) of child predicates."""
     def __init__(self, op, operands):
-        super(JunctionPredicate, self).__init__()
+        super(_JunctionPredicate, self).__init__()
         assert operands and hasattr(operands, '__iter__') and len(operands) > 1
-        assert all(isinstance(operand, Predicate) for operand in operands)
+        assert all(isinstance(operand, _Predicate) for operand in operands)
         assert isinstance(op, str)
         self._operands = operands
         self._op = op
@@ -1444,17 +1391,18 @@ class JunctionPredicate (Predicate):
         return self._op.join(["(%s)" % operand for operand in self._operands])
 
 
-class ConjunctionPredicate (JunctionPredicate):
+class _ConjunctionPredicate (_JunctionPredicate):
+    """Conjunction (and) or child predicates."""
     def __init__(self, operands):
-        super(ConjunctionPredicate, self).__init__('&', operands)
+        super(_ConjunctionPredicate, self).__init__('&', operands)
 
     def and_(self, other):
-        return ConjunctionPredicate(self._operands + [other])
+        return _ConjunctionPredicate(self._operands + [other])
 
     @property
     def is_valid_join_condition(self):
         """Tests if this conjunction is a valid join condition."""
-        return all(isinstance(o, ComparisonPredicate) and o.is_equality for o in self._operands)
+        return all(isinstance(o, _ComparisonPredicate) and o.is_equality for o in self._operands)
 
     @property
     def as_join_condition(self):
@@ -1463,30 +1411,32 @@ class ConjunctionPredicate (JunctionPredicate):
         rhs = []
 
         for operand in self._operands:
-            assert isinstance(operand, ComparisonPredicate) and operand.is_equality
-            assert isinstance(operand.left, Column)
-            assert isinstance(operand.right, Column)
+            assert isinstance(operand, _ComparisonPredicate) and operand.is_equality
+            assert isinstance(operand.left, _ColumnWrapper)
+            assert isinstance(operand.right, _ColumnWrapper)
             lhs.append(operand.left)
             rhs.append(operand.right)
 
         return "({left})=({right})".format(
-            left=",".join(lop.instancename for lop in lhs),
-            right=",".join(rop.fqname for rop in rhs)
+            left=",".join(lop._instancename for lop in lhs),
+            right=",".join(rop._fqname for rop in rhs)
         )
 
 
-class DisjunctionPredicate (JunctionPredicate):
+class _DisjunctionPredicate (_JunctionPredicate):
+    """Disjunction (or) of child predicates."""
     def __init__(self, operands):
-        super(DisjunctionPredicate, self).__init__(';', operands)
+        super(_DisjunctionPredicate, self).__init__(';', operands)
 
     def or_(self, other):
-        return DisjunctionPredicate(self._operands + [other])
+        return _DisjunctionPredicate(self._operands + [other])
 
 
-class NegationPredicate (Predicate):
+class _NegationPredicate (_Predicate):
+    """Negates the child predicate."""
     def __init__(self, child):
-        super(NegationPredicate, self).__init__()
-        assert isinstance(child, Predicate)
+        super(_NegationPredicate, self).__init__()
+        assert isinstance(child, _Predicate)
         self._child = child
 
     def __str__(self):
@@ -1495,105 +1445,105 @@ class NegationPredicate (Predicate):
 
 class AggregateFunction (object):
     """Base class of all aggregate functions."""
-    def __init__(self, op, operand):
+    def __init__(self, fn_name, arg):
         """Initializes the aggregate function.
 
-        :param op: name of the function per ERMrest specification.
-        :param operand: single operand of the function; a Column, Table, or TableAlias object.
+        :param fn_name: name of the function per ERMrest specification.
+        :param arg: argument of the function per ERMrest specification.
         """
         super(AggregateFunction, self).__init__()
-        self.op = op
-        self.operand = operand
+        self._fn_name = fn_name
+        self._arg = arg
 
     def __str__(self):
-        return "%s(%s)" % (self.op, self.operand)
+        return "%s(%s)" % (self._fn_name, self._arg)
 
     @property
-    def instancename(self):
-        return "%s(%s)" % (self.op, self.operand.instancename)
+    def _instancename(self):
+        return "%s(%s)" % (self._fn_name, self._arg._instancename)
 
     def alias(self, alias_name):
         """Returns an (output) alias for this aggregate function instance."""
-        return AggregateFunctionAlias(self, alias_name)
+        return _AggregateFunctionAlias(self, alias_name)
 
 
 class Min (AggregateFunction):
     """Aggregate function for minimum non-NULL value."""
-    def __init__(self, operand):
-        super(Min, self).__init__('min', operand)
+    def __init__(self, arg):
+        super(Min, self).__init__('min', arg)
 
 
 class Max (AggregateFunction):
     """Aggregate function for maximum non-NULL value."""
-    def __init__(self, operand):
-        super(Max, self).__init__('max', operand)
+    def __init__(self, arg):
+        super(Max, self).__init__('max', arg)
 
 
 class Sum (AggregateFunction):
     """Aggregate function for sum of non-NULL values."""
-    def __init__(self, operand):
-        super(Sum, self).__init__('sum', operand)
+    def __init__(self, arg):
+        super(Sum, self).__init__('sum', arg)
 
 
 class Avg (AggregateFunction):
     """Aggregate function for average of non-NULL values."""
-    def __init__(self, operand):
-        super(Avg, self).__init__('avg', operand)
+    def __init__(self, arg):
+        super(Avg, self).__init__('avg', arg)
 
 
 class Cnt (AggregateFunction):
     """Aggregate function for count of non-NULL values."""
-    def __init__(self, operand):
-        super(Cnt, self).__init__('cnt', operand)
+    def __init__(self, arg):
+        super(Cnt, self).__init__('cnt', arg)
 
 
 class CntD (AggregateFunction):
     """Aggregate function for count of distinct non-NULL values."""
-    def __init__(self, operand):
-        super(CntD, self).__init__('cnt_d', operand)
+    def __init__(self, arg):
+        super(CntD, self).__init__('cnt_d', arg)
 
 
 class Array (AggregateFunction):
     """Aggregate function for an array containing all values (including NULL)."""
-    def __init__(self, operand):
-        super(Array, self).__init__('array', operand)
+    def __init__(self, arg):
+        super(Array, self).__init__('array', arg)
 
 
 class ArrayD (AggregateFunction):
     """Aggregate function for an array containing distinct values (including NULL)."""
-    def __init__(self, operand):
-        super(ArrayD, self).__init__('array_d', operand)
+    def __init__(self, arg):
+        super(ArrayD, self).__init__('array_d', arg)
 
 
 class Bin (AggregateFunction):
     """Binning function."""
-    def __init__(self, operand, nbins, minval=None, maxval=None):
+    def __init__(self, arg, nbins, minval=None, maxval=None):
         """Initialize the bin function.
 
         If `minval` or `maxval` are not given, they will be set based on the min and/or max values for the column
         (`operand` parameter) as determined by issuing an aggregate query over the current data path.
 
-        :param operand: a column or aliased column instance
+        :param arg: a column or aliased column instance
         :param nbins: number of bins
         :param minval: minimum value (optional)
         :param maxval: maximum value (optional)
         """
-        super(Bin, self).__init__('bin', operand)
-        if not (isinstance(operand, Column) or isinstance(operand, ColumnAlias)):
-            raise ValueError("Bin operand must be a column or column alias")
+        super(Bin, self).__init__('bin', arg)
+        if not (isinstance(arg, _ColumnWrapper) or isinstance(arg, _ColumnAlias)):
+            raise TypeError("Bin argument must be a column or column alias")
         self.nbins = nbins
         self.minval = minval
         self.maxval = maxval
 
     def __str__(self):
-        return "%s(%s;%s;%s;%s)" % (self.op, self.operand, self.nbins, self.minval, self.maxval)
+        return "%s(%s;%s;%s;%s)" % (self._fn_name, self._arg, self.nbins, self.minval, self.maxval)
 
     @property
-    def instancename(self):
-        return "%s(%s;%s;%s;%s)" % (self.op, self.operand.instancename, self.nbins, self.minval, self.maxval)
+    def _instancename(self):
+        return "%s(%s;%s;%s;%s)" % (self._fn_name, self._arg._instancename, self.nbins, self.minval, self.maxval)
 
 
-class AggregateFunctionAlias (object):
+class _AggregateFunctionAlias (object):
     """Alias for aggregate functions."""
     def __init__(self, fn, alias_name):
         """Initializes the aggregate function alias.
@@ -1601,40 +1551,37 @@ class AggregateFunctionAlias (object):
         :param fn: aggregate function instance
         :param alias_name: alias name
         """
-        super(AggregateFunctionAlias, self).__init__()
+        super(_AggregateFunctionAlias, self).__init__()
         assert isinstance(fn, AggregateFunction)
-        self.fn = fn
-        self.name = alias_name
+        self._fn = fn
+        self._name = alias_name
+        self._uname = urlquote(self._name)
 
     def __str__(self):
-        return str(self.fn)
+        return str(self._fn)
 
     @property
-    def uname(self):
-        return urlquote(self.name)
-
-    @property
-    def projection_name(self):
+    def _projection_name(self):
         """In a projection, the object uses this name."""
-        return "%s:=%s" % (self.uname, self.fn.instancename)
+        return "%s:=%s" % (self._uname, self._fn._instancename)
 
     @property
     def desc(self):
         """A descending sort modifier based on this alias."""
-        return SortDescending(self)
+        return _SortDescending(self)
 
 
-class AttributeGroup (object):
+class _AttributeGroup (object):
     """A computed attribute group."""
     def __init__(self, source, queryfn, keys):
         """Initializes an attribute group instance.
 
-        :param source: the source object for the group (DataPath, Table, TableAlias)
+        :param source: the source object for the group (DataPath, _TableWrapper, _TableAlias)
         :param queryfn: a query function that takes mode, projection, and group_key parameters
         :param keys: an iterable collection of group keys
         """
-        super(AttributeGroup, self).__init__()
-        assert any(isinstance(source, valid_type) for valid_type in [DataPath, Table, TableAlias])
+        super(_AttributeGroup, self).__init__()
+        assert any(isinstance(source, valid_type) for valid_type in [DataPath, _TableWrapper, _TableAlias])
         assert isinstance(keys, tuple)
         if not keys:
             raise ValueError("No groupby keys.")
@@ -1649,18 +1596,18 @@ class AttributeGroup (object):
         :return: a results set of the projected attributes from this group.
         """
         self._resolve_binning_ranges()
-        return self._queryfn(mode=Project.ATTRGROUP, projection=list(attributes), group_key=self._grouping_keys)
+        return self._queryfn(mode=_Project.ATTRGROUP, projection=list(attributes), group_key=self._grouping_keys)
 
     def _resolve_binning_ranges(self):
         """Helper method to resolve any unspecified binning ranges."""
         for key in self._grouping_keys:
-            if isinstance(key, AggregateFunctionAlias) and isinstance(key.fn, Bin):
-                bin = key.fn
+            if isinstance(key, _AggregateFunctionAlias) and isinstance(key._fn, Bin):
+                bin = key._fn
                 aggrs = []
                 if bin.minval is None:
-                    aggrs.append(Min(bin.operand).alias('minval'))
+                    aggrs.append(Min(bin._arg).alias('minval'))
                 if bin.maxval is None:
-                    aggrs.append(Max(bin.operand).alias('maxval'))
+                    aggrs.append(Max(bin._arg).alias('maxval'))
                 if aggrs:
                     result = self._source.aggregates(*aggrs)[0]
                     bin.minval = result.get('minval', bin.minval)
