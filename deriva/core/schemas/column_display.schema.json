@@ -33,6 +33,11 @@
 
         "markdown_pattern": { "type": "string" },
 
+        "template_engine": {
+            "type": "string",
+            "enum": [ "handlebars", "mustache" ]
+        },
+
         "column_order": {
           "oneOf": [
             {
@@ -49,7 +54,10 @@
           ]
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "dependencies": {
+        "template_engine": ["markdown_pattern"]
+      }
     },
 
     "sort-key": {

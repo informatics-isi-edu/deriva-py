@@ -30,7 +30,11 @@
         "row_markdown_pattern": { "type": "string" },
         "separator_markdown": { "type": "string" },
         "prefix_markdown": { "type": "string" },
-        "suffix_markdown": { "type": "string" }
+        "suffix_markdown": { "type": "string" },
+        "template_engine": {
+            "type": "string",
+            "enum": [ "handlebars", "mustache" ]
+        }
       },
       "additionalProperties": false
     },

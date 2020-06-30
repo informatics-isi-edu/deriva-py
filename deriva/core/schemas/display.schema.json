@@ -5,9 +5,13 @@
   "description": "Schema document for the 'display' annotation.",
   "type": "object",
   "properties": {
+
     "comment": { "type": "string" },
+
     "name": { "type": "string" },
+
     "markdown_name": { "type": "string" },
+
     "name_style": {
       "type": "object",
       "properties": {
@@ -16,6 +20,7 @@
         "markdown": { "type": "boolean" }
       }
     },
+
     "show_null": {
       "type": "object",
       "patternProperties": {
@@ -30,6 +35,7 @@
       },
       "additionalProperties": false
     },
+
     "show_foreign_key_link": {
       "type": "object",
       "patternProperties": {
