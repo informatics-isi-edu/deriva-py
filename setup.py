@@ -54,15 +54,6 @@ setup(
             'deriva-globus-auth-utils = deriva.core.utils.globus_auth_utils:main'
         ]
     },
-    requires=[
-        'setuptools',
-        'scandir',
-        'requests',
-        'certifi',
-        'pika',
-        'portalocker',
-        'bdbag',
-        'packaging'],
     install_requires=[
         'setuptools>=20.2',
         'packaging',
