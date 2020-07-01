@@ -3,6 +3,7 @@
 from . import urlquote
 import copy
 from datetime import date
+import itertools
 import logging
 import re
 from requests import HTTPError
@@ -47,6 +48,68 @@ def _isidentifier(a):
         return re.match("[_A-Za-z][_a-zA-Z0-9]*$", a) is not None
 
 
+def _identifier_for_name(name, *reserveds):
+    """Makes an identifier from a given name and disambiguates if it is reserved.
+
+    1. replace invalid identifier characters with '_'
+    2. prepend with '_' if first character is a digit
+    3. append a disambiguating positive integer if it is reserved
+
+    :param name: a string of any format
+    :param *reserveds: iterable collections of reserved strings
+    :return: a valid identifier string for the given name
+    """
+    assert len(name) > 0, 'empty strings are not allowed'
+
+    # replace invalid characters with '_'s
+    identifier = re.sub("[^_a-zA-Z0-9]", "_", name)
+
+    # prepend with '_' is it starts with a digit
+    if identifier[0].isdigit():
+        identifier = '_' + identifier
+
+    # append a disambiguating positive integer if it is reserved
+    disambiguator = 1
+    ambiguous = identifier
+    while any(identifier in reserved for reserved in reserveds):
+        identifier = ambiguous + str(disambiguator)
+        disambiguator += 1
+
+    return identifier
+
+
+def _make_identifier_to_name_mapping(names, reserved):
+    """Makes a dictionary of (valid) identifiers to (original) names.
+
+    Try to favor the names that require the least modification:
+    1. add all names that are valid identifiers and do not conflict with reserved names
+    2. add all names that are valid identifiers but do conflict with reserved names by appending a disambiguator
+    3. add an unambiguous identifier made from the name, when the name is not already a valid identifier
+
+    :param names: iterable collection of strings
+    :param reserved: iterable collection of reserved identifiers
+    :return: a dictionary to map from identifier to name
+    """
+    reserved = set(reserved)
+    assert all(_isidentifier(r) for r in reserved), 'all reserved names must be valid identifiers'
+
+    mappings = {  # first, add all non-offending names
+        name: name
+        for name in names if _isidentifier(name) and name not in reserved
+    }
+    mappings.update({  # second, add all names that conflict with reserved strings
+        name + '1': name
+        for name in names if name in reserved and name + '1' not in mappings
+    })
+    invalid_names = set(names) - mappings.keys()
+
+    # third, convert and disambiguate remaining names
+    for name in invalid_names:
+        mappings[_identifier_for_name(name, mappings.keys(), reserved)] = name
+
+    return mappings
+
+
 def _http_error_message(e):
     """Returns a formatted error message from the raw HTTPError.
     """
@@ -80,13 +143,19 @@ class _CatalogWrapper (object):
             k: _SchemaWrapper(self, v)
             for k, v in self._wrapped_model.schemas.items()
         }
+        self._identifiers = _make_identifier_to_name_mapping(
+            self.schemas.keys(),
+            super(_CatalogWrapper, self).__dir__())
 
     def __dir__(self):
-        return super(_CatalogWrapper, self).__dir__() + [key for key in self.schemas if _isidentifier(key)]
+        return itertools.chain(
+            super(_CatalogWrapper, self).__dir__(),
+            self._identifiers.keys()
+        )
 
     def __getattr__(self, a):
-        if a in self.schemas:
-            return self.schemas[a]
+        if a in self._identifiers:
+            return self.schemas[self._identifiers[a]]
         else:
             return getattr(super(_CatalogWrapper, self), a)
 
@@ -132,13 +201,19 @@ class _SchemaWrapper (object):
             k: _TableWrapper(self, v)
             for k, v in schema.tables.items()
         }
+        self._identifiers = _make_identifier_to_name_mapping(
+            self.tables.keys(),
+            super(_SchemaWrapper, self).__dir__())
 
     def __dir__(self):
-        return super(_SchemaWrapper, self).__dir__() + [key for key in self.tables if _isidentifier(key)]
+        return itertools.chain(
+            super(_SchemaWrapper, self).__dir__(),
+            self._identifiers.keys()
+        )
 
     def __getattr__(self, a):
-        if a in self.tables:
-            return self.tables[a]
+        if a in self._identifiers:
+            return self.tables[self._identifiers[a]]
         else:
             return getattr(super(_SchemaWrapper, self), a)
 
@@ -170,8 +245,20 @@ class DataPath (object):
         self._base_uri = root._schema._catalog._wrapped_catalog._server_uri
         self._table_instances = dict()  # map of alias_name => _TableAlias object
         self._context = None
-        self._identifiers = []
+        self._identifiers = {}
         self._bind_table_instance(root)
+
+    def __dir__(self):
+        return itertools.chain(
+            super(DataPath, self).__dir__(),
+            self._identifiers.keys()
+        )
+
+    def __getattr__(self, a):
+        if a in self._identifiers:
+            return self._table_instances[self._identifiers[a]]
+        else:
+            return getattr(super(DataPath, self), a)
 
     def __deepcopy__(self, memodict={}):
         cp = DataPath(copy.deepcopy(self._root, memo=memodict))
@@ -182,7 +269,7 @@ class DataPath (object):
         cp._path_expression = copy.deepcopy(self._path_expression, memo=memodict)
         assert not cp._table_instances.keys() - set(cp._identifiers)
         assert cp._table_instances.keys() == self._table_instances.keys()
-        assert cp._identifiers == self._identifiers
+        assert cp._identifiers.keys() == self._identifiers.keys()
         assert cp._root._name in cp._table_instances
         assert cp._root == cp._table_instances[cp._root._name]
         assert cp._root != self._root
@@ -192,15 +279,6 @@ class DataPath (object):
         assert str(cp._path_expression) == str(self._path_expression)
         assert cp._path_expression != self._path_expression
         return cp
-
-    def __dir__(self):
-        return super(DataPath, self).__dir__() + self._identifiers
-
-    def __getattr__(self, a):
-        if a in self._table_instances:
-            return self._table_instances[a]
-        else:
-            return getattr(super(DataPath, self), a)
 
     @property
     def table_instances(self):
@@ -247,8 +325,7 @@ class DataPath (object):
         assert isinstance(alias, _TableAlias)
         alias._bind(self)
         self._table_instances[alias._name] = self._context = alias
-        if _isidentifier(alias._name):
-            self._identifiers.append(alias._name)
+        self._identifiers[_identifier_for_name(alias._name, self._identifiers.keys(), super(DataPath, self).__dir__())] = alias._name
 
     def delete(self):
         """Deletes the entity set referenced by the data path.
@@ -568,18 +645,23 @@ class _TableWrapper (object):
         self._instancename = '*'
         self._projection_name = self._instancename
         self._fromname = self._fqname
-
         self.column_definitions = {
             v.name: _ColumnWrapper(self, v)
             for v in table.column_definitions
         }
+        self._identifiers = _make_identifier_to_name_mapping(
+            self.column_definitions.keys(),
+            super(_TableWrapper, self).__dir__())
 
     def __dir__(self):
-        return super(_TableWrapper, self).__dir__() + [key for key in self.column_definitions if _isidentifier(key)]
+        return itertools.chain(
+            super(_TableWrapper, self).__dir__(),
+            self._identifiers.keys()
+        )
 
     def __getattr__(self, a):
-        if a in self.column_definitions:
-            return self.column_definitions[a]
+        if a in self._identifiers:
+            return self.column_definitions[self._identifiers[a]]
         else:
             return getattr(super(_TableWrapper, self), a)
 
