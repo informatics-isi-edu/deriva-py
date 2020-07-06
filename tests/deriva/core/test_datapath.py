@@ -39,6 +39,11 @@ TEST_PROJ_MAX = 1
 TEST_PROJ_INVESTIGATOR = "Smith"
 TEST_PROJ_NUM = 1
 
+SPECIAL_CHARACTERS = '`~!@#$%^&*()_+-={}|[]\\;:"\',./<>?'
+INVALID_IDENTIFIER, INVALID_IDENTIFIER_FIXED = '9 %$ ', '_9____'
+RESERVED_IDENTIFIER = 'column_definitions'
+CONFLICTING_IDENTIFIER, CONFLICTING_IDENTIFIER_FIXED = RESERVED_IDENTIFIER + '1', RESERVED_IDENTIFIER + '2'
+
 hostname = os.getenv("DERIVA_PY_TEST_HOSTNAME")
 logger = logging.getLogger(__name__)
 if os.getenv("DERIVA_PY_TEST_VERBOSE"):
@@ -63,7 +68,10 @@ def define_test_schema(catalog):
         column_defs=[
             _em.Column.define(cname, ctype) for (cname, ctype) in [
                 ('Investigator', _em.builtin_types.text),
-                ('Num', _em.builtin_types.int4)
+                ('Num', _em.builtin_types.int4),
+                (INVALID_IDENTIFIER, _em.builtin_types.int4),
+                (RESERVED_IDENTIFIER, _em.builtin_types.text),
+                (RESERVED_IDENTIFIER + '1', _em.builtin_types.text)
             ]
         ],
         key_defs=[
@@ -81,7 +89,7 @@ def define_test_schema(catalog):
                 ('Amount', _em.builtin_types.int4),
                 ('Time', _em.builtin_types.timestamptz),
                 ('Type', _em.builtin_types.text),
-                ('Project_Investigator', _em.builtin_types.text),
+                ('Project Investigator', _em.builtin_types.text),
                 ('Project_Num', _em.builtin_types.int4),
                 ('Empty', _em.builtin_types.int4)
             ]
@@ -91,7 +99,7 @@ def define_test_schema(catalog):
         ],
         fkey_defs=[
             _em.ForeignKey.define(['Type'], 'Vocab', 'Experiment_Type', ['ID']),
-            _em.ForeignKey.define(['Project_Investigator', 'Project_Num'], 'ISA', 'Project', ['Investigator', 'Num'])
+            _em.ForeignKey.define(['Project Investigator', 'Project_Num'], 'ISA', 'Project', ['Investigator', 'Num'])
         ]
     )
     isa.create_table(table_def)
@@ -114,7 +122,7 @@ def _generate_experiment_entities(types, count):
             "Amount": i,
             "Time": "2018-01-{}T01:00:00.0".format(1 + (i % 31)),
             "Type": types[i % TEST_EXPTYPE_MAX]['ID'],
-            "Project_Investigator": TEST_PROJ_INVESTIGATOR,
+            "Project Investigator": TEST_PROJ_INVESTIGATOR,
             "Project_Num": TEST_PROJ_NUM,
             "Empty": None
         }
@@ -205,6 +213,15 @@ class DatapathTests (unittest.TestCase):
 
     def test_dir_path(self):
         self.assertIn('Experiment', dir(self.paths.ISA.Experiment.path))
+
+    def test_dir_invalid_identifier(self):
+        self.assertIn(INVALID_IDENTIFIER_FIXED, dir(self.project))
+        self.assertIsNotNone(getattr(self.project, INVALID_IDENTIFIER_FIXED))
+
+    def test_dir_conflicting_identifier(self):
+        self.assertIn(CONFLICTING_IDENTIFIER_FIXED, dir(self.project))
+        self.assertIsNotNone(getattr(self.project, CONFLICTING_IDENTIFIER))
+        self.assertIsNotNone(getattr(self.project, CONFLICTING_IDENTIFIER_FIXED))
 
     def test_describe_schema(self):
         with self.assertWarns(DeprecationWarning):
@@ -574,7 +591,7 @@ class DatapathTests (unittest.TestCase):
         self.assertIn(special_character_out_alias, result)
 
         # second test with url unsafe characters present which would trigger a bad request from the web server
-        special_character_out_alias = '`~!@#$%^&*()_+-={}|[]\\;:"\',./<>?'
+        special_character_out_alias = SPECIAL_CHARACTERS
         results = self.experiment.attributes(self.experiment.column_definitions['Name'].alias(special_character_out_alias))
         result = results.fetch(limit=1)[0]
         self.assertIn(special_character_out_alias, result)
