@@ -39,6 +39,9 @@ class _AnnotationSchemas (object):
 
 
 _schemas = _AnnotationSchemas()
+_schema_store = {  # the schema store for the schema resolver, stores all schemas that are extended
+    _schemas[tag_name]['$id']: _schemas[tag_name] for tag_name in [tag.export]
+}
 
 
 def validate(model_obj, tag_name=None):
@@ -67,7 +70,9 @@ def _validate(model_obj, tag_name):
     """
     try:
         if tag_name in model_obj.annotations:
-            jsonschema.validate(model_obj.annotations[tag_name], _schemas[tag_name])
+            schema = _schemas[tag_name]
+            resolver = jsonschema.RefResolver.from_schema(schema, store=_schema_store)
+            jsonschema.validate(model_obj.annotations[tag_name], schema, resolver=resolver)
     except jsonschema.ValidationError as e:
         logger.error(e)
         return [e]

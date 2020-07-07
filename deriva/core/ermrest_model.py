@@ -50,6 +50,7 @@ tag = AttrDict({
     'visible_columns':    'tag:isrd.isi.edu,2016:visible-columns',
     'visible_foreign_keys': 'tag:isrd.isi.edu,2016:visible-foreign-keys',
     'export':             'tag:isrd.isi.edu,2016:export',
+    'export_2019':        'tag:isrd.isi.edu,2019:export',
     'asset':              'tag:isrd.isi.edu,2017:asset',
     'citation':           'tag:isrd.isi.edu,2018:citation',
     'required':           'tag:isrd.isi.edu,2018:required',
