@@ -2,7 +2,7 @@
 
 import logging
 import re
-from deriva.core import BaseCLI, DerivaServer, tag, annotation
+from deriva.core import BaseCLI, DerivaServer, tag, annotation, get_credential, format_credential
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +26,15 @@ class AnnotationValidateCLI (BaseCLI):
 
     def main(self):
         args = self.parse_cli()
-        hostname = args.host
-        server = DerivaServer('https', hostname)
+
+        if args.token:
+            credential = format_credential(token=args.token)
+        elif args.oauth2_token:
+            credential = format_credential(oauth2_token=args.oauth2_token)
+        else:
+            credential = get_credential(args.host, credential_file=args.credential_file)
+
+        server = DerivaServer('https', args.host, credentials=credential)
         catalog = server.connect_ermrest(args.catalog)
         model = catalog.getCatalogModel()
 
