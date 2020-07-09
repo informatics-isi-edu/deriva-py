@@ -107,8 +107,8 @@ def _validate_columns_fn(model_obj):
     """
     if hasattr(model_obj, 'column_definitions') and hasattr(model_obj, 'keys') and hasattr(model_obj, 'foreign_keys'):
         _column_names = {c.name for c in model_obj.column_definitions}
-        _key_names = {(k.constraint_schema.name, k.constraint_name) for k in model_obj.keys}
-        _fkey_names = {(fk.constraint_schema.name, fk.constraint_name) for fk in model_obj.foreign_keys}
+        _key_names = {(k.constraint_schema.name if k.constraint_schema else '', k.constraint_name) for k in model_obj.keys}
+        _fkey_names = {(fk.constraint_schema.name if fk.constraint_schema else '', fk.constraint_name) for fk in model_obj.foreign_keys if fk is not None}
         _constraint_names = _key_names | _fkey_names
 
         # define a validation function for the model object
