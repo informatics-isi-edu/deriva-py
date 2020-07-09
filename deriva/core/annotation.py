@@ -77,7 +77,8 @@ def _validate(model_obj, tag_name):
                 {
                     'validate-columns': _validate_columns_fn(model_obj),
                     'validate-source-key': _validate_source_key_fn(model_obj),
-                    'validate-source-entry': _validate_source_entry_fn(model_obj)
+                    'validate-source-entry': _validate_source_entry_fn(model_obj),
+                    'validate-foreign-keys': _validate_foreign_keys_fn(model_obj)
                 }
             )
             validator = ExtendedValidator(schema, resolver=resolver)
@@ -112,24 +113,69 @@ def _validate_columns_fn(model_obj):
 
         # define a validation function for the model object
         def _validation_func(validator, value, instance, schema):
-            if value:  # 'true' to indicate desire to validate model
-                assert isinstance(instance, list)  # we expect the prior validate to ensure this is is a list
-                for item in instance:
-                    if isinstance(item, str):
-                        if item not in _column_names:
-                            raise jsonschema.ValidationError("'%s' not found in column definitions" % item,
-                                                             validator=validator, validator_value=value,
-                                                             instance=instance, schema=schema)
-                    elif isinstance(item, list):
-                        if tuple(item) not in _constraint_names:
-                            raise jsonschema.ValidationError("'%s' not found in keys or foreign keys" % item,
-                                                             validator=validator, validator_value=value,
-                                                             instance=instance, schema=schema)
+            if not value:  # 'true' to indicate desire to validate model
+                return
+
+            if not isinstance(instance, list):  # we expect the prior validate to ensure this is is a list
+                return
+
+            for item in instance:
+                if isinstance(item, str):
+                    if item not in _column_names:
+                        raise jsonschema.ValidationError("'%s' not found in column definitions" % item,
+                                                         validator=validator, validator_value=value,
+                                                         instance=instance, schema=schema)
+                elif isinstance(item, list) and len(item) == 2:
+                    if tuple(item) not in _constraint_names:
+                        raise jsonschema.ValidationError("'%s' not found in keys or foreign keys" % item,
+                                                         validator=validator, validator_value=value,
+                                                         instance=instance, schema=schema)
 
         return _validation_func
 
         # return a nop for unidentified cases
     return lambda validator, value, instance, schema: None
+
+
+def _validate_foreign_keys_fn(model_obj):
+    """Produces a foreign keys validation function for the model object.
+
+    The returned validation function will skip pseudo-columns.
+
+    :param model_obj: table object
+    :return: validation function
+    """
+    if not hasattr(model_obj, 'schema'):
+        # return a nop for unidentified cases
+        return lambda validator, value, instance, schema: None
+
+    table = model_obj
+    model = table.schema.model
+
+    # define a validation function for the model object
+    def _validation_func(validator, value, instance, schema):
+
+        # we expect the prior validation to ensure this is a list
+        if not value or not isinstance(instance, list):
+            return
+
+        # validate items
+        for item in instance:
+            if not (isinstance(item, list) and len(item) == 2):
+                # if any item does not belong, simply break out, and stop validating
+                break
+
+            constraint_name = item
+            try:
+                fkey = model.fkey(constraint_name)
+                if fkey.pk_table != table:
+                    raise jsonschema.ValidationError("%s does not refer to '%s'" % (constraint_name, table.name))
+            except KeyError as e:
+                raise jsonschema.ValidationError("%s not found in foreign keys of model" % constraint_name, cause=e,
+                                                 validator=validator, validator_value=value,
+                                                 instance=instance, schema=schema)
+
+    return _validation_func
 
 
 def _validate_source_key_fn(model_obj):
