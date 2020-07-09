@@ -6,7 +6,7 @@ from requests.exceptions import HTTPError, ConnectionError
 import sys
 import traceback
 from deriva.core import __version__ as VERSION, BaseCLI, DerivaPathError, HatracStore, HatracHashMismatch, \
-    get_credential, urlquote, format_exception
+    get_credential, format_exception
 from deriva.core.utils import eprint, mime_utils as mu
 
 
@@ -128,7 +128,7 @@ class DerivaHatracCLI (BaseCLI):
         """Shared initialization for all sub-commands.
         """
         self.host = args.host if args.host else 'localhost'
-        self.resource = urlquote(args.resource, '/')
+        self.resource = args.resource
         self.store = HatracStore('https', args.host, DerivaHatracCLI._get_credential(self.host, args.token))
 
     def list(self, args):
