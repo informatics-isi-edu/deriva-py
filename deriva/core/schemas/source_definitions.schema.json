@@ -122,19 +122,7 @@
             "type": "object",
             "properties": {
 
-                "order": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "column": { "$ref": "#/definitions/column-name" },
-                            "descending": { "type": "boolean" }
-                        },
-                        "required": [ "column" ],
-                        "additionalProperties": false
-                    },
-                    "minItems": 1
-                },
+                "order": { "$ref": "#/definitions/column-order" },
 
                 "max_length": {
                     "type": "number",
@@ -185,18 +173,19 @@
                 {
                     "type": "object",
                     "properties": {
-                    "column": {
-                        "$ref": "#/definitions/column-name"
-                    },
-                    "descending": {
-                        "type": "boolean",
-                        "default": false
-                    }
+                        "column": {
+                            "$ref": "#/definitions/column-name"
+                        },
+                        "descending": {
+                            "type": "boolean",
+                            "default": false
+                        }
                     },
                     "required": ["column"],
                     "additionalProperties": false
                 }
-            ]
+            ],
+            "valid-sort-key": true
         }
     },
 

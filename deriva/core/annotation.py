@@ -79,7 +79,8 @@ def _validate(model_obj, tag_name):
                     'valid-columns': _validate_columns_fn(model_obj),
                     'valid-source-key': _validate_source_key_fn(model_obj),
                     'valid-source-entry': _validate_source_entry_fn(model_obj),
-                    'valid-foreign-keys': _validate_foreign_keys_fn(model_obj)
+                    'valid-foreign-keys': _validate_foreign_keys_fn(model_obj),
+                    'valid-sort-key': _validate_sort_key_fn(model_obj)
                 }
             )
             validator = ExtendedValidator(schema, resolver=resolver)
@@ -96,6 +97,33 @@ def _validate(model_obj, tag_name):
     except FileNotFoundError as e:
         logger.warning('No schema document found for tag name %s : %s' % (tag_name, e))
     return []
+
+
+def _validate_sort_key_fn(model_obj):
+    """Produces a sort key validation function for the model object.
+
+    :param model_obj: expects table, column, key, or fkey object
+    :return: validation function
+    """
+    if hasattr(model_obj, 'table'):
+        model_obj = model_obj.table
+    if not hasattr(model_obj, 'column_definitions'):
+        return _nop
+
+    # collect column names
+    _column_names = {c.name for c in model_obj.column_definitions}
+
+    def _validation_func(validator, value, instance, schema):
+        if not value:
+            return
+        # look for and validate column name
+        col_name = instance if isinstance(instance, str) else instance.get('column') if isinstance(instance, dict) else None
+        if col_name and col_name not in _column_names:
+            raise jsonschema.ValidationError("'%s' not found in column definitions" % instance,
+                                             validator=validator, validator_value=value,
+                                             instance=instance, schema=schema)
+
+    return _validation_func
 
 
 def _validate_columns_fn(model_obj):
