@@ -38,11 +38,13 @@ class AnnotationValidateCLI (BaseCLI):
         server = DerivaServer('https', args.host, credentials=credential)
         catalog = server.connect_ermrest(args.catalog)
         model = catalog.getCatalogModel()
+        errors = []
+        num_objects_tested = 0
 
         # catalog annotation validation...
         logger.info("Validating catalog annotations...")
-        errors = annotation.validate(model, tag_name=args.tag)
-        has_errors = len(errors) > 0
+        errors.extend(annotation.validate(model, tag_name=args.tag))
+        num_objects_tested += 1
 
         for schema_name in model.schemas:
             if not re.search(args.schema, schema_name):
@@ -51,8 +53,8 @@ class AnnotationValidateCLI (BaseCLI):
             # schema annotation validation...
             logger.info("Validating '%s' annotations..." % schema_name)
             schema = model.schemas[schema_name]
-            errors = annotation.validate(schema, tag_name=args.tag)
-            has_errors = has_errors or len(errors) > 0
+            errors.extend(annotation.validate(schema, tag_name=args.tag))
+            num_objects_tested += 1
 
             for table_name in schema.tables:
                 if not re.search(args.table, table_name):
@@ -61,8 +63,8 @@ class AnnotationValidateCLI (BaseCLI):
                 # table annotations validation
                 logger.info("Validating '%s:%s' annotations..." % (schema_name, table_name))
                 table = model.schemas[schema_name].tables[table_name]
-                errors = annotation.validate(table, tag_name=args.tag)
-                has_errors = has_errors or len(errors) > 0
+                errors.extend(annotation.validate(table, tag_name=args.tag))
+                num_objects_tested += 1
 
                 for column in table.column_definitions:
                     if not re.search(args.column, column.name):
@@ -70,8 +72,8 @@ class AnnotationValidateCLI (BaseCLI):
 
                     # column annotations validation
                     logger.info("Validating '%s:%s:%s' annotations..." % (schema_name, table_name, column.name))
-                    errors = annotation.validate(column, tag_name=args.tag)
-                    has_errors = has_errors or len(errors) > 0
+                    errors.extend(annotation.validate(column, tag_name=args.tag))
+                    num_objects_tested += 1
 
                 for key in table.keys:
                     if not re.search(args.key, key.constraint_name):
@@ -79,8 +81,8 @@ class AnnotationValidateCLI (BaseCLI):
 
                     # key annotations validation
                     logger.info("Validating '%s:%s' annotations..." % (schema_name, key.constraint_name))
-                    errors = annotation.validate(key, tag_name=args.tag)
-                    has_errors = has_errors or len(errors) > 0
+                    errors.extend(annotation.validate(key, tag_name=args.tag))
+                    num_objects_tested += 1
 
                 for fkey in table.foreign_keys:
                     if not re.search(args.foreign_key, fkey.constraint_name):
@@ -88,10 +90,11 @@ class AnnotationValidateCLI (BaseCLI):
 
                     # fkey annotations validation
                     logger.info("Validating '%s:%s' annotations..." % (schema_name, fkey.constraint_name))
-                    errors = annotation.validate(fkey, tag_name=args.tag)
-                    has_errors = has_errors or len(errors) > 0
+                    errors.extend(annotation.validate(fkey, tag_name=args.tag))
+                    num_objects_tested += 1
 
-        return 1 if has_errors else 0
+        logger.info("Found %d error(s) in %d model object(s)." % (len(errors), num_objects_tested))
+        return 1 if errors else 0
 
 
 def main():
