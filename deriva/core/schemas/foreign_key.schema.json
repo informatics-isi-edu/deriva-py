@@ -4,54 +4,20 @@
   "title": "tag:isrd.isi.edu,2016:foreign-key",
   "description": "Schema document for the 'foreign-key' annotation.",
   "definitions": {
+    "column-order": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/column-order" },
 
     "display-option": {
       "type": "object",
       "properties": {
-        "column_order": {
-          "oneOf": [
-            { "type": "boolean", "const": false },
-            {
-              "type": "array",
-              "items": { "$ref": "#/definitions/sort-key" },
-              "minItems": 1
-            }
-          ]
-        },
+        "column_order": { "$ref": "#/definitions/column-order" },
         "show_foreign_key_link": {
           "type": "boolean"
         }
       },
       "additionalProperties": false
-    },
-
-    "sort-key": {
-      "$comment": "A sort key can be either a column name or an object with column and descending (boolean)",
-      "oneOf": [
-        { "$ref": "#/definitions/column-name" },
-        {
-          "type": "object",
-          "properties": {
-            "column": {
-              "$ref": "#/definitions/column-name"
-            },
-            "descending": {
-              "type": "boolean",
-              "default": false
-            }
-          },
-          "required": ["column"],
-          "additionalProperties": false
-        }
-      ]
-    },
-
-    "column-name": {
-      "type": "string",
-      "validate-model": true
     }
-
   },
+
   "type": "object",
   "properties": {
     "from_name": { "type": "string" },
@@ -66,5 +32,6 @@
       "additionalProperties": false
     },
     "domain_filter_pattern": { "type": "string" }
-  }
+  },
+  "additionalProperties": false
 }

@@ -4,7 +4,7 @@
   "title": "tag:isrd.isi.edu,2016:table-display",
   "description": "Schema document for the 'table-display' annotation.",
   "definitions": {
-
+    "row-order": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/row-order" },
     "template-engine": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/template-engine" },
 
     "table-display-entry": {
@@ -20,11 +20,7 @@
     "table-display-options": {
       "type": "object",
       "properties": {
-        "row_order": {
-          "type": "array",
-          "minItems": 1,
-          "items": { "$ref": "#/definitions/sort-key" }
-        },
+        "row_order": { "$ref": "#/definitions/row-order" },
         "page_size": { "type": "number" },
         "collapse_toc_panel": { "type": "boolean" },
         "hide_column_headers": { "type": "boolean" },
@@ -36,32 +32,6 @@
         "template_engine": { "$ref": "#/definitions/template-engine" }
       },
       "additionalProperties": false
-    },
-
-    "sort-key": {
-      "$comment": "A sort key can be either a column name or an object with column and descending (boolean)",
-      "oneOf": [
-        { "$ref": "#/definitions/column-name" },
-        {
-          "type": "object",
-          "properties": {
-            "column": {
-              "$ref": "#/definitions/column-name"
-            },
-            "descending": {
-              "type": "boolean",
-              "default": false
-            }
-          },
-          "required": ["column"],
-          "additionalProperties": false
-        }
-      ]
-    },
-
-    "column-name": {
-      "type": "string",
-      "validate-model": true
     }
   },
 

@@ -5,6 +5,7 @@
   "description": "Schema document for the 'column-display' annotation.",
   "definitions": {
     "template-engine": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/template-engine" },
+    "column-order": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/column-order" },
 
     "column-display-entry": {
       "oneOf": [
@@ -36,52 +37,12 @@
 
         "template_engine": { "$ref": "#/definitions/template-engine" },
 
-        "column_order": {
-          "oneOf": [
-            {
-              "$comment": "Use this pattern to disable sort options on this column",
-              "type": "boolean",
-              "const": false
-            },
-            {
-              "$comment": "Use this pattern to specify the alternate sort key for this column",
-              "type": "array",
-              "minItems": 1,
-              "items": { "$ref": "#/definitions/sort-key" }
-            }
-          ]
-        }
+        "column_order": { "$ref": "#/definitions/column-order" }
       },
       "additionalProperties": false,
       "dependencies": {
         "template_engine": ["markdown_pattern"]
       }
-    },
-
-    "sort-key": {
-      "$comment": "A sort key can be either a column name or an object with column and descending (boolean)",
-      "oneOf": [
-        { "$ref": "#/definitions/column-name" },
-        {
-          "type": "object",
-          "properties": {
-            "column": {
-              "$ref": "#/definitions/column-name"
-            },
-            "descending": {
-              "type": "boolean",
-              "default": false
-            }
-          },
-          "required": ["column"],
-          "additionalProperties": false
-        }
-      ]
-    },
-
-    "column-name": {
-      "type": "string",
-      "validate-model": true
     }
   },
 
