@@ -29,10 +29,6 @@
             "valid-foreign-keys": true
         },
 
-        "column-name": {
-            "type": "string"
-        },
-
         "constraint-name": {
             "type": "array",
             "items": { "type": "string" },

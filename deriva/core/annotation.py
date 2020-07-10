@@ -52,14 +52,16 @@ def validate(model_obj, tag_name=None):
     :param tag_name: tag name of the annotation to validate, if none, will validate all known annotations
     :return: a list of validation errors, if any
     """
+    assert hasattr(model_obj, 'annotations')
     if not tag_name:
         errors = []
         for tag_name in model_obj.annotations:
-            logger.info("Validating against schema for %s" % tag_name)
             errors.extend(_validate(model_obj, tag_name))
         return errors
-    else:
+    elif tag_name in model_obj.annotations:
         return _validate(model_obj, tag_name)
+    else:
+        return []
 
 
 def _validate(model_obj, tag_name):
@@ -69,25 +71,27 @@ def _validate(model_obj, tag_name):
     :param tag_name: tag name of the annotation to validate
     :return: a list of validation errors, if any
     """
+    assert tag_name in model_obj.annotations
+    logger.debug("Validating '%s' against schema for '%s'" % (model_obj.name if hasattr(model_obj, 'name') else 'catalog', tag_name))
     try:
-        if tag_name in model_obj.annotations:
-            schema = _schemas[tag_name]
-            resolver = jsonschema.RefResolver.from_schema(schema, store=_schema_store)
-            ExtendedValidator = jsonschema.validators.extend(
-                jsonschema.Draft7Validator,
-                {
-                    'valid-columns': _validate_columns_fn(model_obj),
-                    'valid-source-key': _validate_source_key_fn(model_obj),
-                    'valid-source-entry': _validate_source_entry_fn(model_obj),
-                    'valid-foreign-keys': _validate_foreign_keys_fn(model_obj),
-                    'valid-sort-key': _validate_sort_key_fn(model_obj),
-                    'valid-table': _validate_table_fn(model_obj)
-                }
-            )
-            validator = ExtendedValidator(schema, resolver=resolver)
-            validator.validate(model_obj.annotations[tag_name])
-            # TODO: make standard validator an option
-            #  jsonschema.validate(model_obj.annotations[tag_name], schema, resolver=resolver)
+        schema = _schemas[tag_name]
+        resolver = jsonschema.RefResolver.from_schema(schema, store=_schema_store)
+        ExtendedValidator = jsonschema.validators.extend(
+            jsonschema.Draft7Validator,
+            {
+                'valid-columns': _validate_columns_fn(model_obj),
+                'valid-source-key': _validate_source_key_fn(model_obj),
+                'valid-source-entry': _validate_source_entry_fn(model_obj),
+                'valid-foreign-keys': _validate_foreign_keys_fn(model_obj),
+                'valid-sort-key': _validate_sort_key_fn(model_obj),
+                'valid-table': _validate_table_fn(model_obj),
+                'valid-column': _validate_column_fn(model_obj)
+            }
+        )
+        validator = ExtendedValidator(schema, resolver=resolver)
+        validator.validate(model_obj.annotations[tag_name])
+        # TODO: make standard validator an option
+        #  jsonschema.validate(model_obj.annotations[tag_name], schema, resolver=resolver)
     except jsonschema.ValidationError as e:
         logger.error(e)
         return [e]
@@ -98,6 +102,29 @@ def _validate(model_obj, tag_name):
     except FileNotFoundError as e:
         logger.warning('No schema document found for tag name %s : %s' % (tag_name, e))
     return []
+
+
+def _validate_column_fn(model_obj):
+    """Produces a column name validation function for the model object
+
+    :param model_obj: expects column object
+    :return: validation function
+    """
+    if not hasattr(model_obj, 'table'):
+        return _nop
+
+    def _validation_func(validator, value, instance, schema):
+        if not (value and isinstance(instance, str)):
+            return
+
+        try:
+            model_obj.table.column_definitions[instance]
+        except KeyError as e:
+            raise jsonschema.ValidationError("'%s' not found in column definitions" % instance, cause=e,
+                                             validator=validator, validator_value=value,
+                                             instance=instance, schema=schema)
+
+    return _validation_func
 
 
 def _validate_table_fn(model_obj):

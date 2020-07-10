@@ -6,9 +6,10 @@
   "definitions": {
     "column-name": {
       "type": "string",
-      "valid-model": true
+      "valid-column": true
     }
   },
+
   "type": "object",
   "properties": {
     "url_pattern": {
