@@ -95,9 +95,11 @@ def _validate(model_obj, tag_name, validate_model_names):
         else:
             jsonschema.validate(model_obj.annotations[tag_name], schema, resolver=resolver)
     except jsonschema.ValidationError as e:
+        logger.error("Failed to validate '%s' against schema for '%s'" % (model_obj.name if hasattr(model_obj, 'name') else 'catalog', tag_name))
         logger.error(e)
         return [e]
     except KeyError as e:
+        logger.error("Failed to validate '%s' against schema for '%s'" % (model_obj.name if hasattr(model_obj, 'name') else 'catalog', tag_name))
         msg = 'Unknown annotation tag name "%s"' % tag_name
         logger.error(msg)
         return [jsonschema.ValidationError(msg, cause=e)]

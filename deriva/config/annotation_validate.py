@@ -44,7 +44,7 @@ class AnnotationValidateCLI (BaseCLI):
         num_objects_tested = 0
 
         # catalog annotation validation...
-        logger.info("Validating catalog annotations...")
+        logger.debug("Validating catalog annotations...")
         errors.extend(annotation.validate(model, tag_name=args.tag, validate_model_names=validate_model_names))
         num_objects_tested += 1
 
@@ -53,7 +53,7 @@ class AnnotationValidateCLI (BaseCLI):
                 continue
 
             # schema annotation validation...
-            logger.info("Validating '%s' annotations..." % schema_name)
+            logger.debug("Validating '%s' annotations..." % schema_name)
             schema = model.schemas[schema_name]
             errors.extend(annotation.validate(schema, tag_name=args.tag, validate_model_names=validate_model_names))
             num_objects_tested += 1
@@ -63,7 +63,7 @@ class AnnotationValidateCLI (BaseCLI):
                     continue
 
                 # table annotations validation
-                logger.info("Validating '%s:%s' annotations..." % (schema_name, table_name))
+                logger.debug("Validating '%s:%s' annotations..." % (schema_name, table_name))
                 table = model.schemas[schema_name].tables[table_name]
                 errors.extend(annotation.validate(table, tag_name=args.tag, validate_model_names=validate_model_names))
                 num_objects_tested += 1
@@ -73,7 +73,7 @@ class AnnotationValidateCLI (BaseCLI):
                         continue
 
                     # column annotations validation
-                    logger.info("Validating '%s:%s:%s' annotations..." % (schema_name, table_name, column.name))
+                    logger.debug("Validating '%s:%s:%s' annotations..." % (schema_name, table_name, column.name))
                     errors.extend(annotation.validate(column, tag_name=args.tag, validate_model_names=validate_model_names))
                     num_objects_tested += 1
 
@@ -82,7 +82,7 @@ class AnnotationValidateCLI (BaseCLI):
                         continue
 
                     # key annotations validation
-                    logger.info("Validating '%s:%s' annotations..." % (schema_name, key.constraint_name))
+                    logger.debug("Validating '%s:%s' annotations..." % (schema_name, key.constraint_name))
                     errors.extend(annotation.validate(key, tag_name=args.tag, validate_model_names=validate_model_names))
                     num_objects_tested += 1
 
@@ -91,7 +91,7 @@ class AnnotationValidateCLI (BaseCLI):
                         continue
 
                     # fkey annotations validation
-                    logger.info("Validating '%s:%s' annotations..." % (schema_name, fkey.constraint_name))
+                    logger.debug("Validating '%s:%s' annotations..." % (schema_name, fkey.constraint_name))
                     errors.extend(annotation.validate(fkey, tag_name=args.tag, validate_model_names=validate_model_names))
                     num_objects_tested += 1
 
