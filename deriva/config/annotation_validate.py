@@ -20,6 +20,7 @@ class AnnotationValidateCLI (BaseCLI):
         self.parser.add_argument('catalog', metavar='<catalog>', help="Catalog identifier.")
         self.parser.add_argument('-s', '--schema', metavar='<schema>', default='.*', help="Regular expression pattern for schema name")
         self.parser.add_argument('-t', '--table', metavar='<table>', default='.*', help="Regular expression pattern for table name")
+        self.parser.add_argument('-c', '--column', metavar='<column>', default='.*', help="Regular expression pattern for column name")
         self.parser.add_argument('-k', '--key', metavar='<key>', default='.*', help="Regular expression pattern for key constraint name")
         self.parser.add_argument('-f', '--foreign-key', metavar='<foreign_key>', default='.*', help="Regular expression pattern for foreign key constraint name")
         self.parser.add_argument('-a', '--tag', metavar='<tag>', default=None, help="Tag name of annotation")
@@ -62,6 +63,15 @@ class AnnotationValidateCLI (BaseCLI):
                 table = model.schemas[schema_name].tables[table_name]
                 errors = annotation.validate(table, tag_name=args.tag)
                 has_errors = has_errors or len(errors) > 0
+
+                for column in table.column_definitions:
+                    if not re.search(args.column, column.name):
+                        continue
+
+                    # column annotations validation
+                    logger.info("Validating '%s:%s:%s' annotations..." % (schema_name, table_name, column.name))
+                    errors = annotation.validate(column, tag_name=args.tag)
+                    has_errors = has_errors or len(errors) > 0
 
                 for key in table.keys:
                     if not re.search(args.key, key.constraint_name):
