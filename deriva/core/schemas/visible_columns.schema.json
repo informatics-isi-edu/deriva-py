@@ -5,6 +5,7 @@
     "description": "Schema document for the 'visible-columns' annotation.",
     "definitions": {
 
+        "column-name": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/column-name" },
         "constraint-name": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/constraint-name" },
         "source-entry": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/source-entry" },
         "source-key": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/source-key" },
@@ -29,11 +30,6 @@
                     { "$ref": "#/definitions/pseudo-column" }
                 ]
             }
-        },
-
-        "column-name": { 
-            "type": "string",
-            "valid-column": true
         },
 
         "key-or-foreign-key-name": {

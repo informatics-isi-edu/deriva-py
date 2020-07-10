@@ -6,7 +6,8 @@
     "definitions": {
 
         "column-name": {
-            "type": "string"
+            "type": "string",
+            "valid-column": true
         },
 
         "constraint-name": {
@@ -60,12 +61,18 @@
         "source-entry": {
             "$comment": "A source entry in a pseudo-column.",
             "oneOf": [
-                { "$ref": "#/definitions/column-name" },
+                {
+                    "$comment": "A column-name from the source table",
+                    "type": "string"
+                },
                 {
                     "type": "array",
                     "items": {
                         "anyOf": [
-                            { "$ref": "#/definitions/column-name" },
+                            {
+                                "$comment": "A column-name from the source or last table of the path",
+                                "type": "string"
+                            },
                             { "$ref": "#/definitions/foreign-key-path" }
                         ]
                     },
@@ -195,13 +202,14 @@
         "columns": {
             "oneOf": [
                 {
-                    "$comment": "To include all column from the source table",
+                    "$comment": "To include all columns from the source table",
                     "type": "boolean",
                     "const": true
                 },
                 {
-                    "$comment": "To include a subset of column by name",
-                    "$ref": "#/definitions/column-name"
+                    "$comment": "To include a subset of columns by name",
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/column-name" }
                 }
             ]
         },
@@ -216,7 +224,12 @@
                 {
                     "$comment": "To include a subset of foreign keys by name",
                     "type": "array",
-                    "items": { "$ref": "#/definitions/constraint-name" }
+                    "items": {
+                        "allOf": [
+                            { "$ref": "#/definitions/constraint-name" },
+                            { "valid-constraint": ["outbound"] }
+                        ]
+                    }
                 }
             ]
         },

@@ -4,10 +4,7 @@
   "title": "tag:isrd.isi.edu,2017:asset",
   "description": "Schema document for the 'asset' annotation.",
   "definitions": {
-    "column-name": {
-      "type": "string",
-      "valid-column": true
-    }
+    "column-name": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/column-name" }
   },
 
   "type": "object",
