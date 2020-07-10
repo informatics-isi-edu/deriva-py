@@ -3,5 +3,8 @@
   "$id": "http://docs.derivacloud.org/schemas/generated.schema.json",
   "title": "tag:isrd.isi.edu,2016:generated",
   "description": "Schema document for the 'generated' annotation.",
-  "type": "null"
+  "anyOf": [
+    { "type": "null" },
+    { "type": "object", "maxProperties": 0 }
+  ]
 }

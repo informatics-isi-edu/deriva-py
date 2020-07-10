@@ -3,5 +3,8 @@
   "$id": "http://docs.derivacloud.org/schemas/required.schema.json",
   "title": "tag:isrd.isi.edu,2018:required",
   "description": "Schema document for the 'required' annotation.",
-  "type": "null"
+  "anyOf": [
+    { "type": "null" },
+    { "type": "object", "maxProperties": 0 }
+  ]
 }
