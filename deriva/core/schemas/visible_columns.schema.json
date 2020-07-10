@@ -171,18 +171,13 @@
     },
 
     "type": "object",
+    "patternProperties": {
+        "^[*]$|^compact([/]select|[/]brief([/]inline)?)?$|^detailed$|^entry([/]edit|[/]create)?$|^export$": {
+            "$ref": "#/definitions/visible-columns-entry"
+        }
+    },
     "properties": {
-        "*": { "$ref": "#/definitions/visible-columns-entry" },
-        "compact": { "$ref": "#/definitions/visible-columns-entry" },
-        "compact/brief": { "$ref": "#/definitions/visible-columns-entry" },
-        "compact/brief/inline": { "$ref": "#/definitions/visible-columns-entry" },
-        "compact/select": { "$ref": "#/definitions/visible-columns-entry" },
-        "detailed": { "$ref": "#/definitions/visible-columns-entry" },
-        "entry": { "$ref": "#/definitions/visible-columns-entry" },
-        "entry/edit": { "$ref": "#/definitions/visible-columns-entry" },
-        "entry/create": { "$ref": "#/definitions/visible-columns-entry" },
-        "export" :{ "$ref": "#/definitions/visible-columns-entry" },
-        "filter": { 
+        "filter": {
             "type": "object",
             "properties": {
                 "and": { 
