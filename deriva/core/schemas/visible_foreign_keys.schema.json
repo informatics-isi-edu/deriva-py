@@ -5,6 +5,7 @@
     "description": "Schema document for the 'visible-foreign-keys' annotation.",
     "definitions": {
 
+        "constraint-name": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/constraint-name" },
         "source-entry": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/source-entry" },
         "source-key": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/source-key" },
         "display": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/display" },
@@ -22,18 +23,22 @@
             "type": "array",
             "items": {
                 "anyOf": [
-                    { "$ref": "#/definitions/constraint-name" },
+                    { "$ref": "#/definitions/inbound-foreign-key" },
                     { "$ref": "#/definitions/pseudo-column" }
                 ]
-            },
-            "valid-foreign-keys": true
+            }
         },
 
-        "constraint-name": {
-            "type": "array",
-            "items": { "type": "string" },
-            "minItems": 2,
-            "maxItems": 2
+        "inbound-foreign-key": {
+            "$comment": "A constraint name that is a valid inbound foreign key reference to this annotated table",
+            "allOf": [
+                {
+                    "$ref": "#/definitions/constraint-name"
+                },
+                {
+                    "valid-constraint": ["inbound"]
+                }
+            ]
         },
 
         "pseudo-column": {

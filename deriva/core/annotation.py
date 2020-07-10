@@ -79,13 +79,12 @@ def _validate(model_obj, tag_name):
         ExtendedValidator = jsonschema.validators.extend(
             jsonschema.Draft7Validator,
             {
-                'valid-columns': _validate_columns_fn(model_obj),
-                'valid-source-key': _validate_source_key_fn(model_obj),
-                'valid-source-entry': _validate_source_entry_fn(model_obj),
-                'valid-foreign-keys': _validate_foreign_keys_fn(model_obj),
-                'valid-sort-key': _validate_sort_key_fn(model_obj),
                 'valid-table': _validate_table_fn(model_obj),
-                'valid-column': _validate_column_fn(model_obj)
+                'valid-column': _validate_column_fn(model_obj),
+                'valid-constraint': _validate_constraint_fn(model_obj),
+                'valid-source-entry': _validate_source_entry_fn(model_obj),
+                'valid-source-key': _validate_source_key_fn(model_obj),
+                'valid-sort-key': _validate_sort_key_fn(model_obj),
             }
         )
         validator = ExtendedValidator(schema, resolver=resolver)
@@ -104,13 +103,20 @@ def _validate(model_obj, tag_name):
     return []
 
 
+def _is_qualified_name(value):
+    """Tests if the given value looks like a schema-qualified name."""
+    return isinstance(value, list) and len(value) == 2 and all(isinstance(item, str) for item in value)
+
+
 def _validate_column_fn(model_obj):
     """Produces a column name validation function for the model object
 
     :param model_obj: expects column object
     :return: validation function
     """
-    if not hasattr(model_obj, 'table'):
+    if hasattr(model_obj, 'table'):
+        model_obj = model_obj.table
+    if not hasattr(model_obj, 'column_definitions'):
         return _nop
 
     def _validation_func(validator, value, instance, schema):
@@ -118,7 +124,7 @@ def _validate_column_fn(model_obj):
             return
 
         try:
-            model_obj.table.column_definitions[instance]
+            model_obj.column_definitions[instance]
         except KeyError as e:
             raise jsonschema.ValidationError("'%s' not found in column definitions" % instance, cause=e,
                                              validator=validator, validator_value=value,
@@ -137,7 +143,7 @@ def _validate_table_fn(model_obj):
         return _nop
 
     def _validation_func(validator, value, instance, schema):
-        if not (value and isinstance(instance, list) and len(instance) == 2):
+        if not (value and _is_qualified_name(instance)):
             return
 
         try:
@@ -177,47 +183,13 @@ def _validate_sort_key_fn(model_obj):
     return _validation_func
 
 
-def _validate_columns_fn(model_obj):
-    """Produces a column validation function for the model object.
+def _validate_constraint_fn(model_obj):
+    """Produces a constraint validation function for the model object.
 
-    The returned validation function will skip pseudo-columns.
-
-    :param model_obj: table object
-    :return: validation function
-    """
-    if not (hasattr(model_obj, 'column_definitions') and hasattr(model_obj, 'keys') and hasattr(model_obj, 'foreign_keys')):
-        return _nop
-
-    _column_names = {c.name for c in model_obj.column_definitions}
-    _key_names = {(k.constraint_schema.name if k.constraint_schema else '', k.constraint_name) for k in model_obj.keys}
-    _fkey_names = {(fk.constraint_schema.name if fk.constraint_schema else '', fk.constraint_name) for fk in model_obj.foreign_keys if fk is not None}
-    _constraint_names = _key_names | _fkey_names
-
-    # define a validation function for the model object
-    def _validation_func(validator, value, instance, schema):
-        if not value or not isinstance(instance, list):  # we expect the prior validate to ensure this is is a list
-            return
-
-        for item in instance:
-            # validate simple column names
-            if isinstance(item, str) and item not in _column_names:
-                raise jsonschema.ValidationError("'%s' not found in column definitions" % item,
-                                                 validator=validator, validator_value=value,
-                                                 instance=instance, schema=schema)
-            # validate simple key/fkey names
-            elif isinstance(item, list) and len(item) == 2 and tuple(item) not in _constraint_names:
-                raise jsonschema.ValidationError("'%s' not found in keys or foreign keys" % item,
-                                                 validator=validator, validator_value=value,
-                                                 instance=instance, schema=schema)
-            # ignore other cases
-
-    return _validation_func
-
-
-def _validate_foreign_keys_fn(model_obj):
-    """Produces a foreign keys validation function for the model object.
-
-    The returned validation function will skip pseudo-columns.
+    The directive takes a list value that may include one or all of the following strings:
+     - 'inbound': inbound fkey relationships are valid,
+     - 'outbound': outbound fkey relationships are valid
+     - 'key': keys of the object are valid
 
     :param model_obj: table object
     :return: validation function
@@ -230,26 +202,36 @@ def _validate_foreign_keys_fn(model_obj):
 
     # define a validation function for the model object
     def _validation_func(validator, value, instance, schema):
-
-        # we expect the prior validation to ensure this is a list
-        if not value or not isinstance(instance, list):
+        if not value or not _is_qualified_name(instance):
             return
 
-        # validate items
-        for item in instance:
-            if not (isinstance(item, list) and len(item) == 2):
-                # if any item does not belong, simply break out, and stop validating
-                break
-
-            constraint_name = item
+        # validate if key
+        if 'key' in value:
             try:
-                fkey = model.fkey(constraint_name)
-                if fkey.pk_table != table:
-                    raise jsonschema.ValidationError("%s does not refer to '%s'" % (constraint_name, table.name))
+                schemaobj = model.schemas[instance[0]]
+                key = table.keys[(schemaobj, instance[1])]
+                return  # return immediately on validation condition
             except KeyError as e:
-                raise jsonschema.ValidationError("%s not found in foreign keys of model" % constraint_name, cause=e,
+                # when no other validation options exist, terminate and raise exception
+                if len(value) == 1:
+                    raise jsonschema.ValidationError("%s not found in keys of '%s'" % (instance, table.name), cause=e,
+                                                     validator=validator, validator_value=value,
+                                                     instance=instance, schema=schema)
+
+        # if not already validated as a key, then validate as inbound or outbound fkey
+        try:
+            if not (
+                ('outbound' in value and model.fkey(instance).table == table) or
+                ('inbound' in value and model.fkey(instance).pk_table == table)
+            ):
+                raise jsonschema.ValidationError("%s not related to '%s'" % (instance, table.name),
                                                  validator=validator, validator_value=value,
                                                  instance=instance, schema=schema)
+            return
+        except KeyError as e:
+            raise jsonschema.ValidationError("unable to validate constraint %s" % instance, cause=e,
+                                             validator=validator, validator_value=value,
+                                             instance=instance, schema=schema)
 
     return _validation_func
 
@@ -306,7 +288,7 @@ def _validate_source_entry_fn(model_obj):
                             validator=validator, validator_value=value, instance=instance, schema=schema)
 
                 # validate an inbound or outbound fkey in the path
-                elif isinstance(item, dict) and any(isinstance(item[io], list) and len(item[io]) == 2 for io in ['inbound', 'outbound'] if io in item):
+                elif isinstance(item, dict) and any(_is_qualified_name(item[io]) for io in ['inbound', 'outbound'] if io in item):
                     for direction, match_with_table, update_current_table in [
                         ('outbound',    'table',    'pk_table'),
                         ('inbound',     'pk_table', 'table')

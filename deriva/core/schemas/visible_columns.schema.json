@@ -5,6 +5,7 @@
     "description": "Schema document for the 'visible-columns' annotation.",
     "definitions": {
 
+        "constraint-name": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/constraint-name" },
         "source-entry": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/source-entry" },
         "source-key": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/source-key" },
         "display": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/display" },
@@ -22,24 +23,29 @@
         "column-list": {
             "type": "array",
             "items": {
-                "oneOf": [
+                "anyOf": [
                     { "$ref": "#/definitions/column-name" },
-                    { "$ref": "#/definitions/constraint-name" },
+                    { "$ref": "#/definitions/key-or-foreign-key-name" },
                     { "$ref": "#/definitions/pseudo-column" }
                 ]
-            },
-            "valid-columns": true
+            }
         },
 
         "column-name": { 
-            "type": "string"
+            "type": "string",
+            "valid-column": true
         },
 
-        "constraint-name": {
-            "type": "array",
-            "items": { "type": "string"},
-            "minItems": 2,
-            "maxItems": 2
+        "key-or-foreign-key-name": {
+            "$comment": "A key or foreign key for the annotated table",
+            "allOf": [
+                {
+                    "$ref": "#/definitions/constraint-name"
+                },
+                {
+                    "valid-constraint": ["key", "inbound", "outbound"]
+                }
+            ]
         },
 
         "pseudo-column": {
