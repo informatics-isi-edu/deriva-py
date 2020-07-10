@@ -24,9 +24,11 @@ class AnnotationValidateCLI (BaseCLI):
         self.parser.add_argument('-k', '--key', metavar='<key>', default='.*', help="Regular expression pattern for key constraint name")
         self.parser.add_argument('-f', '--foreign-key', metavar='<foreign_key>', default='.*', help="Regular expression pattern for foreign key constraint name")
         self.parser.add_argument('-a', '--tag', metavar='<tag>', default=None, help="Tag name of annotation")
+        self.parser.add_argument('--skip-model-names', action='store_true', help="Skip validation of model names found inside of annotations")
 
     def main(self):
         args = self.parse_cli()
+        validate_model_names = not args.skip_model_names
 
         if args.token:
             credential = format_credential(token=args.token)
@@ -43,7 +45,7 @@ class AnnotationValidateCLI (BaseCLI):
 
         # catalog annotation validation...
         logger.info("Validating catalog annotations...")
-        errors.extend(annotation.validate(model, tag_name=args.tag))
+        errors.extend(annotation.validate(model, tag_name=args.tag, validate_model_names=validate_model_names))
         num_objects_tested += 1
 
         for schema_name in model.schemas:
@@ -53,7 +55,7 @@ class AnnotationValidateCLI (BaseCLI):
             # schema annotation validation...
             logger.info("Validating '%s' annotations..." % schema_name)
             schema = model.schemas[schema_name]
-            errors.extend(annotation.validate(schema, tag_name=args.tag))
+            errors.extend(annotation.validate(schema, tag_name=args.tag, validate_model_names=validate_model_names))
             num_objects_tested += 1
 
             for table_name in schema.tables:
@@ -63,7 +65,7 @@ class AnnotationValidateCLI (BaseCLI):
                 # table annotations validation
                 logger.info("Validating '%s:%s' annotations..." % (schema_name, table_name))
                 table = model.schemas[schema_name].tables[table_name]
-                errors.extend(annotation.validate(table, tag_name=args.tag))
+                errors.extend(annotation.validate(table, tag_name=args.tag, validate_model_names=validate_model_names))
                 num_objects_tested += 1
 
                 for column in table.column_definitions:
@@ -72,7 +74,7 @@ class AnnotationValidateCLI (BaseCLI):
 
                     # column annotations validation
                     logger.info("Validating '%s:%s:%s' annotations..." % (schema_name, table_name, column.name))
-                    errors.extend(annotation.validate(column, tag_name=args.tag))
+                    errors.extend(annotation.validate(column, tag_name=args.tag, validate_model_names=validate_model_names))
                     num_objects_tested += 1
 
                 for key in table.keys:
@@ -81,7 +83,7 @@ class AnnotationValidateCLI (BaseCLI):
 
                     # key annotations validation
                     logger.info("Validating '%s:%s' annotations..." % (schema_name, key.constraint_name))
-                    errors.extend(annotation.validate(key, tag_name=args.tag))
+                    errors.extend(annotation.validate(key, tag_name=args.tag, validate_model_names=validate_model_names))
                     num_objects_tested += 1
 
                 for fkey in table.foreign_keys:
@@ -90,7 +92,7 @@ class AnnotationValidateCLI (BaseCLI):
 
                     # fkey annotations validation
                     logger.info("Validating '%s:%s' annotations..." % (schema_name, fkey.constraint_name))
-                    errors.extend(annotation.validate(fkey, tag_name=args.tag))
+                    errors.extend(annotation.validate(fkey, tag_name=args.tag, validate_model_names=validate_model_names))
                     num_objects_tested += 1
 
         logger.info("Found %d error(s) in %d model object(s)." % (len(errors), num_objects_tested))

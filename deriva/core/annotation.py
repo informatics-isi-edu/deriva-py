@@ -45,30 +45,32 @@ _schema_store = {  # the schema store for the schema resolver, stores all schema
 _nop = lambda validator, value, instance, schema: None
 
 
-def validate(model_obj, tag_name=None):
+def validate(model_obj, tag_name=None, validate_model_names=True):
     """Validate the annotation(s) of the model object.
 
     :param model_obj: model object container of annotations
     :param tag_name: tag name of the annotation to validate, if none, will validate all known annotations
+    :param validate_model_names: validate model names used in annotations
     :return: a list of validation errors, if any
     """
     assert hasattr(model_obj, 'annotations')
     if not tag_name:
         errors = []
         for tag_name in model_obj.annotations:
-            errors.extend(_validate(model_obj, tag_name))
+            errors.extend(_validate(model_obj, tag_name, validate_model_names))
         return errors
     elif tag_name in model_obj.annotations:
-        return _validate(model_obj, tag_name)
+        return _validate(model_obj, tag_name, validate_model_names)
     else:
         return []
 
 
-def _validate(model_obj, tag_name):
+def _validate(model_obj, tag_name, validate_model_names):
     """Validate an annotation of the model object.
 
     :param model_obj: model object container of annotations
     :param tag_name: tag name of the annotation to validate
+    :param validate_model_names: validate model names used in annotations
     :return: a list of validation errors, if any
     """
     assert tag_name in model_obj.annotations
@@ -76,21 +78,22 @@ def _validate(model_obj, tag_name):
     try:
         schema = _schemas[tag_name]
         resolver = jsonschema.RefResolver.from_schema(schema, store=_schema_store)
-        ExtendedValidator = jsonschema.validators.extend(
-            jsonschema.Draft7Validator,
-            {
-                'valid-table': _validate_table_fn(model_obj),
-                'valid-column': _validate_column_fn(model_obj),
-                'valid-constraint': _validate_constraint_fn(model_obj),
-                'valid-source-entry': _validate_source_entry_fn(model_obj),
-                'valid-source-key': _validate_source_key_fn(model_obj),
-                'valid-sort-key': _validate_sort_key_fn(model_obj),
-            }
-        )
-        validator = ExtendedValidator(schema, resolver=resolver)
-        validator.validate(model_obj.annotations[tag_name])
-        # TODO: make standard validator an option
-        #  jsonschema.validate(model_obj.annotations[tag_name], schema, resolver=resolver)
+        if validate_model_names:
+            ExtendedValidator = jsonschema.validators.extend(
+                jsonschema.Draft7Validator,
+                {
+                    'valid-table': _validate_table_fn(model_obj),
+                    'valid-column': _validate_column_fn(model_obj),
+                    'valid-constraint': _validate_constraint_fn(model_obj),
+                    'valid-source-entry': _validate_source_entry_fn(model_obj),
+                    'valid-source-key': _validate_source_key_fn(model_obj),
+                    'valid-sort-key': _validate_sort_key_fn(model_obj),
+                }
+            )
+            validator = ExtendedValidator(schema, resolver=resolver)
+            validator.validate(model_obj.annotations[tag_name])
+        else:
+            jsonschema.validate(model_obj.annotations[tag_name], schema, resolver=resolver)
     except jsonschema.ValidationError as e:
         logger.error(e)
         return [e]
