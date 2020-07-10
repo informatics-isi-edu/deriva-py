@@ -5,6 +5,11 @@
     "description": "Schema document for the 'visible-columns' annotation.",
     "definitions": {
 
+        "source-entry": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/source-entry" },
+        "source-key": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/source-key" },
+        "display": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/display" },
+        "array-options": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/array-options" },
+
         "visible-columns-entry": {
             "oneOf": [
                  { "$ref": "#/definitions/context-name" },
@@ -87,104 +92,6 @@
                     "required": [ "markdown_name", "display" ]
                 }
             ]
-        },
-
-        "source-entry": {
-            "$comment": "A source entry in a pseudo-column.",
-            "oneOf": [
-                { "$ref": "#/definitions/column-name" },
-                {
-                    "type": "array",
-                    "items": {
-                        "anyOf": [
-                            { "$ref": "#/definitions/column-name" },
-                            { "$ref": "#/definitions/foreign-key-path" }
-                        ]
-                    },
-                    "minItems": 1
-                }
-            ],
-            "validate-source-entry": true
-        },
-
-        "source-key": {
-            "$comment": "A source key that must be found in an accompanying source-definitions annotation.",
-            "type": "string",
-            "pattern": "^[^$].*",
-            "validate-source-key": true
-        },
-
-        "foreign-key-path": {
-            "type": "object",
-            "properties": {
-                "inbound": { "$ref": "#/definitions/constraint-name" },
-                "outbound": { "$ref": "#/definitions/constraint-name" }
-            },
-            "minProperties": 1,
-            "maxProperties": 1
-        },
-
-        "display": {
-
-            "type": "object",
-
-            "properties": {
-
-                "markdown_pattern": { "type": "string" },
-
-                "template_engine": { 
-                    "type": "string",
-                    "enum": [ "handlebars", "mustache" ]
-                },
-
-                "wait_for": {
-                    "type": "array",
-                    "items": { "type": "string" }
-                },
-
-                "show_foreign_key_link": { "type": "boolean" },
-
-                "array_ux_mode": {
-                    "type": "string",
-                    "enum": [ "raw", "csv", "olist", "ulist" ]
-                }
-            },
-
-            "dependencies": {
-                "template_engine": [ "markdown_pattern" ]
-            },
-
-            "additionalProperties": false
-        },
-
-        "array-options": {
-
-            "type": "object",
-
-            "properties": {
-
-                "order": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "column": { "$ref": "#/definitions/column-name" },
-                            "descending": { "type": "boolean" }
-                        },
-                        "required": [ "column" ],
-                        "additionalProperties": false
-                    },
-                    "minItems": 1
-                },
-
-                "max_length": {
-                    "type": "number",
-                    "multipleOf": 1,
-                    "minimum": 1
-                }
-            },
-
-            "additionalProperties": false
         },
 
         "facet-entry": {

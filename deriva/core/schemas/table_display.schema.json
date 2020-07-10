@@ -5,6 +5,8 @@
   "description": "Schema document for the 'table-display' annotation.",
   "definitions": {
 
+    "template-engine": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/template-engine" },
+
     "table-display-entry": {
       "oneOf": [
         { "$ref": "#/definitions/context-name" },
@@ -31,10 +33,7 @@
         "separator_markdown": { "type": "string" },
         "prefix_markdown": { "type": "string" },
         "suffix_markdown": { "type": "string" },
-        "template_engine": {
-            "type": "string",
-            "enum": [ "handlebars", "mustache" ]
-        }
+        "template_engine": { "$ref": "#/definitions/template-engine" }
       },
       "additionalProperties": false
     },

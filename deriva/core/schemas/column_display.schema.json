@@ -4,6 +4,7 @@
   "title": "tag:isrd.isi.edu,2016:column-display",
   "description": "Schema document for the 'column-display' annotation.",
   "definitions": {
+    "template-engine": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/template-engine" },
 
     "column-display-entry": {
       "oneOf": [
@@ -33,10 +34,7 @@
 
         "markdown_pattern": { "type": "string" },
 
-        "template_engine": {
-            "type": "string",
-            "enum": [ "handlebars", "mustache" ]
-        },
+        "template_engine": { "$ref": "#/definitions/template-engine" },
 
         "column_order": {
           "oneOf": [

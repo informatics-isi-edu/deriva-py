@@ -40,7 +40,7 @@ class _AnnotationSchemas (object):
 
 _schemas = _AnnotationSchemas()
 _schema_store = {  # the schema store for the schema resolver, stores all schemas that are extended
-    _schemas[tag_name]['$id']: _schemas[tag_name] for tag_name in [tag.export]
+    _schemas[tag_name]['$id']: _schemas[tag_name] for tag_name in [tag.export, tag.source_definitions]
 }
 _nop = lambda validator, value, instance, schema: None
 

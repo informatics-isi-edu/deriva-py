@@ -50,6 +50,13 @@
             "required": ["source"]
         },
 
+        "source-key": {
+            "$comment": "A source key that must be found in an accompanying source-definitions annotation.",
+            "type": "string",
+            "pattern": "^[^$].*",
+            "validate-source-key": true
+        },
+
         "source-entry": {
             "$comment": "A source entry in a pseudo-column.",
             "oneOf": [
@@ -86,10 +93,7 @@
 
                 "markdown_pattern": { "type": "string" },
 
-                "template_engine": { 
-                    "type": "string",
-                    "enum": [ "handlebars", "mustache" ]
-                },
+                "template_engine": { "$ref": "#/definitions/template-engine" },
 
                 "wait_for": {
                     "type": "array",
@@ -107,6 +111,11 @@
                 "template_engine": [ "markdown_pattern" ]
             },
             "additionalProperties": false
+        },
+
+        "template-engine": {
+            "type": "string",
+            "enum": [ "handlebars", "mustache" ]
         },
 
         "array-options": {

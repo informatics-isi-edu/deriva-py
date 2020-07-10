@@ -4,10 +4,8 @@
   "title": "tag:isrd.isi.edu,2018:citation",
   "description": "Schema document for the 'citation' annotation.",
   "definitions": {
-    "source-key": {
-      "type": "string",
-      "validate-model": true
-    }
+    "source-key": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/source-key" },
+    "template-engine": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/template-engine" }
   },
   "type": "object",
   "properties": {
@@ -17,10 +15,7 @@
     "year_pattern": { "type": "string" },
     "url_pattern": { "type": "string" },
     "id_pattern": { "type": "string" },
-    "template_engine": {
-        "type": "string",
-        "enum": [ "handlebars", "mustache" ]
-    },
+    "template_engine": { "$ref": "#/definitions/template-engine" },
     "wait_for": {
       "type": "array",
       "items": { "$ref": "#/definitions/source-key" },
