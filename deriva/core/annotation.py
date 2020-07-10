@@ -76,10 +76,10 @@ def _validate(model_obj, tag_name):
             ExtendedValidator = jsonschema.validators.extend(
                 jsonschema.Draft7Validator,
                 {
-                    'validate-columns': _validate_columns_fn(model_obj),
-                    'validate-source-key': _validate_source_key_fn(model_obj),
-                    'validate-source-entry': _validate_source_entry_fn(model_obj),
-                    'validate-foreign-keys': _validate_foreign_keys_fn(model_obj)
+                    'valid-columns': _validate_columns_fn(model_obj),
+                    'valid-source-key': _validate_source_key_fn(model_obj),
+                    'valid-source-entry': _validate_source_entry_fn(model_obj),
+                    'valid-foreign-keys': _validate_foreign_keys_fn(model_obj)
                 }
             )
             validator = ExtendedValidator(schema, resolver=resolver)

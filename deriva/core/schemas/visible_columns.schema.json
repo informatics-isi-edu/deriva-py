@@ -28,7 +28,7 @@
                     { "$ref": "#/definitions/pseudo-column" }
                 ]
             },
-            "validate-columns": true
+            "valid-columns": true
         },
 
         "column-name": { 

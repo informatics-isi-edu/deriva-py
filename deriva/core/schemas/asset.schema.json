@@ -6,7 +6,7 @@
   "definitions": {
     "column-name": {
       "type": "string",
-      "validate-model": true
+      "valid-model": true
     }
   },
   "type": "object",

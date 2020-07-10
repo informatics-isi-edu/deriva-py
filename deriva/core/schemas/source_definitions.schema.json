@@ -54,7 +54,7 @@
             "$comment": "A source key that must be found in an accompanying source-definitions annotation.",
             "type": "string",
             "pattern": "^[^$].*",
-            "validate-source-key": true
+            "valid-source-key": true
         },
 
         "source-entry": {
@@ -72,7 +72,7 @@
                     "minItems": 1
                 }
             ],
-            "validate-source-entry": true
+            "valid-source-entry": true
         },
 
         "foreign-key-path": {

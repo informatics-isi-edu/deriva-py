@@ -10,7 +10,7 @@
       "items": { "type": "string"},
       "minItems": 2,
       "maxItems": 2,
-      "validate-model": true
+      "valid-model": true
     }
   },
   "type": "object",
