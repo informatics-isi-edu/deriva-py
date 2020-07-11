@@ -191,8 +191,7 @@
                     "required": ["column"],
                     "additionalProperties": false
                 }
-            ],
-            "valid-sort-key": true
+            ]
         }
     },
 

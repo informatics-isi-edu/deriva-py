@@ -74,7 +74,7 @@ def _validate(model_obj, tag_name, validate_model_names):
     :return: a list of validation errors, if any
     """
     assert tag_name in model_obj.annotations
-    logger.debug("Validating '%s' against schema for '%s'" % (model_obj.name if hasattr(model_obj, 'name') else 'catalog', tag_name))
+    logger.debug("Validating '%s' against schema for '%s'" % (_printable_name(model_obj), tag_name))
     try:
         schema = _schemas[tag_name]
         resolver = jsonschema.RefResolver.from_schema(schema, store=_schema_store)
@@ -86,8 +86,7 @@ def _validate(model_obj, tag_name, validate_model_names):
                     'valid-column': _validate_column_fn(model_obj),
                     'valid-constraint': _validate_constraint_fn(model_obj),
                     'valid-source-entry': _validate_source_entry_fn(model_obj),
-                    'valid-source-key': _validate_source_key_fn(model_obj),
-                    'valid-sort-key': _validate_sort_key_fn(model_obj),
+                    'valid-source-key': _validate_source_key_fn(model_obj)
                 }
             )
             validator = ExtendedValidator(schema, resolver=resolver)
@@ -174,33 +173,6 @@ def _validate_table_fn(model_obj):
             model_obj.schema.model.schemas[instance[0]].tables[instance[1]]
         except KeyError as e:
             raise jsonschema.ValidationError("Table %s not found in model" % instance, cause=e,
-                                             validator=validator, validator_value=value,
-                                             instance=instance, schema=schema)
-
-    return _validation_func
-
-
-def _validate_sort_key_fn(model_obj):
-    """Produces a sort key validation function for the model object.
-
-    :param model_obj: expects table, column, key, or fkey object
-    :return: validation function
-    """
-    if hasattr(model_obj, 'table'):
-        model_obj = model_obj.table
-    if not hasattr(model_obj, 'column_definitions'):
-        return _nop
-
-    # collect column names
-    _column_names = {c.name for c in model_obj.column_definitions}
-
-    def _validation_func(validator, value, instance, schema):
-        if not value:
-            return
-        # look for and validate column name
-        col_name = instance if isinstance(instance, str) else instance.get('column') if isinstance(instance, dict) else None
-        if col_name and col_name not in _column_names:
-            raise jsonschema.ValidationError("'%s' not found in column definitions" % instance,
                                              validator=validator, validator_value=value,
                                              instance=instance, schema=schema)
 
