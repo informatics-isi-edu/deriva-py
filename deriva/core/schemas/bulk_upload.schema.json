@@ -136,8 +136,8 @@
         },
 
         "create_record_before_upload": {
-          "$comment": "Create metadata record before file object upload. Values should be boolean.",
-          "$ref": "#/definitions/booleanish"
+          "$comment": "Create metadata record before file object upload.",
+          "type": "boolean"
         }
       },
       "additionalProperties": false,
@@ -182,23 +182,6 @@
       },
       "minLength": 2,
       "maxLength": 2
-    },
-
-    "booleanish": {
-      "$comment": "Real boolean values SHOULD be used but boolean-like values MAY be used.",
-      "anyOf": [
-        {
-          "type": "boolean"
-        },
-        {
-          "type": "string",
-          "enum": ["True", "true", "False", "false"]
-        },
-        {
-          "type": "integer",
-          "enum": [0, 1]
-        }
-      ]
     }
   },
 
