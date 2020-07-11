@@ -1,14 +1,14 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
-    "$id": "http://docs.derivacloud.org/schemas/visible_foreign_keys.schema.json",
+    "$id": "http://deriva.isi.edu/schemas/visible_foreign_keys.schema.json",
     "title": "tag:isrd.isi.edu,2016:visible-foreign-keys",
     "description": "Schema document for the 'visible-foreign-keys' annotation.",
     "definitions": {
 
-        "constraint-name": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/constraint-name" },
-        "source-entry": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/source-entry" },
-        "source-key": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/source-key" },
-        "display": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/display" },
+        "constraint-name": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/constraint-name" },
+        "source-entry": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/source-entry" },
+        "source-key": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/source-key" },
+        "display": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/display" },
 
         "visible-fkeys-entry": {
             "oneOf": [

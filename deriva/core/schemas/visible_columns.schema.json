@@ -1,16 +1,16 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
-    "$id": "http://docs.derivacloud.org/schemas/visible_columns.schema.json",
+    "$id": "http://deriva.isi.edu/schemas/visible_columns.schema.json",
     "title": "tag:isrd.isi.edu,2016:visible-columns",
     "description": "Schema document for the 'visible-columns' annotation.",
     "definitions": {
 
-        "column-name": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/column-name" },
-        "constraint-name": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/constraint-name" },
-        "source-entry": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/source-entry" },
-        "source-key": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/source-key" },
-        "display": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/display" },
-        "array-options": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/array-options" },
+        "column-name": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/column-name" },
+        "constraint-name": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/constraint-name" },
+        "source-entry": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/source-entry" },
+        "source-key": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/source-key" },
+        "display": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/display" },
+        "array-options": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/array-options" },
 
         "visible-columns-entry": {
             "oneOf": [

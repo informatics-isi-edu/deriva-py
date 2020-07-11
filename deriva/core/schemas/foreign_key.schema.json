@@ -1,10 +1,10 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "http://docs.derivacloud.org/schemas/foreign_key.schema.json",
+  "$id": "http://deriva.isi.edu/schemas/foreign_key.schema.json",
   "title": "tag:isrd.isi.edu,2016:foreign-key",
   "description": "Schema document for the 'foreign-key' annotation.",
   "definitions": {
-    "column-order": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/column-order" },
+    "column-order": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/column-order" },
 
     "display-option": {
       "type": "object",

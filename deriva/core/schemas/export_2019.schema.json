@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "http://docs.derivacloud.org/schemas/export_2019.schema.json",
+  "$id": "http://deriva.isi.edu/schemas/export_2019.schema.json",
   "title": "tag:isrd.isi.edu,2019:export",
   "description": "Schema document for the 'export' annotation.",
   "definitions": {
@@ -8,7 +8,7 @@
     "export-entry": {
       "oneOf": [
         { "$ref": "#/definitions/context-name" },
-        { "$ref": "http://docs.derivacloud.org/schemas/export.schema.json" }
+        { "$ref": "http://deriva.isi.edu/schemas/export.schema.json" }
       ]
     },
 

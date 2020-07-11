@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "http://docs.derivacloud.org/schemas/required.schema.json",
+  "$id": "http://deriva.isi.edu/schemas/required.schema.json",
   "title": "tag:isrd.isi.edu,2018:required",
   "description": "Schema document for the 'required' annotation.",
   "anyOf": [

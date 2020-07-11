@@ -1,11 +1,11 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "http://docs.derivacloud.org/schemas/table_display.schema.json",
+  "$id": "http://deriva.isi.edu/schemas/table_display.schema.json",
   "title": "tag:isrd.isi.edu,2016:table-display",
   "description": "Schema document for the 'table-display' annotation.",
   "definitions": {
-    "row-order": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/row-order" },
-    "template-engine": { "$ref": "http://docs.derivacloud.org/schemas/source_definitions.schema.json#/definitions/template-engine" },
+    "row-order": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/row-order" },
+    "template-engine": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/template-engine" },
 
     "table-display-entry": {
       "oneOf": [
