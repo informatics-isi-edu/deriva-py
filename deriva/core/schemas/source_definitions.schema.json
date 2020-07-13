@@ -98,6 +98,8 @@
             "type": "object",
             "properties": {
 
+                "column_order": { "$ref": "#/definitions/column-order" },
+
                 "markdown_pattern": { "type": "string" },
 
                 "template_engine": { "$ref": "#/definitions/template-engine" },
