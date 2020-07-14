@@ -34,7 +34,15 @@
 
                 "markdown_name": { "type": "string" },
 
-                "comment": { "type": "string" },
+                "comment": {
+                    "anyOf": [
+                        { "type": "string" },
+                        {
+                            "type": "boolean",
+                            "const": false
+                        }
+                    ]
+                },
 
                 "display": { "$ref": "#/definitions/display" },
 
