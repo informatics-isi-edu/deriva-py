@@ -5,6 +5,7 @@
   "description": "Schema document for the 'foreign-key' annotation.",
   "definitions": {
     "column-order": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/column-order" },
+    "template-engine": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/template-engine" },
 
     "display-option": {
       "type": "object",
@@ -31,7 +32,11 @@
       },
       "additionalProperties": false
     },
-    "domain_filter_pattern": { "type": "string" }
+    "domain_filter_pattern": { "type": "string" },
+    "template_engine": { "$ref": "#/definitions/template-engine" }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "dependencies": {
+      "template_engine": [ "domain_filter_pattern" ]
+  }
 }
