@@ -140,8 +140,7 @@
                         }
                     }
                 },
-                "search": { "type": "string" },
-                "not_null": { 
+                "not_null": {
                     "type": "boolean",
                     "const": true
                 },
