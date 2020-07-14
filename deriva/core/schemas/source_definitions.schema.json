@@ -18,22 +18,21 @@
         },
 
         "pseudo-column": {
+            "$comment": "A pseudo-column definition.",
             "type": "object",
             "properties": {
 
                 "source": { "$ref": "#/definitions/source-entry" },
+                "sourcekey": { "$ref": "#/definitions/source-key" },
 
                 "entity": { "type": "boolean" },
-
                 "aggregate": {
                     "type": "string",
                     "enum": [ "min", "max", "cnt", "cnt_d", "array", "array_d" ]
                 },
-
                 "self_link": { "type": "boolean" },
 
                 "markdown_name": { "type": "string" },
-
                 "comment": {
                     "anyOf": [
                         { "type": "string" },
@@ -43,11 +42,8 @@
                         }
                     ]
                 },
-
                 "display": { "$ref": "#/definitions/display" },
-
                 "array_options": { "$ref": "#/definitions/array-options" },
-
                 "array_display": {
                     "deprecated": true,
                     "comment": "This property is deprecated. Please use 'array_ux_mode'.",
@@ -55,8 +51,7 @@
                     "enum": [ "raw", "csv", "olist", "ulist" ]
                 }
             },
-            "additionalProperties": false,
-            "required": ["source"]
+            "additionalProperties": false
         },
 
         "source-key": {
@@ -265,7 +260,16 @@
             },
             "patternProperties": {
                 "^[^$].*": {
-                    "$ref": "#/definitions/pseudo-column"
+                    "$comment": "A pseudo-column with a required 'source' (and not 'sourcekey') property.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/pseudo-column"
+                        },
+                        {
+                            "required": [ "source" ],
+                            "not": { "required": [ "sourcekey" ] }
+                        }
+                    ]
                 }
             },
             "additionalProperties": false

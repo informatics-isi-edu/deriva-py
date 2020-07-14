@@ -9,8 +9,7 @@
         "constraint-name": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/constraint-name" },
         "source-entry": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/source-entry" },
         "source-key": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/source-key" },
-        "display": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/display" },
-        "array-options": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/array-options" },
+        "pseudo-column": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/pseudo-column" },
 
         "visible-columns-entry": {
             "oneOf": [
@@ -27,7 +26,36 @@
                 "anyOf": [
                     { "$ref": "#/definitions/column-name" },
                     { "$ref": "#/definitions/key-or-foreign-key-name" },
-                    { "$ref": "#/definitions/pseudo-column" }
+                    {
+                        "$comment": "A pseudo-column with visible-columns specific constraints.",
+                        "allOf": [
+                            {
+                                "$ref": "#/definitions/pseudo-column"
+                            },
+                            {
+                                "anyOf": [
+                                    {
+                                        "required": [ "source" ],
+                                        "not": { "required": [ "sourcekey" ] }
+                                    },
+                                    {
+                                        "required": [ "sourcekey" ],
+                                        "allOf": [
+                                            { "not": { "required": [ "source" ] } },
+                                            { "not": { "required": [ "entity" ] } },
+                                            { "not": { "required": [ "aggregate" ] } },
+                                            { "not": { "required": [ "self_link" ] } }
+                                        ]
+                                    },
+                                    {
+                                        "not": { "required": [ "source", "sourcekey" ] },
+                                        "required": [ "markdown_name", "display" ]
+                                    }
+                                ]
+                            }
+
+                        ]
+                    }
                 ]
             }
         },
@@ -40,66 +68,6 @@
                 },
                 {
                     "valid-constraint": ["key", "inbound", "outbound"]
-                }
-            ]
-        },
-
-        "pseudo-column": {
-
-            "type": "object",
-
-            "properties": {
-
-                "source": { "$ref": "#/definitions/source-entry" },
-                "sourcekey": { "$ref": "#/definitions/source-key" },
-
-                "entity": { "type": "boolean" },
-                "aggregate": {
-                    "type": "string",
-                    "enum": [ "min", "max", "cnt", "cnt_d", "array", "array_d" ]
-                },
-                "self_link": { "type": "boolean" },
-                
-                "markdown_name": { "type": "string" },
-                "comment": {
-                    "anyOf": [
-                        { "type": "string" },
-                        {
-                            "type": "boolean",
-                            "const": false
-                        }
-                    ]
-                },
-                "display": { "$ref": "#/definitions/display" },
-                "array_options": { "$ref": "#/definitions/array-options" },
-
-                "array_display": {
-                    "deprecated": true,
-                    "comment": "This property is deprecated. Please use 'array_ux_mode'.",
-                    "type": "string",
-                    "enum": [ "raw", "csv", "olist", "ulist" ]
-                }
-            },
-
-            "additionalProperties": false,
-
-            "anyOf": [
-                { 
-                    "required": [ "source" ],
-                    "not": { "required": [ "sourcekey" ] }
-                },
-                {
-                    "required": [ "sourcekey" ],
-                    "allOf": [
-                        { "not": { "required": [ "source" ] } },
-                        { "not": { "required": [ "entity" ] } },
-                        { "not": { "required": [ "aggregate" ] } },
-                        { "not": { "required": [ "self_link" ] } }
-                    ]
-                },
-                {
-                    "not": { "required": [ "source", "sourcekey" ] },
-                    "required": [ "markdown_name", "display" ]
                 }
             ]
         },

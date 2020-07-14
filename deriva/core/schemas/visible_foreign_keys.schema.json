@@ -6,9 +6,7 @@
     "definitions": {
 
         "constraint-name": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/constraint-name" },
-        "source-entry": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/source-entry" },
-        "source-key": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/source-key" },
-        "display": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/display" },
+        "pseudo-column": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/pseudo-column" },
 
         "visible-fkeys-entry": {
             "oneOf": [
@@ -24,7 +22,40 @@
             "items": {
                 "anyOf": [
                     { "$ref": "#/definitions/inbound-foreign-key" },
-                    { "$ref": "#/definitions/pseudo-column" }
+                    {
+                        "$comment": "A pseudo-column with visible-foreign-keys specific constraints.",
+                        "allOf": [
+                            {
+                                "$ref": "#/definitions/pseudo-column"
+                            },
+                            {
+                                "anyOf": [
+                                    {
+                                        "required": [ "source" ],
+                                        "allOf": [
+                                            { "not": { "required": [ "sourcekey" ] } },
+                                            { "not": { "required": [ "aggregate" ] } },
+                                            { "not": { "required": [ "self_link" ] } },
+                                            { "not": { "required": [ "array_options" ] } },
+                                            { "not": { "required": [ "array_display" ] } }
+                                        ]
+                                    },
+                                    {
+                                        "required": [ "sourcekey" ],
+                                        "allOf": [
+                                            { "not": { "required": [ "source" ] } },
+                                            { "not": { "required": [ "entity" ] } },
+                                            { "not": { "required": [ "aggregate" ] } },
+                                            { "not": { "required": [ "self_link" ] } },
+                                            { "not": { "required": [ "array_options" ] } },
+                                            { "not": { "required": [ "array_display" ] } }
+                                        ]
+                                    }
+                                ]
+                            }
+
+                        ]
+                    }
                 ]
             }
         },
@@ -37,37 +68,6 @@
                 },
                 {
                     "valid-constraint": ["inbound"]
-                }
-            ]
-        },
-
-        "pseudo-column": {
-
-            "type": "object",
-
-            "properties": {
-
-                "source": { "$ref": "#/definitions/source-entry" },
-                "sourcekey": { "$ref": "#/definitions/source-key" },
-
-                "entity": { "type":  "boolean", "const": true },
-                "markdown_name": { "type": "string" },
-                "display": { "$ref": "#/definitions/display" }
-            },
-
-            "additionalProperties": false,
-
-            "anyOf": [
-                {
-                    "required": [ "source" ],
-                    "not": { "required": [ "sourcekey" ] }
-                },
-                {
-                    "required": [ "sourcekey" ],
-                    "allOf": [
-                        { "not": { "required": [ "source" ] } },
-                        { "not": { "required": [ "entity" ] } }
-                    ]
                 }
             ]
         }
