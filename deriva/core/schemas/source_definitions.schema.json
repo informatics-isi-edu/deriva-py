@@ -43,13 +43,7 @@
                     ]
                 },
                 "display": { "$ref": "#/definitions/display" },
-                "array_options": { "$ref": "#/definitions/array-options" },
-                "array_display": {
-                    "deprecated": true,
-                    "comment": "This property is deprecated. Please use 'array_ux_mode'.",
-                    "type": "string",
-                    "enum": [ "raw", "csv", "olist", "ulist" ]
-                }
+                "array_options": { "$ref": "#/definitions/array-options" }
             },
             "additionalProperties": false
         },

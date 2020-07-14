@@ -36,8 +36,7 @@
                                             { "not": { "required": [ "sourcekey" ] } },
                                             { "not": { "required": [ "aggregate" ] } },
                                             { "not": { "required": [ "self_link" ] } },
-                                            { "not": { "required": [ "array_options" ] } },
-                                            { "not": { "required": [ "array_display" ] } }
+                                            { "not": { "required": [ "array_options" ] } }
                                         ]
                                     },
                                     {
@@ -47,8 +46,7 @@
                                             { "not": { "required": [ "entity" ] } },
                                             { "not": { "required": [ "aggregate" ] } },
                                             { "not": { "required": [ "self_link" ] } },
-                                            { "not": { "required": [ "array_options" ] } },
-                                            { "not": { "required": [ "array_display" ] } }
+                                            { "not": { "required": [ "array_options" ] } }
                                         ]
                                     }
                                 ]
