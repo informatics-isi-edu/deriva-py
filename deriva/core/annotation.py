@@ -85,8 +85,8 @@ def _validate(model_obj, tag_name, validate_model_names):
                     'valid-table': _validate_table_fn(model_obj),
                     'valid-column': _validate_column_fn(model_obj),
                     'valid-constraint': _validate_constraint_fn(model_obj),
-                    'valid-source-entry': _validate_source_entry_fn(model_obj),
-                    'valid-source-key': _validate_source_key_fn(model_obj)
+                    'valid-source-key': _validate_source_key_fn(model_obj),
+                    'valid-source-path': _validate_source_path_fn(model_obj)
                 }
             )
             validator = ExtendedValidator(schema, resolver=resolver)
@@ -249,8 +249,8 @@ def _validate_source_key_fn(model_obj):
     return _validation_func
 
 
-def _validate_source_entry_fn(model_obj):
-    """Produces a source entry validation function for the model object.
+def _validate_source_path_fn(model_obj):
+    """Produces a source path validation function for the model object.
 
     :param model_obj: model object
     :return: validation function
@@ -258,7 +258,6 @@ def _validate_source_entry_fn(model_obj):
     if not (hasattr(model_obj, 'column_definitions') and hasattr(model_obj, 'schema')):
         return _nop
 
-    _base_column_names = {c.name for c in model_obj.column_definitions}
     _model = model_obj.schema.model
 
     # define a validation function for the model object
@@ -266,13 +265,8 @@ def _validate_source_entry_fn(model_obj):
         if not value:  # 'true' to indicate desire to validate model
             return
 
-        # validate the simplest case of ..."source": "<column-name>"...
-        if isinstance(instance, str) and instance not in _base_column_names:
-            raise jsonschema.ValidationError("'%s' not found in column definitions" % instance,
-                                             validator=validator, validator_value=value, instance=instance, schema=schema)
-
         # validate the fkey path case
-        elif isinstance(instance, list):
+        if isinstance(instance, list):
             current_table = model_obj  # start the "current" table in the fkey path
             # iterate over the instance of the fkey path
             for item in instance:
@@ -282,6 +276,9 @@ def _validate_source_entry_fn(model_obj):
                         raise jsonschema.ValidationError(
                             "'%s' not found in column definitions of table %s" % (item, [current_table.schema.name, current_table.name]),
                             validator=validator, validator_value=value, instance=instance, schema=schema)
+                    else:
+                        # source-path should terminate on a column-name, syntactically
+                        break
 
                 # validate an inbound or outbound fkey in the path
                 elif isinstance(item, dict) and any(_is_qualified_name(item[io]) for io in ['inbound', 'outbound'] if io in item):
@@ -304,7 +301,7 @@ def _validate_source_entry_fn(model_obj):
                                                                  validator=validator, validator_value=value,
                                                                  instance=instance, schema=schema)
                 else:
-                    break  # unrecognized source entry structure, break out and let schema validation take its course
+                    break  # unrecognized source-path syntax, break out and let schema validation take its course
         # and ignore anything unexpected
 
     return _validation_func

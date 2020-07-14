@@ -65,10 +65,10 @@
             "$comment": "A source entry in a pseudo-column.",
             "oneOf": [
                 {
-                    "$comment": "A column-name from the source table",
-                    "type": "string"
+                    "$ref": "#/definitions/column-name"
                 },
                 {
+                    "$comment": "An array of 0..N foreign-key-paths followed by 1 column-name",
                     "type": "array",
                     "items": {
                         "anyOf": [
@@ -79,10 +79,10 @@
                             { "$ref": "#/definitions/foreign-key-path" }
                         ]
                     },
-                    "minItems": 1
+                    "minItems": 1,
+                    "valid-source-path": true
                 }
-            ],
-            "valid-source-entry": true
+            ]
         },
 
         "foreign-key-path": {
