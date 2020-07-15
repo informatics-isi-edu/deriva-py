@@ -6,7 +6,7 @@ import pkgutil
 import jsonschema
 
 from .. import core
-from .ermrest_model import tag
+from . import tag
 
 logger = logging.getLogger(__name__)
 

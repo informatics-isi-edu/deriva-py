@@ -3,7 +3,7 @@ from collections import OrderedDict
 import json
 import re
 
-from . import urlquote
+from . import AttrDict, tag, urlquote
 
 class NoChange (object):
     """Special class used to distinguish no-change default arguments to methods.
@@ -16,49 +16,6 @@ class NoChange (object):
 
 # singletone to use in APIs below
 nochange = NoChange()
-
-class AttrDict (dict):
-    """Dictionary with optional attribute-based lookup.
-
-       For keys that are valid attributes, self.key is equivalent to
-       self[key].
-    """
-    def __getattr__(self, a):
-        try:
-            return self[a]
-        except KeyError as e:
-            raise AttributeError(str(e))
-
-    def __setattr__(self, a, v):
-        self[a] = v
-
-    def update(self, d):
-        dict.update(self, d)
-
-# convenient enumeration of common annotation tags
-tag = AttrDict({
-    'display':            'tag:misd.isi.edu,2015:display',
-    'table_alternatives': 'tag:isrd.isi.edu,2016:table-alternatives',
-    'column_display':     'tag:isrd.isi.edu,2016:column-display',
-    'key_display':        'tag:isrd.isi.edu,2017:key-display',
-    'foreign_key':        'tag:isrd.isi.edu,2016:foreign-key',
-    'generated':          'tag:isrd.isi.edu,2016:generated',
-    'immutable':          'tag:isrd.isi.edu,2016:immutable',
-    'non_deletable':      'tag:isrd.isi.edu,2016:non-deletable',
-    'app_links':          'tag:isrd.isi.edu,2016:app-links',
-    'table_display':      'tag:isrd.isi.edu,2016:table-display',
-    'visible_columns':    'tag:isrd.isi.edu,2016:visible-columns',
-    'visible_foreign_keys': 'tag:isrd.isi.edu,2016:visible-foreign-keys',
-    'export':             'tag:isrd.isi.edu,2016:export',
-    'export_2019':        'tag:isrd.isi.edu,2019:export',
-    'asset':              'tag:isrd.isi.edu,2017:asset',
-    'citation':           'tag:isrd.isi.edu,2018:citation',
-    'required':           'tag:isrd.isi.edu,2018:required',
-    'indexing_preferences': 'tag:isrd.isi.edu,2018:indexing-preferences',
-    'bulk_upload':        'tag:isrd.isi.edu,2017:bulk-upload',
-    'chaise_config':      'tag:isrd.isi.edu,2019:chaise-config',
-    'source_definitions': 'tag:isrd.isi.edu,2019:source-definitions'
-})
 
 def presence_annotation(tag_uri):
     """Decorator to establish property getter/setter/deleter for presence annotations.
