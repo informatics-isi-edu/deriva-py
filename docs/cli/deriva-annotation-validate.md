@@ -8,6 +8,9 @@ the structure and contents of schema annotations in an ERMrest catalog.
 - Validate annotations against the specifications defined by DERIVA for
  known schema annotations.
  
+- Validate annotations against the catalog model; to ensure that column names, key names,
+  etc. exist within the correct model object for usage in an annotation.
+ 
 - Validation can target specific schemas, tables, keys, and foreign keys
  by regular expression pattern matching.
  
@@ -15,12 +18,9 @@ the structure and contents of schema annotations in an ERMrest catalog.
 
 ## Limitations
 
-The following annotations are not yet supported:
-- tag:isrd.isi.edu,2016:export
-- tag:isrd.isi.edu,2017:bulk-upload
-- tag:isrd.isi.edu,2019:chaise-config
-
-A user warning will be raised. It can be safely ignored.
+The following annotation is not yet supported:
+- `tag:isrd.isi.edu,2019:chaise-config`: any JSON object will be considered valid,
+  for this annotation, at this time.
 
 ## Command-Line options
 
@@ -59,6 +59,8 @@ optional arguments:
                         name
   -a <tag>, --tag <tag>
                         Tag name of annotation
+  --skip-model-names    Skip validation of model names found inside of
+                        annotations
 
 Known tag names include: tag:misd.isi.edu,2015:display,
 tag:isrd.isi.edu,2016:table-alternatives, tag:isrd.isi.edu,2016:column-
@@ -149,7 +151,13 @@ This will evaluate only the `tag:isrd.isi.edu,2016:visible-columns` annotations 
 throughout the catalog.
 
 #### Notes on regular expression pattern options
-- Regular expression patterns follow the ECMAScript (JavaScript) standard.
-- The matching is performed hierarchically such that tables are only matched if the 
+- Matching is performed hierarchically such that tables are only matched if the 
  containing schema matched, and keys or foreign-keys are matched on if the containing
  table matched.
+
+#### `--skip-model-names`  (default: `False`)
+
+If this flag is set, the utility will skip validation of model names found 
+inside of annotations. For example, it will not validate that the column names,
+foreign key names, etc. used in `visible-columns` and other annotations are valid
+per the catalog schema.
