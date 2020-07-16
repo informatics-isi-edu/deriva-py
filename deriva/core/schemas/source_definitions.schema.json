@@ -1,0 +1,273 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "http://deriva.isi.edu/schemas/source_definitions.schema.json",
+    "title": "tag:isrd.isi.edu,2019:source-definitions",
+    "description": "Schema document for the 'source-definitions' annotation.",
+    "definitions": {
+
+        "column-name": {
+            "type": "string",
+            "valid-column": true
+        },
+
+        "constraint-name": {
+            "type": "array",
+            "items": { "type": "string"},
+            "minItems": 2,
+            "maxItems": 2
+        },
+
+        "pseudo-column": {
+            "$comment": "A pseudo-column definition.",
+            "type": "object",
+            "properties": {
+
+                "source": { "$ref": "#/definitions/source-entry" },
+                "sourcekey": { "$ref": "#/definitions/source-key" },
+
+                "entity": { "type": "boolean" },
+                "aggregate": {
+                    "type": "string",
+                    "enum": [ "min", "max", "cnt", "cnt_d", "array", "array_d" ]
+                },
+                "self_link": { "type": "boolean" },
+
+                "markdown_name": { "type": "string" },
+                "comment": {
+                    "anyOf": [
+                        { "type": "string" },
+                        {
+                            "type": "boolean",
+                            "const": false
+                        }
+                    ]
+                },
+                "display": { "$ref": "#/definitions/display" },
+                "array_options": { "$ref": "#/definitions/array-options" }
+            },
+            "additionalProperties": false
+        },
+
+        "source-key": {
+            "$comment": "A source key that must be found in an accompanying source-definitions annotation.",
+            "type": "string",
+            "pattern": "^[^$].*",
+            "valid-source-key": true
+        },
+
+        "source-entry": {
+            "$comment": "A source entry in a pseudo-column.",
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/column-name"
+                },
+                {
+                    "$comment": "An array of 0..N foreign-key-paths followed by 1 column-name",
+                    "type": "array",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$comment": "A column-name from the source or last table of the path",
+                                "type": "string"
+                            },
+                            { "$ref": "#/definitions/foreign-key-path" }
+                        ]
+                    },
+                    "minItems": 1,
+                    "valid-source-path": true
+                }
+            ]
+        },
+
+        "foreign-key-path": {
+            "type": "object",
+            "properties": {
+
+                "inbound": { "$ref": "#/definitions/constraint-name" },
+
+                "outbound": { "$ref": "#/definitions/constraint-name" }
+            },
+            "minProperties": 1,
+            "maxProperties": 1
+        },
+
+        "display": {
+            "type": "object",
+            "properties": {
+
+                "column_order": { "$ref": "#/definitions/column-order" },
+
+                "markdown_pattern": { "type": "string" },
+
+                "template_engine": { "$ref": "#/definitions/template-engine" },
+
+                "wait_for": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                },
+
+                "show_foreign_key_link": { "type": "boolean" },
+
+                "array_ux_mode": {
+                    "type": "string",
+                    "enum": [ "raw", "csv", "olist", "ulist" ]
+                }
+            },
+            "dependencies": {
+                "template_engine": [ "markdown_pattern" ]
+            },
+            "additionalProperties": false
+        },
+
+        "template-engine": {
+            "type": "string",
+            "enum": [ "handlebars", "mustache" ]
+        },
+
+        "array-options": {
+            "type": "object",
+            "properties": {
+
+                "order": { "$ref": "#/definitions/column-order" },
+
+                "max_length": {
+                    "type": "number",
+                    "multipleOf": 1,
+                    "minimum": 1
+                }
+            },
+            "additionalProperties": false
+        },
+
+        "search-column": {
+            "type": "object",
+            "properties": {
+
+                "source": { "$ref": "#/definitions/column-name" },
+
+                "markdown_name": { "type": "string" }
+            },
+            "additionalProperties": false,
+            "required": ["source"]
+        },
+
+        "column-order": {
+            "$comment": "Defines row ordering or disables ordering with the annotated model object",
+            "oneOf": [
+            {
+                "$comment": "Use this pattern to disable sort options on this column",
+                "type": "boolean",
+                "const": false
+            },
+            {
+                "$ref": "#/definitions/row-order"
+            }
+          ]
+        },
+
+        "row-order": {
+            "$comment": "Defines row ordering",
+            "type": "array",
+            "minItems": 1,
+            "items": { "$ref": "#/definitions/sort-key" }
+        },
+
+        "sort-key": {
+            "$comment": "A sort key can be either a column name or an object with column and descending (boolean)",
+            "oneOf": [
+                { "$ref": "#/definitions/column-name" },
+                {
+                    "type": "object",
+                    "properties": {
+                        "column": {
+                            "$ref": "#/definitions/column-name"
+                        },
+                        "descending": {
+                            "type": "boolean",
+                            "default": false
+                        }
+                    },
+                    "required": ["column"],
+                    "additionalProperties": false
+                }
+            ]
+        }
+    },
+
+    "type": "object",
+    "properties": {
+
+        "columns": {
+            "oneOf": [
+                {
+                    "$comment": "To include all columns from the source table",
+                    "type": "boolean",
+                    "const": true
+                },
+                {
+                    "$comment": "To include a subset of columns by name",
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/column-name" }
+                }
+            ]
+        },
+
+        "fkeys": {
+            "oneOf": [
+                {
+                    "$comment": "To include all foreign keys from the source table",
+                    "type": "boolean",
+                    "const": true
+                },
+                {
+                    "$comment": "To include a subset of foreign keys by name",
+                    "type": "array",
+                    "items": {
+                        "allOf": [
+                            { "$ref": "#/definitions/constraint-name" },
+                            { "valid-constraint": ["outbound"] }
+                        ]
+                    }
+                }
+            ]
+        },
+
+        "sources": {
+            "type": "object",
+            "properties": {
+
+                "search-box": {
+                    "type": "object",
+                    "properties": {
+
+                        "or": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/search-column"
+                            },
+                            "minItems": 1
+                        }
+                    },
+                    "required": ["or"],
+                    "additionalProperties": false
+                }
+            },
+            "patternProperties": {
+                "^[^$].*": {
+                    "$comment": "A pseudo-column with a required 'source' (and not 'sourcekey') property.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/pseudo-column"
+                        },
+                        {
+                            "required": [ "source" ],
+                            "not": { "required": [ "sourcekey" ] }
+                        }
+                    ]
+                }
+            },
+            "additionalProperties": false
+        }
+    },
+    "additionalProperties": false
+}

@@ -1,0 +1,167 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "http://deriva.isi.edu/schemas/visible_columns.schema.json",
+    "title": "tag:isrd.isi.edu,2016:visible-columns",
+    "description": "Schema document for the 'visible-columns' annotation.",
+    "definitions": {
+
+        "column-name": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/column-name" },
+        "constraint-name": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/constraint-name" },
+        "source-entry": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/source-entry" },
+        "source-key": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/source-key" },
+        "pseudo-column": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/pseudo-column" },
+
+        "visible-columns-entry": {
+            "oneOf": [
+                 { "$ref": "#/definitions/context-name" },
+                 { "$ref": "#/definitions/column-list" }
+            ]
+        },
+
+        "context-name": { "type": "string" },
+
+        "column-list": {
+            "type": "array",
+            "items": {
+                "anyOf": [
+                    { "$ref": "#/definitions/column-name" },
+                    { "$ref": "#/definitions/key-or-foreign-key-name" },
+                    {
+                        "$comment": "A pseudo-column with visible-columns specific constraints.",
+                        "allOf": [
+                            {
+                                "$ref": "#/definitions/pseudo-column"
+                            },
+                            {
+                                "anyOf": [
+                                    {
+                                        "required": [ "source" ],
+                                        "not": { "required": [ "sourcekey" ] }
+                                    },
+                                    {
+                                        "required": [ "sourcekey" ],
+                                        "allOf": [
+                                            { "not": { "required": [ "source" ] } },
+                                            { "not": { "required": [ "entity" ] } },
+                                            { "not": { "required": [ "aggregate" ] } },
+                                            { "not": { "required": [ "self_link" ] } }
+                                        ]
+                                    },
+                                    {
+                                        "not": { "required": [ "source", "sourcekey" ] },
+                                        "required": [ "markdown_name", "display" ]
+                                    }
+                                ]
+                            }
+
+                        ]
+                    }
+                ]
+            }
+        },
+
+        "key-or-foreign-key-name": {
+            "$comment": "A key or foreign key for the annotated table",
+            "allOf": [
+                {
+                    "$ref": "#/definitions/constraint-name"
+                },
+                {
+                    "valid-constraint": ["key", "inbound", "outbound"]
+                }
+            ]
+        },
+
+        "facet-entry": {
+
+            "type": "object",
+
+            "properties": {
+
+                "source": { "$ref": "#/definitions/source-entry" },
+                "sourcekey": { "$ref": "#/definitions/source-key" },
+
+                "choices": { 
+                    "type": "array",
+                    "items": {
+                        "type": ["string", "number", "boolean", "null"]
+                    }
+                },
+                "ranges": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "min": { "type": "number" },
+                            "max": { "type": "number" },
+                            "min_exclusive": { "type": "boolean" },
+                            "max_exclusive": { "type": "boolean" }
+                        },
+                        "additionalProperties": false,
+                        "anyOf": [
+                            { "required": [ "min" ] },
+                            { "required": [ "max" ] }
+                        ],
+                        "dependencies": {
+                            "min_exclusive": [ "min" ],
+                            "max_exclusive": [ "max" ]
+                        }
+                    }
+                },
+                "not_null": {
+                    "type": "boolean",
+                    "const": true
+                },
+
+                "entity": { "type": "boolean" },
+                "markdown_name": { "type": "string" },
+                "comment": { "type": "string" },
+                "open": { "type": "boolean" },
+                "bar_plot": { "type": "boolean" },
+                "ux_mode": {
+                    "type": "string",
+                    "enum": [ "choices", "ranges", "check_presence" ]
+                },
+                "hide_null_choice": { "type": "boolean" },
+                "hide_not_null_choice": { "type": "boolean" },
+                "n_bins": { "type": "number", "minimum": 1 }
+            },
+
+            "additionalProperties": false,
+
+            "anyOf": [
+                { 
+                    "required": [ "source" ],
+                    "not": { "required": [ "sourcekey" ] }
+                },
+                {
+                    "required": [ "sourcekey" ],
+                    "allOf": [
+                        { "not": { "required": [ "source" ] } },
+                        { "not": { "required": [ "entity" ] } }
+                    ]
+                }
+            ]
+        }
+    },
+
+    "type": "object",
+    "patternProperties": {
+        "^[*]$|^compact([/]select|[/]brief([/]inline)?)?$|^detailed$|^entry([/]edit|[/]create)?$|^export$": {
+            "$ref": "#/definitions/visible-columns-entry"
+        }
+    },
+    "properties": {
+        "filter": {
+            "type": "object",
+            "properties": {
+                "and": { 
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/facet-entry" }
+                }
+            },
+            "additionalProperties": false
+        }
+    },
+    "additionalProperties": false
+}

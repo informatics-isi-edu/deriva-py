@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "http://deriva.isi.edu/schemas/export_2019.schema.json",
+  "title": "tag:isrd.isi.edu,2019:export",
+  "description": "Schema document for the 'export' annotation.",
+  "definitions": {
+
+    "export-entry": {
+      "oneOf": [
+        { "$ref": "#/definitions/context-name" },
+        { "$ref": "http://deriva.isi.edu/schemas/export.schema.json" }
+      ]
+    },
+
+    "context-name": { "type": "string" }
+  },
+  "patternProperties": {
+    "^[*]$|^detailed$|^compact$": {
+      "$ref": "#/definitions/export-entry"
+    }
+  },
+  "additionalProperties": false
+}

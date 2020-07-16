@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "http://deriva.isi.edu/schemas/citation.schema.json",
+  "title": "tag:isrd.isi.edu,2018:citation",
+  "description": "Schema document for the 'citation' annotation.",
+  "definitions": {
+    "source-key": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/source-key" },
+    "template-engine": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/template-engine" }
+  },
+  "type": "object",
+  "properties": {
+    "journal_pattern": { "type": "string" },
+    "author_pattern": { "type": "string" },
+    "title_pattern": { "type": "string" },
+    "year_pattern": { "type": "string" },
+    "url_pattern": { "type": "string" },
+    "id_pattern": { "type": "string" },
+    "template_engine": { "$ref": "#/definitions/template-engine" },
+    "wait_for": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/source-key" },
+      "minItems": 1
+    }
+  },
+  "additionalProperties": false
+}

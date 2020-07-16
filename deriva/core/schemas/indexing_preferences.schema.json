@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "http://deriva.isi.edu/schemas/indexing_preferences.schema.json",
+  "title": "tag:isrd.isi.edu,2018:indexing-preferences",
+  "description": "Schema document for the 'indexing-preferences' annotation.",
+  "type": "object",
+  "patternProperties": {
+    "^btree$|^trgm$": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "minProperties": 1,
+  "maxProperties": 1
+}

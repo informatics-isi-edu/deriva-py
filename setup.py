@@ -38,7 +38,9 @@ setup(
     maintainer_email=author_email,
     version=__version__,
     packages=find_packages(exclude=["tests"]),
-    package_data={},
+    package_data={
+        'deriva.core': ['schemas/*.schema.json']
+    },
     entry_points={
         'console_scripts': [
             'deriva-upload-cli = deriva.transfer.upload.__main__:main',
@@ -48,6 +50,7 @@ setup(
             'deriva-annotation-config = deriva.config.annotation_config:main',
             'deriva-annotation-dump = deriva.config.dump_catalog_annotations:main',
             'deriva-annotation-rollback = deriva.config.rollback_annotation:main',
+            'deriva-annotation-validate = deriva.config.annotation_validate:main',
             'deriva-sitemap-cli = deriva.seo.sitemap_cli:main',
             'deriva-backup-cli = deriva.transfer.backup.__main__:main',
             'deriva-restore-cli = deriva.transfer.restore.__main__:main',
@@ -64,7 +67,8 @@ setup(
         'portalocker>=1.2.0',
         'portalocker>=1.2.1; platform_system == "Windows"',
         'scandir; python_version <= "2.7"',
-        'bdbag>=1.5.6'
+        'bdbag>=1.5.6',
+        'jsonschema>=3.1'
     ],
     license='Apache 2.0',
     classifiers=[

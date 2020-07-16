@@ -1,0 +1,98 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "http://deriva.isi.edu/schemas/export.schema.json",
+  "title": "tag:isrd.isi.edu,2016:export",
+  "description": "Schema document for the 'export' annotation.",
+  "definitions": {
+
+    "template": {
+      "type": "object",
+      "properties": {
+        "displayname": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["FILE", "BAG"]
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/output"
+          },
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false,
+      "if": {
+        "properties": {
+          "type": { "const": "FILE" }
+        }
+      },
+      "then": {
+        "required": ["displayname", "type", "outputs"]
+      },
+      "else": {
+        "required": ["displayname", "type"]
+      }
+    },
+
+    "output": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "$ref": "#/definitions/source-entry"
+        },
+        "destination": {
+          "$ref": "#/definitions/destination-entry"
+        }
+      },
+      "additionalProperties": false,
+      "required": ["source", "destination"]
+    },
+
+    "source-entry": {
+      "type": "object",
+      "properties": {
+        "api": {
+          "type": "string",
+          "enum": ["entity", "attribute", "attributegroup"]
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": ["api"]
+    },
+
+    "destination-entry": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["csv", "json", "fetch", "download"]
+        },
+        "params": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "required": ["name", "type"]
+    }
+  },
+
+  "type": "object",
+  "properties": {
+    "templates": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/template"
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -3,7 +3,7 @@ from collections import OrderedDict
 import json
 import re
 
-from . import urlquote
+from . import AttrDict, tag, urlquote
 
 class NoChange (object):
     """Special class used to distinguish no-change default arguments to methods.
@@ -16,41 +16,6 @@ class NoChange (object):
 
 # singletone to use in APIs below
 nochange = NoChange()
-
-class AttrDict (dict):
-    """Dictionary with optional attribute-based lookup.
-
-       For keys that are valid attributes, self.key is equivalent to
-       self[key].
-    """
-    def __getattr__(self, a):
-        try:
-            return self[a]
-        except KeyError as e:
-            raise AttributeError(str(e))
-
-    def __setattr__(self, a, v):
-        self[a] = v
-
-    def update(self, d):
-        dict.update(self, d)
-
-# convenient enumeration of common annotation tags
-tag = AttrDict({
-    'generated':          'tag:isrd.isi.edu,2016:generated',
-    'immutable':          'tag:isrd.isi.edu,2016:immutable',
-    'display':            'tag:misd.isi.edu,2015:display',
-    'visible_columns':    'tag:isrd.isi.edu,2016:visible-columns',
-    'visible_foreign_keys': 'tag:isrd.isi.edu,2016:visible-foreign-keys',
-    'foreign_key':        'tag:isrd.isi.edu,2016:foreign-key',
-    'table_display':      'tag:isrd.isi.edu,2016:table-display',
-    'table_alternatives': 'tag:isrd.isi.edu,2016:table-alternatives',
-    'column_display':     'tag:isrd.isi.edu,2016:column-display',
-    'asset':              'tag:isrd.isi.edu,2017:asset',
-    'bulk_upload':        'tag:isrd.isi.edu,2017:bulk-upload',
-    'export':             'tag:isrd.isi.edu,2016:export',
-    'chaise_config':      'tag:isrd.isi.edu,2019:chaise-config',
-})
 
 def presence_annotation(tag_uri):
     """Decorator to establish property getter/setter/deleter for presence annotations.

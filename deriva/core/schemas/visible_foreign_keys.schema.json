@@ -1,0 +1,80 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "http://deriva.isi.edu/schemas/visible_foreign_keys.schema.json",
+    "title": "tag:isrd.isi.edu,2016:visible-foreign-keys",
+    "description": "Schema document for the 'visible-foreign-keys' annotation.",
+    "definitions": {
+
+        "constraint-name": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/constraint-name" },
+        "pseudo-column": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/pseudo-column" },
+
+        "visible-fkeys-entry": {
+            "oneOf": [
+                 { "$ref": "#/definitions/context-name" },
+                 { "$ref": "#/definitions/fkey-list" }
+            ]
+        },
+
+        "context-name": { "type": "string" },
+
+        "fkey-list": {
+            "type": "array",
+            "items": {
+                "anyOf": [
+                    { "$ref": "#/definitions/inbound-foreign-key" },
+                    {
+                        "$comment": "A pseudo-column with visible-foreign-keys specific constraints.",
+                        "allOf": [
+                            {
+                                "$ref": "#/definitions/pseudo-column"
+                            },
+                            {
+                                "anyOf": [
+                                    {
+                                        "required": [ "source" ],
+                                        "allOf": [
+                                            { "not": { "required": [ "sourcekey" ] } },
+                                            { "not": { "required": [ "aggregate" ] } },
+                                            { "not": { "required": [ "self_link" ] } },
+                                            { "not": { "required": [ "array_options" ] } }
+                                        ]
+                                    },
+                                    {
+                                        "required": [ "sourcekey" ],
+                                        "allOf": [
+                                            { "not": { "required": [ "source" ] } },
+                                            { "not": { "required": [ "entity" ] } },
+                                            { "not": { "required": [ "aggregate" ] } },
+                                            { "not": { "required": [ "self_link" ] } },
+                                            { "not": { "required": [ "array_options" ] } }
+                                        ]
+                                    }
+                                ]
+                            }
+
+                        ]
+                    }
+                ]
+            }
+        },
+
+        "inbound-foreign-key": {
+            "$comment": "A constraint name that is a valid inbound foreign key reference to this annotated table",
+            "allOf": [
+                {
+                    "$ref": "#/definitions/constraint-name"
+                },
+                {
+                    "valid-constraint": ["inbound"]
+                }
+            ]
+        }
+    },
+
+    "type": "object",
+    "properties": {
+        "*": { "$ref": "#/definitions/visible-fkeys-entry" },
+        "detailed": { "$ref": "#/definitions/visible-fkeys-entry" }
+    },
+    "additionalProperties": false
+}

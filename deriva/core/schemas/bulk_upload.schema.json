@@ -1,0 +1,257 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "http://deriva.isi.edu/schemas/bulk_upload.schema.json",
+  "title": "tag:isrd.isi.edu,2019:bulk-upload",
+  "description": "Schema document for the 'bulk-upload' annotation.",
+  "definitions": {
+
+    "asset-mapping": {
+      "$comment": "An asset mapping object defines (file name regular expression and metadata query) patterns that are used to build up an environment which is used to populate ermrest table column mappings and hatrac URI patterns for entity and object upload.",
+      "type": "object",
+      "properties": {
+
+        "asset_type": {
+          "$comment": "The type of asset to be uploaded by this mapping.",
+          "type": "string",
+          "enum": ["file", "table"],
+          "default": "file"
+        },
+
+        "dir_pattern": {
+          "$comment": "A regular expression used to match an input directory and extract properties into the template environment.",
+          "type": "string",
+          "format": "regex"
+        },
+
+        "file_pattern": {
+          "$comment": "A regular expression used to match input files and extract properties into the template environment.",
+          "type": "string",
+          "format": "regex"
+        },
+
+        "ext_pattern": {
+          "$comment": "A regular expression used to match an input file name extension and extract properties into the template environment.",
+          "type": "string",
+          "format": "regex"
+        },
+
+        "checksum_types": {
+          "$comment": "Set of checksums to be computed on each matched file and added to the template environment.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["md5", "sha256"]
+          },
+          "uniqueItems": true,
+          "default": ["md5", "sha256"]
+        },
+
+        "metadata_query_templates": {
+          "$comment": "Metadata query templates (relative URIs) the results of which are added to the template environment.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uri-template"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+
+        "target_table": {
+          "$comment": "The target table for insert or update, identified by a schema name, table name pair.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+
+        "record_query_template": {
+          "$comment": "Metadata query template that tests for an existing record to determine whether insert or update semantics is required, and if it gets results adds them to the template environment.",
+          "type": "string",
+          "format": "uri-template"
+        },
+
+        "default_columns": {
+          "$comment": "An array of column names assigned the default values during metadata creation.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+
+        "column_map": {
+          "$comment": "A mapping from a column name to a template used to form a value for insertion.",
+          "type": "object",
+          "patternProperties": {
+            ".*": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+
+        "column_value_templates": {
+          "$comment": "A mapping from a column name to a template used to form a value for insertion.",
+          "type": "object",
+          "patternProperties": {
+            ".*": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+
+        "hatrac_options": {
+          "$comment": "Options related to hatrac.",
+          "type": "object",
+          "properties": {
+            "versioned_uris": {
+              "$comment": "Use versioned hatrac URIs.",
+              "type": "boolean"
+            }
+          }
+        },
+
+        "hatrac_templates": {
+          "$comment": "Hatrac upload properties.",
+          "type": "object",
+          "properties": {
+            "hatrac_uri": {
+              "$comment": "The hatrac object URI template used for object upload.",
+              "type": "string",
+              "format": "uri-template"
+            }
+          },
+          "patternProperties": {
+            ".*": {
+              "$comment": "Properties such as HTTP Headers used in the Hatrac object upload.",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": ["hatrac_uri"]
+        },
+
+        "create_record_before_upload": {
+          "$comment": "Create metadata record before file object upload.",
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+
+      "if": {
+        "properties": {
+          "asset_type": {
+            "const": "file"
+          }
+        }
+      },
+      "then": {
+        "allOf": [
+          {
+            "required": ["target_table", "record_query_template", "column_map", "hatrac_templates"]
+          },
+          {
+            "anyOf": [
+              {
+                "required": ["dir_pattern"]
+              },
+              {
+                "required": ["file_pattern"]
+              }
+            ]
+          }
+        ]
+      },
+      "else": {
+        "required": ["file_pattern"]
+      }
+    },
+
+    "version": {
+      "$comment": "A version min/max pair",
+      "examples": [
+        [">=1.0.0", "<2.0.0"]
+      ],
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minLength": 2,
+      "maxLength": 2
+    }
+  },
+
+  "type": "object",
+  "properties": {
+
+    "asset_mappings": {
+      "$comment": "An array of asset mapping objects.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/asset-mapping"
+      },
+      "minLength": 1
+    },
+
+    "mime_overrides": {
+      "$comment": "A mapping from a (standard or non-standard) mime-type name to an array of file name extensions.",
+      "examples": [
+        {
+          "text/plain": [
+            "bed"
+          ],
+          "image/x-nifti": [
+            "nii",
+            "nii.gz"
+          ]
+        }
+      ],
+      "type": "object",
+      "patternProperties": {
+        "[^.].*": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minLength": 1
+        }
+      }
+    },
+
+    "file_ext_mappings": {
+      "$comment": "A mapping from a file name extension to a set of properties to be added to the template environment.",
+      "type": "object",
+      "patternProperties": {
+        "[^.].*": {
+          "$comment": "Properties to be added to the environment for the file name extension.",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "version_update_url": {
+      "$comment": "The location for software updates.",
+      "examples": [
+        "https://github.com/informatics-isi-edu/deriva-client"
+      ],
+      "type": "string",
+      "format": "uri-reference"
+    },
+
+    "version_compatibility": {
+      "$comment": "The set of supported version ranges",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/version"
+      },
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false,
+  "required": ["asset_mappings"]
+}

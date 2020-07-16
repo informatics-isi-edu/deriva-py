@@ -1,0 +1,10 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "http://deriva.isi.edu/schemas/generated.schema.json",
+  "title": "tag:isrd.isi.edu,2016:generated",
+  "description": "Schema document for the 'generated' annotation.",
+  "anyOf": [
+    { "type": "null" },
+    { "type": "object", "maxProperties": 0 }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "http://deriva.isi.edu/schemas/table_display.schema.json",
+  "title": "tag:isrd.isi.edu,2016:table-display",
+  "description": "Schema document for the 'table-display' annotation.",
+  "definitions": {
+    "row-order": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/row-order" },
+    "template-engine": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/template-engine" },
+
+    "table-display-entry": {
+      "oneOf": [
+        { "$ref": "#/definitions/context-name" },
+        { "$ref": "#/definitions/table-display-options" },
+        { "type": "null" }
+      ]
+    },
+
+    "context-name": { "type": "string" },
+
+    "table-display-options": {
+      "type": "object",
+      "properties": {
+        "row_order": { "$ref": "#/definitions/row-order" },
+        "page_size": { "type": "number" },
+        "collapse_toc_panel": { "type": "boolean" },
+        "hide_column_headers": { "type": "boolean" },
+        "page_markdown_pattern": { "type": "string" },
+        "row_markdown_pattern": { "type": "string" },
+        "separator_markdown": { "type": "string" },
+        "prefix_markdown": { "type": "string" },
+        "suffix_markdown": { "type": "string" },
+        "template_engine": { "$ref": "#/definitions/template-engine" }
+      },
+      "additionalProperties": false
+    }
+  },
+
+  "type": "object",
+  "patternProperties": {
+    "^[*]$|^detailed$|^row_name.*$|^compact.*$": {
+      "$ref": "#/definitions/table-display-entry"
+    }
+  },
+  "additionalProperties": false
+}

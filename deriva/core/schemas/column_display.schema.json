@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "http://deriva.isi.edu/schemas/column_display.schema.json",
+  "title": "tag:isrd.isi.edu,2016:column-display",
+  "description": "Schema document for the 'column-display' annotation.",
+  "definitions": {
+    "template-engine": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/template-engine" },
+    "column-order": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/column-order" },
+
+    "column-display-entry": {
+      "oneOf": [
+        { "$ref": "#/definitions/context-name" },
+        { "$ref": "#/definitions/column-display-options" }
+      ]
+    },
+
+    "context-name": { "type": "string" },
+
+    "column-display-options": {
+      "type": "object",
+      "properties": {
+
+        "pre_format": {
+          "type": "object",
+          "properties": {
+            "format": {
+              "$comment": "Specify a printf style formatting pattern",
+              "type": "string"
+            },
+            "bool_true_value": { "type": "string" },
+            "bool_false_value": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+
+        "markdown_pattern": { "type": "string" },
+
+        "template_engine": { "$ref": "#/definitions/template-engine" },
+
+        "column_order": { "$ref": "#/definitions/column-order" }
+      },
+      "additionalProperties": false,
+      "dependencies": {
+        "template_engine": ["markdown_pattern"]
+      }
+    }
+  },
+
+  "type": "object",
+  "patternProperties": {
+    "^[*]$|^detailed$|^compact.*$|^entry.*$": {
+      "$ref": "#/definitions/column-display-entry"
+    }
+  },
+  "additionalProperties": false
+}

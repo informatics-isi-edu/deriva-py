@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "http://deriva.isi.edu/schemas/foreign_key.schema.json",
+  "title": "tag:isrd.isi.edu,2016:foreign-key",
+  "description": "Schema document for the 'foreign-key' annotation.",
+  "definitions": {
+    "column-order": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/column-order" },
+    "template-engine": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/template-engine" },
+
+    "display-option": {
+      "type": "object",
+      "properties": {
+        "column_order": { "$ref": "#/definitions/column-order" },
+        "show_foreign_key_link": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+
+  "type": "object",
+  "properties": {
+    "from_name": { "type": "string" },
+    "to_name": { "type": "string" },
+    "display": {
+      "type": "object",
+      "patternProperties": {
+        "^[*]$|^compact([/]select|[/]brief([/]inline)?)?$|^detailed$": {
+          "$ref": "#/definitions/display-option"
+        }
+      },
+      "additionalProperties": false
+    },
+    "domain_filter_pattern": { "type": "string" },
+    "template_engine": { "$ref": "#/definitions/template-engine" }
+  },
+  "additionalProperties": false,
+  "dependencies": {
+      "template_engine": [ "domain_filter_pattern" ]
+  }
+}

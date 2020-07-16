@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "http://deriva.isi.edu/schemas/chaise_config.schema.json",
+  "title": "tag:isrd.isi.edu,2019:chaise-config",
+  "description": "Schema document for the 'chaise-config' annotation.",
+  "$comment": "Currently, this is a placeholder that merely ensures the value is an object.",
+  "type": "object"
+}

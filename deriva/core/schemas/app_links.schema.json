@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "http://deriva.isi.edu/schemas/app_links.schema.json",
+  "title": "tag:isrd.isi.edu,2016:app-links",
+  "description": "Schema document for the 'app-links' annotation.",
+  "definitions": {
+
+    "app-links-entry": {
+      "oneOf": [
+        { "$ref": "#/definitions/context-name" },
+        { "$ref": "#/definitions/app-name" }
+      ]
+    },
+
+    "context-name": { "type": "string" },
+
+    "app-name": {
+      "type": "string",
+      "enum": [
+        "tag:isrd.isi.edu,2016:chaise:record",
+        "tag:isrd.isi.edu,2016:chaise:record-two",
+        "tag:isrd.isi.edu,2016:chaise:viewer",
+        "tag:isrd.isi.edu,2016:chaise:search",
+        "tag:isrd.isi.edu,2016:chaise:recordset"
+      ]
+    }
+  },
+
+  "type": "object",
+  "patternProperties": {
+    "^[*]$|^detailed$|^compact.*$|^entry.*$": {
+      "$ref": "#/definitions/app-links-entry"
+    }
+  },
+  "additionalProperties": false
+}

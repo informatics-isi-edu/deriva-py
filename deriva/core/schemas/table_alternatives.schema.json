@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "http://deriva.isi.edu/schemas/table_alternatives.schema.json",
+  "title": "tag:isrd.isi.edu,2016:table-alternatives",
+  "description": "Schema document for the 'table-alternatives' annotation.",
+  "definitions": {
+    "table-name": {
+      "$comment": "A fully-qualified table name as a pair of names.",
+      "type": "array",
+      "items": { "type": "string"},
+      "minItems": 2,
+      "maxItems": 2,
+      "valid-table": true
+    }
+  },
+
+  "type": "object",
+  "patternProperties": {
+    "^[*]$|^detailed$|^compact.*$|^entry([/]edit|[/]create)?$": {
+      "$ref": "#/definitions/table-name"
+    }
+  },
+  "additionalProperties": false
+}

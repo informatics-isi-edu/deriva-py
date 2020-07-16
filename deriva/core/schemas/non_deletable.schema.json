@@ -1,0 +1,7 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "http://deriva.isi.edu/schemas/non_deletable.schema.json",
+  "title": "tag:isrd.isi.edu,2016:non-deletable",
+  "description": "Schema document for the 'non-deletable' annotation.",
+  "type": "null"
+}

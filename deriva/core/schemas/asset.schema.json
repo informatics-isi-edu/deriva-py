@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "http://deriva.isi.edu/schemas/asset.schema.json",
+  "title": "tag:isrd.isi.edu,2017:asset",
+  "description": "Schema document for the 'asset' annotation.",
+  "definitions": {
+    "column-name": { "$ref": "http://deriva.isi.edu/schemas/source_definitions.schema.json#/definitions/column-name" }
+  },
+
+  "type": "object",
+  "properties": {
+    "url_pattern": {
+      "type": "string"
+    },
+    "browser_upload": {
+      "type": "boolean",
+      "const": false
+    },
+    "filename_column": {
+      "$ref": "#/definitions/column-name"
+    },
+    "byte_count_column": {
+      "$ref": "#/definitions/column-name"
+    },
+    "md5": {
+      "oneOf": [
+        {
+          "type": "boolean",
+          "const": true
+        },
+        {
+          "$ref": "#/definitions/column-name"
+        }
+      ]
+    },
+    "sha256": {
+      "oneOf": [
+        {
+          "type": "boolean",
+          "const": true
+        },
+        {
+          "$ref": "#/definitions/column-name"
+        }
+      ]
+    },
+    "filename_ext_filter": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    }
+  },
+  "additionalProperties": false,
+  "dependencies": {
+    "browser_upload": ["url_pattern"]
+  }
+}
