@@ -4,6 +4,7 @@ import json
 import logging
 import pkgutil
 import jsonschema
+import warnings
 
 from .. import core
 from . import tag
@@ -39,10 +40,18 @@ class _AnnotationSchemas (object):
 
 
 _schemas = _AnnotationSchemas()
-_schema_store = {  # the schema store for the schema resolver, stores all schemas that are extended
-    _schemas[tag_name]['$id']: _schemas[tag_name] for tag_name in [tag.export, tag.source_definitions]
-}
-_nop = lambda validator, value, instance, schema: None
+_schema_store = {}
+try:
+    _schema_store = {  # the schema store for the schema resolver, stores all schemas that are extended
+        _schemas[tag_name]['$id']: _schemas[tag_name] for tag_name in [tag.export, tag.source_definitions]
+    }
+except FileNotFoundError as e:
+    warnings.warn("Unable to read base schemas. Error: %s" % e)
+
+
+def _nop(validator, value, instance, schema):
+    """NOP validator function."""
+    return
 
 
 def validate(model_obj, tag_name=None, validate_model_names=True):
