@@ -200,3 +200,13 @@ $ deriva-annotation-validate HOSTNAME CATALOG -s '^foo$' -t 'bar' -c '^$' -k '^$
 
 The patterns `^$` will match empty strings and therefore will not match any model 
 objects by name, since they cannot have empty strings as names.
+
+To validate only the `tag:isrd.isi.edu,2016:visible-columns` annotation on any
+model object.
+
+```shell script
+$ deriva-annotation-validate HOSTNAME CATALOG -a tag:isrd.isi.edu,2016:visible-columns
+```
+
+The above command can be combined with other examples above to validate a 
+subset of model objects against only a single annotation schema.
