@@ -161,3 +161,42 @@ If this flag is set, the utility will skip validation of model names found
 inside of annotations. For example, it will not validate that the column names,
 foreign key names, etc. used in `visible-columns` and other annotations are valid
 per the catalog schema.
+
+### Examples
+
+The simplest usage example will check all known annotations on all model objects.
+For best results, you should run the tool when logged in with `owner` rights on
+a catalog. Otherwise, the model name validation may not be accurate, if you are 
+unable to enumerate the entire catalog schema. To ignore model name errors, use
+the `--skip-model-names` flag.
+
+```shell script
+$ deriva-annotation-validate HOSTNAME CATALOG
+```
+
+Where `HOSTNAME` is a host name such as `www.example.org` and `CATALOG` is a 
+catalog identifier such as `1`.
+
+To validate only within a single schema named `foo`.
+
+```shell script
+$ deriva-annotation-validate HOSTNAME CATALOG -s '^foo$'
+```
+
+To validate any table that has the word `bar` in it within the schema `foo`.
+
+```shell script
+$ deriva-annotation-validate HOSTNAME CATALOG -s '^foo$' -t 'bar'
+```
+
+Note that the above patterns will also validate annotations on the columns, 
+keys, and foreign keys of any matching table.
+
+To validate only the tables with `bar` in the name.
+
+```shell script
+$ deriva-annotation-validate HOSTNAME CATALOG -s '^foo$' -t 'bar' -c '^$' -k '^$' -f '^$'
+```
+
+The patterns `^$` will match empty strings and therefore will not match any model 
+objects by name, since they cannot have empty strings as names.
