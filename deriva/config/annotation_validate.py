@@ -2,6 +2,7 @@
 
 import logging
 import re
+import sys
 from deriva.core import BaseCLI, DerivaServer, tag, annotation, get_credential, format_credential
 
 logger = logging.getLogger(__name__)
@@ -102,3 +103,7 @@ class AnnotationValidateCLI (BaseCLI):
 def main():
     cli = AnnotationValidateCLI()
     return cli.main()
+
+
+if __name__ == '__main__':
+    sys.exit(main())
