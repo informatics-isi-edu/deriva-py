@@ -3,11 +3,12 @@ import sys
 from packaging import version
 
 
-def get_installed_version(version_str):
+def get_installed_version(ver):
     """
     Generates an external version string from an internal one. This is currently only being used to determine
     whether we are operating in a "frozen" environment or not, but other decorators could be added.
     """
+    version_str = str(ver)
     return version_str if not getattr(sys, 'frozen', False) else version_str + '-frozen'
 
 
