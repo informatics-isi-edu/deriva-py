@@ -32,11 +32,16 @@
       },
       "additionalProperties": false
     },
-    "domain_filter_pattern": { "type": "string" },
-    "template_engine": { "$ref": "#/definitions/template-engine" }
+    "domain_filter": {
+        "type": "object",
+        "properties": {
+            "ermrest_path_pattern": {"type": "string"},
+            "display_markdown_pattern": {"type": "string"},
+            "template_engine": { "$ref": "#/definitions/template-engine" }
+        },
+        "additionalProperties": false,
+        "required": ["ermrest_path_pattern"]
+    }
   },
-  "additionalProperties": false,
-  "dependencies": {
-      "template_engine": [ "domain_filter_pattern" ]
-  }
+  "additionalProperties": false
 }
