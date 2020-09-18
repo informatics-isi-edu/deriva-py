@@ -44,6 +44,13 @@ INVALID_IDENTIFIER, INVALID_IDENTIFIER_FIXED = '9 %$ ', '_9____'
 RESERVED_IDENTIFIER = 'column_definitions'
 CONFLICTING_IDENTIFIER, CONFLICTING_IDENTIFIER_FIXED = RESERVED_IDENTIFIER + '1', RESERVED_IDENTIFIER + '2'
 
+SNAME_ISA = 'ISA'
+SNAME_VOCAB = 'Vocab'
+TNAME_PROJECT = 'Project'
+TNAME_EXPERIMENT = 'Experiment'
+TNAME_EXPERIMENT_TYPE = 'Experiment_Type'
+TNAME_EXPERIMENT_COPY = 'Experiment_Copy'
+
 hostname = os.getenv("DERIVA_PY_TEST_HOSTNAME")
 logger = logging.getLogger(__name__)
 if os.getenv("DERIVA_PY_TEST_VERBOSE"):
@@ -58,13 +65,13 @@ def define_test_schema(catalog):
     An 'isa' schema with an 'experiment' table, with 'type' that references the vocab table.
     """
     model = catalog.getCatalogModel()
-    vocab = model.create_schema(_em.Schema.define("Vocab"))
-    vocab.create_table(_em.Table.define_vocabulary("Experiment_Type", "TEST:{RID}"))
-    isa = model.create_schema(_em.Schema.define("ISA"))
+    vocab = model.create_schema(_em.Schema.define(SNAME_VOCAB))
+    vocab.create_table(_em.Table.define_vocabulary(TNAME_EXPERIMENT_TYPE, "TEST:{RID}"))
+    isa = model.create_schema(_em.Schema.define(SNAME_ISA))
 
-    # create 'Project' table
+    # create TNAME_PROJECT table
     table_def = _em.Table.define(
-        "Project",
+        TNAME_PROJECT,
         column_defs=[
             _em.Column.define(cname, ctype) for (cname, ctype) in [
                 ('Investigator', _em.builtin_types.text),
@@ -80,9 +87,9 @@ def define_test_schema(catalog):
     )
     isa.create_table(table_def)
 
-    # create 'Experiment' table
+    # create TNAME_EXPERIMENT table
     table_def = _em.Table.define(
-        "Experiment",
+        TNAME_EXPERIMENT,
         column_defs=[
             _em.Column.define(cname, ctype) for (cname, ctype) in [
                 ('Name', _em.builtin_types.text),
@@ -98,14 +105,14 @@ def define_test_schema(catalog):
             _em.Key.define(['Name'])
         ],
         fkey_defs=[
-            _em.ForeignKey.define(['Type'], 'Vocab', 'Experiment_Type', ['ID']),
-            _em.ForeignKey.define(['Project Investigator', 'Project_Num'], 'ISA', 'Project', ['Investigator', 'Num'])
+            _em.ForeignKey.define(['Type'], SNAME_VOCAB, TNAME_EXPERIMENT_TYPE, ['ID']),
+            _em.ForeignKey.define(['Project Investigator', 'Project_Num'], SNAME_ISA, TNAME_PROJECT, ['Investigator', 'Num'])
         ]
     )
     isa.create_table(table_def)
 
-    # create copy of 'Experiment' table
-    table_def['table_name'] = 'Experiment_Copy'
+    # create copy of TNAME_EXPERIMENT table
+    table_def['table_name'] = TNAME_EXPERIMENT_COPY
     isa.create_table(table_def)
 
 
@@ -135,16 +142,16 @@ def populate_test_catalog(catalog):
     paths = catalog.getPathBuilder()
     logger.debug("Inserting project...")
     logger.debug("Inserting experiment types...")
-    proj_table = paths.schemas['ISA'].tables['Project']
+    proj_table = paths.schemas[SNAME_ISA].tables[TNAME_PROJECT]
     proj_table.insert([
         {"Investigator": TEST_PROJ_INVESTIGATOR, "Num": TEST_PROJ_NUM}
     ])
-    type_table = paths.schemas['Vocab'].tables['Experiment_Type']
+    type_table = paths.schemas[SNAME_VOCAB].tables[TNAME_EXPERIMENT_TYPE]
     types = type_table.insert([
         {"Name": "{}".format(name), "Description": "NA"} for name in range(TEST_EXPTYPE_MAX)
     ], defaults=['ID', 'URI'])
     logger.debug("Inserting experiments...")
-    exp = paths.schemas['ISA'].tables['Experiment']
+    exp = paths.schemas[SNAME_ISA].tables[TNAME_EXPERIMENT]
     exp.insert(_generate_experiment_entities(types, TEST_EXP_MAX))
 
 
@@ -175,10 +182,10 @@ class DatapathTests (unittest.TestCase):
 
     def setUp(self):
         self.paths = self.catalog.getPathBuilder()
-        self.project = self.paths.schemas['ISA'].tables['Project']
-        self.experiment = self.paths.schemas['ISA'].tables['Experiment']
-        self.experiment_type = self.paths.schemas['Vocab'].tables['Experiment_Type']
-        self.experiment_copy = self.paths.schemas['ISA'].tables['Experiment_Copy']
+        self.project = self.paths.schemas[SNAME_ISA].tables[TNAME_PROJECT]
+        self.experiment = self.paths.schemas[SNAME_ISA].tables[TNAME_EXPERIMENT]
+        self.experiment_type = self.paths.schemas[SNAME_VOCAB].tables[TNAME_EXPERIMENT_TYPE]
+        self.experiment_copy = self.paths.schemas[SNAME_ISA].tables[TNAME_EXPERIMENT_COPY]
         self.types = list(self.experiment_type.entities())
 
     def tearDown(self):
@@ -192,27 +199,27 @@ class DatapathTests (unittest.TestCase):
         self.assertIn('schemas', dir(self.paths))
 
     def test_schema_dir_base(self):
-        self.assertLess({'_name', 'tables', 'describe'}, set(dir(self.paths.schemas['ISA'])))
+        self.assertLess({'_name', 'tables', 'describe'}, set(dir(self.paths.schemas[SNAME_ISA])))
 
     def test_datapath_dir_base(self):
         self.assertLess({'aggregates', 'groupby', 'attributes', 'context', 'delete', 'entities', 'filter',
-                         'link', 'table_instances', 'uri'}, set(dir(self.paths.schemas['ISA'].tables['Experiment'].path)))
+                         'link', 'table_instances', 'uri'}, set(dir(self.paths.schemas[SNAME_ISA].tables[TNAME_EXPERIMENT].path)))
 
     def test_table_dir_base(self):
         self.assertLess({'aggregates', 'alias', 'groupby', 'attributes', 'describe', 'entities', 'filter', 'insert',
-                         'link', 'path', 'update', 'uri'}, set(dir(self.paths.schemas['ISA'].tables['Experiment'])))
+                         'link', 'path', 'update', 'uri'}, set(dir(self.paths.schemas[SNAME_ISA].tables[TNAME_EXPERIMENT])))
 
     def test_catalog_dir_with_schemas(self):
-        self.assertLess({'ISA', 'Vocab'}, set(dir(self.paths)))
+        self.assertLess({SNAME_ISA, SNAME_VOCAB}, set(dir(self.paths)))
 
     def test_schema_dir_with_tables(self):
-        self.assertIn('Experiment', dir(self.paths.ISA))
+        self.assertIn(TNAME_EXPERIMENT, dir(self.paths.ISA))
 
     def test_table_dir_with_columns(self):
         self.assertLess({'Name', 'Amount', 'Time', 'Type'}, set(dir(self.paths.ISA.Experiment)))
 
     def test_dir_path(self):
-        self.assertIn('Experiment', dir(self.paths.ISA.Experiment.path))
+        self.assertIn(TNAME_EXPERIMENT, dir(self.paths.ISA.Experiment.path))
 
     def test_dir_invalid_identifier(self):
         self.assertIn(INVALID_IDENTIFIER_FIXED, dir(self.project))
@@ -225,15 +232,15 @@ class DatapathTests (unittest.TestCase):
 
     def test_describe_schema(self):
         with self.assertWarns(DeprecationWarning):
-            self.paths.schemas['ISA'].describe()
+            self.paths.schemas[SNAME_ISA].describe()
 
     def test_describe_table(self):
         with self.assertWarns(DeprecationWarning):
-            self.paths.schemas['ISA'].tables['Experiment'].describe()
+            self.paths.schemas[SNAME_ISA].tables[TNAME_EXPERIMENT].describe()
 
     def test_describe_column(self):
         with self.assertWarns(DeprecationWarning):
-            self.paths.schemas['ISA'].tables['Experiment'].column_definitions['Name'].describe()
+            self.paths.schemas[SNAME_ISA].tables[TNAME_EXPERIMENT].column_definitions['Name'].describe()
 
     def test_unfiltered_fetch(self):
         results = self.experiment.entities()
@@ -288,6 +295,20 @@ class DatapathTests (unittest.TestCase):
         results = path.Experiment.attributes(*path.Experiment.column_definitions.values())
         results.sort(path.Experiment.Amount.desc)
         self.assertEqual(results[0]['Amount'], TEST_EXP_MAX-1)
+
+    def test_fetch_all_cols_with_talias(self):
+        path = self.paths.schemas[SNAME_ISA].tables[TNAME_EXPERIMENT].alias('X').path
+        results = path.attributes(path.X)
+        result = results.fetch(limit=1)[0]
+        self.assertIn('X:RID', result)
+        self.assertIn('X:Name', result)
+
+    def test_fetch_with_talias(self):
+        path = self.paths.schemas[SNAME_ISA].tables[TNAME_EXPERIMENT].alias('X').path
+        results = path.attributes(path.X.RID, path.X.Name.alias('typeName'))
+        result = results.fetch(limit=1)[0]
+        self.assertIn('RID', result)
+        self.assertIn('typeName', result)
 
     def test_attribute_projection(self):
         results = self.experiment.attributes(
@@ -603,7 +624,7 @@ class DatapathTests (unittest.TestCase):
 
     def test_path_table_instances(self):
         path = self.experiment.link(self.experiment_type)
-        results = path.table_instances['Experiment'].entities()
+        results = path.table_instances[TNAME_EXPERIMENT].entities()
         self.assertEqual(len(results), TEST_EXP_MAX)
 
     def test_path_project(self):

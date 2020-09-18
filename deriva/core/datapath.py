@@ -943,10 +943,21 @@ class _ColumnWrapper (object):
         self._wrapped_column = column
         self._name = column.name
         self._uname = urlquote(self._name)
-        self._fqname = "%s:%s" % (self._table._fqname, self._uname)
-        self._instancename = "%s:%s" % (self._table._uname, self._uname) \
-                              if isinstance(self._table, _TableAlias) else self._uname
-        self._projection_name = self._instancename
+
+    @property
+    def _fqname(self):
+        """Late binding needed for table alias instances."""
+        return "%s:%s" % (self._table._fqname, self._uname)
+
+    @property
+    def _instancename(self):
+        """Late binding needed for table alias instances."""
+        return "%s:%s" % (self._table._uname, self._uname) if isinstance(self._table, _TableAlias) else self._uname
+
+    @property
+    def _projection_name(self):
+        """Late binding needed for table alias instances."""
+        return self._instancename
 
     @deprecated
     def describe(self):
@@ -1071,9 +1082,11 @@ class _ColumnAlias (object):
         self._name = alias_name
         self._base_column = base_column
         self._uname = urlquote(self._name)
-        self._fqname = self._base_column._fqname
-        self._instancename = self._base_column._instancename
-        self._projection_name = "%s:=%s" % (self._uname, self._base_column._instancename)
+
+    @property
+    def _projection_name(self):
+        """Late binding needed for table alias instances."""
+        return "%s:=%s" % (self._uname, self._base_column._instancename)
 
     def __deepcopy__(self, memodict={}):
         # deep copy implementation of a column alias should not make copies of model objects (ie, the base column)
