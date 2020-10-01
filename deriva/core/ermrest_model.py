@@ -1874,6 +1874,7 @@ builtin_types.update(
                 'markdown': 'text',
                 'ermrest_curie': 'text',
                 'ermrest_uri': 'text',
+                'color_rgb_hex': 'text',
         }.items()
     }
 )
