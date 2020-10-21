@@ -160,6 +160,9 @@ class DerivaBinding (object):
     def _get_new_session(self, session_config):
         self._close_session()
         self._session = get_new_requests_session(self._server_uri + '/', session_config)
+        # allow loopback requests to bypass SSL cert verification
+        if "https://localhost" in self._server_uri:
+            self._session.verify = False
 
     def _pre_get(self, path, headers):
         self.check_path(path)
