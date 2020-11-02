@@ -248,50 +248,6 @@ def read_credential(credential_file=DEFAULT_CREDENTIAL_FILE, create_default=Fals
     return json.loads(credential, object_pairs_hook=OrderedDict)
 
 
-def get_credential(host,
-                   credential_file=DEFAULT_CREDENTIAL_FILE,
-                   globus_credential_file=DEFAULT_GLOBUS_CREDENTIAL_FILE,
-                   config_file=DEFAULT_CONFIG_FILE,
-                   requested_scope=None,
-                   force_scope_lookup=False,
-                   match_scope_tag="deriva-all"):
-    # load deriva credential set first
-    credentials = read_credential(credential_file or DEFAULT_CREDENTIAL_FILE, create_default=True)
-    creds = credentials.get(host, credentials.get(host.lower(), dict()))
-
-    # if present, load globus credentials and merge
-    globus_credentials = read_credential(globus_credential_file or DEFAULT_GLOBUS_CREDENTIAL_FILE, create_default=True)
-    if globus_credentials:
-        scopes = get_oauth_scopes_for_host(host,
-                                           config_file=config_file,
-                                           force_refresh=force_scope_lookup,
-                                           warn_on_discovery_failure=True if not creds else False)
-        for resource, g_creds in globus_credentials.items():
-            # 1. look for the explicitly requested scope in the token store, if specified
-            if requested_scope is not None and g_creds["scope"] == requested_scope:
-                creds["bearer-token"] = g_creds["access_token"]
-                break
-
-            # 2. try to determine the scope to use based on host-to-scope(s) mappings
-            if scopes:
-                for k, v in scopes.items():
-                    if v == g_creds["scope"]:
-                        if match_scope_tag is not None and match_scope_tag != k:
-                            continue
-                        creds["bearer-token"] = g_creds["access_token"]
-                        break
-                if creds.get("bearer-token"):
-                    break
-            else:
-                # 3. if we did not find any host-to-scope(s) mappings in the config file, just fall back and
-                # try to find a token by matching the hostname to the resource server name
-                if host.lower() == resource.lower():
-                    creds["bearer-token"] = g_creds["access_token"]
-                    break
-
-    return creds or None
-
-
 def get_oauth_scopes_for_host(host,
                               config_file=DEFAULT_CONFIG_FILE,
                               force_refresh=False,
@@ -376,9 +332,6 @@ def load_cookies_from_file(cookie_file=None):
 
 
 def resource_path(relative_path, default=os.path.abspath(".")):
-    # required to find bundled data at runtime in Pyinstaller single-file exe mode
-    if getattr(sys, 'frozen', False):
-        return os.path.join(getattr(sys, '_MEIPASS', '.'), relative_path)
     if default is None:
         return relative_path
     return os.path.join(default, relative_path)
