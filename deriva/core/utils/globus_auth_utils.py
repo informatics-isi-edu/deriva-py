@@ -994,7 +994,7 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
             eprint("{prog} {subcmd}: {msg}".format(prog=self.parser.prog, subcmd=args.subcmd, msg=e))
         except ConnectionError as e:
             eprint("{prog}: Connection error occurred".format(prog=self.parser.prog))
-        except GlobusAuthAPIError as e:
+        except GlobusAPIError as e:
             if 401 == e.http_status:
                 msg = 'Authentication required: %s' % e.message
             elif 403 == e.http_status:
