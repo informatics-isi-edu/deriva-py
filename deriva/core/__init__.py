@@ -26,7 +26,7 @@ def get_credential(host,
 
     :param host: The hostname to retrieve the credential set for.
     :param credential_file: Optional path to non-default location of the webauthn cookie credential file.
-    :param globus_credential_file: Optional path to non-default location of the globus bearer token store.
+    :param globus_credential_file: Optional path to non-default location of the GlobusAuth bearer token store.
     :param config_file: Optional path to the non-default location of the deriva-py config file.
     :param requested_scope: Optional, specific scope request string for the given host. If not specified, the webauthn
         service on the host will be queried to determine the host-to-scope mapping that should be used.
@@ -44,7 +44,7 @@ def get_credential(host,
     creds = credentials.get(host, credentials.get(host.lower(), dict()))
 
     # load globus credentials and merge, if present
-    if os.path.isfile(globus_credential_file) and os.path.getsize(globus_credential_file) > 10:
+    if os.path.isfile(globus_credential_file) and os.path.getsize(globus_credential_file) > 10:  # Don't load empty json
         try:
             globus_client = GlobusNativeLogin(hosts=[host], config_file=config_file)
             scope_map = globus_client.hosts_to_scope_map(hosts=[host], match_scope_tag=match_scope_tag,
