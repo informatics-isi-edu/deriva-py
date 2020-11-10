@@ -37,7 +37,9 @@ DEFAULT_CREDENTIAL_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'credential.json')
 DEFAULT_GLOBUS_CREDENTIAL_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'globus-credential.json')
 DEFAULT_CONFIG_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'config.json')
 DEFAULT_COOKIE_JAR_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'cookies.txt')
+DEFAULT_REQUESTS_TIMEOUT = 5
 DEFAULT_SESSION_CONFIG = {
+    "timeout": DEFAULT_REQUESTS_TIMEOUT,
     "retry_connect": 2,
     "retry_read": 4,
     "retry_backoff_factor": 1.0,
@@ -148,6 +150,21 @@ def init_logging(level=logging.INFO,
         logging.basicConfig(level=level, format=log_format)
 
 
+class TimeoutHTTPAdapter(HTTPAdapter):
+    def __init__(self, *args, **kwargs):
+        self.timeout = DEFAULT_REQUESTS_TIMEOUT
+        if "timeout" in kwargs:
+            self.timeout = kwargs["timeout"]
+            del kwargs["timeout"]
+        super().__init__(*args, **kwargs)
+
+    def send(self, request, **kwargs):
+        timeout = kwargs.get("timeout")
+        if timeout is None:
+            kwargs["timeout"] = self.timeout
+        return super().send(request, **kwargs)
+
+
 def get_new_requests_session(url=None, session_config=DEFAULT_SESSION_CONFIG):
     session = requests.session()
     retries = Retry(connect=session_config['retry_connect'],
@@ -155,11 +172,12 @@ def get_new_requests_session(url=None, session_config=DEFAULT_SESSION_CONFIG):
                     backoff_factor=session_config['retry_backoff_factor'],
                     status_forcelist=session_config['retry_status_forcelist'],
                     raise_on_status=True)
+    adapter = TimeoutHTTPAdapter(timeout=session_config.get("timeout", DEFAULT_REQUESTS_TIMEOUT), max_retries=retries)
     if url:
-        session.mount(url, HTTPAdapter(max_retries=retries))
+        session.mount(url, adapter)
     else:
-        session.mount('http://', HTTPAdapter(max_retries=retries))
-        session.mount('https://', HTTPAdapter(max_retries=retries))
+        session.mount('http://', adapter)
+        session.mount('https://', adapter)
 
     return session
 
