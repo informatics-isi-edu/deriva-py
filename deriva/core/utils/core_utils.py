@@ -275,6 +275,8 @@ def get_oauth_scopes_for_host(host,
     result = dict()
     upr = urlparse(host)
     if upr.scheme and upr.netloc:
+        if upr.scheme not in ("http", "https"):
+            return result
         url = urljoin(host, "/authn/discovery")
         host = upr.hostname
     else:

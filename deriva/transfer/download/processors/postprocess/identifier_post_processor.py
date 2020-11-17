@@ -5,7 +5,9 @@ from deriva.core import get_credential, urlsplit, urlunsplit, format_exception, 
 from deriva.core.utils.webauthn_utils import get_wallet_entries
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError
 from deriva.transfer.download.processors.base_processor import *
-from fair_identifiers_client.identifiers_api import IdentifierClient, AccessTokenAuthorizer, IdentifierClientError
+from fair_identifiers_client.config import config
+from fair_identifiers_client.identifiers_api import identifiers_client, IdentifierClient, AccessTokenAuthorizer, \
+    IdentifierClientError
 
 
 class IdentifierPostProcessor(BaseProcessor):
@@ -32,15 +34,18 @@ class FAIRIdentifierPostProcessor(IdentifierPostProcessor):
         super(FAIRIdentifierPostProcessor, self).__init__(envars, **kwargs)
 
     def load_identifier_client(self):
-        if not (self.wallet and self.identity):
+        if not self.identity:
             logging.warning("Unauthenticated (anonymous) identity being used with identifier client")
-        entries = get_wallet_entries(self.wallet, "oauth2",
-                                     credential_source="https://auth.globus.org",
-                                     resource_server="identifiers.globus.org",
-                                     scopes=["https://auth.globus.org/scopes/identifiers.globus.org/create_update"])
-        token = entries[0].get("access_token") if entries else None
-        ac = AccessTokenAuthorizer(token) if token else None
-        return IdentifierClient(base_url=self.IDENTIFIER_SERVICE, app_name="DERIVA Export", authorizer=ac)
+        if self.wallet:
+            entries = get_wallet_entries(self.wallet, "oauth2",
+                                         credential_source="https://auth.globus.org",
+                                         resource_server="identifiers.fair-research.org",
+                                         scopes=["https://auth.globus.org/scopes/identifiers.fair-research.org/writer"])
+            token = entries[0].get("access_token") if entries else None
+            ac = AccessTokenAuthorizer(token) if token else None
+            return IdentifierClient(base_url=self.IDENTIFIER_SERVICE, app_name="DERIVA Export", authorizer=ac)
+        else:
+            return identifiers_client(config)
 
     def process(self):
         ic = self.load_identifier_client()

@@ -494,6 +494,8 @@ class GlobusNativeLogin:
     def find_access_token_for_host(host, scope_map, tokens, match_scope_tag=None):
         scope = None
         scopes = scope_map.get(host)
+        if not scopes:
+            return None
         if match_scope_tag:
             scope = scopes[0]
         else:
