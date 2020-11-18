@@ -10,18 +10,7 @@ from fair_identifiers_client.identifiers_api import identifiers_client, Identifi
     IdentifierClientError
 
 
-class IdentifierPostProcessor(BaseProcessor):
-    """
-    Post processor that mints identifiers for download results
-    """
-    def __init__(self, envars=None, **kwargs):
-        super(IdentifierPostProcessor, self).__init__(envars, **kwargs)
-
-    def process(self):
-        return self.outputs
-
-
-class FAIRIdentifierPostProcessor(IdentifierPostProcessor):
+class FAIRIdentifierPostProcessor(BaseProcessor):
     """
     Post processor that mints identifiers for download results using FAIR-Research Identifier Client.
     """
@@ -39,7 +28,6 @@ class FAIRIdentifierPostProcessor(IdentifierPostProcessor):
         if self.wallet:
             entries = get_wallet_entries(self.wallet, "oauth2",
                                          credential_source="https://auth.globus.org",
-                                         resource_server="identifiers.fair-research.org",
                                          scopes=["https://auth.globus.org/scopes/identifiers.fair-research.org/writer"])
             token = entries[0].get("access_token") if entries else None
             ac = AccessTokenAuthorizer(token) if token else None
@@ -57,6 +45,11 @@ class FAIRIdentifierPostProcessor(IdentifierPostProcessor):
             checksum = v[SHA256_KEY][0]
             title = self.parameters.get("title", "DERIVA Export: %s" % k)
             metadata = {"title": title}
+            author = self.parameters.get("author")
+            if not author:
+                author = self.identity.get('full_name') if self.identity else None
+            if author and stob(self.parameters.get("include_author", "True")):
+                metadata.update({"author": author})
             visible_to = self.parameters.get("visible_to", ["public"])
             locations = v.get(REMOTE_PATHS_KEY)
             if not locations:
