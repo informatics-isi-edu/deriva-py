@@ -12,9 +12,9 @@ from bdbag.fetch.auth import keychain as bdbkc
 from deriva.core import __version__ as VERSION, DEFAULT_CONFIG_PATH, DEFAULT_GLOBUS_CREDENTIAL_FILE, urlparse, urljoin,\
     read_config, format_exception, BaseCLI, get_oauth_scopes_for_host
 from deriva.core.utils import eprint
+from globus_sdk import ConfidentialAppAuthClient, GlobusAPIError, AuthAPIError
+from fair_research_login.client import NativeClient, LoadError
 
-GLOBUS_SDK = None
-NATIVE_LOGIN = None
 NATIVE_APP_CLIENT_ID = "8ef15ba9-2b4a-469c-a163-7fd910c9d111"
 LEGACY_GROUPS_SCOPE_ID = "69a73d8f-cd45-4e37-bb3b-43678424aeb7"
 LEGACY_GROUPS_SCOPE_NAME = "urn:globus:auth:scope:nexus.api.globus.org:groups"
@@ -43,13 +43,6 @@ class DependencyError(ImportError):
         super(DependencyError, self).__init__(message)
 
 
-class GlobusAuthAPIException(Exception):
-    pass
-
-
-GlobusAuthAPIError = GlobusAuthAPIException
-
-
 class GlobusAuthUtil:
     def __init__(self, **kwargs):
         client_id = kwargs.get("client_id")
@@ -62,16 +55,10 @@ class GlobusAuthUtil:
                 if client:
                     client_id = client.get('client_id')
                     client_secret = client.get('client_secret')
-        try:
-            global GLOBUS_SDK, GlobusAuthAPIError
-            GLOBUS_SDK = importlib.import_module("globus_sdk")
-            GlobusAuthAPIError = GLOBUS_SDK.AuthAPIError
-        except Exception as e:
-            raise DependencyError("Unable to load a required module: %s" % format_exception(e))
 
         if not (client_id and client_secret):
             logging.warning("Client ID and secret not specified and/or could not be determined.")
-        self.client = GLOBUS_SDK.ConfidentialAppAuthClient(client_id, client_secret)
+        self.client = ConfidentialAppAuthClient(client_id, client_secret)
         self.client_id = client_id
 
     @staticmethod
@@ -427,17 +414,10 @@ class GlobusNativeLogin:
         self.default_scopes = DEFAULT_SCOPES.copy()
 
         try:
-            global GLOBUS_SDK, NATIVE_LOGIN
-            GLOBUS_SDK = importlib.import_module("globus_sdk")
-            NATIVE_LOGIN = importlib.import_module("fair_research_login")
-        except Exception as e:
-            raise DependencyError("Unable to load a required module: %s" % format_exception(e))
-
-        try:
             storage_file = 'globus-credential%s.json' % \
                            (("-" + self.client_id) if self.client_id != NATIVE_APP_CLIENT_ID else "")
             storage = DerivaJSONTokenStorage(filename=os.path.join(DEFAULT_CONFIG_PATH, storage_file))
-            self.client = NATIVE_LOGIN.NativeClient(
+            self.client = NativeClient(
                 client_id=self.client_id,
                 token_storage=storage,
                 app_name="Login from deriva-client on %s [%s]%s" %
@@ -451,28 +431,33 @@ class GlobusNativeLogin:
     def user_info(self, host):
         pass
 
-    def is_logged_in(self, hosts=None, requested_scopes=(), exclude_defaults=False):
+    def is_logged_in(self, hosts=None,
+                     requested_scopes=(),
+                     hosts_to_scope_map=None,
+                     exclude_defaults=False):
+        scopes = set(requested_scopes)
+        scope_map = hosts_to_scope_map if hosts_to_scope_map else self.hosts_to_scope_map(hosts or self.hosts)
+        scopes.update(self.scope_set_from_scope_map(scope_map))
+        if not exclude_defaults:
+            scopes.update(self.default_scopes)
         try:
-            scopes = set(requested_scopes)
-            scopes.update(self.scope_set_from_scope_map(self.hosts_to_scope_map(hosts)))
-            if not exclude_defaults:
-                scopes.update(self.default_scopes)
-            self.client.load_tokens(scopes)
-            return True
-        except NATIVE_LOGIN.LoadError:
-            return False
+            return self.client.load_tokens(scopes)
+        except LoadError as e:
+            logging.warning("Unable to load tokens for scopes [%s]: %s" % (scopes, format_exception(e)))
+            return None
 
     def hosts_to_scope_map(self, hosts,
                            match_scope_tag=None,
                            all_tagged_scopes=False,
-                           force_refresh=False):
+                           force_refresh=False,
+                           warn_on_discovery_failure=True):
         scope_map = dict()
         for host in hosts:
             scope_map.update({host: []})
             scopes = get_oauth_scopes_for_host(host,
                                                config_file=self.config_file,
                                                force_refresh=force_refresh,
-                                               warn_on_discovery_failure=True)
+                                               warn_on_discovery_failure=warn_on_discovery_failure)
             scope_list = list()
             if scopes:
                 for k, v in scopes.items():
@@ -509,12 +494,19 @@ class GlobusNativeLogin:
     def find_access_token_for_host(host, scope_map, tokens, match_scope_tag=None):
         scope = None
         scopes = scope_map.get(host)
+        if not scopes:
+            return None
         if match_scope_tag:
             scope = scopes[0]
         else:
             for entry in scopes:
                 if host.lower() in entry.lower():
                     scope = entry
+
+        return GlobusNativeLogin.find_access_token_for_scope(scope, tokens)
+
+    @staticmethod
+    def find_access_token_for_scope(scope, tokens):
         for token in tokens.values():
             token_scope = token.get("scope")
             access_token = token.get("access_token")
@@ -522,7 +514,7 @@ class GlobusNativeLogin:
                 return access_token
 
     def update_bdbag_keychain(self, token=None, host=None, keychain_file=None, allow_redirects=False, delete=False):
-        if (token is None) and (host is None):
+        if (token is None) or (host is None):
             return
         keychain_file = keychain_file or bdbkc.DEFAULT_KEYCHAIN_FILE
         entry = {
@@ -576,8 +568,6 @@ class GlobusNativeLogin:
         scope_map = self.hosts_to_scope_map(hosts)
         scopes.update(self.scope_set_from_scope_map(scope_map))
 
-        if not exclude_defaults:
-            scopes.update(self.default_scopes)
         if not scopes:
             logging.info("Logging out and invalidating tokens for ALL existing scopes.")
             self.client.revoke_token_set(tokens)
@@ -589,6 +579,8 @@ class GlobusNativeLogin:
         for host in hosts:
             self.update_bdbag_keychain(host=host, keychain_file=bdbag_keychain_file, delete=True)
 
+        if not exclude_defaults:
+            scopes.update(self.default_scopes)
         token_set = dict()
         for resource, token in tokens.items():
             if token["scope"] in scopes:
@@ -1004,7 +996,7 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
             eprint("{prog} {subcmd}: {msg}".format(prog=self.parser.prog, subcmd=args.subcmd, msg=e))
         except ConnectionError as e:
             eprint("{prog}: Connection error occurred".format(prog=self.parser.prog))
-        except GlobusAuthAPIError as e:
+        except GlobusAPIError as e:
             if 401 == e.http_status:
                 msg = 'Authentication required: %s' % e.message
             elif 403 == e.http_status:

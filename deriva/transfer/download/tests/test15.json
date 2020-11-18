@@ -1,0 +1,52 @@
+{
+  "bag": {
+    "bag_name": "Replicate_16-WHZT",
+    "bag_algorithms": [
+      "md5"
+    ],
+    "bag_archiver": "zip",
+    "bag_metadata": {}
+  },
+  "catalog": {
+    "host": "https://tutorial.derivacloud.org",
+    "catalog_id": "1",
+    "query_processors": [
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "Replicate",
+          "query_path": "/attributegroup/M:=Data:Replicate/RID=16-WHZT/RID;Experiment,Biological_Replicate_Number,Technical_Replicate_Number,RNA_Reads,Specimen,Description,RCT,RMT?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "File",
+          "query_path": "/attributegroup/M:=Data:Replicate/RID=16-WHZT/R:=(RID)=(Data:File:Replicate)/RID;File_URI,File_Name,File_Size,File_MD5,Replicate,File_Type,Caption,RCT,RMT?limit=none"
+        }
+      },
+      {
+        "processor": "fetch",
+        "processor_params": {
+          "output_path": "assets/File/File_URI",
+          "query_path": "/attribute/M:=Data:Replicate/RID=16-WHZT/R:=(RID)=(Data:File:Replicate)/!(File_URI::null::)/url:=File_URI,length:=File_Size,filename:=File_Name,md5:=File_MD5?limit=none"
+        }
+      }
+    ]
+  },
+  "post_processors": [
+    {
+      "processor": "cloud_upload",
+      "processor_params": {
+        "target_url": "s3://tutorial-sandbox.derivacloud.org/export",
+        "acl": "public-read"
+      }
+    },
+    {
+      "processor": "identifier",
+      "processor_params": {
+        "test": "True"
+      }
+    }
+  ]
+}

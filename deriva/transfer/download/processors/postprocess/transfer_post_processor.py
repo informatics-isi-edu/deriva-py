@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 from importlib import import_module
 from deriva.core import get_credential, urlsplit, urlunsplit, format_exception, stob
+from deriva.core.utils.hash_utils import compute_hashes
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError
 from deriva.transfer.download.processors.base_processor import *
 
@@ -123,7 +124,8 @@ class Boto3UploadPostProcessor(UploadPostProcessor):
         if not bucket_exists:
             raise DerivaDownloadError("Target bucket [%s] does not exist." % bucket_name)
 
-        object_qualifier = os.path.basename(self.identity.get("id", "")) or "anon-" + str(uuid.uuid4())
+        object_qualifier = os.path.basename(self.identity.get("id", "")) or \
+            "anon-" + compute_hashes(self.envars.get("request_ip", "unknown").encode(), hashes=['md5'])['md5'][0]
         if not stob(self.parameters.get("overwrite", "False")):
             object_qualifier = "/".join([object_qualifier, datetime.strftime(datetime.now(), "%Y-%m-%d_%H.%M.%S")])
 

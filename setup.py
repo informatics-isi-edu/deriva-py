@@ -68,6 +68,8 @@ setup(
         'portalocker>=1.2.1; platform_system == "Windows"',
         'scandir; python_version <= "2.7"',
         'bdbag>=1.5.6',
+        'globus_sdk',
+        'fair-research-login==0.1.5',
         'jsonschema>=3.1'
     ],
     license='Apache 2.0',
