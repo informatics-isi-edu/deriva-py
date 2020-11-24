@@ -70,6 +70,7 @@ setup(
         'bdbag>=1.5.6',
         'globus_sdk',
         'fair-research-login==0.1.5',
+        'fair-identifiers-client==0.4.1'
         'jsonschema>=3.1'
     ],
     license='Apache 2.0',
