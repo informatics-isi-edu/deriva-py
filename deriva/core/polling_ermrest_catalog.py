@@ -46,7 +46,7 @@ class PollingErmrestCatalog(ErmrestCatalog):
 
     """
 
-    def __init__(self, scheme, server, catalog_id, credentials={}, caching=True, session_config=None):
+    def __init__(self, scheme, server, catalog_id, credentials={}, caching=True, session_config=None, amqp_server=None):
         """Create ERMrest catalog binding.
 
            Arguments:
@@ -58,7 +58,7 @@ class PollingErmrestCatalog(ErmrestCatalog):
 
         """
         ErmrestCatalog.__init__(self, scheme, server, catalog_id, credentials, caching, session_config)
-        self.amqp_server = server
+        self.amqp_server = amqp_server if amqp_server else server
         self.amqp_connection = None
         self.notice_exchange = "ermrest_changes"
 
