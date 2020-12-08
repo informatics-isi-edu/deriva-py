@@ -37,7 +37,7 @@ DEFAULT_CREDENTIAL_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'credential.json')
 DEFAULT_GLOBUS_CREDENTIAL_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'globus-credential.json')
 DEFAULT_CONFIG_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'config.json')
 DEFAULT_COOKIE_JAR_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'cookies.txt')
-DEFAULT_REQUESTS_TIMEOUT = (5, 12)  # (connect, read), in seconds
+DEFAULT_REQUESTS_TIMEOUT = (6.3, 63)  # (connect, read), in seconds
 DEFAULT_SESSION_CONFIG = {
     "timeout": DEFAULT_REQUESTS_TIMEOUT,
     "retry_connect": 2,
