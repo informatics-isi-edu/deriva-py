@@ -384,14 +384,14 @@ class GlobusAuthUtil:
                   (e.response.status_code, e.response.reason, resp)
             raise RuntimeError(msg)
 
-    def get_userinfo_for_token(self, token):
+    def get_userinfo_for_token(self, token, qualified_ids=True):
         client = dict()
         attributes = list()
         userinfo = dict()
 
         # get client info
         token_info = self.introspect_access_token(token)
-        client["id"] = token_info["sub"]
+        client["id"] = (token_info["iss"] + "/" if qualified_ids else "") + token_info["sub"]
         val = token_info.get("username")
         if val:
             client["display_name"] = val
@@ -420,7 +420,8 @@ class GlobusAuthUtil:
             raise RuntimeError("Error getting groups token as dependent token: %s" & err)
         groups = self.get_groups_for_token(groups_token)
         for g in groups:
-            attributes.append({"id": token_info["iss"] + "/" + g["id"], "display_name": g.get("name")})
+            attributes.append({"id": (token_info["iss"] + "/") if qualified_ids else "" + g["id"],
+                               "display_name": g.get("name")})
         attributes.append(client)
 
         userinfo.update({"client": client})
