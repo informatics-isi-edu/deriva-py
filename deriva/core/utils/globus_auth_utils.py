@@ -419,7 +419,7 @@ class GlobusAuthUtil:
             raise RuntimeError("Error getting groups token as dependent token: %s" % err)
         groups = self.get_groups_for_token(groups_token)
         for g in groups:
-            attributes.append({"id": (token_info["iss"] + "/") if qualified_ids else "" + g["id"],
+            attributes.append({"id": (token_info["iss"] + "/" if qualified_ids else "") + g["id"],
                                "display_name": g.get("name")})
         attributes.append(client)
 
