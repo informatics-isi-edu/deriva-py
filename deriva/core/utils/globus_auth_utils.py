@@ -13,7 +13,7 @@ from bdbag.fetch.auth import keychain as bdbkc
 from deriva.core import __version__ as VERSION, DEFAULT_CONFIG_PATH, DEFAULT_GLOBUS_CREDENTIAL_FILE, urlparse, urljoin,\
     read_config, format_exception, BaseCLI, get_oauth_scopes_for_host
 from deriva.core.utils import eprint
-from globus_sdk import ConfidentialAppAuthClient, GlobusAPIError, AuthAPIError
+from globus_sdk import ConfidentialAppAuthClient, GlobusError, GlobusAPIError, AuthAPIError
 from fair_research_login.client import NativeClient, LoadError
 
 NATIVE_APP_CLIENT_ID = "8ef15ba9-2b4a-469c-a163-7fd910c9d111"
@@ -415,9 +415,8 @@ class GlobusAuthUtil:
                     break
             if groups_token is None:
                 raise ValueError()
-        except (KeyError, ValueError,
-                globus_sdk.exc.GlobusError) as err:
-            raise RuntimeError("Error getting groups token as dependent token: %s" & err)
+        except (KeyError, ValueError, GlobusError) as err:
+            raise RuntimeError("Error getting groups token as dependent token: %s" % err)
         groups = self.get_groups_for_token(groups_token)
         for g in groups:
             attributes.append({"id": (token_info["iss"] + "/") if qualified_ids else "" + g["id"],
