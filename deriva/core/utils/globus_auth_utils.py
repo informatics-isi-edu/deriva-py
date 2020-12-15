@@ -442,6 +442,7 @@ class DerivaJSONTokenStorage(object):
         all_tokens.update(tokens)
         with open(self.filename, 'w+') as fh:
             json.dump(all_tokens, fh, indent=2)
+        os.chmod(self.filename, self.permission)
 
     def read_tokens(self):
         if not os.path.exists(self.filename):
