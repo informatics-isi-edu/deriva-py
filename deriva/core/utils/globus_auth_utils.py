@@ -414,9 +414,9 @@ class GlobusAuthUtil:
                     groups_token = tkn['access_token']
                     break
             if groups_token is None:
-                raise ValueError()
+                raise ValueError("Groups token not found in dependent token set.")
         except (KeyError, ValueError, GlobusError) as err:
-            raise RuntimeError("Error getting groups token as dependent token: %s" % err)
+            raise RuntimeError("Error getting groups token as dependent token: %s" % format_exception(err))
         groups = self.get_groups_for_token(groups_token)
         for g in groups:
             attributes.append({"id": (token_info["iss"] + "/" if qualified_ids else "") + g["id"],
