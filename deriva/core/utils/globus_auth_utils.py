@@ -6,12 +6,11 @@ import logging
 import platform
 import traceback
 import importlib
-import requests
 from pprint import pprint
 from requests.exceptions import HTTPError, ConnectionError
 from bdbag.fetch.auth import keychain as bdbkc
 from deriva.core import __version__ as VERSION, DEFAULT_CONFIG_PATH, DEFAULT_GLOBUS_CREDENTIAL_FILE, urlparse, urljoin,\
-    read_config, format_exception, BaseCLI, get_oauth_scopes_for_host
+    read_config, format_exception, BaseCLI, get_oauth_scopes_for_host, get_new_requests_session
 from deriva.core.utils import eprint
 from globus_sdk import ConfidentialAppAuthClient, GlobusError, GlobusAPIError, AuthAPIError
 from fair_research_login.client import NativeClient, LoadError
@@ -372,17 +371,19 @@ class GlobusAuthUtil:
     def get_groups_for_token(token):
         if not token:
             raise UsageException("A token argument is required.")
+        session = get_new_requests_session()
         try:
-            response = requests.get(PUBLIC_GROUPS_API_URL, headers={"Authorization": "Bearer %s" % token})
+            response = session.get(PUBLIC_GROUPS_API_URL, headers={"Authorization": "Bearer %s" % token})
             response.raise_for_status()
             groups = response.json()
             return groups
-
         except HTTPError as e:
             resp = e.response.json()
             msg = "Server responded with %s (%s) and message body: %s" % \
                   (e.response.status_code, e.response.reason, resp)
             raise RuntimeError(msg)
+        finally:
+            session.close()
 
     def get_userinfo_for_token(self, token, qualified_ids=True):
         client = dict()
