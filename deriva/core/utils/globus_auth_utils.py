@@ -96,8 +96,7 @@ class GlobusAuthUtil:
         if not (scope_id and scope):
             raise UsageException("The scope_id and scope arguments are required.")
 
-        r = self.client.put("/v2/api/scopes/{scope_id}".format(scope_id=scope_id),
-                            json_body=self.from_json(scope))
+        r = self.client.put("/v2/api/scopes/{scope_id}".format(scope_id=scope_id), json_body=self.from_json(scope))
         return r.data
 
     def add_fqdn_to_client(self, fqdn):
@@ -338,8 +337,7 @@ class GlobusAuthUtil:
             }
         }
 
-        r = self.client.post("/v2/api/clients/{client_id}/scopes".format(client_id=self.client_id),
-                             json_body=scope)
+        r = self.client.post("/v2/api/clients/{client_id}/scopes".format(client_id=self.client_id), json_body=scope)
         return r.data
 
     def delete_scope(self, scope_name):
@@ -471,17 +469,18 @@ class DerivaJSONTokenStorage(object):
 class GlobusNativeLogin:
     def __init__(self, **kwargs):
         self.client = None
-        self.client_id = kwargs.get("client_id") or NATIVE_APP_CLIENT_ID
+        self.native_app_client_id = kwargs.get("native_app_client_id") or NATIVE_APP_CLIENT_ID
         self.hosts = kwargs.get("hosts")
         self.config_file = kwargs.get("config_file")
         self.exclude_defaults = kwargs.get("exclude_defaults")
         self.default_scopes = DEFAULT_SCOPES.copy()
 
         try:
-            storage_file = 'globus-credential.json'
+            storage_file = 'globus-credential%s.json' % (("-" + self.native_app_client_id)
+                                                         if self.native_app_client_id != NATIVE_APP_CLIENT_ID else "")
             storage = DerivaJSONTokenStorage(filename=os.path.join(DEFAULT_CONFIG_PATH, storage_file))
             self.client = NativeClient(
-                client_id=self.client_id,
+                client_id=self.native_app_client_id,
                 token_storage=storage,
                 app_name="Login from deriva-client on %s [%s]%s" %
                          (platform.uname()[1],
@@ -696,6 +695,8 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                                         help="Globus Auth Client ID")
         self.parser.add_argument('--client-secret', '-k', metavar='<client secret key>',
                                  help="Globus Auth Client Secret")
+        self.parser.add_argument('--native-app-client-id', '-n', metavar='<native app client id>',
+                                 help="Globus Native App Client ID")
 
         self.subparsers = self.parser.add_subparsers(title='sub-commands', dest='subcmd')
 
