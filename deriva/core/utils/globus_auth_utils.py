@@ -438,7 +438,9 @@ class DerivaJSONTokenStorage(object):
 
     def write_tokens(self, tokens, overwrite=False):
         all_tokens = self.read_tokens() if not overwrite else dict()
-        all_tokens.update(tokens)
+        for k, v in tokens.items():
+            ckey = "%s:(%s)" % (v["resource_server"], v["scope"])
+            all_tokens[ckey] = tokens[k]
         with open(self.filename, 'w+') as fh:
             json.dump(all_tokens, fh, indent=2)
         os.chmod(self.filename, self.permission)
@@ -457,8 +459,8 @@ class DerivaJSONTokenStorage(object):
         tokens = self.read_tokens() or dict()
         token_set = list()
         for resource, token in tokens.items():
-            scope = token["scope"]
-            if scope in requested_scopes:
+            scope_set = set(token["scope"].split()) & requested_scopes
+            if scope_set:
                 token_set.append(resource)
         for resource in token_set:
             logging.info("Clearing token for resource: %s" % resource)
@@ -470,7 +472,7 @@ class GlobusNativeLogin:
     def __init__(self, **kwargs):
         self.client = None
         self.native_app_client_id = kwargs.get("native_app_client_id") or NATIVE_APP_CLIENT_ID
-        self.hosts = kwargs.get("hosts")
+        self.hosts = kwargs.get("hosts", [kwargs.get("host")] if kwargs.get("host") else [])
         self.config_file = kwargs.get("config_file")
         self.exclude_defaults = kwargs.get("exclude_defaults")
         self.default_scopes = DEFAULT_SCOPES.copy()
@@ -507,7 +509,8 @@ class GlobusNativeLogin:
         gau = GlobusAuthUtil(client_id=client_id, client_secret=client_secret)
         return gau.get_userinfo_for_token(token)
 
-    def is_logged_in(self, hosts=None,
+    def is_logged_in(self,
+                     hosts=None,
                      requested_scopes=(),
                      hosts_to_scope_map=None,
                      exclude_defaults=False):
@@ -521,11 +524,12 @@ class GlobusNativeLogin:
         try:
             return self.client.load_tokens(scopes)
         except LoadError as e:
-            logging.warning("Unable to load or find tokens for specified scopes [%s]: %s" %
-                            (scopes, format_exception(e)))
+            logging.debug("Unable to load or find tokens for specified scopes [%s]: %s" %
+                          (scopes, format_exception(e)))
             return None
 
-    def hosts_to_scope_map(self, hosts,
+    def hosts_to_scope_map(self,
+                           hosts,
                            match_scope_tag=None,
                            all_tagged_scopes=False,
                            force_refresh=False,
@@ -610,7 +614,7 @@ class GlobusNativeLogin:
         bdbkc.update_keychain(entry, keychain_file=keychain_file, delete=delete)
 
     def login(self,
-              hosts=None,
+              hosts=(),
               no_local_server=False,
               no_browser=False,
               requested_scopes=(),
@@ -643,7 +647,7 @@ class GlobusNativeLogin:
                     self.update_bdbag_keychain(token=access_token, host=host, keychain_file=bdbag_keychain_file)
         return tokens
 
-    def logout(self, hosts, requested_scopes=(), exclude_defaults=False, bdbag_keychain_file=None):
+    def logout(self, hosts=(), requested_scopes=(), exclude_defaults=False, bdbag_keychain_file=None):
         tokens = self.client._load_raw_tokens()
 
         scopes = set(requested_scopes)
@@ -665,7 +669,8 @@ class GlobusNativeLogin:
             scopes.update(self.default_scopes)
         token_set = dict()
         for resource, token in tokens.items():
-            if token["scope"] in scopes:
+            scope_set = set(token["scope"].split()) & scopes
+            if scope_set:
                 token_set[resource] = token
         self.client.revoke_token_set(token_set)
         self.client.token_storage.clear_tokens(scopes)
@@ -690,7 +695,8 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                                  help="Pretty-print all result output.")
         parent_mutex_group = self.parser.add_mutually_exclusive_group()
         parent_mutex_group.add_argument('--credential-file', '-f', metavar='<file>',
-                                        help="Path to a credential file.")
+                                        help="Path to a JSON credential file containing a Globus Auth client ID and "
+                                             'secret. Format: {"web": {"client_id":"foo","client_secret":"bar"}}')
         parent_mutex_group.add_argument('--client-id', '-c', metavar='<client id>',
                                         help="Globus Auth Client ID")
         self.parser.add_argument('--client-secret', '-k', metavar='<client secret key>',
@@ -918,7 +924,7 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
 
         parser = self.subparsers.add_parser(
             'client-fqdn',
-            help="Retrieve client information for an FQDN, or add and FQDN to this client.")
+            help="Retrieve client information for an FQDN, or add an FQDN to this client.")
         parser.add_argument("--add", action="store_true",
                             help="Add the specified FQDN to this client ID")
         parser.add_argument("fqdn", metavar="<fqdn>",
@@ -947,11 +953,11 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
 
     def login_init(self):
         def login(args):
-            if self.gnl.is_logged_in(args.hosts, args.requested_scopes,
+            if self.gnl.is_logged_in([args.host] if args.host else [], args.requested_scopes,
                                      exclude_defaults=args.exclude_defaults) and not args.force:
                 return "You are already logged in."
             else:
-                response = self.gnl.login(hosts=args.hosts,
+                response = self.gnl.login(hosts=[args.host] if args.host else [],
                                           no_local_server=args.no_local_server or args.no_browser,
                                           no_browser=args.no_browser,
                                           refresh_tokens=args.refresh,
@@ -966,19 +972,18 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                 else:
                     return "Login Successful"
 
-        parser = self.subparsers.add_parser('login', help="Login with Globus Auth")
+        parser = self.subparsers.add_parser('login',
+                                            help="Login with Globus Auth and get OAuth tokens for resource access.")
         mutex_group = parser.add_mutually_exclusive_group(required=True)
-        mutex_group.add_argument("--hosts", metavar="[hostnames]", default=list(),
-                                 type=lambda s: [item.strip() for item in s.split(',')],
-                                 help="A comma-delimited list of host names to login to. "
-                                 "An attempt to determine the required scope will be made by checking the local "
-                                 "configuration or (if required) contacting each <host> will be made.")
+        mutex_group.add_argument("--host", metavar="<hostname>", default=None,
+                                 help="The hostname to request tokens for. "
+                                 "An attempt to determine the required scope(s) will be made by checking the local "
+                                 "configuration or (if required) contacting the specified <host>.")
         mutex_group.add_argument("--requested-scopes", metavar="[scopes]", default=list(),
                                  type=lambda s: [item.strip() for item in s.split(',')],
                                  help="A comma-delimited list of scope names to request tokens for. "
                                  "If not specified, an attempt will be made to determine the required scope by "
-                                 "checking the local configuration or (if required) contacting each <host>.")
-
+                                 "checking the local configuration or (if required) contacting the specified <host>.")
         parser.add_argument('--client-id', '-c', metavar='<client id>',
                             help="Use a different client ID than the default.")
         parser.add_argument("--no-local-server", action="store_true",
@@ -999,8 +1004,8 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
         parser.add_argument("--show-tokens", action="store_true",
                             help="Display the tokens from the authorization response.")
         parser.add_argument("--match-scope-tag", metavar="<scope tag>",
-                            help="When using the --hosts argument, specify an explicit scope tag to match against the "
-                                 "list of configured scopes for the given host(s).")
+                            help="When using the --host argument, specify an explicit scope tag to match against the "
+                                 "list of configured scopes for the given host.")
         parser.add_argument("--exclude-defaults", action="store_true",
                             help="In addition to any specified scopes or host-to-scope mappings, do not include the "
                                  "default set of scopes: [%s]" % ", ".join(DEFAULT_SCOPES))
@@ -1008,25 +1013,24 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
 
     def logout_init(self):
         def logout(args):
-            self.gnl.logout(args.hosts,
-                            args.requested_scopes,
-                            args.exclude_defaults,
-                            args.bdbag_keychain_file)
+            self.gnl.logout(hosts=[args.host] if args.host else [],
+                            requested_scopes=args.requested_scopes,
+                            exclude_defaults=args.exclude_defaults,
+                            bdbag_keychain_file=args.bdbag_keychain_file)
             return "You have been logged out."
 
         parser = self.subparsers.add_parser("logout", help="Revoke and clear tokens. If no arguments are specified, "
                                                            "all tokens will be removed.")
         mutex_group = parser.add_mutually_exclusive_group()
-        mutex_group.add_argument("--hosts", metavar="[hostnames]", default=list(),
-                                 type=lambda s: [item.strip() for item in s.split(',')],
-                                 help="A comma-delimited list of host names to revoke tokens for. "
+        mutex_group.add_argument("--host", metavar="<hostname>", default=None,
+                                 help="The hostname to revoke tokens for. "
                                  "An attempt to determine the associated scope(s) will be made by checking the local "
-                                 "configuration or (if required) contacting each <host> will be made.")
+                                 "configuration or (if required) contacting the specified <host>.")
         mutex_group.add_argument("--requested-scopes", metavar="[scopes]", default=list(),
                                  type=lambda s: [item.strip() for item in s.split(',')],
                                  help="A comma-delimited list of scope names to revoke tokens for. "
                                  "If not specified, an attempt will be made to determine the associated scope(s) by "
-                                 "checking the local configuration or (if required) contacting each <host>.")
+                                 "checking the local configuration or (if required) contacting the specified <host>.")
         parser.add_argument("--exclude-defaults", action="store_true",
                             help="In addition to any specified scopes or host-to-scope mappings, do not include the "
                                  "default set of scopes: [%s]" % ", ".join(DEFAULT_SCOPES))
@@ -1044,10 +1048,11 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
 
         parser = self.subparsers.add_parser("user-info",
                                             help="Retrieve information about the currently logged-in user for "
-                                                 "either a given hostname or scope.")
+                                                 "either a given hostname or given scope.")
         mutex_group = parser.add_mutually_exclusive_group()
-        mutex_group.add_argument("--host", metavar="hostname", default=None,
-                                 help="The desired hostname. A host-to-scope lookup will be performed.")
+        mutex_group.add_argument("--host", metavar="<hostname>", default=None,
+                                 help="The desired hostname. A host-to-scope lookup will be performed which requires "
+                                      "contacting the specified host for its required scope list.")
         mutex_group.add_argument("--scope", metavar="scope", default=None,
                                  help="The desired scope name. This is more efficient than using a hostname.")
         parser.set_defaults(func=user_info)
