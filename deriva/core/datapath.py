@@ -8,6 +8,7 @@ import logging
 import re
 from requests import HTTPError
 import warnings
+from . import DEFAULT_HEADERS
 
 __all__ = ['DataPathException', 'Min', 'Max', 'Sum', 'Avg', 'Cnt', 'CntD', 'Array', 'ArrayD', 'Bin']
 
@@ -514,7 +515,7 @@ class DataPath (object):
             expression = _Project(expression, mode, projection, group_key)
         base_path = str(expression)
 
-        def fetcher(limit=None, sort=None):
+        def fetcher(limit=None, sort=None, headers=DEFAULT_HEADERS):
             assert limit is None or isinstance(limit, int)
             assert sort is None or hasattr(sort, '__iter__')
             limiting = '?limit=%d' % limit if limit else ''
@@ -522,7 +523,7 @@ class DataPath (object):
             path = base_path + sorting + limiting
             logger.debug("Fetching " + path)
             try:
-                resp = catalog.get(path)
+                resp = catalog.get(path, headers=headers)
                 return resp.json()
             except HTTPError as e:
                 logger.debug(e.response.text)
@@ -616,14 +617,15 @@ class _ResultSet (object):
         self._results_doc = None
         return self
 
-    def fetch(self, limit=None):
+    def fetch(self, limit=None, headers=DEFAULT_HEADERS):
         """Fetches the results from the catalog.
 
         :param limit: maximum number of results to fetch from the catalog.
+        :param headers: headers to send in request to server
         :return: self
         """
         limit = int(limit) if limit else None
-        self._results_doc = self._fetcher_fn(limit, self._sort_keys)
+        self._results_doc = self._fetcher_fn(limit, self._sort_keys, headers)
         logger.debug("Fetched %d entities" % len(self._results_doc))
         return self
 
@@ -760,7 +762,7 @@ class _TableWrapper (object):
         """
         # empty entities will be accepted but results are therefore an empty entity set
         if not entities:
-            return _ResultSet(self.path.uri, lambda ignore1, ignore2: [])
+            return _ResultSet(self.path.uri, lambda ignore1, ignore2, ignore3: [])
 
         options = []
 
@@ -790,7 +792,7 @@ class _TableWrapper (object):
 
         try:
             resp = self._schema._catalog._wrapped_catalog.post(path, json=entities, headers={'Content-Type': 'application/json'})
-            return _ResultSet(self.path.uri, lambda ignore1, ignore2: resp.json())
+            return _ResultSet(self.path.uri, lambda ignore1, ignore2, ignore3: resp.json())
         except HTTPError as e:
             logger.debug(e.response.text)
             if 400 <= e.response.status_code < 500:
@@ -814,7 +816,7 @@ class _TableWrapper (object):
         """
         # empty entities will be accepted but results are therefore an empty entity set
         if not entities:
-            return _ResultSet(self.path.uri, lambda ignore1, ignore2: [])
+            return _ResultSet(self.path.uri, lambda ignore1, ignore2, ignore3: [])
 
         # JSONEncoder does not handle general iterable objects, so we have to make sure its an acceptable collection
         if not hasattr(entities, '__iter__'):
@@ -847,7 +849,7 @@ class _TableWrapper (object):
 
         try:
             resp = self._schema._catalog._wrapped_catalog.put(path, json=entities, headers={'Content-Type': 'application/json'})
-            return _ResultSet(self.path.uri, lambda ignore1, ignore2: resp.json())
+            return _ResultSet(self.path.uri, lambda ignore1, ignore2, ignore3: resp.json())
         except HTTPError as e:
             logger.debug(e.response.text)
             if 400 <= e.response.status_code < 500:

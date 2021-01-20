@@ -11,7 +11,7 @@ from operator import itemgetter
 import os
 import unittest
 import sys
-from deriva.core import DerivaServer, get_credential, ermrest_model as _em
+from deriva.core import DerivaServer, get_credential, ermrest_model as _em, __version__
 from deriva.core.datapath import DataPathException, Min, Max, Sum, Avg, Cnt, CntD, Array, ArrayD, Bin
 
 # unittests did not support 'subTests' until 3.4
@@ -244,6 +244,11 @@ class DatapathTests (unittest.TestCase):
 
     def test_unfiltered_fetch(self):
         results = self.experiment.entities()
+        self.assertEqual(len(results), TEST_EXP_MAX)
+
+    def test_fetch_with_headers(self):
+        headers = {'User-Agent': __name__ + '/' + __version__}
+        results = self.experiment.entities().fetch(headers=headers)
         self.assertEqual(len(results), TEST_EXP_MAX)
 
     def test_fetch_with_limit(self):
