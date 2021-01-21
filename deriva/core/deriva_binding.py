@@ -351,6 +351,7 @@ class DerivaBinding (object):
     def _close_session(self):
         if self._session is not None:
             self._session.close()
+            self._session = None
 
     def __del__(self):
         self._close_session()
