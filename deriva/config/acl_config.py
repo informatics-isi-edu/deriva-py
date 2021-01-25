@@ -143,8 +143,7 @@ class AclConfig:
         for fkey in table_node.foreign_keys:
             if len(fkey.foreign_key_columns) == 1:
                 col = fkey.foreign_key_columns[0]
-                if col.get("table_name") == table_node.name and col.get("schema_name") == table_node.schema.name and col.get(
-                        "column_name") == col_name:
+                if col.table.name == table_node.name and col.table.schema.name == table_node.schema.name and col.name == col_name:
                     return fkey.names[0]
         raise NoForeignKeyError("can't find foreign key for column %I.%I(%I)", table_node.schema.name, table_node.name,
                                 col_name)
@@ -372,7 +371,7 @@ class AclConfig:
         fkey.acl_bindings.clear()
         if spec is not None:
             self.set_node_acl(fkey, spec)
-            self.set_node_acl_bindings(fkey, table, spec.get("acl_bindings"))
+            self.set_node_acl_bindings(fkey, table, spec.get("acl_bindings"), spec.get("invalidate_bindings"))
         if self.verbose:
             print("set fkey {f} acls to {a}, bindings to {b}".format(f=str(fkey.names), a=str(fkey.acls),
                                                                      b=str(fkey.acl_bindings)))
