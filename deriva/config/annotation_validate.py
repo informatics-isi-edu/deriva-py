@@ -40,6 +40,7 @@ class AnnotationValidateCLI (BaseCLI):
 
         server = DerivaServer('https', args.host, credentials=credential)
         catalog = server.connect_ermrest(args.catalog)
+        catalog.dcctx['cid'] = "cli/" + AnnotationValidateCLI.__name__
         model = catalog.getCatalogModel()
         errors = []
         num_objects_tested = 0
