@@ -51,7 +51,7 @@ DEFAULT_CONFIG = {
     "server":
     {
         "protocol": "https",
-        "host": platform.uname()[1],
+        "host": 'localhost',
         "catalog_id": 1
     },
     "session": DEFAULT_SESSION_CONFIG,

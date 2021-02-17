@@ -108,7 +108,7 @@ Module contents
     :members:
     :show-inheritance:
 
-.. autofunction:: get_credential(host, credential_file=DEFAULT_CREDENTIAL_FILE)
+.. autofunction:: get_credential(host, credential_file=DEFAULT_CREDENTIAL_FILE, globus_credential_file=DEFAULT_GLOBUS_CREDENTIAL_FILE, config_file=DEFAULT_CONFIG_FILE, requested_scope=None, force_scope_lookup=False, match_scope_tag="deriva-all")
 .. autofunction:: read_credential(credential_file=DEFAULT_CREDENTIAL_FILE, create_default=False, default=DEFAULT_CREDENTIAL)
 .. autofunction:: write_credential(credential_file=DEFAULT_CREDENTIAL_FILE, credential=DEFAULT_CREDENTIAL)
 .. autofunction:: read_config(config_file=DEFAULT_CONFIG_FILE, create_default=False, default=DEFAULT_CONFIG)
@@ -122,3 +122,6 @@ Module contents
 
 .. autoattribute:: deriva.core.DEFAULT_CREDENTIAL_FILE
     :annotation: = System dependent default path to the credential file.
+
+.. autoattribute:: deriva.core.DEFAULT_GLOBUS_CREDENTIAL_FILE
+    :annotation: = System dependent default path to the Globus Auth credential file.
