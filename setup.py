@@ -64,6 +64,7 @@ setup(
         'certifi',
         'pika',
         'urllib3>=1.1.5',
+        'portalocker>=1.2.1',
         'portalocker<2.0; python_version <= "3.5"',
         'scandir; python_version <= "2.7"',
         'bdbag>=1.5.6',
