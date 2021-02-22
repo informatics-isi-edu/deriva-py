@@ -44,6 +44,7 @@ DEFAULT_SESSION_CONFIG = {
     "retry_read": 4,
     "retry_backoff_factor": 1.0,
     "retry_status_forcelist": [500, 503, 504],
+    "allow_retry_on_all_methods": False,
     "cookie_jar": DEFAULT_COOKIE_JAR_FILE
 }
 OAUTH2_SCOPES_KEY = "oauth2_scopes"
@@ -171,6 +172,9 @@ def get_new_requests_session(url=None, session_config=DEFAULT_SESSION_CONFIG):
                     read=session_config['retry_read'],
                     backoff_factor=session_config['retry_backoff_factor'],
                     status_forcelist=session_config['retry_status_forcelist'],
+                    method_whitelist=Retry.DEFAULT_METHOD_WHITELIST if
+                    # Passing False to method_whitelist means allow all methods
+                    not session_config.get("allow_retry_on_all_methods", False) else False,
                     raise_on_status=True)
     adapter = TimeoutHTTPAdapter(timeout=session_config.get("timeout", DEFAULT_REQUESTS_TIMEOUT), max_retries=retries)
     if url:

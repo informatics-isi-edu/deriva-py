@@ -9,7 +9,8 @@ import datetime
 import platform
 from collections import OrderedDict
 from bdbag import bdbag_api as bdb
-from deriva.core import get_credential, format_credential, urlquote, format_exception, __version__ as VERSION
+from deriva.core import get_credential, format_credential, urlquote, format_exception, DEFAULT_SESSION_CONFIG, \
+    __version__ as VERSION
 from deriva.core.utils.version_utils import get_installed_version
 from deriva.core.ermrest_model import Model
 from deriva.core.deriva_server import DerivaServer
@@ -68,7 +69,8 @@ class DerivaRestore:
         protocol = self.server_args.get('protocol', 'https')
         self.server_url = protocol + "://" + self.hostname
         self.catalog_id = self.server_args.get("catalog_id",)
-        self.session_config = self.server_args.get('session')
+        self.session_config = self.server_args.get('session', DEFAULT_SESSION_CONFIG.copy())
+        self.session_config["allow_retry_on_all_methods"] = True
 
         # credential initialization
         token = kwargs.get("token")
