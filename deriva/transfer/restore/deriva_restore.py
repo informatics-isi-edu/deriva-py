@@ -161,7 +161,7 @@ class DerivaRestore:
             return DerivaRestoreError("Source/dest column %s mismatch %s != %s for %s:%s:%s" % (
                 fieldname,
                 sv, dv,
-                src.sname, src.tname, src.name
+                src.table.schema.name, src.table.name, src.name
             ))
 
         if src.type.typename != dst.type.typename:

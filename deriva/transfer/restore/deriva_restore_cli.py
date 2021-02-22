@@ -81,6 +81,7 @@ class DerivaRestoreCLI(BaseCLI):
                 elif e.response.status_code == requests.codes.forbidden:
                     raise DerivaRestoreAuthorizationError(
                         "A requested operation was forbidden. Server responded: %s" % e)
+                raise DerivaRestoreError(format_exception(e))
         except (DerivaRestoreError, DerivaRestoreConfigurationError,
                 DerivaRestoreAuthenticationError, DerivaRestoreAuthorizationError) as e:
             sys.stderr.write(("\n" if not args.quiet else "") + format_exception(e))
