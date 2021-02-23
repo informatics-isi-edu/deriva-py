@@ -6,7 +6,8 @@ import codecs
 import csv
 import json
 
-from . import urlquote, datapath, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, Megabyte, Kilobyte, get_transfer_summary, IS_PY2
+from . import urlquote, datapath, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, DEFAULT_SESSION_CONFIG, Megabyte, Kilobyte, \
+    get_transfer_summary, IS_PY2
 from .deriva_binding import DerivaBinding
 from . import ermrest_model
 
@@ -386,12 +387,14 @@ class ErmrestCatalog(DerivaBinding):
 
         """
         src_model = self.getCatalogModel()
+        session_config = self._session_config.copy() if self._session_config else DEFAULT_SESSION_CONFIG.copy()
+        session_config["allow_retry_on_all_methods"] = True
 
         if dst_catalog is None:
             # TODO: refactor with DerivaServer someday
-            server = DerivaBinding(self._scheme, self._server, self._credentials, self._caching, self._session_config)
+            server = DerivaBinding(self._scheme, self._server, self._credentials, self._caching, session_config)
             dst_id = server.post("/ermrest/catalog").json()["id"]
-            dst_catalog = ErmrestCatalog(self._scheme, self._server, dst_id, self._credentials, self._caching, self._session_config)
+            dst_catalog = ErmrestCatalog(self._scheme, self._server, dst_id, self._credentials, self._caching, session_config)
 
         # set top-level config right away and find fatal usage errors...
         if copy_policy:
