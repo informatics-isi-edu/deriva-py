@@ -43,7 +43,7 @@ DEFAULT_SESSION_CONFIG = {
     "retry_connect": 2,
     "retry_read": 4,
     "retry_backoff_factor": 1.0,
-    "retry_status_forcelist": [500, 503, 504],
+    "retry_status_forcelist": [500, 502, 503, 504],
     "allow_retry_on_all_methods": False,
     "cookie_jar": DEFAULT_COOKIE_JAR_FILE
 }
