@@ -1,5 +1,6 @@
 # deriva-py
 [![PyPi Version](https://img.shields.io/pypi/v/deriva.svg)](https://pypi.python.org/pypi/deriva)
+[![PyPi Downloads](https://img.shields.io/pypi/dm/deriva.svg)](https://pypistats.org/packages/deriva)
 [![PyPi Wheel](https://img.shields.io/pypi/wheel/deriva.svg)](https://pypi.python.org/pypi/deriva)
 [![Python Versions](https://img.shields.io/pypi/pyversions/deriva.svg)](https://pypi.python.org/pypi/deriva)
 [![License](https://img.shields.io/pypi/l/deriva.svg)](http://www.apache.org/licenses/LICENSE-2.0)
