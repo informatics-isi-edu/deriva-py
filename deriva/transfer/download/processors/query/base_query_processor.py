@@ -2,8 +2,6 @@ import os
 import errno
 import certifi
 import requests
-from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.util.retry import Retry
 from deriva.core import urlsplit, get_new_requests_session, stob, make_dirs, DEFAULT_SESSION_CONFIG
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError, \
     DerivaDownloadAuthenticationError, DerivaDownloadAuthorizationError

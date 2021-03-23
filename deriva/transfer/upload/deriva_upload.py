@@ -112,13 +112,12 @@ class DerivaUpload(object):
         host = self.server.get('host', '')
         self.server_url = protocol + "://" + host
         catalog_id = self.server.get("catalog_id", "1")
-        session_config = self.server.get('session')
-        # TODO: reevaluate this after some more testing
+        session_config = self.server.get('session', DEFAULT_SESSION_CONFIG.copy())
         if not session_config:
             session_config = DEFAULT_SESSION_CONFIG.copy()
             session_config["timeout"] = (6.7, 310)
-            session_config["retry_connect"] = 4
-            session_config["retry_read"] = 9
+            session_config["retry_connect"] = 5
+            session_config["retry_read"] = 10
         # overriden credential initialization
         if self.override_credential_file:
             self.credentials = get_credential(host, self.override_config_file)
@@ -401,7 +400,10 @@ class DerivaUpload(object):
         return result
 
     def validateFile(self, root, path, name):
-        file_path = os.path.normpath(os.path.join(path, name))
+        if self.config.get("relative_path_validation", False):
+            file_path = os.path.normpath(os.path.join(os.path.relpath(path, root), name))
+        else:
+            file_path = os.path.normpath(os.path.join(path, name))
         asset_group, asset_mapping, groupdict = self.getAssetMapping(file_path)
         if not asset_mapping:
             return None
@@ -822,7 +824,8 @@ class DerivaUpload(object):
                                            file_path,
                                            job_id,
                                            callback=callback,
-                                           start_chunk=transfer_state["completed"])
+                                           start_chunk=transfer_state["completed"],
+                                           cancel_job_on_error=False)
             return self.store.finalize_upload_job(path, job_id)
         else:
             logger.info("Uploading file: [%s] to host %s. Please wait..." % (
@@ -836,7 +839,8 @@ class DerivaUpload(object):
                                       chunked=chunked,
                                       create_parents=create_parents,
                                       allow_versioning=allow_versioning,
-                                      callback=callback)
+                                      callback=callback,
+                                      cancel_job_on_error=False)
 
     def _get_catalog_table_columns(self, table):
         table_columns = set()

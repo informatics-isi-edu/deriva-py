@@ -9,8 +9,7 @@ import logging
 import requests
 import portalocker
 from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.util.retry import Retry
-from requests.packages.urllib3.exceptions import MaxRetryError
+from urllib3.util.retry import Retry
 from collections import OrderedDict
 from distutils import util as du_util
 

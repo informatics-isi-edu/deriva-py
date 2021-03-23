@@ -3,7 +3,7 @@ import datetime
 import requests
 import logging
 from . import format_exception, NotModified, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, MAX_CHUNK_SIZE, urlquote, Megabyte, \
-    get_transfer_summary, MaxRetryError
+    get_transfer_summary
 from .deriva_binding import DerivaBinding
 from .utils import hash_utils as hu, mime_utils as mu
 
@@ -238,7 +238,8 @@ class HatracStore(DerivaBinding):
                 chunk_size=DEFAULT_CHUNK_SIZE,
                 create_parents=True,
                 allow_versioning=True,
-                callback=None):
+                callback=None,
+                cancel_job_on_error=True):
         """
         :param path:
         :param file_path:
@@ -252,6 +253,7 @@ class HatracStore(DerivaBinding):
         :param create_parents:
         :param allow_versioning:
         :param callback:
+        :param cancel_job_on_error:
         :return:
         """
         self.check_path(path)
@@ -284,20 +286,21 @@ class HatracStore(DerivaBinding):
                 logging.debug("HEAD request failed: %s" % format_exception(e))
             pass
 
+        job_id = self.create_upload_job(path,
+                                        file_path,
+                                        md5,
+                                        sha256,
+                                        content_type=content_type,
+                                        content_disposition=content_disposition,
+                                        create_parents=create_parents)
         try:
-            job_id = self.create_upload_job(path,
-                                            file_path,
-                                            md5,
-                                            sha256,
-                                            content_type=content_type,
-                                            content_disposition=content_disposition,
-                                            create_parents=create_parents)
-            self.put_obj_chunked(path, file_path, job_id, chunk_size, callback)
+            self.put_obj_chunked(path, file_path, job_id, chunk_size, callback, cancel_job_on_error)
             return self.finalize_upload_job(path, job_id)
-        except (requests.Timeout, MaxRetryError) as e:
+        except (requests.Timeout, requests.ConnectionError, requests.exceptions.RetryError) as e:
             raise HatracJobTimeout(e)
 
-    def put_obj_chunked(self, path, file_path, job_id, chunk_size=DEFAULT_CHUNK_SIZE, callback=None, start_chunk=0):
+    def put_obj_chunked(self, path, file_path, job_id,
+                        chunk_size=DEFAULT_CHUNK_SIZE, callback=None, start_chunk=0, cancel_job_on_error=True):
         self.check_path(path)
         if chunk_size > MAX_CHUNK_SIZE:
             chunk_size = MAX_CHUNK_SIZE
@@ -341,13 +344,12 @@ class HatracStore(DerivaBinding):
                 logging.info("File [%s] upload successful. %s" % (file_path, summary))
                 if callback:
                     callback(summary=summary, file_path=file_path)
-        except (HatracJobAborted, HatracJobPaused):
-            raise
         except:
-            try:
-                self.cancel_upload_job(path, job_id)
-            except:
-                pass
+            if cancel_job_on_error:
+                try:
+                    self.cancel_upload_job(path, job_id)
+                except:
+                    pass
             raise
 
     def create_upload_job(self,
