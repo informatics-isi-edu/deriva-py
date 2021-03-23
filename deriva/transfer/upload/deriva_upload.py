@@ -113,11 +113,6 @@ class DerivaUpload(object):
         self.server_url = protocol + "://" + host
         catalog_id = self.server.get("catalog_id", "1")
         session_config = self.server.get('session', DEFAULT_SESSION_CONFIG.copy())
-        if not session_config:
-            session_config = DEFAULT_SESSION_CONFIG.copy()
-            session_config["timeout"] = (6.7, 310)
-            session_config["retry_connect"] = 5
-            session_config["retry_read"] = 10
         # overriden credential initialization
         if self.override_credential_file:
             self.credentials = get_credential(host, self.override_config_file)
