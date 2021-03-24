@@ -403,7 +403,7 @@ class DerivaUpload(object):
         if not asset_mapping:
             return None
 
-        return asset_group, asset_mapping, groupdict, file_path
+        return asset_group, asset_mapping, groupdict, os.path.abspath(os.path.normpath(os.path.join(path, name)))
 
     def scanDirectory(self, root, abort_on_invalid_input=False, purge_state=False):
         """
