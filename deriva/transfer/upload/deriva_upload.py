@@ -852,13 +852,19 @@ class DerivaUpload(object):
         return set(row.keys()) - self._get_catalog_table_columns(table)
 
     def _validate_row_key_constraints(self, catalog_table, row):
+        logger.debug("Validating row key constraints for %s: %s" % (catalog_table, row))
         schema_name, table_name = self.catalog.splitQualifiedCatalogName(catalog_table)
         schema = self.catalog_model.schemas.get(schema_name)
         table = schema.tables.get(table_name)
         non_null_correlations = {cname for cname, cval in row.items() if cval is not None}
         for key in table.keys:
-            if set(key.unique_columns).issubset(non_null_correlations):
+            if set(key.unique_columns.elements).issubset(non_null_correlations):
+                logger.debug("%s is a subset of non-null correlations %s" %
+                             (set(key.unique_columns.elements), non_null_correlations))
                 return True  # it is safe
+            else:
+                logger.debug("%s is not a subset of non-null correlations %s" %
+                             (set(key.unique_columns.elements), non_null_correlations))
         return False  # it is not safe
 
     def _get_catalog_default_columns(self, row, table, exclude=None, quote_url=True):

@@ -154,7 +154,8 @@ class TimeoutHTTPAdapter(HTTPAdapter):
     def __init__(self, *args, **kwargs):
         self.timeout = DEFAULT_REQUESTS_TIMEOUT
         if "timeout" in kwargs:
-            self.timeout = kwargs["timeout"]
+            timeout = kwargs["timeout"]
+            self.timeout = tuple(timeout) if isinstance(timeout, list) else timeout
             del kwargs["timeout"]
         super().__init__(*args, **kwargs)
 
