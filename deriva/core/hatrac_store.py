@@ -154,7 +154,8 @@ class HatracStore(DerivaBinding):
                 sha256=None,
                 parents=True,
                 content_type=None,
-                content_disposition=None):
+                content_disposition=None,
+                allow_versioning=True):
         """Idempotent upload of object, returning object location URI.
 
            Arguments:
@@ -166,6 +167,7 @@ class HatracStore(DerivaBinding):
               parents: automatically create parent namespace(s) if missing
               content_type: the content-type of the object (optional)
               content_disposition: the preferred content-disposition of the object (optional)
+              allow_versioning: reject with NotModified if content already exists (optional)
            Automatically computes and sends Content-MD5 if no digests provided.
 
            If an object-version already exists under the same name
@@ -189,13 +191,18 @@ class HatracStore(DerivaBinding):
 
         try:
             r = self.head(path)
-            if r.status_code == 200 and \
-                    (md5 and r.headers.get('Content-MD5') == md5 or
-                     sha256 and r.headers.get('Content-SHA256') == sha256):
-                # object already has same content so skip upload
-                f.close()
-                return r.headers.get('Content-Location')
+            if r.status_code == 200:
+                if (md5 and r.headers.get('Content-MD5') == md5 or
+                        sha256 and r.headers.get('Content-SHA256') == sha256):
+                    # object already has same content so skip upload
+                    f.close()
+                    return r.headers.get('Content-Location')
+                elif not allow_versioning:
+                    raise NotModified("The data cannot be uploaded because content already exists for this object "
+                                      "and multiple versions are not allowed.")
         except requests.HTTPError as e:
+            if e.response.status_code != 404:
+                logging.debug("HEAD request failed: %s" % format_exception(e))
             pass
 
         # TODO: verify incoming hashes if supplied?
@@ -266,21 +273,22 @@ class HatracStore(DerivaBinding):
                                 sha256,
                                 content_type=content_type,
                                 content_disposition=content_disposition,
-                                parents=create_parents)
+                                parents=create_parents,
+                                allow_versioning=allow_versioning)
 
         if not (md5 or sha256):
             md5 = hu.compute_file_hashes(file_path, hashes=['md5'])['md5'][1]
 
         try:
             r = self.head(path)
-            if r.status_code == 200 and \
-                    (md5 and r.headers.get('Content-MD5') == md5 or
-                     sha256 and r.headers.get('Content-SHA256') == sha256):
-                # object already has same content so skip upload
-                return r.headers.get('Content-Location')
-            elif not allow_versioning:
-                raise NotModified("The file [%s] cannot be uploaded because content already exists for this object "
-                                  "and multiple versions are not allowed." % file_path)
+            if r.status_code == 200:
+                if (md5 and r.headers.get('Content-MD5') == md5 or
+                        sha256 and r.headers.get('Content-SHA256') == sha256):
+                    # object already has same content so skip upload
+                    return r.headers.get('Content-Location')
+                elif not allow_versioning:
+                    raise NotModified("The file [%s] cannot be uploaded because content already exists for this object "
+                                      "and multiple versions are not allowed." % file_path)
         except requests.HTTPError as e:
             if e.response.status_code != 404:
                 logging.debug("HEAD request failed: %s" % format_exception(e))
