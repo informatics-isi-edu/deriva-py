@@ -294,7 +294,12 @@ class HatracStore(DerivaBinding):
                                         content_disposition=content_disposition,
                                         create_parents=create_parents)
         try:
-            self.put_obj_chunked(path, file_path, job_id, chunk_size, callback, cancel_job_on_error)
+            self.put_obj_chunked(path,
+                                 file_path,
+                                 job_id,
+                                 chunk_size=chunk_size,
+                                 callback=callback,
+                                 cancel_job_on_error=cancel_job_on_error)
             return self.finalize_upload_job(path, job_id)
         except (requests.Timeout, requests.ConnectionError, requests.exceptions.RetryError) as e:
             raise HatracJobTimeout(e)
@@ -307,7 +312,7 @@ class HatracStore(DerivaBinding):
         job_info = self.get_upload_job(path, job_id).json()
         try:
             file_size = os.path.getsize(file_path)
-            chunks = file_size / chunk_size
+            chunks = file_size // chunk_size
             if file_size % chunk_size:
                 chunks += 1
             with open(file_path, 'rb') as f:
