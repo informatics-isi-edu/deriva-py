@@ -418,6 +418,9 @@ class Schema (object):
             raise ValueError('Schema %s does not appear to belong to model.' % (self,))
         self.catalog.delete(self.uri_path).raise_for_status()
         del self.model.schemas[self.name]
+        for table in self.tables.values():
+            for fkey in table.foreign_keys:
+                del fkey.pk_table.referenced_by[fkey.name]
 
     @object_annotation(tag.display)
     def display(self): pass
@@ -970,6 +973,8 @@ class Table (object):
             raise ValueError('Table %s does not appear to belong to schema %s.' % (self, self.schema))
         self.catalog.delete(self.uri_path).raise_for_status()
         del self.schema.tables[self.name]
+        for fkey in self.foreign_keys:
+            del fkey.pk_table.referenced_by[fkey.name]
 
     def key_by_columns(self, unique_columns, raise_nomatch=True):
         """Return key from self.keys with matching unique columns.
