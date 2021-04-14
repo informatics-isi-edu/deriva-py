@@ -24,7 +24,7 @@ $ pip install --user deriva
 
 #### Installation via Github
 
-This project is actively developed. The `master` branch is expect to be stable and usable at every
+This project is actively developed. The `master` branch is expected to be stable and usable at every
 commit. The APIs and CLIs may change in backward-incompatible ways, so if you depend on an interface you should remember
 the GIT commit number.
 
