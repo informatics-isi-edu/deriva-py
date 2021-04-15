@@ -420,7 +420,7 @@ class Schema (object):
         del self.model.schemas[self.name]
         for table in self.tables.values():
             for fkey in table.foreign_keys:
-                fkey.cleanup()
+                fkey._cleanup()
 
     @object_annotation(tag.display)
     def display(self): pass
@@ -974,7 +974,7 @@ class Table (object):
         self.catalog.delete(self.uri_path).raise_for_status()
         del self.schema.tables[self.name]
         for fkey in self.foreign_keys:
-            fkey.cleanup()
+            fkey._cleanup()
 
     def key_by_columns(self, unique_columns, raise_nomatch=True):
         """Return key from self.keys with matching unique columns.
@@ -1776,9 +1776,9 @@ class ForeignKey (object):
             raise ValueError('Foreign key %s does not appear to belong to table %s.' % (self, self.table))
         self.catalog.delete(self.uri_path).raise_for_status()
         del self.table.foreign_keys[self.name]
-        self.cleanup()
+        self._cleanup()
 
-    def cleanup(self):
+    def _cleanup(self):
         """Cleanup references in the local model following drop from remote database.
         """
         del self.pk_table.referenced_by[self.name]
