@@ -41,6 +41,7 @@ setup(
     package_data={
         'deriva.core': ['schemas/*.schema.json']
     },
+    python_requires='>=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*, !=3.5.*, <4',
     entry_points={
         'console_scripts': [
             'deriva-upload-cli = deriva.transfer.upload.__main__:main',
@@ -83,7 +84,6 @@ setup(
         'Operating System :: Microsoft :: Windows',
         'Programming Language :: Python',
         'Programming Language :: Python :: 2.7',
-        'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8'
