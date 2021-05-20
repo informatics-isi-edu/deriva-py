@@ -409,7 +409,7 @@ class Export2GEO(object):
                         r.get('Technical_Replicate_Number', ''))
                     sample_organism = e.get('Species', '')
                     sample_molecule = e.get('Molecule_Type', '')
-                    sample_description = r.get('Notes', '')
+                    sample_description = r.get('Notes', '') # should use Specimen.Upload_Notes instead. This is being ignored.
 
 
                     # the characteristic should show as one column in sample section, if samples has value it
@@ -581,6 +581,12 @@ class Export2GEO(object):
                                     self.excel.write_cell(self.header_row_idx, local_col_idx, 'characteristics: '+c, Style.HEADER)
                                     self.excel.write_cell(self.current_row_idx, local_col_idx, characteristic)
                                     local_col_idx += 1
+
+                            #sample description: from Specimen.Upload_notes
+                            self.excel.write_cell(self.header_row_idx, local_col_idx, 'description', Style.HEADER)
+                            self.excel.write_cell(self.current_row_idx, local_col_idx, s.get('Upload_Notes', ''))
+                            local_col_idx += 1
+                            
                         else:
                             continue
 
@@ -589,12 +595,6 @@ class Export2GEO(object):
                     self.excel.write_cell(self.current_row_idx, local_col_idx, sample_molecule)
                     local_col_idx += 1
 
-                    self.excel.write_cell(self.header_row_idx, local_col_idx, 'description', Style.HEADER)
-                    self.excel.write_cell(self.current_row_idx, local_col_idx, sample_description)
-                    local_col_idx += 1
-
-                    
-                    
                     # processed files in template are write to supplementary file
                     # 1. set flagWhitelist to False then all the files will pass
                     # 2. set flagWhitelist to True and fileEndingList to [] then no file will pass
