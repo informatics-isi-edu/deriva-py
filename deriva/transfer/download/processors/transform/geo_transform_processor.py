@@ -167,9 +167,19 @@ class Export2GEO(object):
         self.other_item = ['Data_Processing', 'Reference_Genome']
         self.other_item_unique = {}
         self.other_item_list = {}
+        # whether to filter study_file
+        # note: ext should all be lower case as we lower case the filename before comparison
+        self.study_file_filter = True
+        self.study_file_ext_list = [".csv",".csv.gz",".txt.gz",".txt",".tsv",".tsv.gz",".xls",".xlsx",".mtx",".bw"]
+        # whether to filter replicate_files
+        # Removing .bai, .I1.fastq.gz from whitelist, GEO will ignore it as per Gervaise.
+        # note: ext should all be lower case as we lower case the filename before comparison
+        self.replicate_file_filter = True
+        self.replicate_file_ext_list = [ ".bam","r1.fastq","r1.fastq.gz","r2.fastq","r2.fastq.gz" ] 
         self.initialize_data()
 
     def initialize_data(self):
+        #print("initilaize_data: begin")
         with open(self.input_file) as input_file:
             data = json.load(input_file)
             self.study = None
@@ -198,15 +208,14 @@ class Export2GEO(object):
 
                 # Adding sorting to files based on key ( Replicate-RID, FileName )
                 # https://github.com/informatics-isi-edu/rbk-project/issues/615
-                if self.replicates and len(self.replicates) > 1 and self.replicates[0] is not None:
-                    self.replicates.sort( key = lambda x: ( x.get('RID') ) )
-                
-                if self.files and len(self.files) > 1 and self.files[0] is not None:
-                    self.files.sort( key = lambda x: ( x.get('Replicate_RID'), x.get('File_Name') ) )
-
-                if self.study_files and len(self.study_files) > 1 and self.study_files[0] is not None:
-                    self.study_files.sort( key = lambda x: ( x.get('File_Name') ) )
-
+                # the array can contain None, so the function needs to handle this case. 
+                if self.replicates and len(self.replicates) > 1:
+                    self.replicates.sort( key = (lambda x: x.get('RID') if x is not None else ''))
+                if self.files and len(self.files) > 1:
+                    self.files.sort( key = (lambda x: (x.get('Replicate_RID'), x.get('File_Name')) if x is not None else ('', '')))                    
+                if self.study_files and len(self.study_files) > 1:
+                    self.study_files.sort( key = (lambda x: x.get('File_Name') if x is not None else ''))
+        #print("initilaize_data: end")
 
 
     def export_start(self):
@@ -231,6 +240,7 @@ class Export2GEO(object):
     # words may need update if GEO template update
     # https://www.ncbi.nlm.nih.gov/geo/info/seq.html#metadata
     def export_preface(self):
+        #print("export_preface: start")
         self.current_row_idx = 1
         self.excel.write_cell(self.current_row_idx, 1, '# High-throughput sequencing metadata template (version 2.1).',
                               Style.PREFACE)
@@ -257,9 +267,11 @@ class Export2GEO(object):
         for col in range(2, 13):
             for row in range(1, 7):
                 self.excel.write_cell(row, col, '', Style.PREFACE)
+        #print("export_preface: end")
 
     # export SERIES(study)
     def export_series(self):
+        ##print("export_series: begin")
         self.excel.write_cell(self.current_row_idx, 1, 'SERIES', Style.SECTION)
         self.current_row_idx += 1
         self.excel.write_cell(self.current_row_idx, 1, '# This section describes the overall experiment.',
@@ -281,22 +293,34 @@ class Export2GEO(object):
         self.current_row_idx += 1
 
         # one line for each study file
-        if len(self.study_files) >= 1 and self.study_files[0] is not None:
-            file_path = self.parameters.get("study_files_path_template", self.study_files[0].get("File_Name", ""))
-            self.excel.write_cell(self.current_row_idx, 1, 'supplementary file', Style.FIELD)
-            self.excel.write_cell(self.current_row_idx, 2, file_path.format(**self.study_files[0]))
-            self.current_row_idx += 1
-            for i in range(len(self.study_files) - 1):
-                file_path = self.parameters.get("study_files_path_template", self.study_files[i + 1].get("File_Name", ""))
-                self.excel.write_cell(self.current_row_idx, 1, 'supplementary file', Style.FIELD)
-                self.excel.write_cell(self.current_row_idx, 2,  file_path.format(**self.study_files[i + 1]))
-                self.current_row_idx += 1
+        if self.study_files and len(self.study_files) >= 1:
+            for pf in self.study_files:
+                # in a left join, any row could be null. Check each row. 
+                if pf is None:
+                    continue
+                # check against the white list
+                if self.study_file_filter:
+                    valid_file = False
+                    for str in self.study_file_ext_list:
+                        if pf.get('File_Name') is not None and pf.get('File_Name').lower().endswith(str):
+                            valid_file = True
+                            break
+                else:
+                    valid_file = True
+
+                if valid_file:
+                    file_path = self.parameters.get("study_files_path_template", pf.get("File_Name", ""))
+                    self.excel.write_cell(self.current_row_idx, 1, 'supplementary file', Style.FIELD)
+                    self.excel.write_cell(self.current_row_idx, 2, file_path.format(**pf))
+                    self.current_row_idx += 1
         else:
             self.excel.write_cell(self.current_row_idx, 2, '')
             logging.debug('No study file')
-
+        #print("export_series: end")
+        
     # prepare the data for sample export
     def export_sample_prepare(self):
+        #print("export_sample_prepare: begin")        
         # check self.protocol unique
         for p in self.protocol_type:
             # protocols which are applicable to only a subset of Samples should be included
@@ -344,9 +368,11 @@ class Export2GEO(object):
                 elif e[i] not in self.other_item_list[i] and e[i] is not None and e[i] != 'None':
                     self.other_item_list[i].append(e[i])
                     self.other_item_unique[i] = False
-
+        #print("export_sample_prepare: end")
+    
     # export data of all the samples in one study
     def export_sample(self):
+        #print("export_sample: begin")
         self.current_row_idx += 1
         self.excel.write_cell(self.current_row_idx, 1, 'SAMPLES', Style.SECTION)
         self.current_row_idx += 1
@@ -375,8 +401,6 @@ class Export2GEO(object):
                 if r is None or 'Experiment_RID' not in r.keys() or 'RID' not in r.keys():
                     continue
                 elif r['Experiment_RID'] == e['RID']:
-                    local_col_idx = 1
-                    self.current_row_idx += 1
                     # construct sample_name using internal_ID,Biological_Replicate_Number and Technical_Replicate_Number
                     sample_name = e.get('Internal_ID', '') + '_' + str(
                         r.get('Biological_Replicate_Number', '')) + '_' + str(
@@ -387,12 +411,6 @@ class Export2GEO(object):
                     sample_molecule = e.get('Molecule_Type', '')
                     sample_description = r.get('Notes', '')
 
-                    self.excel.write_cell(self.header_row_idx, local_col_idx, 'Sample name', Style.HEADER)
-                    self.excel.write_cell(self.current_row_idx, local_col_idx, sample_name)
-                    local_col_idx += 1
-                    self.excel.write_cell(self.header_row_idx, local_col_idx, 'title', Style.HEADER)
-                    self.excel.write_cell(self.current_row_idx, local_col_idx, sample_title)
-                    local_col_idx += 1
 
                     # the characteristic should show as one column in sample section, if samples has value it
                     characteristic_list = ['Phenotype', 'Stage_ID', 'Stage_Detail', 'Genotype', 'Strain', 'Wild_Type',
@@ -408,15 +426,16 @@ class Export2GEO(object):
                             else:
                                 continue
 
-                    # check specimen tissue , if exist, add source
+                    # check specimen tissue for "source name"
                     #/Src:=left(Tissue)=(Vocabulary:Anatomy:ID)
                     if self.source_type:
+                        source_name_exist = False
                         for f in self.source_type:
-                            if f is None:
-                                continue
-                            else:
-                                characteristic_exist.append('Source')
+                            if f is not None:
+                                source_name_exist = True
                                 break
+                    
+                    # check other characteristics
                     if self.cell_type:
                         for f in self.cell_type:
                             if f is None:
@@ -444,28 +463,39 @@ class Export2GEO(object):
                         characteristic_exist.remove('Stage_Detail')
                         characteristic_exist.append('Stage')
 
+                    # -- start writing
+                    local_col_idx = 1
+                    self.current_row_idx += 1
+
+                    self.excel.write_cell(self.header_row_idx, local_col_idx, 'Sample name', Style.HEADER)
+                    self.excel.write_cell(self.current_row_idx, local_col_idx, sample_name)
+                    local_col_idx += 1
+                    self.excel.write_cell(self.header_row_idx, local_col_idx, 'title', Style.HEADER)
+                    self.excel.write_cell(self.current_row_idx, local_col_idx, sample_title)
+                    local_col_idx += 1
+
+
                     # handling source name
                     for s in self.specimen:
                         if s is None or 'REPLICATE_RID' not in s.keys():
                             continue
                         elif s['RID'] == r['Specimen_RID']:
-                            # handling source name
-                            for c in characteristic_exist:
-                                if c == "Source":
-                                    source_type = ''
-                                    for p in self.tissue:
-                                        for q in self.source_type:
-                                            if p is None or q is None:
-                                                continue
-                                            elif s['RID'] == p['Specimen_RID'] and p['Tissue'] == q['ID']:
-                                                source_type = source_type + q['Name'] + ','
-                                            else:
-                                                continue
-                                    characteristic = source_type[:-1] if len(source_type) > 0 else ''
-                                    self.excel.write_cell(self.header_row_idx, local_col_idx, 'source name', Style.HEADER)
-                                    self.excel.write_cell(self.current_row_idx, local_col_idx, characteristic)
-                                    local_col_idx += 1
-
+                            # if source_name_exist, add a column
+                            if source_name_exist:
+                                source_type = ''
+                                for p in self.tissue:
+                                    for q in self.source_type:
+                                        if p is None or q is None:
+                                            continue
+                                        elif s['RID'] == p['Specimen_RID'] and p['Tissue'] == q['ID']:
+                                            source_type = source_type + q['Name'] + ','
+                                        else:
+                                            continue
+                                characteristic = source_type[:-1] if len(source_type) > 0 else ''
+                                self.excel.write_cell(self.header_row_idx, local_col_idx, 'source name', Style.HEADER)
+                                self.excel.write_cell(self.current_row_idx, local_col_idx, characteristic)
+                                local_col_idx += 1
+                    
                     # handling organism
                     self.excel.write_cell(self.header_row_idx, local_col_idx, 'organism', Style.HEADER)
                     self.excel.write_cell(self.current_row_idx, local_col_idx, sample_organism)
@@ -569,8 +599,8 @@ class Export2GEO(object):
                     # 1. set flagWhitelist to False then all the files will pass
                     # 2. set flagWhitelist to True and fileEndingList to [] then no file will pass
                     # 3. set flagWhitelist to True and fileEndingList to [xxx,yyy] then only files ending with xxx,yyy will pass
-                    flagWhitelist = True
-                    fileTypeWhiteList = [ ".bam",".fastq",".fastq.gz" ] 
+                    flagWhitelist = self.replicate_file_filter
+                    fileTypeWhiteList = self.replicate_file_ext_list
                     
                     for f in self.files:
                         validFile = False
@@ -580,6 +610,7 @@ class Export2GEO(object):
                             for extension in fileTypeWhiteList:
                                 if f.get('File_Name') is not None and f.get('File_Name').lower().endswith(extension):
                                     validFile = True
+                                    break
                         else:
                             # if flagWhitelist == False then all the files are valid
                             validFile = True
@@ -593,9 +624,11 @@ class Export2GEO(object):
                             continue
                 else:
                     continue
-
+        #print("export_sample: end")
+    
     # export data for protocol section
     def export_protocol(self):
+        #print("export_protocol: begin")
         self.current_row_idx = self.current_row_idx + 2
         self.excel.write_cell(self.current_row_idx, 1, 'PROTOCOLS', Style.SECTION)
         self.current_row_idx += 1
@@ -668,9 +701,11 @@ class Export2GEO(object):
                     library_type_list.append(es['Library_Type'])
 
         self.excel.write_cell(self.current_row_idx, 2, ','.join(library_type_list))
-
+        #print("export_protocol: end")
+    
     # export data processing pipline information
     def export_data_processing(self):
+        #print("export_data_processing: begin")
         # DATA PROCESSING PIPELINE
         self.current_row_idx = self.current_row_idx + 2
 
@@ -718,11 +753,18 @@ class Export2GEO(object):
             self.current_row_idx += 1
 
         for k, v in other_procession_set.items():
-            if v and k not in ['RCB', 'RCT', 'RID', 'RMB', 'RMT'] and len(v) > 0:
-                if k in ['Library','Visualization','Alignment','Sequencing_Method','Quantification'] and 'detail' in v:
-                    continue
+            #print('processing: %s %s' % (k, v))
+            if k in ['RCB', 'RCT', 'RID', 'RMB', 'RMT']:
+                continue
+            
+            # ignore static columns
+            if k in ['Library','Visualization','Alignment','Sequencing_Method','Quantification']:
+                continue
+
+            # check truthiness except boolean and int type e.g. allow False and 0
+            if v or isinstance(v, (bool, int, float)):
                 self.excel.write_cell(self.current_row_idx, 1, 'data processing step', Style.FIELD)
-                self.excel.write_cell(self.current_row_idx, 2, k + ' : ' + v)
+                self.excel.write_cell(self.current_row_idx, 2, '%s : %s' % (k, v))
                 self.current_row_idx += 1
 
         if self.other_item_unique['Reference_Genome']:
@@ -740,9 +782,11 @@ class Export2GEO(object):
         self.excel.write_cell(self.current_row_idx, 2, 'processed data file format')
         self.current_row_idx += 1
 
+        #print("export_data_processing: end")
     
     # export processed datafile names of this study
     def export_processed_datafiles(self):
+        #print("export_processed_datafiles: begin")        
         self.current_row_idx += 1
         self.excel.write_cell(self.current_row_idx, 1,
                               ('# For each file listed in the "processed data file" columns of '
@@ -758,9 +802,8 @@ class Export2GEO(object):
         # 1. set flagWhitelist to False then all the files will pass
         # 2. set flagWhitelist to True and fileEndingList to [] then no file will pass
         # 3. set flagWhitelist to True and fileEndingList to [xxx,yyy] then only files ending with xxx,yyy will pass
-        flagWhitelist = True
-        # Adding .bw to the Study_File whitelist
-        fileTypeWhiteList = [".csv",".csv.gz",".txt.gz",".txt",".tsv",".tsv.gz",".xls",".xlsx",".mtx",".bw"]
+        flagWhitelist = self.study_file_filter
+        fileTypeWhiteList = self.study_file_ext_list
 
         for pf in self.study_files:
             validFile = False
@@ -770,6 +813,7 @@ class Export2GEO(object):
                 for str in fileTypeWhiteList:
                     if pf.get('File_Name') is not None and pf.get('File_Name').lower().endswith(str):
                         validFile = True
+                        break
             else:
                 # if flagWhitelist == False then all the files are valid
                 validFile = True
@@ -786,7 +830,7 @@ class Export2GEO(object):
                 self.excel.write_cell(self.header_row_idx, local_col_idx, 'file checksum', Style.HEADER)
                 self.excel.write_cell(self.current_row_idx, local_col_idx, pf.get('MD5', ''))
                 self.current_row_idx += 1
-
+        #print("export_processed_datafiles: end")        
 
     # export raw datafile names of this study
     def export_raw_datafiles(self):
@@ -805,7 +849,7 @@ class Export2GEO(object):
         # Group the File Names by Replicate RID's
         replicateFileDict = {}    
         for pf in self.files:
-            if pf.get('Replicate_RID') is None or pf.get('File_Name') is None:
+            if pf is None or pf.get('Replicate_RID') is None or pf.get('File_Name') is None:
                 continue
             elif pf['Replicate_RID'] in replicateFileDict:
                 replicateFileDict[ pf['Replicate_RID'] ].append( pf['File_Name'] )
@@ -845,9 +889,8 @@ class Export2GEO(object):
         # 1. set flagWhitelist to False then all the files will pass
         # 2. set flagWhitelist to True and fileEndingList to [] then no file will pass
         # 3. set flagWhitelist to True and fileEndingList to [xxx,yyy] then only files ending with xxx,yyy will pass
-        flagWhitelist = True
-        # Removing .bai from whitelist, GEO will ignore it as per Gervaise.
-        fileTypeWhiteList = [ ".bam",".fastq",".fastq.gz" ] 
+        flagWhitelist = self.replicate_file_filter
+        fileTypeWhiteList = self.replicate_file_ext_list
         for pf in self.files:
             validFile = False
             if pf is None or 'Experiment_RID' not in pf.keys():
@@ -857,9 +900,11 @@ class Export2GEO(object):
                 for str in fileTypeWhiteList:
                     if pf.get('File_Name') is not None and pf.get('File_Name').lower().endswith(str):
                         validFile = True
+                        break
             else:
                 # if flagWhitelist == False then all the files are valid
                 validFile = True
+            #print("%s %s" %(pf.get("File_Name", ""), validFile))
             if validFile:
                 current_col_idx = 1
                 file_path = self.parameters.get("replicate_files_path_template", pf.get("File_Name", ""))
@@ -917,8 +962,9 @@ class Export2GEO(object):
                         current_col_idx += 1
 
                 self.current_row_idx += 1
-
+    
     def export_paired_end(self):
+        #print("export_paired_end: begin")        
         # PAIRED-END EXPERIMENTS
         # todo need check what's paired-end data look like
         # currently, we haven't seen paired-end data
@@ -941,6 +987,8 @@ class Export2GEO(object):
         self.excel.write_cell(self.header_row_idx, current_col_idx, 'average insert size', Style.HEADER)
         current_col_idx += 1
         self.excel.write_cell(self.header_row_idx, current_col_idx, 'standard deviation', Style.HEADER)
+        #print("export_paired_end: end")
 
+    
     def export_finish(self):
         self.excel.save_xlsx()
