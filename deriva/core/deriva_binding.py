@@ -109,31 +109,35 @@ def _response_raise_for_status(self):
 class DerivaBinding (object):
     """This is a base-class for implementation purposes. Not useful for clients."""
 
-    def __init__(self, scheme, server, credentials=None, caching=True, session_config=None):
+    def __init__(self, scheme, server, credentials=None, caching=True, session_config=None, cache=None, session=None, dcctx=None):
         """Create HTTP(S) server binding.
 
-           Arguments:
-             scheme: 'http' or 'https'
-             server: server FQDN string
-             credentials: credential secrets, e.g. cookie
-             caching: whether to retain a GET response cache
+        :param scheme: 'http' or 'https'
+        :param server: server FQDN string
+        :param credentials: credential secrets, e.g. cookie
+        :param caching: whether to retain a GET response cache
+        :param session_config: session config or None to get DEFAULT_SESSION_CONFIG
+        :param cache: a cache object to share (internal use only)
+        :param session: a session object to share (internal use only)
+        :param dcctx: a DerivaClientContext instance to share
 
-           Deriva Client Context: You MAY mutate self.dcctx to
-           customize the context for this service endpoint prior to
-           invoking web requests.  E.g.:
+        Deriva Client Context: You MAY mutate self.dcctx to
+        customize the context for this service endpoint prior to
+        invoking web requests.  E.g.:
 
              self.dcctx['cid'] = 'my application name'
 
-           You MAY also supply custom per-request context by passing a
-           headers dict to web request methods, e.g. 
+        You MAY also supply custom per-request context by passing a
+        headers dict to web request methods, e.g.
 
              self.get(..., headers={'deriva-client-context': {'action': 'myapp/function1'}})
 
-           This custom header will be merged as override values with
-           the default context in self.dcctx in order to form the
-           complete context for the request.
+        This custom header will be merged as override values with
+        the default context in self.dcctx in order to form the
+        complete context for the request.
 
         """
+        self._scheme, self._server = scheme, server
         self._base_server_uri = "%s://%s" % (
             scheme,
             server
@@ -142,17 +146,24 @@ class DerivaBinding (object):
 
         if not session_config:
             session_config = DEFAULT_SESSION_CONFIG
-        self._session = None
-        self._get_new_session(session_config)
+        self._session_config = session_config
+        self._session = session
+        if self._session is None:
+            self._get_new_session(self._session_config)
 
         self._caching = caching
-        self._cache = {}
+        self._cache = cache
+        if self._cache is None:
+            self._cache = {}
 
         self._response_raise_for_status = _response_raise_for_status
 
-        self.dcctx = DerivaClientContext()
+        self.dcctx = dcctx
+        if self.dcctx is None:
+            self.dcctx = DerivaClientContext()
 
-        self.set_credentials(credentials, server)
+        self._credentials = credentials
+        self.set_credentials(credentials)
 
     def get_server_uri(self):
         return self._server_uri
@@ -214,13 +225,15 @@ class DerivaBinding (object):
         setattr(r, 'raise_for_status', _response_raise_for_status.__get__(r))
         return r
 
-    def set_credentials(self, credentials, server):
+    def set_credentials(self, credentials, server=None):
         if not credentials:
             return
+        if server is not None:
+            assert server == self._server
         assert self._session is not None
         if 'cookie' in credentials:
             cname, cval = credentials['cookie'].split('=', 1)
-            self._session.cookies.set(cname, cval, domain=server, path='/')
+            self._session.cookies.set(cname, cval, domain=self._server, path='/')
         elif 'bearer-token' in credentials:
             self._session.headers.update({'Authorization': 'Bearer {token}'.format(token=credentials['bearer-token'])})
         elif 'username' in credentials and 'password' in credentials:

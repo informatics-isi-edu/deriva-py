@@ -6,6 +6,8 @@ import codecs
 import csv
 import json
 
+from requests.exceptions import HTTPError
+
 from . import urlquote, datapath, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, DEFAULT_SESSION_CONFIG, Megabyte, Kilobyte, \
     get_transfer_summary, IS_PY2
 from .deriva_binding import DerivaBinding
@@ -20,6 +22,168 @@ _clone_state_url = "tag:isrd.isi.edu,2018:clone-status"
 
 DEFAULT_PAGE_SIZE = 100000
 
+class DerivaServer (DerivaBinding):
+    """Persistent handle for a Deriva server.
+    """
+
+    def __init__(self, scheme, server, credentials=None, caching=True, session_config=None, cache=None, session=None, dcctx=None):
+        """Create a Deriva server binding.
+
+        :param scheme: 'http' or 'https'
+        :param server: server FQDN string
+        :param credentials: credential secrets, e.g. cookie
+        :param caching: whether to retain a GET response cache
+        :param session_config: session config or None to get DEFAULT_SESSION_CONFIG
+        :param cache: a cache object to share (internal use only)
+        :param session: a session object to share (internal use only)
+        :param dcctx: a DerivaClientContext instance to share
+        """
+        super(DerivaServer, self).__init__(scheme, server, credentials, caching, session_config, cache, session, dcctx)
+
+    @property
+    def ermrest_features(self):
+        """Get feature flags dictionary announced by ERMrest service."""
+        try:
+            r = self.get('/ermrest/')
+            r.raise_for_status()
+            # older ERMrest server lacks feature announcement, treat as empty
+            return r.json().get('features', {})
+        except HTTPError as e:
+            if r.status_code == requests.codes.bad_request:
+                # very old ERMrest server doesn't provide resource, treat as empty
+                return {}
+            raise
+        # let other unexpected errors leak out...
+
+    def connect_ermrest(self, catalog_id, snaptime=None):
+        """Connect to an ERMrest catalog, returning an ErmrestCatalog or ErmrestSnapshot instance.
+
+        :param catalog_id: e.g., '1' or '1@2PM-DGYP-56Z4'
+        :param snaptime: e.g., '2PM-DGYP-56Z4' (optional)
+        """
+        if not snaptime:
+            splits = str(catalog_id).split('@')
+            if len(splits) > 2:
+                raise Exception('Malformed catalog identifier: multiple "@" characters found.')
+            catalog_id = splits[0]
+            snaptime = splits[1] if len(splits) == 2 else None
+
+        if snaptime:
+            return ErmrestSnapshot(
+                self._scheme, self._server, catalog_id, snaptime,
+                self._credentials,
+                self._caching, self._session_config,
+                self._cache, self._session, self.dcctx,
+            )
+
+        return ErmrestCatalog(
+            self._scheme, self._server, catalog_id,
+            self._credentials,
+            self._caching, self._session_config,
+            self._cache, self._session, self.dcctx,
+        )
+
+    def create_ermrest_catalog(self, id=None, owner=None):
+        """Create an ERMrest catalog.
+
+        :param id: Desired identifier for the new catalog or None to get server-assigned value (default)
+        :param owner: Desired ownership ACL for new catalog or None to get server-assigned value (default)
+
+        Usage of the optional arguments may raise a ValueError if
+        talking to an older ERMrest installation which does not
+        support the feature.
+
+        """
+        path = '/ermrest/catalog'
+        payload = None
+        if id is not None or owner is not None:
+            payload = {
+                "id": id,
+                "owner": owner,
+            }
+            if not self.ermrest_features.get('catalog_post_input', False):
+                raise ValueError('Catalog creation input %r not supported by service.' % (payload,))
+        r = self.post(path, json=payload)
+        r.raise_for_status()
+        return self.connect_ermrest(r.json()['id'])
+
+    def create_ermrest_alias(self, id=None, owner=None, alias_target=None):
+        """Create an ERMrest alias, returning the new alias identifier.
+
+        :param id: Desired identifier for the new alias or None to get server-assigned value (default)
+        :param owner: Desired ownership ACL for new alias or None to get server-assigned value (default)
+        :param alias_target: Existing catalog ID to which alias should be bound or None to leave unbound (default)
+
+        May raise a ValueError if talking to an older ERMrest
+        installation which does not support the feature.
+
+        API used: POST /ermrest/alias/
+        """
+        if not self.ermrest_features.get('catalog_alias', False):
+            raise ValueError('Alias creation not supported by service.')
+        payload = {
+            "id": id,
+            "owner": owner,
+            "alias_target": alias_target,
+        }
+        r = self.post("/ermrest/alias", json=payload)
+        r.raise_for_status()
+        return r.json()['id']
+
+    def read_ermrest_alias(self, id):
+        """Inspect an ERMrest alias, returning its current configuration.
+
+        :param id: Identifier for alias to inspect.
+
+        May raise a ValueError if talking to an older ERMrest
+        installation which does not support the feature.
+
+        API used: GET /ermrest/alias/{id}
+        """
+        if not self.ermrest_features.get('catalog_alias', False):
+            raise ValueError('Alias management not supported by service.')
+        r = self.get("/ermrest/alias/%s" % urlquote(id))
+        r.raise_for_status()
+        return r.json()
+
+    def update_ermrest_alias(self, id, owner, alias_target):
+        """Manage an ERMrest alias, returning the updated alias configuration.
+
+        :param id: Identifier for alias to manage
+        :param owner: Next ownership ACL for alias
+        :param alias_target: Next catalog ID to which alias should be bound
+
+        An alias may be unbound by supplying alias_target=None.
+
+        May raise a ValueError if talking to an older ERMrest
+        installation which does not support the feature.
+
+        API used: PUT /ermrest/alias/{id}
+        """
+        if not self.ermrest_features.get('catalog_alias', False):
+            raise ValueError('Alias management not supported by service.')
+        payload = {
+            "owner": owner,
+            "alias_target": alias_target,
+        }
+        r = self.put("/ermrest/alias/%s" % urlquote(id), json=payload)
+        r.raise_for_status()
+        return r.json()
+
+    def delete_ermrest_alias(self, id):
+        """Delete an ERMrest alias.
+
+        :param id: Identifier for alias to delete.
+
+        May raise a ValueError if talking to an older ERMrest
+        installation which does not support the feature.
+
+        API used: DELETE /ermrest/alias/{id}
+        """
+        if not self.ermrest_features.get('catalog_alias', False):
+            raise ValueError('Alias management not supported by service.')
+        r = self.delete("/ermrest/alias/%s" % urlquote(id))
+        r.raise_for_status()
 
 class ErmrestCatalog(DerivaBinding):
     """Persistent handle for an ERMrest catalog.
@@ -32,42 +196,69 @@ class ErmrestCatalog(DerivaBinding):
     """
     table_schemas = dict()
 
-    def __init__(self, scheme, server, catalog_id, credentials=None, caching=True, session_config=None):
+    def __init__(self, scheme, server, catalog_id, credentials=None, caching=True, session_config=None, session=None, cache=None, dcctx=None):
         """Create ERMrest catalog binding.
 
-           Arguments:
-             scheme: 'http' or 'https'
-             server: server FQDN string
-             catalog_id: e.g. '1'
-             credentials: credential secrets, e.g. cookie
-             caching: whether to retain a GET response cache
+        :param scheme: 'http' or 'https'
+        :param server: server FQDN string
+        :param catalog_id: e.g. '1'
+        :param credentials: credential secrets, e.g. cookie
+        :param caching: whether to retain a GET response cache
+        :param session_config: session config or None to get DEFAULT_SESSION_CONFIG
+        :param cache: a cache object to share (internal use only)
+        :param session: a session object to share (internal use only)
+        :param dcctx: a DerivaClientContext instance to share
 
-           Deriva Client Context: You MAY mutate self.dcctx to
-           customize the context for this service endpoint prior to
-           invoking web requests.  E.g.:
+        Deriva Client Context: You MAY mutate self.dcctx to
+        customize the context for this service endpoint prior to
+        invoking web requests.  E.g.:
 
              self.dcctx['cid'] = 'my application name'
 
-           You MAY also supply custom per-request context by passing a
-           headers dict to web request methods, e.g. 
+        You MAY also supply custom per-request context by passing a
+        headers dict to web request methods, e.g. 
 
              self.get(..., headers={'deriva-client-context': {'action': 'myapp/function1'}})
 
-           This custom header will be merged as override values with
-           the default context in self.dcctx in order to form the
-           complete context for the request.
+        This custom header will be merged as override values with
+        the default context in self.dcctx in order to form the
+        complete context for the request.
         """
-        super(ErmrestCatalog, self).__init__(scheme, server, credentials, caching, session_config)
+        super(ErmrestCatalog, self).__init__(
+            scheme, server,
+            credentials,
+            caching, session_config,
+            session, cache, dcctx,
+        )
+        self._base_deriva_server = None
         self._server_uri = "%s/ermrest/catalog/%s" % (
             self._server_uri,
             catalog_id
         )
-        self._scheme, self._server, self._catalog_id, self._credentials, self._caching, self._session_config = \
-            scheme, server, catalog_id, credentials, caching, session_config
+        self._catalog_id = catalog_id
+
+    @property
+    def deriva_server(self):
+        """Get a DerivaServer bound to this ERMrest service host."""
+        if self._base_deriva_server is None:
+            self._base_deriva_server = DerivaServer(
+                self._scheme, self._server,
+                self._credentials,
+                self._caching, self._session_config,
+                self._cache, self._session, self.dcctx,
+            )
+        return self._base_deriva_server
 
     @property
     def catalog_id(self):
         return self._catalog_id
+
+    @property
+    def alias_target(self):
+        """Target catalog identifier if this ErmrestCatalog instance is bound by an alias."""
+        resp = self.get('/')
+        resp.raise_for_status()
+        return resp.json().get('alias_target')
 
     def exists(self):
         """Simple boolean test for catalog existence.
@@ -88,8 +279,12 @@ class ErmrestCatalog(DerivaBinding):
         """
         r = self.get('/')
         r.raise_for_status()
-        return ErmrestSnapshot(self._scheme, self._server, self._catalog_id, r.json()['snaptime'],
-                               self._credentials, self._caching, self._session_config)
+        return ErmrestSnapshot(
+            self._scheme, self._server, self._catalog_id, r.json()['snaptime'],
+            self._credentials,
+            self._caching, self._session_config,
+            self._cache, self._session, self.dcctx,
+        )
 
     def getCatalogModel(self):
         return ermrest_model.Model.fromcatalog(self)
@@ -340,7 +535,7 @@ class ErmrestCatalog(DerivaBinding):
         """
         if path == "/":
             raise DerivaPathError('See self.delete_ermrest_catalog() if you really want to destroy this catalog.')
-        return DerivaBinding.delete(self, path, headers=headers, guard_response=guard_response)
+        return super(ErmrestCatalog, self).delete(path, headers=headers, guard_response=guard_response)
 
     def delete_ermrest_catalog(self, really=False):
         """Perform DELETE request, destroying catalog on server.
@@ -350,7 +545,7 @@ class ErmrestCatalog(DerivaBinding):
 
         """
         if really is True:
-            return DerivaBinding.delete(self, '/')
+            return super(ErmrestCatalog, self).delete('/')
         else:
             raise ValueError('Catalog deletion refused when really is %s.' % really)
 
@@ -391,10 +586,7 @@ class ErmrestCatalog(DerivaBinding):
         session_config["allow_retry_on_all_methods"] = True
 
         if dst_catalog is None:
-            # TODO: refactor with DerivaServer someday
-            server = DerivaBinding(self._scheme, self._server, self._credentials, self._caching, session_config)
-            dst_id = server.post("/ermrest/catalog").json()["id"]
-            dst_catalog = ErmrestCatalog(self._scheme, self._server, dst_id, self._credentials, self._caching, session_config)
+            dst_catalog = self.deriva_server.create_ermrest_catalog()
 
         # set top-level config right away and find fatal usage errors...
         if copy_policy:
@@ -644,18 +836,26 @@ class ErmrestSnapshot(ErmrestCatalog):
     except that the interfaces are now bound to a fixed snapshot
     of the catalog.
     """
-    def __init__(self, scheme, server, catalog_id, snaptime, credentials=None, caching=True, session_config=None):
+    def __init__(self, scheme, server, catalog_id, snaptime, credentials=None, caching=True, session_config=None, cache=None, session=None, dcctx=None):
         """Create ERMrest catalog snapshot binding.
 
-           Arguments:
-             scheme: 'http' or 'https'
-             server: server FQDN string
-             catalog_id: e.g., '1'
-             snaptime: e.g., '2PM-DGYP-56Z4'
-             credentials: credential secrets, e.g. cookie
-             caching: whether to retain a GET response cache
+        :param scheme: 'http' or 'https'
+        :param server: server FQDN string
+        :param catalog_id: e.g. '1'
+        :param snaptime: e.g. '2PM-DGYP-56Z4'
+        :param credentials: credential secrets, e.g. cookie
+        :param caching: whether to retain a GET response cache
+        :param session_config: session config or None to get DEFAULT_SESSION_CONFIG
+        :param cache: a cache object to share (internal use only)
+        :param session: a session object to share (internal use only)
+        :param dcctx: a DerivaClientContext instance to share
         """
-        super(ErmrestSnapshot, self).__init__(scheme, server, catalog_id, credentials, caching, session_config)
+        super(ErmrestSnapshot, self).__init__(
+            scheme, server, catalog_id,
+            credentials,
+            caching, session_config,
+            cache, session, dcctx,
+        )
         self._server_uri = "%s@%s" % (
             self._server_uri,
             snaptime
