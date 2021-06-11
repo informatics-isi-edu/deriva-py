@@ -6,7 +6,7 @@ from requests.exceptions import HTTPError, ConnectionError
 import sys
 import traceback
 from deriva.core import __version__ as VERSION, BaseCLI, DerivaPathError, HatracStore, HatracHashMismatch, \
-    get_credential, format_exception
+    get_credential, format_exception, DEFAULT_CHUNK_SIZE
 from deriva.core.utils import eprint, mime_utils as mu
 
 
@@ -108,6 +108,8 @@ class DerivaHatracCLI (BaseCLI):
         putobj_parser.add_argument('infile', metavar="<infile>", type=str, help="input filename")
         putobj_parser.add_argument("resource", metavar="<path>", type=str, help="object path")
         putobj_parser.add_argument("--content-type", metavar="<type>", type=str, help="HTTP Content-Type header value")
+        putobj_parser.add_argument("--chunk-size", metavar="<bytes>", type=int, default=DEFAULT_CHUNK_SIZE,
+                                   help="Chunk size in bytes")
         putobj_parser.add_argument("--parents", action="store_true",
                                    help="Create intermediate parent namespaces as required")
         putobj_parser.set_defaults(func=self.putobj)
@@ -245,8 +247,14 @@ class DerivaHatracCLI (BaseCLI):
         """
         try:
             content_type = args.content_type if args.content_type else mu.guess_content_type(args.infile)
-            loc = self.store.put_obj(
-                self.resource, args.infile, headers={"Content-Type": content_type}, parents=args.parents)
+            file_size = os.path.getsize(args.infile)
+            loc = self.store.put_loc(
+                self.resource,
+                args.infile,
+                content_type=content_type,
+                chunked=True if file_size > args.chunk_size else False,
+                chunk_size=args.chunk_size,
+                create_parents=args.parents)
             print(loc)
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:

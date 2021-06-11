@@ -140,10 +140,9 @@ class DerivaBinding (object):
         )
         self._server_uri = self._base_server_uri
 
-        if not session_config:
-            session_config = DEFAULT_SESSION_CONFIG
+        self.session_config = DEFAULT_SESSION_CONFIG if not session_config else session_config
         self._session = None
-        self._get_new_session(session_config)
+        self._get_new_session(self.session_config)
 
         self._caching = caching
         self._cache = {}
@@ -157,9 +156,10 @@ class DerivaBinding (object):
     def get_server_uri(self):
         return self._server_uri
 
-    def _get_new_session(self, session_config):
+    def _get_new_session(self, session_config=None):
         self._close_session()
-        self._session = get_new_requests_session(self._server_uri + '/', session_config)
+        self._session = get_new_requests_session(self._server_uri + '/',
+                                                 session_config if session_config else self.session_config)
         # allow loopback requests to bypass SSL cert verification
         if "https://localhost" in self._server_uri:
             self._session.verify = False

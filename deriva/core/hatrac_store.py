@@ -2,8 +2,8 @@ import os
 import datetime
 import requests
 import logging
-from . import format_exception, NotModified, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, MAX_CHUNK_SIZE, urlquote, Megabyte, \
-    get_transfer_summary
+from . import format_exception, NotModified, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, DEFAULT_MAX_CHUNK_LIMIT, \
+    DEFAULT_MAX_REQUEST_SIZE, urlquote, Megabyte, get_transfer_summary, calculate_optimal_transfer_shape
 from .deriva_binding import DerivaBinding
 from .utils import hash_utils as hu, mime_utils as mu
 
@@ -128,14 +128,14 @@ class HatracStore(DerivaBinding):
 
                 if 'Content-SHA256' in r.headers:
                     destfile.seek(0, 0)
-                    logging.info("Verifying checksum for file [%s]" % destfilename)
+                    logging.info("Verifying SHA256 checksum for downloaded file [%s]" % destfilename)
                     fsha256 = hu.compute_hashes(destfile, hashes=['sha256'])['sha256'][1]
                     rsha256 = r.headers.get('Content-SHA256', r.headers.get('content-sha256', None))
                     if fsha256 != rsha256:
                         raise HatracHashMismatch('Content-SHA256 %s != computed sha256 %s' % (rsha256, fsha256))
                 elif 'Content-MD5' in r.headers:
                     destfile.seek(0, 0)
-                    logging.info("Verifying checksum for file [%s]" % destfilename)
+                    logging.info("Verifying MD5 checksum for downloaded file [%s]" % destfilename)
                     fmd5 = hu.compute_hashes(destfile, hashes=['md5'])['md5'][1]
                     rmd5 = r.headers.get('Content-MD5', r.headers.get('content-md5', None))
                     if fmd5 != rmd5:
@@ -180,15 +180,23 @@ class HatracStore(DerivaBinding):
         headers = headers.copy()
 
         if hasattr(data, 'read') and hasattr(data, 'seek'):
+            data.seek(0, os.SEEK_END)
+            file_size = data.tell()
+            data.seek(0, 0)
             f = data
         else:
+            file_size = os.path.getsize(data)
             f = open(data, 'rb')
 
         if not (md5 or sha256):
             md5 = hu.compute_hashes(f, hashes=['md5'])['md5'][1]
 
         f.seek(0, 0)
-
+        max_request_size = self.session_config.get("max_request_size", DEFAULT_MAX_REQUEST_SIZE)
+        if file_size > max_request_size:
+            raise ValueError("The PUT request payload size of %d bytes is larger than the currently allowed maximum "
+                             "payload size of %d bytes for single request PUT operations. Use the 'put_loc' function "
+                             "to perform chunked uploads of large data objects." % (file_size, max_request_size))
         try:
             r = self.head(path)
             if r.status_code == 200:
@@ -300,7 +308,8 @@ class HatracStore(DerivaBinding):
                                         sha256,
                                         content_type=content_type,
                                         content_disposition=content_disposition,
-                                        create_parents=create_parents)
+                                        create_parents=create_parents,
+                                        chunk_size=chunk_size)
         try:
             self.put_obj_chunked(path,
                                  file_path,
@@ -315,9 +324,9 @@ class HatracStore(DerivaBinding):
     def put_obj_chunked(self, path, file_path, job_id,
                         chunk_size=DEFAULT_CHUNK_SIZE, callback=None, start_chunk=0, cancel_job_on_error=True):
         self.check_path(path)
-        if chunk_size > MAX_CHUNK_SIZE:
-            chunk_size = MAX_CHUNK_SIZE
         job_info = self.get_upload_job(path, job_id).json()
+        chunk_size = job_info.get("chunk-length", chunk_size)
+        logging.debug("Current chunk size: %d bytes. " % chunk_size)
         try:
             file_size = os.path.getsize(file_path)
             chunks = file_size // chunk_size
@@ -375,8 +384,14 @@ class HatracStore(DerivaBinding):
                           content_type=None,
                           content_disposition=None):
         self.check_path(path)
-        if chunk_size > MAX_CHUNK_SIZE:
-            chunk_size = MAX_CHUNK_SIZE
+        max_chunk_size, chunk_count, remainder = \
+            calculate_optimal_transfer_shape(os.path.getsize(file_path),
+                                             self.session_config.get("max_chunk_limit", DEFAULT_MAX_CHUNK_LIMIT),
+                                             requested_chunk_size=chunk_size)
+        if chunk_size > max_chunk_size:
+            logging.warning("Requested chunk size of %d bytes is larger than the hard limit of %d bytes for this "
+                            "application. The chunk size will be reset to this maximum." % (chunk_size, max_chunk_size))
+            chunk_size = max_chunk_size
 
         url = '%s;upload%s' % (path, "" if not create_parents else "?parents=%s" % str(create_parents).lower())
         obj = {"chunk-length": chunk_size,

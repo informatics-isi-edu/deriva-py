@@ -4,6 +4,7 @@ import sys
 import shutil
 import errno
 import json
+import math
 import platform
 import logging
 import requests
@@ -27,8 +28,17 @@ else:
 
 Kilobyte = 1024
 Megabyte = Kilobyte ** 2
-DEFAULT_CHUNK_SIZE = Megabyte * 10  # above the minimum 5MB chunk size for AWS S3 multipart uploads
-MAX_CHUNK_SIZE = Megabyte * 100
+
+# Set the default chunk size above the minimum 5MB chunk size for AWS S3 multipart uploads, but also try to find a sweet
+# spot between a minimal number of chunks and payloads big enough to be efficient but not incur retries for slow clients
+# or situations where network connectivity is unreliable for whatever reason.
+DEFAULT_CHUNK_SIZE = Megabyte * 25
+# 5GB is the max chunk limit imposed by AWS S3, also a (generous) hard limit.
+HARD_MAX_CHUNK_SIZE = Megabyte * 1000 * 5
+# Max number of "parts" for AWS S3.
+DEFAULT_MAX_CHUNK_LIMIT = 10000
+# A practical default limit for single request body payload size, similar to AWS S3 recommendation for payload sizes.
+DEFAULT_MAX_REQUEST_SIZE = Megabyte * 100
 
 DEFAULT_HEADERS = {}
 DEFAULT_CONFIG_PATH = os.path.join(os.path.expanduser('~'), '.deriva')
@@ -44,7 +54,9 @@ DEFAULT_SESSION_CONFIG = {
     "retry_backoff_factor": 1.0,
     "retry_status_forcelist": [500, 502, 503, 504],
     "allow_retry_on_all_methods": False,
-    "cookie_jar": DEFAULT_COOKIE_JAR_FILE
+    "cookie_jar": DEFAULT_COOKIE_JAR_FILE,
+    "max_request_size": DEFAULT_MAX_REQUEST_SIZE,
+    "max_chunk_limit": DEFAULT_MAX_CHUNK_LIMIT
 }
 OAUTH2_SCOPES_KEY = "oauth2_scopes"
 DEFAULT_CONFIG = {
@@ -102,7 +114,7 @@ def format_exception(e):
         return str(e)
     exc = "".join(("[", type(e).__name__, "] "))
     if isinstance(e, requests.HTTPError):
-        resp = " - Server responded: %s" % e.response.text.strip().replace('\n', ': ')
+        resp = " - Server responded: %s" % e.response.text.strip().replace('\n', ': ') if e.response.text else ""
         return "".join((exc, str(e), resp))
     return "".join((exc, str(e)))
 
@@ -370,6 +382,25 @@ def get_transfer_summary(total_bytes, elapsed_time):
     summary = "%.2f %s transferred%s. %s" % \
               (transferred, "KB" if total_bytes < Megabyte else "MB", throughput, elapsed)
     return summary
+
+
+def calculate_optimal_transfer_shape(size,
+                                     chunk_limit=DEFAULT_MAX_CHUNK_LIMIT,
+                                     requested_chunk_size=DEFAULT_CHUNK_SIZE,
+                                     byte_align=Kilobyte * 64):
+    assert size > 0
+    assert chunk_limit > 0
+    assert byte_align > 0
+    if size > (HARD_MAX_CHUNK_SIZE * chunk_limit):
+        raise ValueError("Size %d exceeds limit for max chunk size %d and chunk count %d" %
+                         (size, HARD_MAX_CHUNK_SIZE, chunk_limit))
+    calculated_chunk_size = math.ceil(math.ceil(size / chunk_limit) / byte_align) * byte_align
+    chosen_chunk_size = min(HARD_MAX_CHUNK_SIZE, max(requested_chunk_size, calculated_chunk_size))
+    remainder = size % chosen_chunk_size
+    chunk_count = size // chosen_chunk_size
+    if remainder:
+        chunk_count += 1
+    return chosen_chunk_size, chunk_count, remainder
 
 
 def topo_sorted(depmap):
