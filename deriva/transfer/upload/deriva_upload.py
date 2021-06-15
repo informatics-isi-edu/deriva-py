@@ -12,7 +12,7 @@ from collections import OrderedDict, namedtuple
 from deriva.core import ErmrestCatalog, HatracStore, HatracJobAborted, HatracJobPaused, \
     HatracJobTimeout, urlquote, urlparse, stob, format_exception, get_credential, read_config, write_config, \
     copy_config, resource_path, make_dirs, lock_file, DEFAULT_CHUNK_SIZE, IS_PY2, __version__ as VERSION
-from deriva.core import DEFAULT_SESSION_CONFIG
+from deriva.core import DEFAULT_SESSION_CONFIG, DEFAULT_CREDENTIAL_FILE
 from deriva.core.utils import hash_utils as hu, mime_utils as mu, version_utils as vu
 from deriva.transfer.upload import *
 from deriva.transfer.upload.processors import find_processor
@@ -113,9 +113,8 @@ class DerivaUpload(object):
         self.server_url = protocol + "://" + host
         catalog_id = self.server.get("catalog_id", "1")
         session_config = self.server.get('session', DEFAULT_SESSION_CONFIG.copy())
-        # overriden credential initialization
-        if self.override_credential_file:
-            self.credentials = get_credential(host, self.override_config_file)
+        # default credential initialization
+        self.credentials = get_credential(host, self.override_config_file or DEFAULT_CREDENTIAL_FILE)
 
         # catalog and file store initialization
         if self.catalog:
