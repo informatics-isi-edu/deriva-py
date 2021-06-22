@@ -6,7 +6,7 @@ from requests.exceptions import HTTPError, ConnectionError
 import sys
 import traceback
 from deriva.core import __version__ as VERSION, BaseCLI, DerivaPathError, HatracStore, HatracHashMismatch, \
-    get_credential, format_exception, DEFAULT_CHUNK_SIZE
+    get_credential, format_credential, format_exception, DEFAULT_CHUNK_SIZE
 from deriva.core.utils import eprint, mime_utils as mu
 
 
@@ -120,9 +120,9 @@ class DerivaHatracCLI (BaseCLI):
         delobj_parser.set_defaults(func=self.delobj)
 
     @staticmethod
-    def _get_credential(host_name, token=None):
-        if token:
-            return {"cookie": "webauthn={t}".format(t=token)}
+    def _get_credential(host_name, token=None, oauth2_token=None):
+        if token or oauth2_token:
+            return format_credential(token=token, oauth2_token=oauth2_token)
         else:
             return get_credential(host_name)
 
@@ -131,7 +131,9 @@ class DerivaHatracCLI (BaseCLI):
         """
         self.host = args.host if args.host else 'localhost'
         self.resource = args.resource
-        self.store = HatracStore('https', args.host, DerivaHatracCLI._get_credential(self.host, args.token))
+        self.store = HatracStore('https', args.host, DerivaHatracCLI._get_credential(self.host,
+                                                                                     token=args.token,
+                                                                                     oauth2_token=args.oauth2_token))
 
     def list(self, args):
         """Implements the list sub-command.

@@ -71,6 +71,12 @@ DEFAULT_CONFIG = {
     OAUTH2_SCOPES_KEY: {}
 }
 DEFAULT_CREDENTIAL = {}
+DEFAULT_LOGGER_OVERRIDES = {
+    "globus_sdk.auth": logging.WARNING,
+    "globus_sdk.authorizers": logging.WARNING,
+    "boto3": logging.WARNING,
+    "botocore": logging.WARNING,
+}
 
 
 class NotModified (ValueError):
@@ -150,12 +156,16 @@ def init_logging(level=logging.INFO,
                  log_format=None,
                  file_path=None,
                  file_mode='w',
-                 capture_warnings=True):
+                 capture_warnings=True,
+                 logger_config=DEFAULT_LOGGER_OVERRIDES):
     add_logging_level("TRACE", logging.DEBUG-5)
     logging.captureWarnings(capture_warnings)
     if log_format is None:
-        log_format = "[%(asctime)s - %(levelname)s - %(filename)s:%(lineno)s:%(funcName)s()] %(message)s" \
+        log_format = "[%(asctime)s - %(levelname)s - %(name)s:%(filename)s:%(lineno)s:%(funcName)s()] %(message)s" \
             if level <= logging.DEBUG else "%(asctime)s - %(levelname)s - %(message)s"
+    if level > logging.DEBUG:
+        # If we're above DEBUG level, allow for reconfiguration of module-specific logging levels
+        [logging.getLogger(name).setLevel(level) for name, level in logger_config.items()]
     if file_path:
         logging.basicConfig(filename=file_path, filemode=file_mode, level=level, format=log_format)
     else:
@@ -342,8 +352,8 @@ def format_credential(token=None, oauth2_token=None, username=None, password=Non
     return credential
 
 
-def bootstrap():
-    init_logging()
+def bootstrap(logging_level=logging.INFO):
+    init_logging(level=logging_level)
     read_config(create_default=True)
     read_credential(create_default=True)
 
