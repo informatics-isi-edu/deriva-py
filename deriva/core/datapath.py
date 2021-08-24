@@ -158,7 +158,10 @@ class _CatalogWrapper (object):
         if a in self._identifiers:
             return self.schemas[self._identifiers[a]]
         else:
-            return getattr(super(_CatalogWrapper, self), a)
+            try:
+                return getattr(super(_CatalogWrapper, self), a)
+            except AttributeError:
+                raise AttributeError("'%s' object has no attribute or schema '%s'" % (type(self).__name__, a))
 
     @classmethod
     def compose(cls, *paths):
@@ -216,7 +219,10 @@ class _SchemaWrapper (object):
         if a in self._identifiers:
             return self.tables[self._identifiers[a]]
         else:
-            return getattr(super(_SchemaWrapper, self), a)
+            try:
+                return getattr(super(_SchemaWrapper, self), a)
+            except AttributeError:
+                raise AttributeError("'%s' object has no attribute or table '%s'" % (type(self).__name__, a))
 
     @deprecated
     def describe(self):
@@ -259,7 +265,10 @@ class DataPath (object):
         if a in self._identifiers:
             return self._table_instances[self._identifiers[a]]
         else:
-            return getattr(super(DataPath, self), a)
+            try:
+                return getattr(super(DataPath, self), a)
+            except AttributeError:
+                raise AttributeError("'%s' object has no attribute or table instance '%s'" % (type(self).__name__, a))
 
     def __deepcopy__(self, memodict={}):
         cp = DataPath(copy.deepcopy(self._root, memo=memodict))
@@ -665,7 +674,10 @@ class _TableWrapper (object):
         if a in self._identifiers:
             return self.column_definitions[self._identifiers[a]]
         else:
-            return getattr(super(_TableWrapper, self), a)
+            try:
+                return getattr(super(_TableWrapper, self), a)
+            except AttributeError:
+                raise AttributeError("'%s' object has no attribute or column '%s'" % (type(self).__name__, a))
 
     @deprecated
     def describe(self):
