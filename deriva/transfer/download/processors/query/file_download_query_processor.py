@@ -63,7 +63,7 @@ class FileDownloadQueryProcessor(BaseQueryProcessor):
     def downloadFiles(self, input_manifest):
         logging.info("Attempting to download file(s) based on the results of query: %s" % self.query)
         try:
-            with open(input_manifest, "r") as in_file:
+            with open(input_manifest, "r", encoding='utf-8') as in_file:
                 file_list = dict()
                 for line in in_file:
                     entry = json.loads(line)

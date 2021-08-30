@@ -248,7 +248,7 @@ def read_config(config_file=DEFAULT_CONFIG_FILE, create_default=False, default=D
             config = json.dumps(default, ensure_ascii=False)
 
     if not config:
-        with open(config_file) as cf:
+        with open(config_file, encoding='utf-8') as cf:
             config = cf.read()
 
     return json.loads(config, object_pairs_hook=OrderedDict)

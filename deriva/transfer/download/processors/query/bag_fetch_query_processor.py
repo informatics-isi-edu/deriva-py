@@ -34,7 +34,8 @@ class BagFetchQueryProcessor(BaseQueryProcessor):
         if not os.path.isfile(input_manifest):
             return None, None
 
-        with open(input_manifest, "r") as in_file, open(remote_file_manifest, "a") as remote_file:
+        with open(input_manifest, "r", encoding="utf-8") as in_file, \
+                open(remote_file_manifest, "a", encoding="utf-8") as remote_file:
             for line in in_file:
                 # get the required bdbag remote file manifest vars from each line of the json-stream input file
                 entry = json.loads(line)

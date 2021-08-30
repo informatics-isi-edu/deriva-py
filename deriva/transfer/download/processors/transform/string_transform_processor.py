@@ -26,8 +26,8 @@ class InterpolationTransformProcessor(BaseTransformProcessor):
         """Reads a json-stream input file, performs string interpolation, and writes to output file.
         """
         try:
-            with open(self.input_abspath) as inputfile, \
-                 open(self.output_abspath, mode='w') as outputfile:
+            with open(self.input_abspath, encoding='utf-8') as inputfile, \
+                 open(self.output_abspath, mode='w', encoding='utf-8') as outputfile:
                 for line in inputfile:
                     row = json.loads(line)
                     output = self.template.safe_substitute(row)
@@ -57,8 +57,8 @@ class StrSubTransformProcessor(BaseTransformProcessor):
         """Reads a json-stream input file, performs string substitutions, and writes to output file.
         """
         try:
-            with open(self.input_abspath) as inputfile, \
-                 open(self.output_abspath, mode='w') as outputfile:
+            with open(self.input_abspath, encoding='utf-8') as inputfile, \
+                 open(self.output_abspath, mode='w', encoding='utf-8') as outputfile:
                 for line in inputfile:
                     row = json.loads(line)
                     for strsub in self.substitutions:
@@ -85,9 +85,9 @@ class ConcatenateTransformProcessor(BaseTransformProcessor):
         """
         try:
             make_dirs(os.path.dirname(self.output_abspath))
-            with open(self.output_abspath, mode='w') as outputfile:
+            with open(self.output_abspath, mode='w', encoding='utf-8') as outputfile:
                 for input_abspath in self.input_abspaths:
-                    with open(input_abspath) as inputfile:
+                    with open(input_abspath, encoding='utf-8') as inputfile:
                         for line in inputfile:
                             outputfile.write(line)
         except IOError as e:
