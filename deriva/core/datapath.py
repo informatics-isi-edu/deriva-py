@@ -157,8 +157,10 @@ class _CatalogWrapper (object):
     def __getattr__(self, a):
         if a in self._identifiers:
             return self.schemas[self._identifiers[a]]
-        else:
+        elif hasattr(super(_CatalogWrapper, self), a):
             return getattr(super(_CatalogWrapper, self), a)
+        else:
+            raise AttributeError("'%s' object for catalog '%s' has no attribute or schema '%s'" % (type(self).__name__, self._wrapped_catalog.catalog_id, a))
 
     @classmethod
     def compose(cls, *paths):
@@ -215,8 +217,10 @@ class _SchemaWrapper (object):
     def __getattr__(self, a):
         if a in self._identifiers:
             return self.tables[self._identifiers[a]]
-        else:
+        elif hasattr(super(_SchemaWrapper, self), a):
             return getattr(super(_SchemaWrapper, self), a)
+        else:
+            raise AttributeError("'%s' object for schema '%s' has no attribute or table '%s'" % (type(self).__name__, self._name, a))
 
     @deprecated
     def describe(self):
@@ -258,8 +262,10 @@ class DataPath (object):
     def __getattr__(self, a):
         if a in self._identifiers:
             return self._table_instances[self._identifiers[a]]
-        else:
+        elif hasattr(super(DataPath, self), a):
             return getattr(super(DataPath, self), a)
+        else:
+            raise AttributeError("'%s' object has no attribute or table instance '%s'" % (type(self).__name__, a))
 
     def __deepcopy__(self, memodict={}):
         cp = DataPath(copy.deepcopy(self._root, memo=memodict))
@@ -664,8 +670,10 @@ class _TableWrapper (object):
     def __getattr__(self, a):
         if a in self._identifiers:
             return self.column_definitions[self._identifiers[a]]
-        else:
+        elif hasattr(super(_TableWrapper, self), a):
             return getattr(super(_TableWrapper, self), a)
+        else:
+            raise AttributeError("'%s' object for table '%s' has no attribute or column '%s'" % (type(self).__name__, self._wrapped_table.name, a))
 
     @deprecated
     def describe(self):
