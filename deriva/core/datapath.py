@@ -930,7 +930,6 @@ class _TableAlias (_TableWrapper):
     @property
     @deprecated
     def uri(self):
-        warnings.warn("'uri' has been deprecated", DeprecationWarning, stacklevel=2)
         return self.path._contextualized_uri(self)
 
     def _query(self, mode='entity', projection=[], group_key=[], context=None):
