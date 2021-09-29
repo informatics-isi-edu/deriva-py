@@ -693,6 +693,11 @@ class _TableWrapper (object):
         return self.describe()
 
     @property
+    def columns(self):
+        """Sugared access to self.column_definitions"""
+        return self.column_definitions
+
+    @property
     def path(self):
         """Always a new DataPath instance that is rooted at this table.
 
