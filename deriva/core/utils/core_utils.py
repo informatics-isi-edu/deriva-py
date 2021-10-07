@@ -163,9 +163,8 @@ def init_logging(level=logging.INFO,
     if log_format is None:
         log_format = "[%(asctime)s - %(levelname)s - %(name)s:%(filename)s:%(lineno)s:%(funcName)s()] %(message)s" \
             if level <= logging.DEBUG else "%(asctime)s - %(levelname)s - %(message)s"
-    if level > logging.DEBUG:
-        # If we're above DEBUG level, allow for reconfiguration of module-specific logging levels
-        [logging.getLogger(name).setLevel(level) for name, level in logger_config.items()]
+    # allow for reconfiguration of module-specific logging levels
+    [logging.getLogger(name).setLevel(level) for name, level in logger_config.items()]
     if file_path:
         logging.basicConfig(filename=file_path, filemode=file_mode, level=level, format=log_format)
     else:

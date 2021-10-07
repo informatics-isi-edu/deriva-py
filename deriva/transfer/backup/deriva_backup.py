@@ -77,6 +77,7 @@ class DerivaBackup(DerivaDownload):
                     if "RID" not in table.column_definitions.elements:
                         logging.warning(
                             "Source table %s.%s lacks system-columns and will not be dumped." % (sname, tname))
+                        continue
 
                     # Configure table data download query processors
                     data_format = "json" if (sname, tname) in {
