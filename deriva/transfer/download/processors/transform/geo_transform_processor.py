@@ -1,5 +1,6 @@
 import sys
 import os
+import io
 import json
 import importlib
 import logging
@@ -402,7 +403,7 @@ class Export2GEO(object):
     # You can set a proper message into DerivaDownloadError or your custom error, but should check if chaise displays that message when it gets the 502
     def initialize_data(self):
         logging.debug("initilaize_data: begin")
-        with open(self.input_file) as input_file:
+        with io.open(self.input_file, encoding='utf-8') as input_file:
             data = json.load(input_file)
 
         self.study = None
