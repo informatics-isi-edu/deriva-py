@@ -602,6 +602,11 @@ class Export2GEO(object):
             self.excel.write_cell(self.current_row_idx, 1, 'supplementary file', Style.FIELD)
             self.excel.write_cell(self.current_row_idx, 2, file_path.format(**pf))
             self.current_row_idx += 1
+
+        # add an empty line if there is no supplemental files
+        if not self.study_processed_files:
+            self.current_row_idx += 1
+            
         #print("export_series: end")
         
     # prepare the data for sample export
