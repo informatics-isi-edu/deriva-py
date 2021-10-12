@@ -433,7 +433,7 @@ class Export2GEO(object):
         self.specimen_dict = {
             s["RID"]: s  # key = value
             for s in (specimens if specimens else []) #iteration
-            if s is not None and re.match(".*-Seq$", s["Assay_Type"], re.IGNORECASE) # condition
+            if s is not None and re.match("(.*-Seq|NextGen)$", s["Assay_Type"], re.IGNORECASE) # condition
         }
         
         # create a replicate_dict. Using succint syntax.
@@ -592,10 +592,6 @@ class Export2GEO(object):
         self.excel.write_cell(self.current_row_idx, 2, self.pi.get('Full_Name', ''))
         self.current_row_idx += 1
 
-        # write an empty line (to be over-written if the self.study_processed_file is empty
-        self.excel.write_cell(self.current_row_idx, 1, 'supplementary file', Style.FIELD)        
-        self.excel.write_cell(self.current_row_idx, 2, '')
-        
         # study-level processed file: one line for each study file
         for pf in self.study_processed_files:
             file_path = self.parameters.get("study_files_path_template", pf.get("File_Name", ""))
@@ -603,8 +599,10 @@ class Export2GEO(object):
             self.excel.write_cell(self.current_row_idx, 2, file_path.format(**pf))
             self.current_row_idx += 1
 
-        # add an empty line if there is no supplemental files
+        # write an empty line (to be over-written if the self.study_processed_file is empty        
         if not self.study_processed_files:
+            self.excel.write_cell(self.current_row_idx, 1, 'supplementary file', Style.FIELD)        
+            self.excel.write_cell(self.current_row_idx, 2, '')
             self.current_row_idx += 1
             
         #print("export_series: end")
