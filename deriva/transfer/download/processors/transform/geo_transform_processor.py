@@ -276,20 +276,20 @@ class Export2GEO(object):
         }
         # tissue_list_dict with Specimen_RID as key
         specimen_tissue_name_set_dict = {}
-        if tissue:
-            for r in tissue:
-                specimen_tissue_name_set_dict.setdefault(r["Specimen_RID"], set()).add(tissue_name_dict[r["Tissue"]])
+        for r in (tissue if tissue else []): #iteration
+            if r is None:
+                continue
+            specimen_tissue_name_set_dict.setdefault(r["Specimen_RID"], set()).add(tissue_name_dict[r["Tissue"]])
         # -- end
 
         # create a list of cell_type_name_set per specimen
         # Note: no need for cell_type_dict.
         specimen_cell_type_name_set_dict = {}
-        if specimen_cell_type:
-            for r in specimen_cell_type:
-                if r is None:
-                    continue
-                specimen_cell_type_name_set_dict.setdefault(r["Specimen"], set()).add(r["Cell_Type"])
-                #logging.debug("-- Specimen cell type: %s %s" % (r["Specimen"], r["Cell_Type"]))
+        for r in (specimen_cell_type if specimen_cell_type else []):
+            if r is None:
+                continue
+            specimen_cell_type_name_set_dict.setdefault(r["Specimen"], set()).add(r["Cell_Type"])
+            #logging.debug("-- Specimen cell type: %s %s" % (r["Specimen"], r["Cell_Type"]))
         
         # -- create a list of allele_name_set per specimen
         allele_name_dict = {
@@ -299,11 +299,10 @@ class Export2GEO(object):
         }
         # specimen_allele_name_set_dict with Specimen_RID as key
         specimen_allele_name_set_dict = {}
-        if specimen_allele:
-            for r in specimen_allele:
-                if r is None:
-                    continue
-                specimen_allele_name_set_dict.setdefault(r["Specimen_RID"], set()).add(allele_name_dict[r["Allele_RID"]])
+        for r in (specimen_allele if specimen_allele else []):
+            if r is None:
+                continue
+            specimen_allele_name_set_dict.setdefault(r["Specimen_RID"], set()).add(allele_name_dict[r["Allele_RID"]])
         # -- end
 
         # stage lookup
@@ -475,10 +474,12 @@ class Export2GEO(object):
 
         # -- update self.study_files, self.replicate_raw_files, self.replicate_processed_files
         # create self.study_files
-        if self.study_files:
-            for f in self.study_files:
-                if re.match(self.study_file_pattern, f["File_Name"], re.IGNORECASE):
-                    self.study_processed_files.append(f)
+        for f in (self.study_files if self.study_files else []):
+            if f is None:
+                continue
+            if re.match(self.study_file_pattern, f["File_Name"], re.IGNORECASE):
+                self.study_processed_files.append(f)
+        
         # sort the raw and processed files
         self.study_processed_files.sort( key = lambda x: (x.get('File_Name')))
         # -- debug
