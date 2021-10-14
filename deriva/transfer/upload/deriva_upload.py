@@ -516,6 +516,7 @@ class DerivaUpload(object):
                 except HatracJobAborted:
                     self.file_status[file_path] = FileUploadState(UploadState.Aborted, "Aborted by user")._asdict()
                 except:
+                    logger.debug("Unexpected exception", exc_info=sys.exc_info())
                     (etype, value, traceback) = sys.exc_info()
                     self.file_status[file_path] = FileUploadState(UploadState.Failed, format_exception(value))._asdict()
                 self.delTransferState(file_path)

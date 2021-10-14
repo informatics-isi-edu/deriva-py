@@ -397,9 +397,9 @@ def calculate_optimal_transfer_shape(size,
                                      chunk_limit=DEFAULT_MAX_CHUNK_LIMIT,
                                      requested_chunk_size=DEFAULT_CHUNK_SIZE,
                                      byte_align=Kilobyte * 64):
-    assert size > 0
-    assert chunk_limit > 0
-    assert byte_align > 0
+    assert size > 0, "size must be greater than 0"
+    assert chunk_limit > 0, "chunk_limit must be greater than 0"
+    assert byte_align > 0, "byte_align must be greater than 0"
     if size > (HARD_MAX_CHUNK_SIZE * chunk_limit):
         raise ValueError("Size %d exceeds limit for max chunk size %d and chunk count %d" %
                          (size, HARD_MAX_CHUNK_SIZE, chunk_limit))
