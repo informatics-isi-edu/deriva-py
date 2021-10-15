@@ -114,7 +114,7 @@ class DerivaUpload(object):
         catalog_id = self.server.get("catalog_id", "1")
         session_config = self.server.get('session', DEFAULT_SESSION_CONFIG.copy())
         # default credential initialization
-        self.credentials = get_credential(host, self.override_config_file or DEFAULT_CREDENTIAL_FILE)
+        self.credentials = get_credential(host, self.override_credential_file or DEFAULT_CREDENTIAL_FILE)
 
         # catalog and file store initialization
         if self.catalog:
