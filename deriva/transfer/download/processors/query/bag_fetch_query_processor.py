@@ -88,7 +88,7 @@ class BagFetchQueryProcessor(BaseQueryProcessor):
                 if sha256:
                     sha256 = decodeBase64toHex(sha256)
         # if content length or both hash values are missing, it is a fatal error
-        if not length:
+        if length is None:
             raise DerivaDownloadError("Could not determine Content-Length for %s" % ext_url)
         if not (md5 or sha256):
             raise DerivaDownloadError("Could not locate an MD5 or SHA256 hash for %s" % ext_url)
