@@ -132,7 +132,7 @@ class Boto3UploadPostProcessor(UploadPostProcessor):
             object_qualifier = "/".join([object_qualifier, datetime.strftime(datetime.now(), "%Y-%m-%d_%H.%M.%S")])
 
         for k, v in self.outputs.items():
-            object_name = self.path + "/".join([object_qualifier, k])
+            object_name = "/".join([self.path, object_qualifier, k])
             file_path = v[LOCAL_PATH_KEY]
             acl = self.parameters.get("acl", "private")
             signed_url = stob(self.parameters.get("signed_url", acl == "public-read"))
