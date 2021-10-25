@@ -124,13 +124,15 @@ class Boto3UploadPostProcessor(UploadPostProcessor):
         if not bucket_exists:
             raise DerivaDownloadError("Target bucket [%s] does not exist." % bucket_name)
 
-        object_qualifier = os.path.basename(self.identity.get("id", "")) or \
-            "anon-" + compute_hashes(self.envars.get("request_ip", "unknown").encode(), hashes=['md5'])['md5'][0]
+        identity = os.path.basename(self.identity.get("id"))
+        object_qualifier = compute_hashes(
+            identity.encode() if identity else
+            "anon-" + self.envars.get("request_ip", "unknown").encode(), hashes=['md5'])['md5'][0]
         if not stob(self.parameters.get("overwrite", "False")):
             object_qualifier = "/".join([object_qualifier, datetime.strftime(datetime.now(), "%Y-%m-%d_%H.%M.%S")])
 
         for k, v in self.outputs.items():
-            object_name = "/".join([self.path, object_qualifier, k])
+            object_name = self.path + "/".join([object_qualifier, k])
             file_path = v[LOCAL_PATH_KEY]
             acl = self.parameters.get("acl", "private")
             signed_url = stob(self.parameters.get("signed_url", acl == "public-read"))

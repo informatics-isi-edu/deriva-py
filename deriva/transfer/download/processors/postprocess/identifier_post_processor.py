@@ -72,7 +72,8 @@ class FAIRIdentifierPostProcessor(BaseProcessor):
                 minid = ic.create_identifier(**kwargs)
                 identifier = minid["identifier"]
                 v[IDENTIFIER_KEY] = identifier
-                v[IDENTIFIER_LANDING_PAGE] = self.IDENTIFIER_SERVICE + identifier
+                v[IDENTIFIER_LANDING_PAGE] = \
+                    self.parameters.get("redirect_base", "") + self.IDENTIFIER_SERVICE + identifier
             except IdentifierClientError as e:
                 raise DerivaDownloadError("Unable to create identifier: %s" % format_exception(e))
 
