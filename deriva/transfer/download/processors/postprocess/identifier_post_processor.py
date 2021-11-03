@@ -43,13 +43,17 @@ class FAIRIdentifierPostProcessor(BaseProcessor):
             file_path = v[LOCAL_PATH_KEY]
             self.make_file_output_values(file_path, v)
             checksum = v[SHA256_KEY][0]
-            title = self.parameters.get("title", "DERIVA Export: %s" % k)
+            title = self.parameters.get("title", "%s" % k)
             metadata = {"title": title}
+            length = v[FILE_SIZE_KEY]
+            if length is not None:
+                metadata.update({"length": length})
             author = self.parameters.get("author")
-            if not author:
-                author = self.identity.get('full_name') if self.identity else None
             if author and stob(self.parameters.get("include_author", "True")):
                 metadata.update({"author": author})
+            created_by = self.identity.get('full_name') if self.identity else None
+            if created_by:
+                metadata.update({"created_by": created_by})
             visible_to = self.parameters.get("visible_to", ["public"])
             locations = v.get(REMOTE_PATHS_KEY)
             if not locations:
