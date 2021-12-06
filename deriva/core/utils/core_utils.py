@@ -72,8 +72,7 @@ DEFAULT_CONFIG = {
 }
 DEFAULT_CREDENTIAL = {}
 DEFAULT_LOGGER_OVERRIDES = {
-    "globus_sdk.auth": logging.WARNING,
-    "globus_sdk.authorizers": logging.WARNING,
+    "globus_sdk": logging.WARNING,
     "boto3": logging.WARNING,
     "botocore": logging.WARNING,
 }

@@ -638,7 +638,7 @@ class GlobusNativeLogin:
                                    requested_scopes=scopes,
                                    refresh_tokens=refresh_tokens,
                                    prefill_named_grant=prefill_named_grant,
-                                   additional_params=additional_params,
+                                   query_params=additional_params,
                                    force=force)
         if update_bdbag_keychain:
             for host in hosts:
