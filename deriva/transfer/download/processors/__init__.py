@@ -13,6 +13,8 @@ from deriva.transfer.download.processors.transform.string_transform_processor im
 from deriva.transfer.download.processors.postprocess.identifier_post_processor import FAIRIdentifierPostProcessor
 from deriva.transfer.download.processors.postprocess.transfer_post_processor import Boto3UploadPostProcessor
 from deriva.transfer.download.processors.postprocess.url_post_processor import UrlRewritePostProcessor
+from deriva.transfer.download.processors.transform.pride_transform_processor import PrideMTDExportTransformProcessor,\
+    PrideCVExportTransformProcessor, PrideFMExportTransformProcessor, PrideSMExportTransformProcessor
 
 DEFAULT_QUERY_PROCESSORS = {
     "csv": CSVQueryProcessor,
@@ -28,7 +30,11 @@ DEFAULT_TRANSFORM_PROCESSORS = {
     "interpolation": InterpolationTransformProcessor,
     "strsub": StrSubTransformProcessor,
     "geo": GeoExportTransformProcessor,
-    "fasta": FastaExportTransformProcessor
+    "fasta": FastaExportTransformProcessor,
+    "prideMTD": PrideMTDExportTransformProcessor,
+    "prideCV": PrideCVExportTransformProcessor,
+    "prideFM": PrideFMExportTransformProcessor,
+    "prideSM": PrideSMExportTransformProcessor
 }
 
 DEFAULT_POST_PROCESSORS = {
