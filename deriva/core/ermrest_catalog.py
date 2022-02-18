@@ -233,6 +233,8 @@ class ErmrestCatalog(DerivaBinding):
                                             "[%s]. The page size is being reduced to %s and the query will be retried."
                                             % (self._server_uri + path, destfilename, page_size))
                             continue
+                        else:
+                            self._response_raise_for_status(r)
 
                         # 2. Write the page to disk and check the last record processed in order to get the next page
                         last_line = {}
