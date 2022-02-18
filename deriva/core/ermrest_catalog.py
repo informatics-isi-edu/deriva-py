@@ -164,10 +164,11 @@ class ErmrestCatalog(DerivaBinding):
                   callback=None,
                   delete_if_empty=False,
                   paged=False,
-                  page_size=DEFAULT_PAGE_SIZE):
+                  page_size=DEFAULT_PAGE_SIZE,
+                  page_sort_columns=frozenset(["RID"])):
         """
            Retrieve catalog data streamed to destination file.
-           Caller is responsible to clean up file even on error, when the file may or may not be exist.
+           Caller is responsible to clean up file even on error, when the file may or may not exist.
            If "delete_if_empty" is True, the file will be inspected for "empty" content. In the case of
            json/json-stream content, the presence of a single empty JSON object will be tested for. In the case of
            CSV content, the file will be parsed with CSV reader to determine that only a single header line and no row
@@ -179,8 +180,8 @@ class ErmrestCatalog(DerivaBinding):
         # exception in the case that the caller might be trying to perform an opportunistic paged request without
         # knowing a priori if paged support for the given query is available.
         page_size = page_size if page_size > 0 else DEFAULT_PAGE_SIZE
-        if not path.startswith("/entity") and paged:
-            logging.debug("Paged data retrieval only supported for entity API queries.")
+        if not (path.startswith("/entity") or path.startswith("/attribute")) and paged:
+            logging.warning("Paged data retrieval only supported for entity or attribute API queries.")
             paged = False
 
         # Only "application/x-json-stream" or "text/csv" supported with paged mode at this time, otherwise fallback.
@@ -216,11 +217,15 @@ class ErmrestCatalog(DerivaBinding):
                 first_line = None
                 last_record = None
                 while True:
-                    qualifier = "@sort(RID)%s?limit=%d" % \
-                               (("@after(%s)" % urlquote(last_record)) if last_record is not None else "", page_size)
+                    qualifier = "@sort(%s)%s?limit=%d" % \
+                                (",".join(page_sort_columns or ["RID"]),
+                                 ("@after(%s)" % ",".join(last_record)) if last_record is not None else "",
+                                 page_size)
                     # 1. Try to get a page worth of data, back-off page size if query run time errors are encountered
                     with self._session.get(self._server_uri + path + qualifier, headers=headers) as r:
                         if r.status_code == 400 and "Query run time limit exceeded" in r.text:
+                            if page_size == 1:
+                                self._response_raise_for_status(r)
                             r.close()
                             page_size //= 2
                             page_size = 1 if page_size < 1 else page_size
@@ -229,8 +234,8 @@ class ErmrestCatalog(DerivaBinding):
                                             % (self._server_uri + path, destfilename, page_size))
                             continue
 
-                        # 2. Write the page to disk and determine the last RID processed in order to get the next page
-                        last_line = None
+                        # 2. Write the page to disk and check the last record processed in order to get the next page
+                        last_line = {}
                         content_type = r.headers.get("Content-Type")
                         logging.debug("Transferring file %s to %s" % (self._server_uri + path, destfilename))
                         # CSV processing iterates over lines in the response, skipping the header line(s) in all but
@@ -273,12 +278,12 @@ class ErmrestCatalog(DerivaBinding):
                                     break
                             last_line = json.loads(b.readline().decode('utf-8'))
 
-                        # 3. Save the last record RID and flush the destination file buffers to disk.
+                        # 3. Save the last record key and flush the destination file buffers to disk.
                         if not last_line:
                             break
                         destfile.flush()
                         os.fsync(destfile.fileno())
-                        last_record = last_line['RID']
+                        last_record = [urlquote(last_line.get(key)) for key in page_sort_columns]
                         if callback:
                             if not callback(progress="Downloading: %.2f MB transferred" %
                                                      (float(total) / float(Megabyte))):
