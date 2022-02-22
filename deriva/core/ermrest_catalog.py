@@ -17,10 +17,6 @@ class ErmrestCatalogMutationError(Exception):
     pass
 
 
-class ErmrestCatalogPagedQueryTimeout(Exception):
-    pass
-
-
 _clone_state_url = "tag:isrd.isi.edu,2018:clone-status"
 
 DEFAULT_PAGE_SIZE = 100000
@@ -170,8 +166,7 @@ class ErmrestCatalog(DerivaBinding):
                   delete_if_empty=False,
                   paged=False,
                   page_size=DEFAULT_PAGE_SIZE,
-                  page_sort_columns=frozenset(["RID"]),
-                  page_timeout_secs=None):
+                  page_sort_columns=frozenset(["RID"])):
         """
            Retrieve catalog data streamed to destination file.
            Caller is responsible to clean up file even on error, when the file may or may not exist.
@@ -203,7 +198,6 @@ class ErmrestCatalog(DerivaBinding):
         try:
             total = 0
             start = datetime.datetime.now()
-            timeout = start + datetime.timedelta(0, page_timeout_secs) if page_timeout_secs else None
 
             if not paged:
                 with self._session.get(self._server_uri + path, headers=headers, stream=True) as r:
@@ -303,14 +297,6 @@ class ErmrestCatalog(DerivaBinding):
                                                      (float(total) / float(Megabyte))):
                                 destfile.close()
                                 return
-
-                        if page_timeout_secs:
-                            now = datetime.datetime.now()
-                            if now > timeout:
-                                raise ErmrestCatalogPagedQueryTimeout(
-                                    "Aborting. Previous paged query operation exceeded the timeout limit.")
-                            else:
-                                timeout = now + datetime.timedelta(0, page_timeout_secs)
 
             elapsed = datetime.datetime.now() - start
             summary = get_transfer_summary(total, elapsed)

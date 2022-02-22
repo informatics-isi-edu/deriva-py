@@ -40,7 +40,6 @@ class BaseQueryProcessor(BaseProcessor):
         self.paged_query = self.parameters.get("paged_query", False)
         self.paged_query_size = self.parameters.get("paged_query_size", 100000)
         self.paged_query_sort_columns = self.parameters.get("paged_query_sort_columns", ["RID"])
-        self.paged_query_timeout_secs = self.parameters.get("paged_query_timeout_secs", None)
 
     def process(self):
         resp = self.catalogQuery(headers={'accept': self.content_type})
@@ -75,8 +74,7 @@ class BaseQueryProcessor(BaseProcessor):
                                               delete_if_empty=True,
                                               paged=self.paged_query,
                                               page_size=self.paged_query_size,
-                                              page_sort_columns=self.paged_query_sort_columns,
-                                              page_timeout_secs=self.paged_query_timeout_secs)
+                                              page_sort_columns=self.paged_query_sort_columns)
             else:
                 return self.catalog.get(self.query, headers=headers).json()
         except requests.HTTPError as e:
