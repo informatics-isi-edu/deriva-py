@@ -1,18 +1,23 @@
 import os
 import io
+import re
 import logging
 import datetime
 import codecs
 import csv
 import json
 
-from . import urlquote, datapath, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, DEFAULT_SESSION_CONFIG, Megabyte, Kilobyte, \
-    get_transfer_summary, IS_PY2
-from .deriva_binding import DerivaBinding
+from . import urlquote, urlsplit, urlunsplit, datapath, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, DEFAULT_SESSION_CONFIG, \
+    Megabyte, Kilobyte, get_transfer_summary, IS_PY2
+from .deriva_binding import DerivaBinding, DerivaPathError
 from . import ermrest_model
 
 
 class ErmrestCatalogMutationError(Exception):
+    pass
+
+
+class ErmrestCatalogPagedQueryTimeout(Exception):
     pass
 
 
@@ -49,7 +54,7 @@ class ErmrestCatalog(DerivaBinding):
              self.dcctx['cid'] = 'my application name'
 
            You MAY also supply custom per-request context by passing a
-           headers dict to web request methods, e.g. 
+           headers dict to web request methods, e.g.
 
              self.get(..., headers={'deriva-client-context': {'action': 'myapp/function1'}})
 
@@ -165,7 +170,8 @@ class ErmrestCatalog(DerivaBinding):
                   delete_if_empty=False,
                   paged=False,
                   page_size=DEFAULT_PAGE_SIZE,
-                  page_sort_columns=frozenset(["RID"])):
+                  page_sort_columns=frozenset(["RID"]),
+                  page_timeout_secs=None):
         """
            Retrieve catalog data streamed to destination file.
            Caller is responsible to clean up file even on error, when the file may or may not exist.
@@ -197,6 +203,8 @@ class ErmrestCatalog(DerivaBinding):
         try:
             total = 0
             start = datetime.datetime.now()
+            timeout = start + datetime.timedelta(0, page_timeout_secs) if page_timeout_secs else None
+
             if not paged:
                 with self._session.get(self._server_uri + path, headers=headers, stream=True) as r:
                     self._response_raise_for_status(r)
@@ -216,13 +224,17 @@ class ErmrestCatalog(DerivaBinding):
                 first_page = True
                 first_line = None
                 last_record = None
+                usr = urlsplit(self._server_uri + path)
+                path = str(usr.path.split('@sort')[0])
                 while True:
-                    qualifier = "@sort(%s)%s?limit=%d" % \
-                                (",".join(page_sort_columns or ["RID"]),
-                                 ("@after(%s)" % ",".join(last_record)) if last_record is not None else "",
-                                 page_size)
+                    sort = "@sort(%s)%s" % (",".join(page_sort_columns or ["RID"]),
+                                            ("@after(%s)" % ",".join(last_record)) if last_record is not None else "")
+                    limit = "limit=%s" % int(page_size) if page_size > 0 else "none"
+                    query = re.sub(r"([^.]*)(limit=.*?)($|[&;])([^.]*)$", r"\1%s\3\4" % usr.query, limit, flags=re.I)
+                    url = urlunsplit((usr.scheme, usr.netloc, path + sort, query if query else limit, usr.fragment))
+
                     # 1. Try to get a page worth of data, back-off page size if query run time errors are encountered
-                    with self._session.get(self._server_uri + path + qualifier, headers=headers) as r:
+                    with self._session.get(url, headers=headers) as r:
                         if r.status_code == 400 and "Query run time limit exceeded" in r.text:
                             if page_size == 1:
                                 self._response_raise_for_status(r)
@@ -291,6 +303,14 @@ class ErmrestCatalog(DerivaBinding):
                                                      (float(total) / float(Megabyte))):
                                 destfile.close()
                                 return
+
+                        if page_timeout_secs:
+                            now = datetime.datetime.now()
+                            if now > timeout:
+                                raise ErmrestCatalogPagedQueryTimeout(
+                                    "Aborting. Previous paged query operation exceeded the timeout limit.")
+                            else:
+                                timeout = now + datetime.timedelta(0, page_timeout_secs)
 
             elapsed = datetime.datetime.now() - start
             summary = get_transfer_summary(total, elapsed)

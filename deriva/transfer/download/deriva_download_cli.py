@@ -8,7 +8,8 @@ from requests.exceptions import HTTPError, ConnectionError
 from deriva.transfer import GenericDownloader
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError, \
     DerivaDownloadAuthenticationError, DerivaDownloadAuthorizationError
-from deriva.core import BaseCLI, KeyValuePairArgs, format_credential, format_exception, urlparse
+from deriva.core import BaseCLI, KeyValuePairArgs, format_credential, format_exception, urlparse, \
+    ErmrestCatalogPagedQueryTimeout
 
 
 class DerivaDownloadCLI(BaseCLI):
@@ -68,8 +69,8 @@ class DerivaDownloadCLI(BaseCLI):
                 elif e.response.status_code == requests.codes.forbidden:
                     raise DerivaDownloadAuthorizationError(
                         "A requested operation was forbidden. Server responded: %s" % e)
-        except (DerivaDownloadError, DerivaDownloadConfigurationError,
-                DerivaDownloadAuthenticationError, DerivaDownloadAuthorizationError) as e:
+        except (DerivaDownloadError, DerivaDownloadConfigurationError, DerivaDownloadAuthenticationError,
+                DerivaDownloadAuthorizationError, ErmrestCatalogPagedQueryTimeout) as e:
             sys.stderr.write(("\n" if not args.quiet else "") + format_exception(e))
             if args.debug:
                 traceback.print_exc()
