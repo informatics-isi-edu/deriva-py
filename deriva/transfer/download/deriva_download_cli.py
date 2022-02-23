@@ -7,7 +7,7 @@ import requests
 from requests.exceptions import HTTPError, ConnectionError
 from deriva.transfer import GenericDownloader
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError, \
-    DerivaDownloadAuthenticationError, DerivaDownloadAuthorizationError
+    DerivaDownloadAuthenticationError, DerivaDownloadAuthorizationError, DerivaDownloadTimeoutError
 from deriva.core import BaseCLI, KeyValuePairArgs, format_credential, format_exception, urlparse
 
 
@@ -16,6 +16,8 @@ class DerivaDownloadCLI(BaseCLI):
 
         BaseCLI.__init__(self, description, epilog, **kwargs)
         self.parser.add_argument("--catalog", default=1, metavar="<1>", help="Catalog number. Default: 1")
+        self.parser.add_argument("--timeout", metavar="<seconds>",
+                                 help="Total number of seconds elapsed before the download is aborted.")
         self.parser.add_argument("output_dir", metavar="<output dir>", help="Path to an output directory.")
         self.parser.add_argument("envars", metavar="[key=value key=value ...]",
                                  nargs=argparse.REMAINDER, action=KeyValuePairArgs, default={},
@@ -69,7 +71,7 @@ class DerivaDownloadCLI(BaseCLI):
                     raise DerivaDownloadAuthorizationError(
                         "A requested operation was forbidden. Server responded: %s" % e)
         except (DerivaDownloadError, DerivaDownloadConfigurationError, DerivaDownloadAuthenticationError,
-                DerivaDownloadAuthorizationError) as e:
+                DerivaDownloadAuthorizationError, DerivaDownloadTimeoutError) as e:
             sys.stderr.write(("\n" if not args.quiet else "") + format_exception(e))
             if args.debug:
                 traceback.print_exc()

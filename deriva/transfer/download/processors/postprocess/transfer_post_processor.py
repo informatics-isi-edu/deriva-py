@@ -160,4 +160,8 @@ class Boto3UploadPostProcessor(UploadPostProcessor):
                 except Exception as e:
                     raise DerivaDownloadError("Upload of %s failed: %s" % (remote_path, format_exception(e)))
 
+            if self.callback:
+                if not self.callback(progress="Uploaded file [%s] to: %s" % (file_path, remote_path)):
+                    break
+
         return self.outputs

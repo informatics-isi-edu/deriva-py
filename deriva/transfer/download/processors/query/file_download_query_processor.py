@@ -121,6 +121,10 @@ class FileDownloadQueryProcessor(BaseQueryProcessor):
                                                  self.ro_author_name, orcid=self.ro_author_orcid),
                                              bundled_as=ro.make_bundled_as())
                     file_list.update({rel_path: {LOCAL_PATH_KEY: file_path, FILE_SIZE_KEY: file_bytes}})
+                    if self.callback:
+                        if not self.callback(progress="Downloaded [%s] to: %s" % (url, file_path)):
+                            break
+
                 return file_list
         finally:
             os.remove(input_manifest)

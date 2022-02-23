@@ -1,4 +1,6 @@
 import os
+import datetime
+import logging
 from deriva.core import urlquote
 from deriva.core.utils import mime_utils as mu, hash_utils as hu
 
@@ -14,6 +16,8 @@ CONTENT_TYPE_KEY = "content_type"
 IDENTIFIER_KEY = "identifier"
 IDENTIFIER_LANDING_PAGE = "identifier_landing_page"
 
+logger = logging.getLogger(__name__)
+
 
 class BaseProcessor(object):
     """
@@ -28,6 +32,8 @@ class BaseProcessor(object):
         self.parameters = kwargs.get(PROCESSOR_PARAMS_KEY, dict()) or dict()
         self.identity = kwargs.get("identity", dict()) or dict()
         self.wallet = kwargs.get("wallet", dict()) or dict()
+        self.timeout = kwargs.get("timeout", None)
+        self.callback = self.parameters.get("callback", self.default_callback)
 
     def _urlencode_envars(self, safe_overrides=None):
         urlencoded = dict()
@@ -70,3 +76,18 @@ class BaseProcessor(object):
         has_file_hashes = input_dict.get(MD5_KEY) is not None and input_dict.get(SHA256_KEY) is not None
         if not has_file_hashes and make_file_hashes:
             input_dict.update(hu.compute_file_hashes(file_path, [MD5_KEY, SHA256_KEY]))
+
+    def should_abort(self):
+        if self.timeout and isinstance(self.timeout, datetime.datetime):
+            now = datetime.datetime.now()
+            if now > self.timeout:
+                return True
+        return False
+
+    def default_callback(self, **kwargs):
+        progress = kwargs.get("progress", None)
+        if progress and logger.isEnabledFor(logging.DEBUG):
+            logger.debug(progress)
+        if self.should_abort():
+            return False
+        return True

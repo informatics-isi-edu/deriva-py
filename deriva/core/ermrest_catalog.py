@@ -224,7 +224,7 @@ class ErmrestCatalog(DerivaBinding):
                     sort = "@sort(%s)%s" % (",".join(page_sort_columns or ["RID"]),
                                             ("@after(%s)" % ",".join(last_record)) if last_record is not None else "")
                     limit = "limit=%s" % int(page_size) if page_size > 0 else "none"
-                    query = re.sub(r"([^.]*)(limit=.*?)($|[&;])([^.]*)$", r"\1%s\3\4" % usr.query, limit, flags=re.I)
+                    query = re.sub(r"([^.]*)(limit=.*?)($|[&;])([^.]*)$", r"\1%s\3\4" % limit, usr.query, flags=re.I)
                     url = urlunsplit((usr.scheme, usr.netloc, path + sort, query if query else limit, usr.fragment))
 
                     # 1. Try to get a page worth of data, back-off page size if query run time errors are encountered
@@ -237,7 +237,11 @@ class ErmrestCatalog(DerivaBinding):
                             page_size = 1 if page_size < 1 else page_size
                             logging.warning("Query runtime exceeded while attempting to transfer rows from %s to file "
                                             "[%s]. The page size is being reduced to %s and the query will be retried."
-                                            % (self._server_uri + path, destfilename, page_size))
+                                            % (url, destfilename, page_size))
+                            if callback:
+                                if not callback(progress="Retrying query: %s" % url):
+                                    destfile.close()
+                                    return
                             continue
                         else:
                             self._response_raise_for_status(r)
@@ -245,7 +249,7 @@ class ErmrestCatalog(DerivaBinding):
                         # 2. Write the page to disk and check the last record processed in order to get the next page
                         last_line = {}
                         content_type = r.headers.get("Content-Type")
-                        logging.debug("Transferring file %s to %s" % (self._server_uri + path, destfilename))
+                        logging.debug("Transferring data from [%s] to %s" % (url, destfilename))
                         # CSV processing iterates over lines in the response, skipping the header line(s) in all but
                         # the first page, and captures the last line of each page to determine the last record processed
                         if content_type == "text/csv":

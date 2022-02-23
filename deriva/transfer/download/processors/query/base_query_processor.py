@@ -71,6 +71,7 @@ class BaseQueryProcessor(BaseProcessor):
             if as_file:
                 return self.catalog.getAsFile(self.query, self.output_abspath,
                                               headers=headers,
+                                              callback=self.callback,
                                               delete_if_empty=True,
                                               paged=self.paged_query,
                                               page_size=self.paged_query_size,

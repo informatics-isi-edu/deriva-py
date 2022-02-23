@@ -12,3 +12,7 @@ class DerivaDownloadAuthenticationError(Exception):
 
 class DerivaDownloadAuthorizationError(Exception):
     pass
+
+
+class DerivaDownloadTimeoutError(Exception):
+    pass

@@ -1,5 +1,6 @@
 import os
 import time
+import datetime
 import uuid
 import logging
 import platform
@@ -13,7 +14,7 @@ from deriva.transfer.download.processors import find_query_processor, find_trans
 from deriva.transfer.download.processors.base_processor import LOCAL_PATH_KEY, REMOTE_PATHS_KEY, SERVICE_URL_KEY, \
     FILE_SIZE_KEY
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError, \
-    DerivaDownloadAuthenticationError, DerivaDownloadAuthorizationError
+    DerivaDownloadAuthenticationError, DerivaDownloadAuthorizationError, DerivaDownloadTimeoutError
 
 
 class DerivaDownload(object):
@@ -36,6 +37,8 @@ class DerivaDownload(object):
         self.sessions = dict()
         self.allow_anonymous = kwargs.get("allow_anonymous", True)
         self.max_payload_size_mb = int(kwargs.get("max_payload_size_mb", 0) or 0)
+        self.timeout_secs = int(kwargs.get("timeout", 0) or 0)
+        self.timeout = None
 
         info = "%s v%s [Python %s, %s]" % (
             self.__class__.__name__, get_installed_version(VERSION),
@@ -123,6 +126,9 @@ class DerivaDownload(object):
         if self.config.get("catalog") is None:
             raise DerivaDownloadConfigurationError("Catalog configuration error!")
 
+        if self.timeout_secs > 0:
+            self.timeout = datetime.datetime.now() + datetime.timedelta(0, self.timeout_secs)
+
         ro_manifest = None
         ro_author_name = None
         ro_author_orcid = None
@@ -200,8 +206,12 @@ class DerivaDownload(object):
                                             ro_author_orcid=ro_author_orcid,
                                             identity=identity,
                                             wallet=wallet,
-                                            allow_anonymous=self.allow_anonymous)
+                                            allow_anonymous=self.allow_anonymous,
+                                            timeout=self.timeout)
                 outputs = processor.process()
+                if processor.should_abort():
+                    raise DerivaDownloadTimeoutError("Timeout (%s seconds) waiting for processor [%s] to complete." %
+                                                     (self.timeout_secs, processor_name))
                 self.check_payload_size(outputs)
             except Exception as e:
                 logging.error(format_exception(e))
@@ -231,8 +241,13 @@ class DerivaDownload(object):
                         ro_author_orcid=ro_author_orcid,
                         identity=identity,
                         wallet=wallet,
-                        allow_anonymous=self.allow_anonymous)
+                        allow_anonymous=self.allow_anonymous,
+                        timeout=self.timeout)
                     outputs = processor.process()
+                    if processor.should_abort():
+                        raise DerivaDownloadTimeoutError(
+                            "Timeout (%s seconds) waiting for processor [%s] to complete." %
+                            (self.timeout_secs, processor_name))
                     self.check_payload_size(outputs)
                 except Exception as e:
                     if create_bag:
@@ -289,8 +304,13 @@ class DerivaDownload(object):
                         processor_params=processor_params,
                         identity=identity,
                         wallet=wallet,
-                        allow_anonymous=self.allow_anonymous)
+                        allow_anonymous=self.allow_anonymous,
+                        timeout=self.timeout)
                     outputs = processor.process()
+                    if processor.should_abort():
+                        raise DerivaDownloadTimeoutError(
+                            "Timeout (%s seconds) waiting for processor [%s] to complete." %
+                            (self.timeout_secs, processor_name))
                     self.check_payload_size(outputs)
                 except Exception as e:
                     logging.error(format_exception(e))
