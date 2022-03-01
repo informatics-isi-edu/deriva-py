@@ -252,8 +252,8 @@ def read_config(config_file=DEFAULT_CONFIG_FILE, create_default=False, default=D
     return json.loads(config, object_pairs_hook=OrderedDict)
 
 
-def lock_file(file_path, mode, exclusive=True):
-    return portalocker.Lock(file_path, mode, timeout=60,
+def lock_file(file_path, mode, exclusive=True, timeout=60):
+    return portalocker.Lock(file_path, mode, timeout=timeout,
                             flags=portalocker.LOCK_EX if exclusive else portalocker.LOCK_SH)
 
 
