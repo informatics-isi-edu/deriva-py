@@ -1,6 +1,6 @@
 {
   "bag": {
-    "bag_name": "Biosample",
+    "bag_name": "Dataset_1-882P",
     "bag_algorithms": [
       "md5"
     ],
@@ -8,35 +8,68 @@
     "bag_metadata": {}
   },
   "catalog": {
-    "host": "https://pbcconsortium.isrd.isi.edu",
-    "catalog_id": "1",
     "query_processors": [
       {
         "processor": "csv",
         "processor_params": {
-          "query_path": "/entity/M:=Beta_Cell:Biosample/RID=1-8X66;RID=1-8X6T/$M/left(RID)=(Beta_Cell:Mesh_Data:biosample)/!(URL::null::)/$M?limit=none",
-          "output_path": "Biosample"
+          "output_path": "Dataset",
+          "query_path": "/attributegroup/M:=Beta_Cell:Dataset/RID=1-882P/F1:=left(Project)=(isa:project:id)/$M/RID;Title,RCB,RMB,Owner,RCT,RMT,Project,project.name:=F1:name,Description?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "Experiment",
+          "query_path": "/attributegroup/M:=Beta_Cell:Dataset/RID=1-882P/R:=(RID)=(Beta_Cell:Experiment:Dataset)/F1:=left(Dataset)=(Beta_Cell:Dataset:RID)/$R/F2:=left(Experiment_Type)=(Vocab:Experiment_Type_Term:ID)/$R/RID;RCT,RMT,RCB,RMB,Owner,Dataset,Dataset.Title:=F1:Title,Experiment_Type,Experiment_Type_Term.name:=F2:name,Protocol,Description,Experimental_Factor,Reanalysis_Px,Quantification,Modification,Instrument?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "Biosample",
+          "query_path": "/attributegroup/M:=Beta_Cell:Dataset/RID=1-882P/R:=(RID)=(Beta_Cell:Biosample:Dataset)/F1:=left(Dataset)=(Beta_Cell:Dataset:RID)/$R/F2:=left(Specimen_Type)=(vocab:specimen_type_terms:id)/$R/RID;RCT,RMT,RCB,RMB,Owner,Dataset,Dataset.Title:=F1:Title,Summary,Collection_Date,Sample_Position,Specimen,Specimen_Type,specimen_type_terms.name:=F2:name,Experiment,Protocol,Container_Id,Sample_Processing_Protocol,Data_Processing_Protocol?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "Image Data",
+          "query_path": "/attributegroup/M:=Beta_Cell:Dataset/RID=1-882P/R:=(RID)=(Beta_Cell:Image_Data:Dataset)/F1:=left(Dataset)=(Beta_Cell:Dataset:RID)/$R/F2:=left(Experiment_Type)=(Vocab:Experiment_Type_Term:ID)/$R/F3:=left(File_Type)=(Vocab:File_Type_Term:ID)/$R/RID;RCB,Owner,Dataset,Dataset.Title:=F1:Title,Biosample,Filename,Description,Experiment_Type,Experiment_Type_Term.name:=F2:name,File_Type,File_Type_Term.Name:=F3:Name,Length,Submitted_On?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "Derived Image Data",
+          "query_path": "/attributegroup/M:=Beta_Cell:Dataset/RID=1-882P/R:=(RID)=(Beta_Cell:Derived_Image_Data:Dataset)/F1:=left(File_Type)=(Vocab:File_Type_Term:ID)/$R/RID;RCT,RMT,RCB,RMB,Owner,Dataset,Process,Biosample,Filename,URL,Length,MD5,File_Type,File_Type_Term.Name:=F1:Name,Image_Data?limit=none"
         }
       },
       {
         "processor": "fetch",
         "processor_params": {
-          "query_path": "/attribute/M:=Beta_Cell:Biosample/RID=1-8X66;RID=1-8X6T/$M/left(RID)=(Beta_Cell:Mesh_Data:biosample)/!(URL::null::)/$M/X:=Beta_Cell:XRay_Tomography_Data/url,length,md5?limit=none",
-          "output_path": "MRC"
+          "output_path": "assets/Derived Image Data/URL",
+          "query_path": "/attribute/M:=Beta_Cell:Dataset/RID=1-882P/R:=(RID)=(Beta_Cell:Derived_Image_Data:Dataset)/!(URL::null::)/url:=URL,length:=Length,filename:=Filename,md5:=MD5?limit=none"
         }
       },
       {
-        "processor": "fetch",
+        "processor": "csv",
         "processor_params": {
-          "query_path": "/attribute/M:=Beta_Cell:Biosample/RID=1-8X66;RID=1-8X6T/$M/left(RID)=(Beta_Cell:Mesh_Data:biosample)/!(URL::null::)/$M/X:=Beta_Cell:Processed_Tomography_Data/url,length,md5?limit=none",
-          "output_path": "processed_data"
+          "output_path": "Supplementary Files",
+          "query_path": "/attributegroup/M:=Beta_Cell:Dataset/RID=1-882P/R:=(RID)=(Beta_Cell:File:Dataset)/RID;RCB,Owner,Filename,byte_count,Dataset,Submitted_On,Description?limit=none"
         }
       },
       {
-        "processor": "fetch",
+        "processor": "csv",
         "processor_params": {
-          "query_path": "/attribute/M:=Beta_Cell:Biosample/RID=1-8X66;RID=1-8X6T/$M/left(RID)=(Beta_Cell:Mesh_Data:biosample)/!(URL::null::)/$M/X:=Beta_Cell:Mesh_Data/url:=X:URL,length:=X:byte_count,md5?limit=none",
-          "output_path": "OBJS"
+          "output_path": "Mass Spec Data",
+          "query_path": "/attributegroup/M:=Beta_Cell:Dataset/RID=1-882P/R:=(RID)=(Beta_Cell:Mass_Spec_Data:Dataset)/RID;RCB,Owner,Dataset,Biosample,Replicate_Number,Description,File_Mapping,Resubmission_px?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "Mesh Data",
+          "query_path": "/attributegroup/M:=Beta_Cell:Dataset/RID=1-882P/R:=(RID)=(Beta_Cell:Mesh_Data:dataset)/F1:=left(dataset)=(Beta_Cell:Dataset:RID)/$R/RID;dataset,Dataset.Title:=F1:Title,biosample,derived_from,byte_count,label?limit=none"
         }
       }
     ]
@@ -45,14 +78,15 @@
     {
       "processor": "cloud_upload",
       "processor_params": {
-        "target_url": "s3://deriva-dev/test",
+        "target_url": "s3://pbcconsortium/wholetale/",
         "acl": "public-read"
       }
     },
     {
       "processor": "identifier",
       "processor_params": {
-        "test": "True"
+        "test": true,
+        "redirect_base": "https://localhost.wholetale.org/api/v1/integration/deriva?url="
       }
     }
   ]

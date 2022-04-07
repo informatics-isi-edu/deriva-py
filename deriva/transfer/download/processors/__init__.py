@@ -10,6 +10,8 @@ from deriva.transfer.download.processors.transform.fasta_transform_processor imp
 from deriva.transfer.download.processors.transform.geo_transform_processor import GeoExportTransformProcessor
 from deriva.transfer.download.processors.transform.string_transform_processor import InterpolationTransformProcessor, \
     StrSubTransformProcessor, ConcatenateTransformProcessor
+from deriva.transfer.download.processors.transform.format_transform_processor import JSONtoCSVTransformProcessor
+from deriva.transfer.download.processors.transform.column_transform_processor import ColumnTransformProcessor
 from deriva.transfer.download.processors.postprocess.identifier_post_processor import FAIRIdentifierPostProcessor
 from deriva.transfer.download.processors.postprocess.transfer_post_processor import Boto3UploadPostProcessor
 from deriva.transfer.download.processors.postprocess.url_post_processor import UrlRewritePostProcessor
@@ -28,7 +30,9 @@ DEFAULT_TRANSFORM_PROCESSORS = {
     "interpolation": InterpolationTransformProcessor,
     "strsub": StrSubTransformProcessor,
     "geo": GeoExportTransformProcessor,
-    "fasta": FastaExportTransformProcessor
+    "fasta": FastaExportTransformProcessor,
+    "json2csv": JSONtoCSVTransformProcessor,
+    "column": ColumnTransformProcessor
 }
 
 DEFAULT_POST_PROCESSORS = {

@@ -1,0 +1,38 @@
+{
+  "catalog": {
+    "query_processors": [
+      {
+        "processor": "json-stream",
+        "processor_params": {
+          "output_path": "cavatica-export-manifest.json",
+          "query_path": "/attribute/M:=CFDE:file/!persistent_id::null::/cf:=(core_fact)=(CFDE:core_fact:nid)/$M/Md:=c2m2:file/$M/left(nid)=(CFDE:file_describes_subject:file)/Sd:=left(subject)=(c2m2:subject:nid)/$M/left(nid)=(CFDE:file_describes_biosample:file)/Bd:=left(biosample)=(c2m2:biosample:nid)/$M/study_registration:=Md:project_id_namespace,study_id:=Md:project_local_id,participant_id:=Sd:local_id,specimen_id:=Bd:local_id,experimental_strategy:=cf:assay_type_row,drs_id:=Md:persistent_id,file_format:=cf:file_format_row,file_nid:=M:nid@sort(file_nid)?limit=100"
+        }
+      }
+    ]
+  },
+  "transform_processors": [
+    {
+      "processor":"column",
+      "processor_params": {
+        "input_path": "cavatica-export-manifest.json",
+        "output_path": "cavatica-export-manifest-transformed.json",
+        "column_transforms":
+        {
+          "experimental_strategy": {"fn": "replace", "value": {"key":"experimental_strategy", "value":"name"}},
+          "file_format": {"fn": "replace", "value": {"key":"file_format", "value":"name"}},
+          "fhir_document_reference": {"fn": "add", "value": "null"},
+          "file_nid": {"fn": "delete"}
+        }
+      }
+    },
+    {
+      "processor":"json2csv",
+      "processor_params": {
+        "input_path": "cavatica-export-manifest-transformed.json",
+        "output_path": "cavatica-export-manifest.csv",
+        "include_header": true,
+        "csv_dialect": "unix_tab"
+      }
+    }
+  ]
+}

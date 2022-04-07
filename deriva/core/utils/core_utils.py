@@ -17,14 +17,25 @@ from distutils import util as du_util
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
 
+
+def force_unicode_py2(s):
+    """Reliably return a Unicode string given a possible unicode or byte string"""
+    if isinstance(s, str):
+        return s.decode("utf-8")
+    else:
+        return unicode(s)
+
+
 if IS_PY3:
     from urllib.parse import quote as _urlquote, unquote as urlunquote
     from urllib.parse import urlparse, urlsplit, urlunsplit, urljoin
     from http.cookiejar import MozillaCookieJar
+    force_unicode = str
 else:
     from urllib import quote as _urlquote, unquote as urlunquote
     from urlparse import urlparse, urlsplit, urlunsplit, urljoin
     from cookielib import MozillaCookieJar
+    force_unicode = force_unicode_py2
 
 Kilobyte = 1024
 Megabyte = Kilobyte ** 2
@@ -415,6 +426,26 @@ def calculate_optimal_transfer_shape(size,
     if remainder:
         chunk_count += 1
     return chosen_chunk_size, chunk_count, remainder
+
+
+def json_item_handler(input_file, callback):
+    with io.open(input_file, "r", encoding='utf-8') as infile:
+        line = infile.readline().lstrip()
+        infile.seek(0)
+        is_json_stream = False
+        if line.startswith('{') and line.endswith('}\n'):
+            input_json = infile
+            is_json_stream = True
+        else:
+            input_json = json.load(infile, object_pairs_hook=OrderedDict)
+        try:
+            for item in input_json:
+                if is_json_stream:
+                    item = json.loads(item, object_pairs_hook=OrderedDict)
+                if callback:
+                    callback(item)
+        finally:
+            infile.close()
 
 
 def topo_sorted(depmap):

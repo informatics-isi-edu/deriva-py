@@ -26,10 +26,11 @@
         }
       },
       {
-        "processor": "fetch",
+        "processor": "download",
         "processor_params": {
           "output_path": "assets/File/File_URI",
-          "query_path": "/attribute/M:=Data:Replicate/RID=16-WHZT/R:=(RID)=(Data:File:Replicate)/!(File_URI::null::)/url:=File_URI,length:=File_Size,filename:=File_Name,md5:=File_MD5?limit=none"
+          "query_path": "/attribute/M:=Data:Replicate/RID=16-WHZT/R:=(RID)=(Data:File:Replicate)/!(File_URI::null::)/url:=File_URI,length:=File_Size,filename:=File_Name,md5:=File_MD5?limit=none",
+          "callback": null
         }
       }
     ]
