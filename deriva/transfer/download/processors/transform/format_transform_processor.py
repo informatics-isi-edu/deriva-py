@@ -8,7 +8,7 @@ from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigur
 from deriva.transfer.download.processors.transform.base_transform_processor import BaseTransformProcessor
 
 logger = logging.getLogger(__name__)
-csv.register_dialect('unix_tab', delimiter='\t', lineterminator='\n', quoting=csv.QUOTE_ALL)
+csv.register_dialect('unix_comma_quotemin', delimiter=',', lineterminator='\n', quoting=csv.QUOTE_MINIMAL)
 
 
 class JSONtoCSVTransformProcessor(BaseTransformProcessor):
@@ -21,7 +21,7 @@ class JSONtoCSVTransformProcessor(BaseTransformProcessor):
 
         # get custom params
         self.include_header = self.parameters.get('include_header', True)
-        self.csv_dialect = self.parameters.get('csv_dialect', "unix")
+        self.csv_dialect = self.parameters.get('csv_dialect', "unix_comma_quotemin")
 
     def process(self):
         """Reads a JSON or JSON-Stream input file, converts to CSV output with optional header row.
