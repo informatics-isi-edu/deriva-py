@@ -21,7 +21,7 @@ class JSONtoCSVTransformProcessor(BaseTransformProcessor):
 
         # get custom params
         self.include_header = self.parameters.get('include_header', True)
-        self.csv_dialect = self.parameters.get('csv_dialect', "unix_dialect")
+        self.csv_dialect = self.parameters.get('csv_dialect', "unix")
 
     def process(self):
         """Reads a JSON or JSON-Stream input file, converts to CSV output with optional header row.
