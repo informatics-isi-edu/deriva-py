@@ -30,8 +30,7 @@
       "processor_params": {
         "input_path": "cavatica-export-manifest-transformed.json",
         "output_path": "cavatica-export-manifest.csv",
-        "include_header": true,
-        "csv_dialect": "unix_tab"
+        "include_header": true
       }
     }
   ]

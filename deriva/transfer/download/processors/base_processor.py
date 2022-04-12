@@ -34,6 +34,7 @@ class BaseProcessor(object):
         self.wallet = kwargs.get("wallet", dict()) or dict()
         self.timeout = kwargs.get("timeout", None)
         self.callback = self.parameters.get("callback", self.default_callback)
+        self.last_timestamp = datetime.datetime.now()
 
     def _urlencode_envars(self, safe_overrides=None):
         urlencoded = dict()
@@ -78,11 +79,19 @@ class BaseProcessor(object):
             input_dict.update(hu.compute_file_hashes(file_path, [MD5_KEY, SHA256_KEY]))
 
     def should_abort(self):
-        if self.timeout and isinstance(self.timeout, datetime.datetime):
-            now = datetime.datetime.now()
-            if now > self.timeout:
-                return True
-        return False
+        try:
+            if self.timeout and isinstance(self.timeout, datetime.datetime):
+                now = datetime.datetime.now()
+                elapsed = now - self.last_timestamp
+                elapsed_time = str("Elapsed time (ms) since last timestamp: %s." % elapsed) if \
+                    (elapsed > datetime.timedelta(milliseconds=0)) else ""
+                if elapsed_time:
+                    logging.debug(elapsed_time)
+                if now > self.timeout:
+                    return True
+            return False
+        finally:
+            self.last_timestamp = datetime.datetime.now()
 
     def default_callback(self, **kwargs):
         progress = kwargs.get("progress", None)
