@@ -6,6 +6,7 @@ import datetime
 import codecs
 import csv
 import json
+import requests
 
 from . import urlquote, urlsplit, urlunsplit, datapath, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, DEFAULT_SESSION_CONFIG, \
     Megabyte, Kilobyte, get_transfer_summary, IS_PY2
@@ -78,7 +79,7 @@ class ErmrestCatalog(DerivaBinding):
         try:
             self.get('/')
             return True
-        except HTTPError as e:
+        except requests.HTTPError as e:
             if e.response.status_code == 404:
                 return False
             else:
