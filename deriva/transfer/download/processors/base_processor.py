@@ -83,7 +83,7 @@ class BaseProcessor(object):
             if self.timeout and isinstance(self.timeout, datetime.datetime):
                 now = datetime.datetime.now()
                 elapsed = now - self.last_timestamp
-                elapsed_time = str("Elapsed time (ms) since last timestamp: %s." % elapsed) if \
+                elapsed_time = str("Elapsed time since last timestamp: %s." % elapsed) if \
                     (elapsed > datetime.timedelta(milliseconds=0)) else ""
                 if elapsed_time:
                     logging.debug(elapsed_time)

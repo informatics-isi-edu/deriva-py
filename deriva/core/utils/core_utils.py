@@ -265,7 +265,8 @@ def read_config(config_file=DEFAULT_CONFIG_FILE, create_default=False, default=D
 
 def lock_file(file_path, mode, exclusive=True, timeout=60):
     return portalocker.Lock(file_path, mode=mode, timeout=timeout, fail_when_locked=True,
-                            flags=(portalocker.LOCK_EX | portalocker.LOCK_NB) if exclusive else portalocker.LOCK_SH)
+                            flags=(portalocker.LOCK_EX | portalocker.LOCK_NB) if exclusive else
+                            (portalocker.LOCK_SH | portalocker.LOCK_NB))
 
 
 def write_credential(credential_file=DEFAULT_CREDENTIAL_FILE, credential=DEFAULT_CREDENTIAL):
