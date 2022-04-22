@@ -50,12 +50,13 @@ class GlobusAuthUtil:
         client_secret = kwargs.get("client_secret")
         if not (client_id and client_secret):
             cred_file = kwargs.get("credential_file", CLIENT_CRED_FILE)
-            creds = read_config(cred_file)
-            if creds:
-                client = creds.get("web")
-                if client:
-                    client_id = client.get('client_id')
-                    client_secret = client.get('client_secret')
+            if os.path.isfile(cred_file):
+                creds = read_config(cred_file)
+                if creds:
+                    client = creds.get("web")
+                    if client:
+                        client_id = client.get('client_id')
+                        client_secret = client.get('client_secret')
 
         if not (client_id and client_secret):
             logging.warning("Client ID and secret not specified and/or could not be determined.")
@@ -129,7 +130,7 @@ class GlobusAuthUtil:
     def introspect_access_token(self, token):
         if not token:
             raise UsageException("A token argument is required.")
-        r = self.client.oauth2_token_introspect(token, include="identity_set")
+        r = self.client.oauth2_token_introspect(token, include="identity_set,identity_set_detail,session_info")
         return r.data
 
     def get_dependent_access_tokens(self, token, refresh=False):
@@ -390,6 +391,9 @@ class GlobusAuthUtil:
 
         # get client info
         token_info = self.introspect_access_token(token)
+        if not token_info.get("active", False):
+            return token_info
+
         client["id"] = (token_info["iss"] + "/" if qualified_ids else "") + token_info["sub"]
         val = token_info.get("username")
         if val:
