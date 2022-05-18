@@ -214,7 +214,6 @@ class ErmrestCatalog(DerivaBinding):
                                 destfile.close()
                                 return
                 destfile.flush()
-                os.fsync(destfile.fileno())
             else:
                 first_page = True
                 first_line = None
@@ -295,7 +294,6 @@ class ErmrestCatalog(DerivaBinding):
                         if not last_line:
                             break
                         destfile.flush()
-                        os.fsync(destfile.fileno())
                         last_record = [urlquote(str(last_line.get(key))) for key in page_sort_columns]
                         if callback:
                             if not callback(progress="Downloading: %.2f MB transferred" %

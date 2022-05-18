@@ -73,7 +73,11 @@ class HatracStore(DerivaBinding):
         else:
             return False
 
-    def get_obj(self, path, headers=DEFAULT_HEADERS, destfilename=None, callback=None):
+    def get_obj(self, path,
+                headers=DEFAULT_HEADERS,
+                destfilename=None,
+                callback=None,
+                chunk_size=DEFAULT_CHUNK_SIZE):
         """Retrieve resource optionally streamed to destination file.
 
            If destfilename is provided, download content to file with
@@ -109,7 +113,7 @@ class HatracStore(DerivaBinding):
                 total = 0
                 start = datetime.datetime.now()
                 logging.debug("Transferring file %s to %s" % (self._server_uri + path, destfilename))
-                for buf in r.iter_content(chunk_size=DEFAULT_CHUNK_SIZE):
+                for buf in r.iter_content(chunk_size=chunk_size):
                     destfile.write(buf)
                     total += len(buf)
                     if callback:
@@ -121,7 +125,6 @@ class HatracStore(DerivaBinding):
                 elapsed = datetime.datetime.now() - start
                 summary = get_transfer_summary(total, elapsed)
                 destfile.flush()
-                os.fsync(destfile.fileno())
                 logging.info("File [%s] transfer successful. %s" % (destfilename, summary))
                 if callback:
                     callback(summary=summary, file_path=destfilename)

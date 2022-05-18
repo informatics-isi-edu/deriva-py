@@ -1,4 +1,4 @@
-__version__ = "1.5.5"
+__version__ = "1.5.6"
 
 from deriva.core.utils.core_utils import *
 from deriva.core.base_cli import BaseCLI, KeyValuePairArgs
