@@ -146,7 +146,7 @@ class HatracStore(DerivaBinding):
                     rmd5 = r.headers.get('Content-MD5', r.headers.get('content-md5', None))
                     if fmd5 != rmd5:
                         raise HatracHashMismatch('Content-MD5 %s != computed MD5 %s' % (rmd5, fmd5))
-
+                r.close()
             return r
         finally:
             if destfile is not None:
