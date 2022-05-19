@@ -117,7 +117,8 @@ class HatracStore(DerivaBinding):
                     destfile.write(buf)
                     total += len(buf)
                     if callback:
-                        if not callback(progress="Downloading: %.2f MB transferred" % (total / Megabyte)):
+                        if not callback(progress="Downloading: %.2f MB transferred" % (total / Megabyte),
+                                        total_bytes=total, chunk_size=chunk_size):
                             destfile.close()
                             r.close()
                             os.remove(destfilename)
