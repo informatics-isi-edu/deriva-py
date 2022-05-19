@@ -111,14 +111,16 @@ class HatracStore(DerivaBinding):
 
             if destfilename is not None:
                 total = 0
+                current_chunk = 0
                 start = datetime.datetime.now()
                 logging.debug("Transferring file %s to %s" % (self._server_uri + path, destfilename))
                 for buf in r.iter_content(chunk_size=chunk_size):
                     destfile.write(buf)
                     total += len(buf)
+                    current_chunk += 1
                     if callback:
                         if not callback(progress="Downloading: %.2f MB transferred" % (total / Megabyte),
-                                        total_bytes=total, chunk_size=chunk_size):
+                                        total_bytes=total, current_chunk=current_chunk):
                             destfile.close()
                             r.close()
                             os.remove(destfilename)
