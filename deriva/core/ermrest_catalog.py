@@ -278,7 +278,7 @@ class ErmrestCatalog(DerivaBinding):
         super(ErmrestCatalog, self).__init__(scheme, server, credentials, caching, session_config)
         self._server_uri = "%s/ermrest/catalog/%s" % (
             self._server_uri,
-            catalog_id
+            urlquote(catalog_id),
         )
         self._scheme, self._server, self._catalog_id, self._credentials, self._caching, self._session_config = \
             scheme, server, catalog_id, credentials, caching, session_config
