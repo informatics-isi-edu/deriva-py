@@ -411,7 +411,7 @@ class ConfigBaseCLI(BaseCLI):
         self.parser.add_argument('-t', '--table', help="table name", default=None, action='append')
         self.parser.add_argument('-n', '--dryrun', help="dryrun", action="store_true")
         self.parser.add_argument('-v', '--verbose', help="verbose", action="store_true")
-        self.parser.add_argument('catalog', help="catalog number", type=int)
+        self.parser.add_argument('catalog', help="catalog ID", type=str)
         self.parser.set_defaults(host=platform.uname()[1])
 
     @classmethod
