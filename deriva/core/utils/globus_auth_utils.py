@@ -6,14 +6,16 @@ import logging
 import platform
 import traceback
 import importlib
+import datetime
+import tzlocal
 from pprint import pprint
 from requests.exceptions import HTTPError, ConnectionError
 from bdbag.fetch.auth import keychain as bdbkc
 from deriva.core import __version__ as VERSION, DEFAULT_CONFIG_PATH, DEFAULT_GLOBUS_CREDENTIAL_FILE, urlparse, urljoin,\
     read_config, format_exception, BaseCLI, get_oauth_scopes_for_host, get_new_requests_session
 from deriva.core.utils import eprint
-from globus_sdk import ConfidentialAppAuthClient, GlobusError, GlobusAPIError, AuthAPIError
-from fair_research_login.client import NativeClient, LoadError
+from globus_sdk import ConfidentialAppAuthClient, AuthClient, AccessTokenAuthorizer, GlobusError, GlobusAPIError
+from fair_research_login.client import NativeClient, LoadError, NoSavedTokens
 
 NATIVE_APP_CLIENT_ID = "8ef15ba9-2b4a-469c-a163-7fd910c9d111"
 LEGACY_GROUPS_SCOPE_ID = "69a73d8f-cd45-4e37-bb3b-43678424aeb7"
@@ -21,7 +23,7 @@ LEGACY_GROUPS_SCOPE_NAME = "urn:globus:auth:scope:nexus.api.globus.org:groups"
 GROUPS_SCOPE_NAME = "urn:globus:auth:scope:groups.api.globus.org:view_my_groups_and_memberships"
 PUBLIC_GROUPS_API_URL = 'https://groups.api.globus.org/v2/groups/my_groups'
 CLIENT_CRED_FILE = '/home/secrets/oauth2/client_secret_globus.json'
-DEFAULT_SCOPES = ["openid"]
+DEFAULT_SCOPES = ["openid", GROUPS_SCOPE_NAME]
 
 
 class UsageException(ValueError):
@@ -496,22 +498,74 @@ class GlobusNativeLogin:
         except Exception as e:
             logging.error("Unable to instantiate a required class: %s" % format_exception(e))
 
-    def user_info(self, client_id, client_secret, host=None, scope=None):
-        if not (host or scope):
-            logging.error("Either a 'host' or a 'scope' argument is required. "
-                          "If both are specified, then 'scope' takes precedence.")
-        token = None
-        tokens = self.client._load_raw_tokens()
-        if scope:
-            token = self.find_access_token_for_scope(scope, tokens)
-        elif host:
-            scope_map = self.hosts_to_scope_map([host])
-            token = self.find_access_token_for_host(host, scope_map, tokens)
-        if not token:
-            return None
+    def user_info(self):
+        tokens = dict()
+        client = dict()
+        scopes = list()
+        groups = list()
+        userinfo = dict()
+        identity = dict()
 
-        gau = GlobusAuthUtil(client_id=client_id, client_secret=client_secret)
-        return gau.get_userinfo_for_token(token)
+        try:
+            tokens = self.client.load_tokens()
+        except NoSavedTokens:
+            pass
+        if not tokens:
+            return "Login required. No saved tokens."
+
+        token = self.find_access_token_for_scope("openid", tokens)
+        if not token:
+            return "Login required with a minimum requested scope of 'openid'."
+
+        # get valid scopes and expirations
+        for t in tokens.values():
+            scope = {"scope": t["scope"],
+                     "resource_server": t["resource_server"],
+                     "valid_until": datetime.datetime.fromtimestamp(
+                         t["expires_at_seconds"], tz=tzlocal.get_localzone()).isoformat()}
+            scopes.append(scope)
+
+        ac = AuthClient(authorizer=AccessTokenAuthorizer(token))
+        ui = ac.oauth2_userinfo()
+        identities = ac.get_identities(ids=[id["sub"] for id in ui.get("identity_set", {})])
+        for ident in identities["identities"]:
+            if ident["id"] == ui.get("sub"):
+                identity = ident
+                break
+
+        # get client info
+        client["id"] = identity["id"]
+        val = identity.get("username")
+        if val:
+            client["display_name"] = val
+        val = identity.get("name")
+        if val:
+            client["full_name"] = val
+        val = identity.get("email")
+        if val:
+            client["email"] = val
+
+        client["identities"] = identities["identities"]
+
+        # get groups info
+        groups_token = self.find_access_token_for_scope(GROUPS_SCOPE_NAME, tokens)
+        if not groups_token:
+            logging.warning(
+                "Unable to locate token for groups scope: %s. "
+                "Group information will not be available until a login is made with this scope." %
+                GROUPS_SCOPE_NAME)
+        else:
+            globus_groups = GlobusAuthUtil.get_groups_for_token(groups_token)
+            for g in globus_groups:
+                groups.append({"id": g["id"],
+                               "name": g.get("name"),
+                               "description": g.get("description")})
+
+        userinfo.update({"client": client})
+        userinfo.update({"scopes": scopes})
+        userinfo.update({"groups": groups})
+
+        return userinfo
 
     def is_logged_in(self,
                      hosts=None,
@@ -1044,11 +1098,7 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
 
     def user_info_init(self):
         def user_info(args):
-            if self.gnl.is_logged_in([args.host] if args.host else [], [args.scope] if args.scope else [],
-                                     exclude_defaults=True):
-                return self.gnl.user_info(args.client_id, args.client_secret, args.host, args.scope)
-            else:
-                return "Login required."
+                return self.gnl.user_info()
 
         parser = self.subparsers.add_parser("user-info",
                                             help="Retrieve information about the currently logged-in user for "

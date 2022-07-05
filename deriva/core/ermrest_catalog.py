@@ -60,6 +60,8 @@ class ErmrestCatalog(DerivaBinding):
            complete context for the request.
         """
         super(ErmrestCatalog, self).__init__(scheme, server, credentials, caching, session_config)
+        if isinstance(catalog_id, int):
+            catalog_id = str(catalog_id)
         self._server_uri = "%s/ermrest/catalog/%s" % (
             self._server_uri,
             urlquote(catalog_id),
