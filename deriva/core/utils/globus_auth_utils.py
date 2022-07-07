@@ -498,10 +498,10 @@ class GlobusNativeLogin:
         except Exception as e:
             logging.error("Unable to instantiate a required class: %s" % format_exception(e))
 
-    def user_info(self):
+    def user_info(self, show_tokens=False):
         tokens = dict()
+        token_set = list()
         client = dict()
-        scopes = list()
         groups = list()
         userinfo = dict()
         identity = dict()
@@ -519,11 +519,13 @@ class GlobusNativeLogin:
 
         # get valid scopes and expirations
         for t in tokens.values():
-            scope = {"scope": t["scope"],
-                     "resource_server": t["resource_server"],
-                     "valid_until": datetime.datetime.fromtimestamp(
-                         t["expires_at_seconds"], tz=tzlocal.get_localzone()).isoformat()}
-            scopes.append(scope)
+            display = {"scope": t["scope"],
+                       "resource_server": t["resource_server"],
+                       "valid_until": datetime.datetime.fromtimestamp(
+                           t["expires_at_seconds"], tz=tzlocal.get_localzone()).isoformat()}
+            if show_tokens:
+                display.update({"access_token": t["access_token"]})
+            token_set.append(display)
 
         ac = AuthClient(authorizer=AccessTokenAuthorizer(token))
         ui = ac.oauth2_userinfo()
@@ -562,7 +564,7 @@ class GlobusNativeLogin:
                                "description": g.get("description")})
 
         userinfo.update({"client": client})
-        userinfo.update({"scopes": scopes})
+        userinfo.update({"tokens": token_set})
         userinfo.update({"groups": groups})
 
         return userinfo
@@ -1098,17 +1100,11 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
 
     def user_info_init(self):
         def user_info(args):
-                return self.gnl.user_info()
+            return self.gnl.user_info(args.show_tokens)
 
         parser = self.subparsers.add_parser("user-info",
-                                            help="Retrieve information about the currently logged-in user for "
-                                                 "either a given hostname or given scope.")
-        mutex_group = parser.add_mutually_exclusive_group()
-        mutex_group.add_argument("--host", metavar="<hostname>", default=None,
-                                 help="The desired hostname. A host-to-scope lookup will be performed which requires "
-                                      "contacting the specified host for its required scope list.")
-        mutex_group.add_argument("--scope", metavar="scope", default=None,
-                                 help="The desired scope name. This is more efficient than using a hostname.")
+                                            help="Retrieve information about the currently logged-in user.")
+        parser.add_argument("--show-tokens", action="store_true", help="Display access tokens in output.")
         parser.set_defaults(func=user_info)
 
     def main(self):
