@@ -110,6 +110,12 @@ the model definition are immutable once set, but in general `comment`,
 `acl`, `acl_binding`, and `annotation` attributes can be modified after
 the fact through configuration management APIs.
 
+#### Add Schema to Catalog
+To create a new schema, call the model's schema-creation method.
+```
+schema = model_root.create_schema({"schema_name": "My new schema"})
+```
+
 #### Add Table to Schema
 
 To create a new table, you build a table definition document and pass
