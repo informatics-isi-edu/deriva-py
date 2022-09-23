@@ -12,7 +12,113 @@ from . import urlquote, urlsplit, urlunsplit, datapath, DEFAULT_HEADERS, DEFAULT
     Megabyte, Kilobyte, get_transfer_summary, IS_PY2
 from .deriva_binding import DerivaBinding, DerivaPathError
 from . import ermrest_model
+from .ermrest_model import nochange
 
+class DerivaServer (DerivaBinding):
+    """Persistent handle for a Deriva server."""
+
+    def __init__(self, scheme, server, credentials=None, caching=True, session_config=None):
+        """Create a Deriva server binding.
+
+           Arguments:
+             scheme: 'http' or 'https'
+             server: server FQDN string
+             credentials: credential secrets, e.g. cookie
+             caching: whether to retain a GET response cache
+        """
+        super(DerivaServer, self).__init__(scheme, server, credentials, caching, session_config)
+        self.scheme = scheme
+        self.server = server
+        self.credentials = credentials
+        self.caching = caching
+        self.session_config = session_config
+
+    def connect_ermrest(self, catalog_id, snaptime=None):
+        """Connect to an ERMrest catalog and return the catalog binding.
+
+        :param catalog_id: The id (or alias) of the existing catalog
+        :param snaptime: The id for a desired catalog snapshot (default None)
+
+        The catalog_id is normally a bare id (str), and the optional
+        snaptime is a bare snapshot id (str). If the snaptime is None,
+        the catalog_id may be a concatenated <id>@<snaptime> string,
+        and it will be split to determine the snaptime.
+
+        If no snaptime is passed separately or compounded with
+        catalog_id, an ErmrestCatalog binding will be
+        returned. Conversely, if a snaptime is determined, an
+        ErmrestSnapshot (immutable) binding will be returned.
+
+        """
+        return ErmrestCatalog.connect(self, catalog_id, snaptime)
+
+    def create_ermrest_catalog(self, id=None, owner=None):
+        """Create an ERMrest catalog.
+
+        :param id: The (str) id desired by the client (default None)
+        :param owner: The initial (list of str) ACL desired by the client (default None)
+
+        The new catalog id will be returned in the response, and used
+        in future catalog access. The use of the id parameter
+        may yield errors if the supplied value is not available for
+        use by the client. The value None will result in a
+        server-assigned catalog id.
+
+        The initial "owner" ACL on the new catalog will be the
+        client-supplied owner if provided. The use of owner parameter
+        may yield errors if the supplied ACL does not match the
+        client, i.e. the client cannot lock themselves out of the
+        catalog. The value None will result in a server-assigned ACL
+        with the requesting client's identity.
+
+        Certain failure modes (or message loss) may leave the
+        id reserved in the system. In this case, the effective
+        owner ACL influences which client(s) are allowed to retry
+        creation with the same id.
+
+        """
+        return ErmrestCatalog.create(self, id, owner)
+
+    def connect_ermrest_alias(self, id):
+        """Connect to an ERMrest alias and return the alias binding.
+
+        :param id: The id of the existing alias
+
+        """
+        return ErmrestAlias.connect(self, id)
+
+    def create_ermrest_alias(self, id=None, owner=None, alias_target=None):
+        """Create an ERMrest catalog alias.
+
+        :param id: The (str) id desired by the client (default None)
+        :param owner: The initial (list of str) ACL desired by the client (default None)
+        :param alias_target: The initial target catalog id binding desired by the client (default None)
+
+        The new alias id will be returned in the response, and used
+        in future alias access. The use of the id parameter
+        may yield errors if the supplied value is not available for
+        use by the client. The value None will result in a
+        server-assigned alias id.
+
+        The initial "owner" ACL on the new alias will be the
+        client-supplied owner. The use of owner parameter may yield
+        errors if the supplied ACL does not match the client, i.e. the
+        client cannot lock themselves out of the alias. The value
+        None will result in a server-assigned ACL with the requesting
+        client's identity.
+
+        The alias is bound to the client-supplied alias_target, if
+        supplied. The use of alias_target may yield errors if the
+        supplied value is not a valid target catalog id. The value
+        None will reserve the alias in an unbound state.
+
+        Certain failure modes (or message loss) may leave the id
+        reserved in the system. In this case, the effective owner_acl
+        influences which client(s) are allowed to retry creation with
+        the same id.
+
+        """
+        return ErmrestAlias.create(self, id, owner, alias_target)
 
 class ErmrestCatalogMutationError(Exception):
     pass
@@ -33,6 +139,118 @@ class ErmrestCatalog(DerivaBinding):
        Additional utility methods provided for accessing catalog metadata.
     """
     table_schemas = dict()
+
+    @property
+    def deriva_server(self):
+        """Return DerivaServer binding for the same server this catalog belongs to."""
+        return DerivaServer(
+            self._scheme,
+            self._server,
+            self._credentials,
+            self._caching,
+            self._session_config,
+        )
+
+    @classmethod
+    def connect(cls, deriva_server, catalog_id, snaptime=None):
+        """Connect to an ERMrest catalog and return the catalog binding.
+
+        :param deriva_server: The DerivaServer binding which hosts ermrest
+        :param catalog_id: The id (or alias) of the existing catalog
+        :param snaptime: The id for a desired catalog snapshot (default None)
+
+        The catalog_id is normally a bare id (str), and the optional
+        snaptime is a bare snapshot id (str). If the snaptime is None,
+        the catalog_id may be a concatenated <id>@<snaptime> string,
+        and it will be split to determine the snaptime.
+
+        If no snaptime is passed separately or compounded with
+        catalog_id, an ErmrestCatalog binding will be
+        returned. Conversely, if a snaptime is determined, an
+        ErmrestSnapshot (immutable) binding will be returned.
+
+        """
+        if not snaptime:
+            splits = str(catalog_id).split('@')
+            if len(splits) > 2:
+                raise Exception('Malformed catalog identifier: multiple "@" characters found.')
+            catalog_id = splits[0]
+            snaptime = splits[1] if len(splits) == 2 else None
+
+        if snaptime:
+            return ErmrestSnapshot(
+                deriva_server.scheme,
+                deriva_server.server,
+                catalog_id,
+                snaptime,
+                deriva_server.credentials,
+                deriva_server.caching,
+                deriva_server.session_config
+            )
+
+        return cls(
+            deriva_server.scheme,
+            deriva_server.server,
+            catalog_id,
+            deriva_server.credentials,
+            deriva_server.caching,
+            deriva_server.session_config
+        )
+
+    @classmethod
+    def _digest_catalog_args(cls, id, owner):
+        rep = dict()
+
+        if isinstance(id, str):
+            rep['id'] = id
+        elif isinstance(id, (type(nochange), type(None))):
+            pass
+        else:
+            raise TypeError('id must be of type str or None or nochange, not %s' % type(id))
+
+        if isinstance(owner, list):
+            for e in owner:
+                if not isinstance(e, str):
+                    raise TypeError('owner members must be of type str, not %s' % type(e))
+            rep['owner'] = owner
+        elif isinstance(owner, (type(nochange), type(None))):
+            pass
+        else:
+            raise TypeError('owner must be of type list or None or nochange, not %s' % type(owner))
+
+        return rep
+
+    @classmethod
+    def create(cls, deriva_server, id=None, owner=None):
+        """Create an ERMrest catalog and return the ERMrest catalog binding.
+
+        :param deriva_server: The DerivaServer binding which hosts ermrest.
+        :param id: The (str) id desired by the client (default None)
+        :param owner: The initial (list of str) ACL desired by the client (default None)
+
+        The new catalog id will be returned in the response, and used
+        in future catalog access. The use of the id parameter
+        may yield errors if the supplied value is not available for
+        use by the client. The value None will result in a
+        server-assigned catalog id.
+
+        The initial "owner" ACL on the new catalog will be the
+        client-supplied owner ACL. The use of owner parameter
+        may yield errors if the supplied ACL does not match the
+        client, i.e. the client cannot lock themselves out of the
+        catalog. The value None will result in a server-assigned ACL
+        with the requesting client's identity.
+
+        Certain failure modes (or message loss) may leave the id
+        reserved in the system. In this case, the effective owner ACL
+        influences which client(s) are allowed to retry creation with
+        the same id.
+
+        """
+        path = '/ermrest/catalog'
+        r = deriva_server.post(path, json=cls._digest_catalog_args(id, owner))
+        r.raise_for_status()
+        return cls.connect(deriva_server, r.json()['id'])
 
     def __init__(self, scheme, server, catalog_id, credentials=None, caching=True, session_config=None):
         """Create ERMrest catalog binding.
@@ -72,6 +290,13 @@ class ErmrestCatalog(DerivaBinding):
     @property
     def catalog_id(self):
         return self._catalog_id
+
+    @property
+    def alias_target(self):
+        r = self.get('/')
+        r.raise_for_status()
+        rep = r.json()
+        return rep.get('alias_target')
 
     def exists(self):
         """Simple boolean test for catalog existence.
@@ -691,3 +916,157 @@ class ErmrestSnapshot(ErmrestCatalog):
         When called by the super-class, this method raises an exception.
         """
         raise ErmrestCatalogMutationError('Catalog snapshot is immutable')
+
+class ErmrestAlias(DerivaBinding):
+    """Persistent handle for an ERMrest alias.
+
+       Provides basic REST client for HTTP methods on arbitrary
+       paths. Caller has to understand ERMrest APIs and compose
+       appropriate paths, headers, and/or content.
+
+       Additional utility methods provided for accessing alias metadata.
+    """
+    @classmethod
+    def connect(cls, deriva_server, alias_id):
+        """Connect to an ERMrest alias and return the alias binding.
+
+        :param deriva_server: The DerivaServer binding which hosts ermrest
+        :param alias_id: The id of the existing alias
+
+        The alias_id is a bare id (str).
+
+        """
+        return cls(
+            deriva_server.scheme,
+            deriva_server.server,
+            alias_id,
+            deriva_server.credentials,
+            deriva_server.caching,
+            deriva_server.session_config
+        )
+
+    @classmethod
+    def _digest_alias_args(cls, id, owner, alias_target):
+        rep = ErmrestCatalog._digest_catalog_args(id, owner)
+
+        if isinstance(alias_target, (str, type(None))):
+            rep['alias_target'] = alias_target
+        elif isinstance(alias_target, type(nochange)):
+            pass
+        else:
+            raise TypeError('alias_target must be of type str or None or nochange, not %s' % type(alias_target))
+
+        return rep
+
+    @classmethod
+    def create(cls, deriva_server, id=None, owner=None, alias_target=None):
+        """Create an ERMrest catalog alias.
+
+        :param deriva_server: The DerivaServer binding which hosts ermrest
+        :param id: The (str) id desired by the client (default None)
+        :param owner: The initial (list of str) ACL desired by the client (default None)
+        :param alias_target: The initial target catalog id desired by the client (default None)
+
+        The new alias id will be returned in the response, and used
+        in future alias access. The use of the id parameter
+        may yield errors if the supplied value is not available for
+        use by the client. The value None will result in a
+        server-assigned alias id.
+
+        The initial "owner" ACL on the new alias will be the
+        client-supplied owner parameter. The use of owner may yield
+        errors if the supplied ACL does not match the client, i.e. the
+        client cannot lock themselves out of the alias. The value None
+        will result in a server-assigned ACL with the requesting
+        client's identity.
+
+        The alias is bound to the client-supplied alias_target, if
+        supplied. The use of alias_target may yield errors if the
+        supplied value is not a valid target catalog id. The value
+        None will reserve the alias in an unbound state.
+
+        Certain failure modes (or message loss) may leave the id
+        reserved in the system. In this case, the effective owner ACL
+        influences which client(s) are allowed to retry creation with
+        the same id.
+
+        """
+        path = '/ermrest/alias'
+        r = deriva_server.post(path, json=cls._digest_alias_args(id, owner, alias_target))
+        r.raise_for_status()
+        return cls.connect(deriva_server, r.json()['id'])
+
+    def __init__(self, scheme, server, alias_id, credentials=None, caching=True, session_config=None):
+        """Create ERMrest alias binding.
+
+        :param scheme: 'http' or 'https'
+        :param server: server FQDN string
+        :param alias_id: e.g. '1'
+        :param credentials: credential secrets, e.g. cookie
+        :param caching: whether to retain a GET response cache
+
+        """
+        super(ErmrestAlias, self).__init__(scheme, server, credentials, caching, session_config)
+        self._server_uri = "%s/ermrest/alias/%s" % (
+            self._server_uri,
+            alias_id
+        )
+        self._scheme, self._server, self._alias_id, self._credentials, self._caching, self._session_config = \
+            scheme, server, alias_id, credentials, caching, session_config
+
+    @property
+    def alias_id(self):
+        return self._alias_id
+
+    def check_path(self, path):
+        if path != '':
+            raise ValueError('ErmrestAlias requires "" relative path')
+
+    def retrieve(self):
+        """Retrieve current alias binding state as a dict.
+
+        The returned dictionary is suitable for local revision and
+        being passed back into self.update:
+
+           state = self.retrieve()
+           state.update({ "owner": ..., "alias_target": ...)
+           self.update(**state)
+
+        """
+        return self.get('').json()
+
+    def update(self, owner=nochange, alias_target=nochange, id=None):
+        """Update alias binding state in server, returning the response message dict.
+
+        :param owner: Revised owner ACL for binding or nochange (default None)
+        :param alias_target: Revised target for binding or nochange (default None)
+        :param id: Current self.alias_id or None (default None)
+
+        The optional id parameter must be None or self.alias_id and
+        does not affect state changes to the server. It is only
+        specified in order to allow an idiom like:
+
+           state = self.retrieve()
+           state.update(...)
+           self.update(**state)
+
+        where the original "id" field of self.retrieve() is harmlessly
+        passed through as a keyword.
+
+        """
+        rep = self._digest_alias_args(id, owner, alias_target)
+        if id is not None and id != self.alias_id:
+            raise ValueError('parameter id must be None or %r, not %r' % (self.alias_id, id))
+        return self.put('', json=rep).json()
+
+    def delete_ermrest_alias(self, really=False):
+        """Perform DELETE request, destroying alias on server.
+
+        :param really: delete when True, abort when False (default)
+
+        """
+        if really is True:
+            return DerivaBinding.delete(self, '')
+        else:
+            raise ValueError('Alias deletion refused when really is %s.' % really)
+
