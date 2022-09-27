@@ -167,17 +167,19 @@ class Model (object):
             schema = sf.read()
         return cls(catalog, json.loads(schema, object_pairs_hook=OrderedDict))
 
-    def clear(self, clear_comment=False):
+    def clear(self, clear_comment=False, clear_annotations=True, clear_acls=True, clear_acl_bindings=True):
         """Clear all configuration in catalog and children.
 
         NOTE: as a backwards-compatible heuristic, comments are
         retained by default so that a typical configuration-management
         client does not strip useful documentation from existing models.
         """
-        self.annotations.clear()
-        self.acls.clear()
+        if clear_annotations:
+            self.annotations.clear()
+        if clear_acls:
+            self.acls.clear()
         for schema in self.schemas.values():
-            schema.clear(clear_comment=clear_comment)
+            schema.clear(clear_comment=clear_comment, clear_annotations=clear_annotations, clear_acls=clear_acls, clear_acl_bindings=clear_acl_bindings)
 
     def apply(self, existing=None):
         """Apply catalog configuration to catalog unless existing already matches.
@@ -314,19 +316,21 @@ class Schema (object):
             }
         }
 
-    def clear(self, clear_comment=False):
+    def clear(self, clear_comment=False, clear_annotations=True, clear_acls=True, clear_acl_bindings=True):
         """Clear all configuration in schema and children.
 
         NOTE: as a backwards-compatible heuristic, comments are
         retained by default so that a typical configuration-management
         client does not strip useful documentation from existing models.
         """
-        self.acls.clear()
-        self.annotations.clear()
+        if clear_annotations:
+            self.annotations.clear()
+        if clear_acls:
+            self.acls.clear()
         if clear_comment:
             self.comment = None
         for table in self.tables.values():
-            table.clear(clear_comment=clear_comment)
+            table.clear(clear_comment=clear_comment, clear_annotations=clear_annotations, clear_acls=clear_acls, clear_acl_bindings=clear_acl_bindings)
 
     def apply(self, existing=None):
         """Apply configuration to corresponding schema in catalog unless existing already matches.
@@ -785,24 +789,27 @@ class Table (object):
             ]
         }
 
-    def clear(self, clear_comment=False):
+    def clear(self, clear_comment=False, clear_annotations=True, clear_acls=True, clear_acl_bindings=True):
         """Clear all configuration in table and children.
 
         NOTE: as a backwards-compatible heuristic, comments are
         retained by default so that a typical configuration-management
         client does not strip useful documentation from existing models.
         """
-        self.acls.clear()
-        self.acl_bindings.clear()
-        self.annotations.clear()
+        if clear_acls:
+            self.acls.clear()
+        if clear_acl_bindings:
+            self.acl_bindings.clear()
+        if clear_annotations:
+            self.annotations.clear()
         if clear_comment:
             self.comment = None
         for col in self.column_definitions:
-            col.clear(clear_comment=clear_comment)
+            col.clear(clear_comment=clear_comment, clear_annotations=clear_annotations, clear_acls=clear_acls, clear_acl_bindings=clear_acl_bindings)
         for key in self.keys:
-            key.clear(clear_comment=clear_comment)
+            key.clear(clear_comment=clear_comment, clear_annotations=clear_annotations)
         for fkey in self.foreign_keys:
-            fkey.clear(clear_comment=clear_comment)
+            fkey.clear(clear_comment=clear_comment, clear_annotations=clear_annotations, clear_acls=clear_acls, clear_acl_bindings=clear_acl_bindings)
 
     def apply(self, existing=None):
         """Apply configuration to corresponding table in catalog unless existing already matches.
@@ -1214,16 +1221,19 @@ class Column (object):
             'annotations': annotations,
         }
 
-    def clear(self, clear_comment=False):
+    def clear(self, clear_comment=False, clear_annotations=True, clear_acls=True, clear_acl_bindings=True):
         """Clear all configuration in column
 
         NOTE: as a backwards-compatible heuristic, comments are
         retained by default so that a typical configuration-management
         client does not strip useful documentation from existing models.
         """
-        self.acls.clear()
-        self.acl_bindings.clear()
-        self.annotations.clear()
+        if clear_acls:
+            self.acls.clear()
+        if clear_acl_bindings:
+            self.acl_bindings.clear()
+        if clear_annotations:
+            self.annotations.clear()
         if clear_comment:
             self.comment = None
 
@@ -1442,14 +1452,15 @@ class Key (object):
             'annotations': annotations,
         }
 
-    def clear(self, clear_comment=False):
+    def clear(self, clear_comment=False, clear_annotations=True):
         """Clear all configuration in key
 
         NOTE: as a backwards-compatible heuristic, comments are
         retained by default so that a typical configuration-management
         client does not strip useful documentation from existing models.
         """
-        self.annotations.clear()
+        if clear_annotations:
+            self.annotations.clear()
         if clear_comment:
             self.comment = None
 
@@ -1659,16 +1670,19 @@ class ForeignKey (object):
             'annotations': annotations,
         }
 
-    def clear(self, clear_comment=False):
+    def clear(self, clear_comment=False, clear_annotations=True, clear_acls=True, clear_acl_bindings=True):
         """Clear all configuration in foreign key
 
         NOTE: as a backwards-compatible heuristic, comments are
         retained by default so that a typical configuration-management
         client does not strip useful documentation from existing models.
         """
-        self.acls.clear()
-        self.acl_bindings.clear()
-        self.annotations.clear()
+        if clear_acls:
+            self.acls.clear()
+        if clear_acl_bindings:
+            self.acl_bindings.clear()
+        if clear_annotations:
+            self.annotations.clear()
         if clear_comment:
             self.comment = None
 
@@ -1886,6 +1900,7 @@ builtin_types.update(
                 'ermrest_rct': 'timestamptz',
                 'ermrest_rmt': 'timestamptz',
                 'markdown': 'text',
+                'longtext': 'text',
                 'ermrest_curie': 'text',
                 'ermrest_uri': 'text',
                 'color_rgb_hex': 'text',
