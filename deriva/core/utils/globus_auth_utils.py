@@ -15,7 +15,7 @@ from deriva.core import __version__ as VERSION, DEFAULT_CONFIG_PATH, DEFAULT_GLO
     read_config, format_exception, BaseCLI, get_oauth_scopes_for_host, get_new_requests_session
 from deriva.core.utils import eprint
 from globus_sdk import ConfidentialAppAuthClient, AuthClient, AccessTokenAuthorizer, GlobusError, GlobusAPIError
-from fair_research_login.client import NativeClient, LoadError, NoSavedTokens
+from fair_research_login.client import NativeClient, LoadError, NoSavedTokens, TokensExpired
 
 NATIVE_APP_CLIENT_ID = "8ef15ba9-2b4a-469c-a163-7fd910c9d111"
 LEGACY_GROUPS_SCOPE_ID = "69a73d8f-cd45-4e37-bb3b-43678424aeb7"
@@ -510,6 +510,9 @@ class GlobusNativeLogin:
             tokens = self.client.load_tokens()
         except NoSavedTokens:
             pass
+        except TokensExpired as e:
+            logging.warning(format_exception(e))
+            return "Unable to obtain user-info due to refresh token expiry. Please logout of the expired scopes."
         if not tokens:
             return "Login required. No saved tokens."
 
