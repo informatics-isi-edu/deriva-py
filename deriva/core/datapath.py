@@ -8,7 +8,7 @@ import logging
 import re
 from requests import HTTPError
 import warnings
-from . import DEFAULT_HEADERS
+from . import DEFAULT_HEADERS, ermrest_model as _erm
 
 __all__ = ['DataPathException', 'Min', 'Max', 'Sum', 'Avg', 'Cnt', 'CntD', 'Array', 'ArrayD', 'Bin']
 
@@ -384,20 +384,31 @@ class DataPath (object):
         path = A.link(B, on=((A.c1 == B.c1) & (A.c2 == B.c2)))
         ```
 
+        Alternatively, use an `ermrest_model.ForeignKey` object to link the table to the path. Both "inbound" and
+        "outbound" foreign keys are supported by the `link` method.
+
+        ```
+        # let fk be a foreign key object from table A to table B (or from table B to table A)
+        path = A.link(B, on=fk)
+        ```
+
         By default links use inner join semantics on the foreign key / key equality comparison. The `join_type`
         parameter can be used to specify `left`, `right`, or `full` outer join semantics.
 
         :param right: the right hand table of the link expression
-        :param on: an equality comparison between key and foreign key columns or a conjunction of such comparisons
+        :param on: an equality comparison between key and foreign key columns, a conjunction of such comparisons, or a foreign key object
         :param join_type: the join type of this link which may be 'left', 'right', 'full' outer joins or '' for inner
         join link by default.
         :return: self
         """
         if not isinstance(right, _TableWrapper):
             raise TypeError("'right' must be a '_TableWrapper' instance")
-        if on and not (isinstance(on, _ComparisonPredicate) or (isinstance(on, _ConjunctionPredicate) and
-                                                                on.is_valid_join_condition)):
-            raise TypeError("'on' must be a comparison or conjuction of comparisons")
+        if on and not (
+            isinstance(on, _ComparisonPredicate) or
+            (isinstance(on, _ConjunctionPredicate) and on.is_valid_join_condition) or
+            isinstance(on, _erm.ForeignKey)
+        ):
+            raise TypeError("'on' must be a comparison, conjuction of comparisons, or foreign key object")
         if join_type and on is None:
             raise ValueError("'on' must be specified for outer joins")
         if right._schema._catalog != self._root._schema._catalog:
@@ -415,7 +426,29 @@ class DataPath (object):
             right = right.alias(alias_name)
 
         if on is None:
+            # if 'on' not given, default to the 'right' table
             on = right
+        elif isinstance(on, _erm.ForeignKey):
+            catalog = self._root._schema._catalog
+            fk = on
+            # determine 'direction' -- inbound or outbound
+            path_context_table = self.context._base_table._wrapped_table
+            if (path_context_table.schema.name, path_context_table.name) == (fk.table.schema.name, fk.table.name):
+                fkcols = zip(fk.foreign_key_columns, fk.referenced_columns)
+            elif (path_context_table.schema.name, path_context_table.name) == (fk.pk_table.schema.name, fk.pk_table.name):
+                fkcols = zip(fk.referenced_columns, fk.foreign_key_columns)
+            else:
+                raise ValueError('"%s" is not an inbound or outbound foreign key for the path\'s context, table "%s"' % (fk.constraint_name, path_context_table.name))
+
+            # compose join condition
+            on = None
+            for lcol, rcol in fkcols:
+                lcol = catalog.schemas[lcol.table.schema.name].tables[lcol.table.name].columns[lcol.name]
+                rcol = catalog.schemas[rcol.table.schema.name].tables[rcol.table.name].columns[rcol.name]
+                if on:
+                    on = on & (lcol == rcol)
+                else:
+                    on = lcol == rcol
 
         # Extend path expression
         self._path_expression = _Link(self._path_expression, on, right, join_type)

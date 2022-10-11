@@ -163,7 +163,7 @@ class DatapathTests (unittest.TestCase):
     def setUpClass(cls):
         logger.debug("setupUpClass begin")
         credential = os.getenv("DERIVA_PY_TEST_CREDENTIAL") or get_credential(hostname)
-        server = DerivaServer('https', hostname, credential)
+        server = DerivaServer('https', hostname, credentials=credential)
         cls.catalog = server.create_ermrest_catalog()
         try:
             define_test_schema(cls.catalog)
@@ -187,6 +187,7 @@ class DatapathTests (unittest.TestCase):
         self.experiment_type = self.paths.schemas[SNAME_VOCAB].tables[TNAME_EXPERIMENT_TYPE]
         self.experiment_copy = self.paths.schemas[SNAME_ISA].tables[TNAME_EXPERIMENT_COPY]
         self.types = list(self.experiment_type.entities())
+        self.model = self.catalog.getCatalogModel()
 
     def tearDown(self):
         try:
@@ -559,6 +560,37 @@ class DatapathTests (unittest.TestCase):
         )
         results = path.entities()
         self.assertEqual(TEST_PROJ_MAX, len(results))
+
+    def test_link_outbound_fkey(self):
+        fkey_by_pk_table_name = {
+            fkey.pk_table.name: fkey
+            for fkey in self.model.schemas[SNAME_ISA].tables[TNAME_EXPERIMENT].foreign_keys
+        }
+
+        tests = [
+            ('fkey-link-' + TNAME_PROJECT, fkey_by_pk_table_name[TNAME_PROJECT], self.project, TEST_PROJ_MAX),
+            ('fkey-link-' + TNAME_EXPERIMENT_TYPE, fkey_by_pk_table_name[TNAME_EXPERIMENT_TYPE], self.project, TEST_EXPTYPE_MAX)
+        ]
+
+        for name, fkey, table, expected_results_len in tests:
+            with self.subTest(name=name):
+                results = self.experiment.link(table, on=fkey).entities()
+                self.assertEqual(expected_results_len, len(results))
+
+    def test_link_inbound_fkey(self):
+        fkey_by_fk_table_name = {
+            fkey.table.name: fkey
+            for fkey in self.model.schemas[SNAME_VOCAB].tables[TNAME_EXPERIMENT_TYPE].referenced_by
+        }
+
+        tests = [
+            ('fkey-link-' + TNAME_EXPERIMENT, fkey_by_fk_table_name[TNAME_EXPERIMENT], self.project, TEST_EXP_MAX)
+        ]
+
+        for name, fkey, table, expected_results_len in tests:
+            with self.subTest(name=name):
+                results = self.experiment_type.link(table, on=fkey).entities()
+                self.assertEqual(expected_results_len, len(results))
 
     def test_filter_equality(self):
         results = self.experiment.filter(
