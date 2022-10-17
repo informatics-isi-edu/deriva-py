@@ -703,6 +703,22 @@ class DatapathTests (unittest.TestCase):
         results = self.experiment_copy.insert(_generate_experiment_entities(self.types, 10))
         self.assertEqual(len(results), 10)
 
+    def test_insert_on_conflict_raise(self):
+        entities = _generate_experiment_entities(self.types, 2)
+        first = entities[0:1]
+        results = self.experiment_copy.insert(first)
+        self.assertEqual(len(results), 1)
+        with self.assertRaises(DataPathException):
+            self.experiment_copy.insert(entities)
+
+    def test_insert_on_conflict_skip(self):
+        entities = _generate_experiment_entities(self.types, 2)
+        first = entities[0:1]
+        results = self.experiment_copy.insert(first)
+        self.assertEqual(len(results), 1)
+        results = self.experiment_copy.insert(entities, on_conflict_skip=True)
+        self.assertEqual(len(results), 1)
+
     def test_update(self):
         inserted = self.experiment_copy.insert(_generate_experiment_entities(self.types, 10))
         self.assertEqual(len(inserted), 10)

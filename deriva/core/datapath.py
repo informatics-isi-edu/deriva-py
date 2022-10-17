@@ -797,13 +797,14 @@ class _TableWrapper (object):
         """
         return _AttributeGroup(self, self._query, keys)
 
-    def insert(self, entities, defaults=set(), nondefaults=set(), add_system_defaults=True):
+    def insert(self, entities, defaults=set(), nondefaults=set(), add_system_defaults=True, on_conflict_skip=False):
         """Inserts entities into the table.
 
         :param entities: an iterable collection of entities (i.e., rows) to be inserted into the table.
         :param defaults: optional, set of column names to be assigned the default expression value.
         :param nondefaults: optional, set of columns names to override implicit system defaults
         :param add_system_defaults: flag to add system columns to the set of default columns.
+        :param on_conflict_skip: flag to skip entities that violate uniqueness constraints.
         :return a collection of newly created entities.
         """
         # empty entities will be accepted but results are therefore an empty entity set
@@ -811,6 +812,9 @@ class _TableWrapper (object):
             return _ResultSet(self.path.uri, lambda ignore1, ignore2, ignore3: [])
 
         options = []
+
+        if on_conflict_skip:
+            options.append('onconflict=skip')
 
         if defaults or add_system_defaults:
             defaults_enc = {urlquote(cname) for cname in defaults}
