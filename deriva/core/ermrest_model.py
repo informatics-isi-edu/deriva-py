@@ -303,6 +303,21 @@ class Schema (object):
             "comment": comment,
         }
 
+    @classmethod
+    def define_www(cls, sname, comment=None, acls={}, annotations={}):
+        """Build a schema definition.
+        """
+        return {
+            "schema_name": sname,
+            "tables": {
+                "Page": Table.define_page("Page"),
+                "Asset": Table.define_asset(sname, "Asset")
+            },
+            "acls": acls,
+            "annotations": annotations,
+            "comment": comment,
+        }
+
     def prejson(self, prune=True):
         """Produce native Python representation of schema, suitable for JSON serialization."""
         return {
@@ -763,6 +778,85 @@ class Table (object):
             acls,
             acl_bindings,
             add_asset_annotations(annotations),
+            provide_system
+        )
+
+    @classmethod
+    def define_page(cls, tname, column_defs=[], key_defs=[], fkey_defs=[], comment=None, acls={}, acl_bindings={}, annotations={}, provide_system=True):
+        """Build a wiki-like page table definition.
+
+        :param tname: the name of the newly defined table
+        :param column_defs: a list of Column.define() results for extra or overridden column definitions
+        :param key_defs: a list of Key.define() results for extra or overridden key constraint definitions
+        :param fkey_defs: a list of ForeignKey.define() results for foreign key definitions
+        :param comment: a comment string for the table
+        :param acls: a dictionary of ACLs for specific access modes
+        :param acl_bindings: a dictionary of dynamic ACL bindings
+        :param annotations: a dictionary of annotations
+        :param provide_system: whether to inject standard system column definitions when missing from column_defs
+
+        These core page columns are generated automatically if absent from the input column_defs.
+
+        - Title: text, unique not null
+        - Content: markdown
+
+        However, caller-supplied definitions override the default.
+        """
+
+        def add_page_columns(custom):
+            return [
+                col_def
+                for col_def in [
+                        Column.define(
+                            'Title',
+                            builtin_types['text'],
+                            nullok=False,
+                            comment='Unique title for the page.'
+                        ),
+                        Column.define(
+                            'Content',
+                            builtin_types['markdown'],
+                            nullok=True,
+                            comment='Content of the page in markdown.'
+                        ),
+                ]
+                if col_def['name'] not in { c['name']: c for c in custom }
+            ] + custom
+
+        def add_page_keys(custom):
+            def ktup(k):
+                return tuple(k['unique_columns'])
+            return [
+                key_def
+                for key_def in [
+                        Key.define(['Title']),
+                        Key.define(['URI']),
+                ]
+                if ktup(key_def) not in { ktup(kdef): kdef for kdef in custom }
+            ] + custom
+
+        page_annotations = {
+            tag.table_display: {
+                'detailed': {
+                    'hide_column_headers': True,
+                    'collapse_toc_panel': True
+                }
+            },
+            tag.visible_columns: {
+                'detailed': ['Content']
+            }
+        }
+        page_annotations.update(annotations)
+
+        return cls.define(
+            tname,
+            add_page_columns(column_defs),
+            add_page_keys(key_defs),
+            fkey_defs,
+            comment,
+            acls,
+            acl_bindings,
+            page_annotations,
             provide_system
         )
 
