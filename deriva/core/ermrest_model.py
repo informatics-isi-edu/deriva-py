@@ -526,13 +526,13 @@ class Table (object):
     def system_column_defs(cls, custom=[]):
         """Build standard system column definitions, merging optional custom definitions."""
         return [
-            Column.define(cname, builtin_types[ctype], nullok)
-            for cname, ctype, nullok in [
-                    ('RID', 'ermrest_rid', False),
-                    ('RCT', 'ermrest_rct', False),
-                    ('RMT', 'ermrest_rmt', False),
-                    ('RCB', 'ermrest_rcb', True),
-                    ('RMB', 'ermrest_rmb', True),
+            Column.define(cname, builtin_types[ctype], nullok, annotations=annotations)
+            for cname, ctype, nullok, annotations in [
+                    ('RID', 'ermrest_rid', False, {tag.display: {'name': 'Record ID'}}),
+                    ('RCT', 'ermrest_rct', False, {tag.display: {'name': 'Creation Time'}}),
+                    ('RMT', 'ermrest_rmt', False, {tag.display: {'name': 'Modified Time'}}),
+                    ('RCB', 'ermrest_rcb', True, {tag.display: {'name': 'Created By'}}),
+                    ('RMB', 'ermrest_rmb', True, {tag.display: {'name': 'Modified By'}}),
             ]
             if cname not in { c['name']: c for c in custom }
         ] + custom
