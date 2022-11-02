@@ -783,7 +783,7 @@ class Table (object):
 
     @classmethod
     def define_page(cls, tname, column_defs=[], key_defs=[], fkey_defs=[], comment=None, acls={}, acl_bindings={}, annotations={}, provide_system=True):
-        """Build a wiki-like page table definition.
+        """Build a wiki-like "page" table definition.
 
         :param tname: the name of the newly defined table
         :param column_defs: a list of Column.define() results for extra or overridden column definitions
@@ -829,21 +829,26 @@ class Table (object):
             return [
                 key_def
                 for key_def in [
-                        Key.define(['Title']),
-                        Key.define(['URI']),
+                        Key.define(['Title'])
                 ]
                 if ktup(key_def) not in { ktup(kdef): kdef for kdef in custom }
             ] + custom
 
         page_annotations = {
             tag.table_display: {
+                'row_name': {
+                    'row_markdown_pattern': '{{{Title}}}'
+                },
                 'detailed': {
                     'hide_column_headers': True,
                     'collapse_toc_panel': True
                 }
             },
             tag.visible_columns: {
-                'detailed': ['Content']
+                'compact': ['Title'],
+                'detailed': ['Content'],
+                'entry': ['Title', 'Content'],
+                'filter': {'and': []}
             }
         }
         page_annotations.update(annotations)
