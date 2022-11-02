@@ -724,7 +724,7 @@ class Table (object):
           """
 
         if hatrac_template is None:
-            hatrac_template = '/hatrac/%s/%s/{{{MD5}}}.{{#encode}}{{{Filename}}}{{/encode}}' % (sname, tname)
+            hatrac_template = '/hatrac/{{$catalog.id}}/%s/%s/{{{MD5}}}.{{#encode}}{{{Filename}}}{{/encode}}' % (sname, tname)
 
         def add_asset_annotations(custom):
             annotations.update(custom)
