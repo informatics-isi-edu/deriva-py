@@ -744,10 +744,6 @@ class Table (object):
         if hatrac_template is None:
             hatrac_template = '/hatrac/{{$catalog.id}}/%s/%s/{{{MD5}}}.{{#encode}}{{{Filename}}}{{/encode}}' % (sname, tname)
 
-        def add_asset_annotations(custom):
-            annotations.update(custom)
-            return annotations
-
         def add_asset_columns(custom):
             asset_annotation = {
                 tag.asset: {
@@ -787,6 +783,15 @@ class Table (object):
                 if ktup(key_def) not in {ktup(kdef): kdef for kdef in custom}
             ] + custom
 
+        asset_annotations = {
+            tag.table_display: {
+                'row_name': {
+                    'row_markdown_pattern': '{{{Filename}}}'
+                }
+            }
+        }
+        asset_annotations.update(annotations)
+
         return cls.define(
             tname,
             add_asset_columns(column_defs),
@@ -795,7 +800,7 @@ class Table (object):
             comment if comment is not None else 'Asset table.',
             acls,
             acl_bindings,
-            add_asset_annotations(annotations),
+            asset_annotations,
             provide_system
         )
 
