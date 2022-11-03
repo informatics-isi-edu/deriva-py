@@ -315,25 +315,26 @@ class Schema (object):
         :param acls: a dictionary of ACLs for specific access modes
         :param annotations: a dictionary of annotations
         """
-        return {
-            "schema_name": sname,
-            "tables": {
-                "Page": Table.define_page("Page"),
-                "File": Table.define_asset(
-                    sname,
-                    "File",
-                    column_defs=[
-                        Column.define("Page", builtin_types.text, nullok=False, comment="Parent page of this asset")
-                    ],
-                    fkey_defs=[
-                        ForeignKey.define(["Page"], sname, "Page", ["RID"])
-                    ]
-                )
-            },
-            "acls": acls,
-            "annotations": annotations,
-            "comment": comment or "Schema for tables that will be displayed as web content",
+        www_schema = Schema.define(
+            sname,
+            comment=comment if comment is not None else "Schema for tables that will be displayed as web content",
+            acls=acls,
+            annotations=annotations
+        )
+        www_schema["tables"] = {
+            "Page": Table.define_page("Page"),
+            "File": Table.define_asset(
+                sname,
+                "File",
+                column_defs=[
+                    Column.define("Page", builtin_types.text, nullok=False, comment="Parent page of this asset")
+                ],
+                fkey_defs=[
+                    ForeignKey.define(["Page"], sname, "Page", ["RID"])
+                ]
+            )
         }
+        return www_schema
 
     def prejson(self, prune=True):
         """Produce native Python representation of schema, suitable for JSON serialization."""
