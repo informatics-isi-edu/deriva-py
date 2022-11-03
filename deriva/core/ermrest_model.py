@@ -305,17 +305,34 @@ class Schema (object):
 
     @classmethod
     def define_www(cls, sname, comment=None, acls={}, annotations={}):
-        """Build a schema definition.
+        """Build a schema definition for wiki-like web content.
+
+        Defines a schema with a "Page" wiki-like page table definition and a
+        "File" asset table definition for attachments to the wiki pages.
+
+        :param sname: schema name
+        :param comment: a comment string for the table
+        :param acls: a dictionary of ACLs for specific access modes
+        :param annotations: a dictionary of annotations
         """
         return {
             "schema_name": sname,
             "tables": {
                 "Page": Table.define_page("Page"),
-                "Asset": Table.define_asset(sname, "Asset")
+                "File": Table.define_asset(
+                    sname,
+                    "File",
+                    column_defs=[
+                        Column.define("Page", builtin_types.text, nullok=False, comment="Parent page of this asset")
+                    ],
+                    fkey_defs=[
+                        ForeignKey.define(["Page"], sname, "Page", ["RID"])
+                    ]
+                )
             },
             "acls": acls,
             "annotations": annotations,
-            "comment": comment,
+            "comment": comment or "Schema for tables that will be displayed as web content",
         }
 
     def prejson(self, prune=True):
