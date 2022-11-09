@@ -40,6 +40,10 @@
       "update": "curators",
       "delete": "curators",
       "owner": "admins"
+    },
+    "curation_only": {
+      "insert": "curators",
+      "update": "curators"
     }
   },
 
@@ -47,6 +51,16 @@
     "row_owner_guard": {
       "types": ["update", "delete"],
       "projection": ["RCB"],
+      "projection_type": "acl"
+    },
+    "group_owner_guard": {
+      "types": ["update", "delete"],
+      "projection": ["Owner"],
+      "projection_type": "acl"
+    },
+    "group_owner_fk_guard": {
+      "types": ["update", "insert"],
+      "projection": ["ID"],
       "projection_type": "acl"
     }
   },
@@ -67,7 +81,21 @@
       "schema": "TODO: Schema_Name; NOTE: repeat this stanza for each of your schemas",
       "table_pattern": ".*",
       "acl_bindings": [
-        "row_owner_guard"
+        "row_owner_guard",
+        "group_owner_guard"
+      ]
+    }
+  ],
+
+  "foreign_key_acls": [
+    {
+      "schema": "TODO: Schema_Name; NOTE: repeat this stanza for each of your schemas",
+      "table": "TODO: Table_Name; NOTE: repeat this stanza for each of your tables",
+      "foreign_key_schema": "public",
+      "foreign_key": "TODO: Table_Name_Owner_fkey",
+      "acl": "curation_only",
+      "acl_bindings": [
+        "group_owner_fk_guard"
       ]
     }
   ]
