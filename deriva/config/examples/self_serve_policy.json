@@ -1,0 +1,122 @@
+{
+  "groups": {
+    "project-admins": [
+      "TODO: https://auth.globus.org/INSERT-GLOBUS-ID"
+    ],
+    "project-curators": [
+      "TODO: https://auth.globus.org/INSERT-GLOBUS-ID"
+    ],
+    "project-writers": [
+      "TODO: https://auth.globus.org/INSERT-GLOBUS-ID"
+    ],
+    "project-users": [
+      "TODO: https://auth.globus.org/INSERT-GLOBUS-ID"
+    ],
+
+    "empty": [],
+    "public": [
+      "*"
+    ],
+    "admins": [
+      "project-admins"
+    ],
+    "curators": [
+      "project-curators"
+    ],
+    "writers": [
+      "project-writers"
+    ],
+    "writers_and_curators": [
+      "curators",
+      "writers"
+    ],
+    "users": [
+      "project-users",
+      "writers_and_curators"
+    ]
+  },
+
+  "group_list_table": {
+    "schema": "_acl_admin",
+    "table": "group_lists"
+  },
+
+  "acl_definitions": {
+    "read_only": {
+      "select": "users",
+      "enumerate": "users",
+      "insert": "empty",
+      "update": "empty",
+      "delete": "empty"
+    },
+    "self_serve": {
+      "select": "users",
+      "enumerate": "public",
+      "insert": "writers_and_curators",
+      "update": "curators",
+      "delete": "curators",
+      "owner": "admins"
+    },
+    "curation_only": {
+      "insert": "curators",
+      "update": "curators"
+    },
+    "group_owner_fk_acl": {
+      "insert": "curators",
+      "update": "curators"
+    }
+  },
+
+  "acl_bindings": {
+    "row_owner_guard": {
+      "types": ["update", "delete"],
+      "projection": ["RCB"],
+      "projection_type": "acl"
+    },
+    "group_owner_guard": {
+      "types": ["update", "delete"],
+      "projection": ["Owner"],
+      "projection_type": "acl"
+    },
+    "group_owner_fk_guard": {
+      "types": ["update", "insert"],
+      "projection": ["ID"],
+      "projection_type": "acl"
+    }
+  },
+
+  "catalog_acl": {
+    "acl": "self_serve"
+  },
+
+  "schema_acls": [
+    {
+      "schema": "public",
+      "acl": "read_only"
+    }
+  ],
+  
+  "table_acls": [
+    {
+      "schema": "TODO: YOUR SCHEMA NAME",
+      "table_pattern": ".*",
+      "acl_bindings": [
+        "TODO: row_owner_guard",
+        "TODO: group_owner_guard"
+      ]
+    }
+  ],
+
+  "foreign_key_acls": [
+    {
+      "schema": "TODO: YOUR SCHEMA NAME",
+      "table": "TODO: YOUR TABLE NAME",
+      "foreign_key_schema": "public",
+      "foreign_key": "TODO: TABLE_NAME_Owner_fkey",
+      "acl": "curation_only",
+      "acl_bindings": [
+        "group_owner_fk_guard"
+      ]
+    }
+  ]
+}
