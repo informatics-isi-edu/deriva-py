@@ -1,6 +1,8 @@
 {
   "groups": {
     "isrd-systems": ["https://auth.globus.org/3938e0d0-ed35-11e5-8641-22000ab4b42b"],
+    "isrd-staff": ["https://auth.globus.org/176baec4-ed26-11e5-8e88-22000ab4b42b"],
+    "isrd-testers": ["https://auth.globus.org/9d596ac6-22b9-11e6-b519-22000aef184d"],
 
     "project-admins": ["TODO: Globus group identifier"],
     "project-curators": ["TODO: Globus group identifier"],
