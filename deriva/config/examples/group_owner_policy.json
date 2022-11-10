@@ -91,8 +91,8 @@
 
   "foreign_key_acls": [
     {
-      "schema": "TODO: Schema_Name; NOTE: repeat this stanza for each of your schemas",
-      "table": "TODO: Table_Name; NOTE: repeat this stanza for each of your tables",
+      "schema": "TODO: Schema_Name; NOTE: repeat this stanza for each of your owner fkeys",
+      "table": "TODO: Table_Name",
       "foreign_key_schema": "public",
       "foreign_key": "TODO: Table_Name_Owner_fkey",
       "acl": "curation_only",
