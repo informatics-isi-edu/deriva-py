@@ -783,14 +783,16 @@ class Table (object):
                 if ktup(key_def) not in {ktup(kdef): kdef for kdef in custom}
             ] + custom
 
-        asset_annotations = {
-            tag.table_display: {
-                'row_name': {
-                    'row_markdown_pattern': '{{{Filename}}}'
+        def add_asset_annotations(custom):
+            asset_annotations = {
+                tag.table_display: {
+                    'row_name': {
+                        'row_markdown_pattern': '{{{Filename}}}'
+                    }
                 }
             }
-        }
-        asset_annotations.update(annotations)
+            asset_annotations.update(custom)
+            return asset_annotations
 
         return cls.define(
             tname,
@@ -800,7 +802,7 @@ class Table (object):
             comment if comment is not None else 'Asset table.',
             acls,
             acl_bindings,
-            asset_annotations,
+            add_asset_annotations(annotations),
             provide_system
         )
 
@@ -857,24 +859,26 @@ class Table (object):
                 if ktup(key_def) not in { ktup(kdef): kdef for kdef in custom }
             ] + custom
 
-        page_annotations = {
-            tag.table_display: {
-                'row_name': {
-                    'row_markdown_pattern': '{{{Title}}}'
+        def add_page_annotations(custom):
+            page_annotations = {
+                tag.table_display: {
+                    'row_name': {
+                        'row_markdown_pattern': '{{{Title}}}'
+                    },
+                    'detailed': {
+                        'hide_column_headers': True,
+                        'collapse_toc_panel': True
+                    }
                 },
-                'detailed': {
-                    'hide_column_headers': True,
-                    'collapse_toc_panel': True
+                tag.visible_columns: {
+                    'compact': ['Title'],
+                    'detailed': ['Content'],
+                    'entry': ['Title', 'Content'],
+                    'filter': {'and': []}
                 }
-            },
-            tag.visible_columns: {
-                'compact': ['Title'],
-                'detailed': ['Content'],
-                'entry': ['Title', 'Content'],
-                'filter': {'and': []}
             }
-        }
-        page_annotations.update(annotations)
+            page_annotations.update(annotations)
+            return page_annotations
 
         return cls.define(
             tname,
@@ -884,7 +888,7 @@ class Table (object):
             comment,
             acls,
             acl_bindings,
-            page_annotations,
+            add_page_annotations(annotations),
             provide_system
         )
 
