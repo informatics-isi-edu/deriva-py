@@ -18,13 +18,9 @@ def configure_baseline_ermrest_client(model, apply=True):
     """
     ermrest_client = model.schemas['public'].tables['ERMrest_Client']
 
-    # Make ermrest_client table visible.  If the GUID or member name is considered sensitive, then this needs to be
-    # changed.
-    ermrest_client.acls['select'] = ['*']
-
     # Set table and row name.
     ermrest_client.annotations.update({
-        tag.display: {'name': 'Users'},
+        tag.display: {'name': 'User'},
         tag.visible_columns: {'compact': ['Full_Name', 'Display_Name', 'Email', 'ID']},
         tag.table_display: {'row_name': {'row_markdown_pattern': '{{{Full_Name}}}'}}
     })
@@ -54,13 +50,9 @@ def configure_baseline_ermrest_group(model, apply=True):
     """
     ermrest_group = model.schemas['public'].tables['ERMrest_Group']
 
-    # Make ERMrest_Group table visible. If the GUID or group name is considered sensitive, then this needs to be
-    # changed.
-    ermrest_group.acls['select'] = ['*']
-
     # Set table and row name.
     ermrest_group.annotations.update({
-        tag.display: {'name': 'User Groups'},
+        tag.display: {'name': 'User Group'},
         tag.visible_columns: {'compact': ['Display_Name', 'ID']},
         tag.table_display: {'row_name': {'row_markdown_pattern': '{{{Display_Name}}}'}}
     })
@@ -84,7 +76,7 @@ def configure_baseline_catalog(model, apply=True):
 
     Update catalog to a baseline configuration:
     1. Setting default display mode to be to turn underscores to spaces.
-    2. Configure ERMrest_Client and ERMrest_Group to have readable names.
+    2. Configure `ERMrest_Client` and `ERMrest_Group` to have readable names.
     3. Create a schema called *WWW* and create a *Page* table in that schema
        configured to display web-page like content.
     4. Configure a basic navbar with links to all tables.
