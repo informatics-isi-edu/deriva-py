@@ -39,6 +39,7 @@ setup(
     version=__version__,
     packages=find_packages(exclude=["tests"]),
     package_data={
+        'deriva.config': ['examples/*.json'],
         'deriva.core': ['schemas/*.schema.json']
     },
     python_requires='>=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*, !=3.5.*, <4',

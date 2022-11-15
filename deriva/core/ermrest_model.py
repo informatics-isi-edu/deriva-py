@@ -261,6 +261,121 @@ class Model (object):
     @object_annotation(tag.display)
     def display(self): pass
 
+    def configure_baseline_ermrest_client(self, apply=True):
+        """Baseline configuration of `ERMrest_Client` table.
+
+        Set up `ERMrest_Client` table so that it has readable names and uses the display name of the user as the row
+        name.
+
+        :param apply: if true, apply configuration changes before returning.
+        """
+        ermrest_client = self.schemas['public'].tables['ERMrest_Client']
+
+        # Set table and row name.
+        ermrest_client.annotations.update({
+            tag.display: {'name': 'User'},
+            tag.visible_columns: {'compact': ['Full_Name', 'Display_Name', 'Email', 'ID']},
+            tag.table_display: {'row_name': {'row_markdown_pattern': '{{{Full_Name}}}'}}
+        })
+
+        column_annotations = {
+            'RCT': {tag.display: {'name': 'Creation Time'}},
+            'RMT': {tag.display: {'name': 'Modified Time'}},
+            'RCB': {tag.display: {'name': 'Created By'}},
+            'RMB': {tag.display: {'name': 'Modified By'}}
+        }
+        for k, v in column_annotations.items():
+            ermrest_client.columns[k].annotations.update(v)
+
+        if apply:
+            # Apply model changes
+            self.apply()
+
+    def configure_baseline_ermrest_group(self, apply=True):
+        """Baseline configuration of `ERMrest_Group` table.
+
+        Set up `ERMrest_Group` table so that it has readable names and uses the display name of the group as the row
+        name.
+
+        :param apply: if true, apply configuration changes before returning.
+        """
+        ermrest_group = self.schemas['public'].tables['ERMrest_Group']
+
+        # Set table and row name.
+        ermrest_group.annotations.update({
+            tag.display: {'name': 'User Group'},
+            tag.visible_columns: {'compact': ['Display_Name', 'ID']},
+            tag.table_display: {'row_name': {'row_markdown_pattern': '{{{Display_Name}}}'}}
+        })
+
+        column_annotations = {
+            'RCT': {tag.display: {'name': 'Creation Time'}},
+            'RMT': {tag.display: {'name': 'Modified Time'}},
+            'RCB': {tag.display: {'name': 'Created By'}},
+            'RMB': {tag.display: {'name': 'Modified By'}}
+        }
+        for k, v in column_annotations.items():
+            ermrest_group.columns[k].annotations.update(v)
+
+        if apply:
+            # Apply model changes
+            self.apply()
+
+    def configure_baseline_catalog(self, apply=True):
+        """A baseline catalog configuration.
+
+        Update catalog to a baseline configuration:
+        1. Set default display mode to turn underscores to spaces in model element names.
+        2. Configure `ERMrest_Client` and `ERMrest_Group` to have readable names.
+        3. Create a schema `WWW` with `Page` and `File` tables in that schema configured to display web-page like
+           content.
+        4. Configure a basic navbar with links to all tables.
+
+        Afterwards, an ACL configuration should be applied to the catalog. See the `deriva.config.examples` package
+        data for configuration templates.
+
+        :param apply: if true, apply configuration changes before returning.
+        """
+        # Configure baseline public schema
+        self.configure_baseline_ermrest_client(apply=False)
+        self.configure_baseline_ermrest_group(apply=False)
+
+        # Create WWW schema
+        if "WWW" not in self.schemas:
+            self.create_schema(Schema.define_www("WWW"))
+
+        # Configure baseline annotations
+        self.annotations.update({
+            # Set up catalog-wide name style
+            tag.display: {'name_style': {'underline_space': True}},
+            # Set up default chaise config
+            tag.chaise_config: {
+                "headTitle": "DERIVA",
+                "navbarBrandText": "DERIVA",
+                "navbarMenu": {
+                    "newTab": False,
+                    "children": [
+                        {
+                            "name": s.annotations.get(tag.display, {}).get('name', s.name.replace('_', ' ')),
+                            "children": [
+                                {
+                                    "name": t.annotations.get(tag.display, {}).get('name', t.name.replace('_', ' ')),
+                                    "url": f'/chaise/recordset/#{self.catalog.catalog_id}/{urlquote(s.name)}:{urlquote(t.name)}'
+                                } for t in s.tables.values() if not t.is_association()
+                            ]
+                        } for s in self.schemas.values()
+                    ]
+
+                },
+                "systemColumnsDisplayCompact": ["RID"],
+                "systemColumnsDisplayEntry": ["RID"]
+            }
+        })
+
+        if apply:
+            # Apply model changes
+            self.apply()
+
 def strip_nochange(d):
     return {
         k: v
@@ -302,6 +417,39 @@ class Schema (object):
             "annotations": annotations,
             "comment": comment,
         }
+
+    @classmethod
+    def define_www(cls, sname, comment=None, acls={}, annotations={}):
+        """Build a schema definition for wiki-like web content.
+
+        Defines a schema with a "Page" wiki-like page table definition and a
+        "File" asset table definition for attachments to the wiki pages.
+
+        :param sname: schema name
+        :param comment: a comment string for the table
+        :param acls: a dictionary of ACLs for specific access modes
+        :param annotations: a dictionary of annotations
+        """
+        www_schema = Schema.define(
+            sname,
+            comment=comment if comment is not None else "Schema for tables that will be displayed as web content",
+            acls=acls,
+            annotations=annotations
+        )
+        www_schema["tables"] = {
+            "Page": Table.define_page("Page"),
+            "File": Table.define_asset(
+                sname,
+                "File",
+                column_defs=[
+                    Column.define("Page", builtin_types.text, nullok=False, comment="Parent page of this asset")
+                ],
+                fkey_defs=[
+                    ForeignKey.define(["Page"], sname, "Page", ["RID"])
+                ]
+            )
+        }
+        return www_schema
 
     def prejson(self, prune=True):
         """Produce native Python representation of schema, suitable for JSON serialization."""
@@ -511,13 +659,13 @@ class Table (object):
     def system_column_defs(cls, custom=[]):
         """Build standard system column definitions, merging optional custom definitions."""
         return [
-            Column.define(cname, builtin_types[ctype], nullok)
-            for cname, ctype, nullok in [
-                    ('RID', 'ermrest_rid', False),
-                    ('RCT', 'ermrest_rct', False),
-                    ('RMT', 'ermrest_rmt', False),
-                    ('RCB', 'ermrest_rcb', True),
-                    ('RMB', 'ermrest_rmb', True),
+            Column.define(cname, builtin_types[ctype], nullok, annotations=annotations)
+            for cname, ctype, nullok, annotations in [
+                    ('RID', 'ermrest_rid', False, {tag.display: {'name': 'Record ID'}}),
+                    ('RCT', 'ermrest_rct', False, {tag.display: {'name': 'Creation Time'}}),
+                    ('RMT', 'ermrest_rmt', False, {tag.display: {'name': 'Modified Time'}}),
+                    ('RCB', 'ermrest_rcb', True, {tag.display: {'name': 'Created By'}}),
+                    ('RMB', 'ermrest_rmb', True, {tag.display: {'name': 'Modified By'}}),
             ]
             if cname not in { c['name']: c for c in custom }
         ] + custom
@@ -709,11 +857,7 @@ class Table (object):
           """
 
         if hatrac_template is None:
-            hatrac_template = '/hatrac/%s/%s/{{{MD5}}}.{{#encode}}{{{Filename}}}{{/encode}}' % (sname, tname)
-
-        def add_asset_annotations(custom):
-            annotations.update(custom)
-            return annotations
+            hatrac_template = '/hatrac/{{$catalog.id}}/%s/%s/{{{MD5}}}.{{#encode}}{{{Filename}}}{{/encode}}' % (sname, tname)
 
         def add_asset_columns(custom):
             asset_annotation = {
@@ -754,6 +898,17 @@ class Table (object):
                 if ktup(key_def) not in {ktup(kdef): kdef for kdef in custom}
             ] + custom
 
+        def add_asset_annotations(custom):
+            asset_annotations = {
+                tag.table_display: {
+                    'row_name': {
+                        'row_markdown_pattern': '{{{Filename}}}'
+                    }
+                }
+            }
+            asset_annotations.update(custom)
+            return asset_annotations
+
         return cls.define(
             tname,
             add_asset_columns(column_defs),
@@ -763,6 +918,92 @@ class Table (object):
             acls,
             acl_bindings,
             add_asset_annotations(annotations),
+            provide_system
+        )
+
+    @classmethod
+    def define_page(cls, tname, column_defs=[], key_defs=[], fkey_defs=[], comment=None, acls={}, acl_bindings={}, annotations={}, provide_system=True):
+        """Build a wiki-like "page" table definition.
+
+        :param tname: the name of the newly defined table
+        :param column_defs: a list of Column.define() results for extra or overridden column definitions
+        :param key_defs: a list of Key.define() results for extra or overridden key constraint definitions
+        :param fkey_defs: a list of ForeignKey.define() results for foreign key definitions
+        :param comment: a comment string for the table
+        :param acls: a dictionary of ACLs for specific access modes
+        :param acl_bindings: a dictionary of dynamic ACL bindings
+        :param annotations: a dictionary of annotations
+        :param provide_system: whether to inject standard system column definitions when missing from column_defs
+
+        These core page columns are generated automatically if absent from the input column_defs.
+
+        - Title: text, unique not null
+        - Content: markdown
+
+        However, caller-supplied definitions override the default.
+        """
+
+        def add_page_columns(custom):
+            return [
+                col_def
+                for col_def in [
+                        Column.define(
+                            'Title',
+                            builtin_types['text'],
+                            nullok=False,
+                            comment='Unique title for the page.'
+                        ),
+                        Column.define(
+                            'Content',
+                            builtin_types['markdown'],
+                            nullok=True,
+                            comment='Content of the page in markdown.'
+                        ),
+                ]
+                if col_def['name'] not in { c['name']: c for c in custom }
+            ] + custom
+
+        def add_page_keys(custom):
+            def ktup(k):
+                return tuple(k['unique_columns'])
+            return [
+                key_def
+                for key_def in [
+                        Key.define(['Title'])
+                ]
+                if ktup(key_def) not in { ktup(kdef): kdef for kdef in custom }
+            ] + custom
+
+        def add_page_annotations(custom):
+            page_annotations = {
+                tag.table_display: {
+                    'row_name': {
+                        'row_markdown_pattern': '{{{Title}}}'
+                    },
+                    'detailed': {
+                        'hide_column_headers': True,
+                        'collapse_toc_panel': True
+                    }
+                },
+                tag.visible_columns: {
+                    'compact': ['Title'],
+                    'detailed': ['Content'],
+                    'entry': ['Title', 'Content'],
+                    'filter': {'and': []}
+                }
+            }
+            page_annotations.update(annotations)
+            return page_annotations
+
+        return cls.define(
+            tname,
+            add_page_columns(column_defs),
+            add_page_keys(key_defs),
+            fkey_defs,
+            comment,
+            acls,
+            acl_bindings,
+            add_page_annotations(annotations),
             provide_system
         )
 
