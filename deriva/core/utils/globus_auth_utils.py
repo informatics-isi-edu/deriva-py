@@ -671,7 +671,7 @@ class GlobusNativeLogin:
             "auth_type": "bearer-token",
             "auth_params": {
                 "token": token,
-                "allow_redirects_with_token": "True" if allow_redirects else "False"
+                "allow_redirects_with_token": True if allow_redirects else False
             }
         }
         bdbkc.update_keychain(entry, keychain_file=keychain_file, delete=delete)
