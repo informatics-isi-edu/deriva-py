@@ -1,7 +1,7 @@
 import os
 import logging
 import uuid
-from datetime import datetime
+import datetime
 from importlib import import_module
 from deriva.core import get_credential, urlsplit, urlunsplit, format_exception, stob
 from deriva.core.utils.hash_utils import compute_hashes
@@ -87,7 +87,7 @@ class Boto3UploadPostProcessor(UploadPostProcessor):
                 token = temp_credentials['SessionToken']
             except Exception as e:
                 raise RuntimeError("Unable to get temporary credentials using arn [%s]. %s" %
-                                   (role_arn, get_typed_exception(e)))
+                                   (role_arn, format_exception(e)))
 
         try:
             if self.scheme == "gs":
@@ -129,7 +129,8 @@ class Boto3UploadPostProcessor(UploadPostProcessor):
             identity.encode() if identity else
             "anon-" + self.envars.get("request_ip", "unknown").encode(), hashes=['md5'])['md5'][0]
         if not stob(self.parameters.get("overwrite", "False")):
-            object_qualifier = "/".join([object_qualifier, datetime.strftime(datetime.now(), "%Y-%m-%d_%H.%M.%S")])
+            now = datetime.datetime.now()
+            object_qualifier = "/".join([object_qualifier, now.strftime("%Y-%m-%d_%H.%M.%S")])
 
         for k, v in self.outputs.items():
             object_name = "/".join([self.path, object_qualifier, k])
