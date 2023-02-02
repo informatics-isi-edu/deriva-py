@@ -218,11 +218,11 @@ class DerivaBinding (object):
         if not credentials:
             return
         assert self._session is not None
-        if 'cookie' in credentials:
+        if 'bearer-token' in credentials:
+            self._session.headers.update({'Authorization': 'Bearer {token}'.format(token=credentials['bearer-token'])})
+        elif 'cookie' in credentials:
             cname, cval = credentials['cookie'].split('=', 1)
             self._session.cookies.set(cname, cval, domain=server, path='/')
-        elif 'bearer-token' in credentials:
-            self._session.headers.update({'Authorization': 'Bearer {token}'.format(token=credentials['bearer-token'])})
         elif 'username' in credentials and 'password' in credentials:
             self.post_authn_session(credentials)
 
