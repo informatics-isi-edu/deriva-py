@@ -512,11 +512,14 @@ tag = AttrDict({
     'visible_foreign_keys': 'tag:isrd.isi.edu,2016:visible-foreign-keys',
     'export':             'tag:isrd.isi.edu,2016:export',
     'export_2019':        'tag:isrd.isi.edu,2019:export',
+    'export_fragment_definitions': 'tag:isrd.isi.edu,2021:export-fragment-definitions',    
     'asset':              'tag:isrd.isi.edu,2017:asset',
     'citation':           'tag:isrd.isi.edu,2018:citation',
     'required':           'tag:isrd.isi.edu,2018:required',
     'indexing_preferences': 'tag:isrd.isi.edu,2018:indexing-preferences',
     'bulk_upload':        'tag:isrd.isi.edu,2017:bulk-upload',
     'chaise_config':      'tag:isrd.isi.edu,2019:chaise-config',
-    'source_definitions': 'tag:isrd.isi.edu,2019:source-definitions'
+    'source_definitions': 'tag:isrd.isi.edu,2019:source-definitions',
+    'indexing_preferences': 'tag:isrd.isi.edu,2018:indexing-preferences',
+    'google_dataset': 'tag:isrd.isi.edu,2021:google-dataset',
 })

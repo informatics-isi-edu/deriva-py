@@ -261,6 +261,9 @@ class Model (object):
     @object_annotation(tag.display)
     def display(self): pass
 
+    @object_annotation(tag.chaise_config)
+    def chaise_config(self): pass
+    
     def configure_baseline_ermrest_client(self, apply=True):
         """Baseline configuration of `ERMrest_Client` table.
 
@@ -1400,6 +1403,25 @@ class Table (object):
     @object_annotation(tag.visible_foreign_keys)
     def visible_foreign_keys(self): pass
 
+    @object_annotation(tag.export_2019)
+    def export_2019(self): pass
+
+    @object_annotation(tag.export_fragment_definitions)
+    def export_fragment_definitions(self): pass
+    
+    @object_annotation(tag.citation)
+    def citation(self): pass
+
+    @object_annotation(tag.source_definitions)
+    def source_definitions(self): pass
+    
+    @object_annotation(tag.indexing_preferences)
+    def indexing_preferences(self): pass
+
+    @object_annotation(tag.google_dataset)
+    def google_dataset(self): pass
+    
+    
 class Column (object):
     """Named column.
     """
