@@ -324,7 +324,7 @@ class Model (object):
             # Apply model changes
             self.apply()
 
-    def configure_baseline_catalog(self, apply=True):
+    def configure_baseline_catalog(self, apply=True, **kwargs):
         """A baseline catalog configuration.
 
         Update catalog to a baseline configuration:
@@ -338,14 +338,16 @@ class Model (object):
         data for configuration templates.
 
         :param apply: if true, apply configuration changes before returning.
+        :param kwargs: a set of name-value pairs used to override default settings.
         """
         # Configure baseline public schema
         self.configure_baseline_ermrest_client(apply=False)
         self.configure_baseline_ermrest_group(apply=False)
 
         # Create WWW schema
-        if "WWW" not in self.schemas:
-            self.create_schema(Schema.define_www("WWW"))
+        www_name = kwargs.get("wwwSchemaName", "WWW")
+        if www_name not in self.schemas:
+            self.create_schema(Schema.define_www(www_name))
 
         # Configure baseline annotations
         self.annotations.update({
@@ -353,8 +355,8 @@ class Model (object):
             tag.display: {'name_style': {'underline_space': True}},
             # Set up default chaise config
             tag.chaise_config: {
-                "headTitle": "DERIVA",
-                "navbarBrandText": "DERIVA",
+                "headTitle": kwargs.get("headTitle", "DERIVA"),
+                "navbarBrandText": kwargs.get("navbarBrandText", "DERIVA"),
                 "navbarMenu": {
                     "newTab": False,
                     "children": [
