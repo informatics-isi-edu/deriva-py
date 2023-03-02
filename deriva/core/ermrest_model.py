@@ -3,7 +3,7 @@ from collections import OrderedDict
 import json
 import re
 
-from . import AttrDict, tag, urlquote
+from . import AttrDict, tag, urlquote, stob
 
 class NoChange (object):
     """Special class used to distinguish no-change default arguments to methods.
@@ -276,7 +276,7 @@ class Model (object):
 
         # Set table and row name.
         ermrest_client.annotations.update({
-            tag.display: {'name': 'User'},
+            tag.display: {'name': 'Users'},
             tag.visible_columns: {'compact': ['Full_Name', 'Display_Name', 'Email', 'ID']},
             tag.table_display: {'row_name': {'row_markdown_pattern': '{{{Full_Name}}}'}}
         })
@@ -306,7 +306,7 @@ class Model (object):
 
         # Set table and row name.
         ermrest_group.annotations.update({
-            tag.display: {'name': 'User Group'},
+            tag.display: {'name': 'Groups'},
             tag.visible_columns: {'compact': ['Display_Name', 'ID']},
             tag.table_display: {'row_name': {'row_markdown_pattern': '{{{Display_Name}}}'}}
         })
@@ -341,13 +341,19 @@ class Model (object):
         :param kwargs: a set of name-value pairs used to override default settings.
         """
         # Configure baseline public schema
+        if kwargs.get("publicSchemaDisplayName"):
+            public_schema = self.schemas['public']
+            public_schema.annotations.update({
+                tag.display: {'name': 'User Info'}
+            })
         self.configure_baseline_ermrest_client(apply=False)
         self.configure_baseline_ermrest_group(apply=False)
 
         # Create WWW schema
-        www_name = kwargs.get("wwwSchemaName", "WWW")
-        if www_name not in self.schemas:
-            self.create_schema(Schema.define_www(www_name))
+        if stob(kwargs.get("includeWWWSchema", True)):
+            www_name = kwargs.get("wwwSchemaName", "WWW")
+            if www_name not in self.schemas:
+                self.create_schema(Schema.define_www(www_name))
 
         # Configure baseline annotations
         self.annotations.update({
