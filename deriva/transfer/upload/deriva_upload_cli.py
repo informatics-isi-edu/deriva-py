@@ -17,6 +17,9 @@ class DerivaUploadCLI(BaseCLI):
         self.parser.add_argument('--purge-state', action="store_true",
                                  help="Purge (delete) any existing transfer state files found in the directory "
                                       "hierarchy of the input path.")
+        self.parser.add_argument('--dry-run', action="store_true",
+                                 help="Scan the input directory for matching files to upload, "
+                                      "but do not transfer any files.")
         self.parser.add_argument("--catalog", default=1, metavar="<1>", help="Catalog number. Default: 1")
         self.parser.add_argument("path", metavar="<input dir>", help="Path to an input directory.")
         self.uploader = uploader
@@ -30,7 +33,8 @@ class DerivaUploadCLI(BaseCLI):
                config_file=None,
                credential_file=None,
                no_update=False,
-               purge=False):
+               purge=False,
+               dry_run=False):
 
         if not issubclass(uploader, DerivaUpload):
             raise TypeError("DerivaUpload subclass required")
@@ -57,7 +61,8 @@ class DerivaUploadCLI(BaseCLI):
             raise RuntimeError("Version incompatibility detected", "Current version: [%s], required version(s): %s." % (
                 deriva_uploader.getVersion(), deriva_uploader.getVersionCompatibility()))
         deriva_uploader.scanDirectory(data_path, abort_on_invalid_input=False, purge_state=purge)
-        deriva_uploader.uploadFiles(file_callback=deriva_uploader.defaultFileCallback)
+        if not dry_run:
+            deriva_uploader.uploadFiles(file_callback=deriva_uploader.defaultFileCallback)
         deriva_uploader.cleanup()
 
     def main(self):
@@ -78,7 +83,8 @@ class DerivaUploadCLI(BaseCLI):
                                    args.config_file,
                                    args.credential_file,
                                    args.no_config_update,
-                                   args.purge_state)
+                                   args.purge_state,
+                                   args.dry_run)
         except (RuntimeError, DerivaUploadError, DerivaUploadConfigurationError, DerivaUploadCatalogCreateError,
                 DerivaUploadCatalogUpdateError) as e:
             sys.stderr.write(("\n" if not args.quiet else "") + format_exception(e))
