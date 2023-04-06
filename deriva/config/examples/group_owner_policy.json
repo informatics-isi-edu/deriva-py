@@ -80,7 +80,7 @@
 
   "table_acls": [
     {
-      "schema": "TODO: Schema_Name; NOTE: repeat this stanza for each of your schemas",
+      "schema_pattern": "^(?!(^public)$).+$",
       "table_pattern": ".*",
       "acl_bindings": [
         "row_owner_guard",
