@@ -8,6 +8,7 @@ import traceback
 import importlib
 import datetime
 import tzlocal
+import webbrowser
 from pprint import pprint
 from requests.exceptions import HTTPError, ConnectionError
 from bdbag.fetch.auth import keychain as bdbkc
@@ -24,7 +25,7 @@ GROUPS_SCOPE_NAME = "urn:globus:auth:scope:groups.api.globus.org:view_my_groups_
 PUBLIC_GROUPS_API_URL = 'https://groups.api.globus.org/v2/groups/my_groups'
 CLIENT_CRED_FILE = '/home/secrets/oauth2/client_secret_globus.json'
 DEFAULT_SCOPES = ["openid", GROUPS_SCOPE_NAME]
-
+LOGOUT_URL = "https://app.globus.org/logout"
 
 class UsageException(ValueError):
     """Usage exception.
@@ -710,7 +711,8 @@ class GlobusNativeLogin:
                     self.update_bdbag_keychain(token=access_token, host=host, keychain_file=bdbag_keychain_file)
         return tokens
 
-    def logout(self, hosts=(), requested_scopes=(), exclude_defaults=False, bdbag_keychain_file=None):
+    def logout(self, hosts=(), requested_scopes=(), exclude_defaults=False, bdbag_keychain_file=None,
+               include_browser_logout=False):
         tokens = self.client._load_raw_tokens()
 
         scopes = set(requested_scopes)
@@ -737,6 +739,14 @@ class GlobusNativeLogin:
                 token_set[resource] = token
         self.client.revoke_token_set(token_set)
         self.client.token_storage.clear_tokens(scopes)
+
+        if include_browser_logout:
+            if bool(os.environ.get('SSH_TTY') or os.environ.get('SSH_CONNECTION')):
+                print("Browser logout flow not available with remote session. Visit %s to logout of Globus completely."
+                      % LOGOUT_URL)
+                return
+
+            webbrowser.open(LOGOUT_URL, new=1)
 
 
 class DerivaGlobusAuthUtilCLIException(Exception):
@@ -1079,7 +1089,8 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
             self.gnl.logout(hosts=[args.host] if args.host else [],
                             requested_scopes=args.requested_scopes,
                             exclude_defaults=args.exclude_defaults,
-                            bdbag_keychain_file=args.bdbag_keychain_file)
+                            bdbag_keychain_file=args.bdbag_keychain_file,
+                            include_browser_logout=args.full)
             return "You have been logged out."
 
         parser = self.subparsers.add_parser("logout", help="Revoke and clear tokens. If no arguments are specified, "
@@ -1099,6 +1110,9 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                                  "default set of scopes: [%s]" % ", ".join(DEFAULT_SCOPES))
         parser.add_argument('--bdbag-keychain-file', metavar='<file>',
                             help="Non-default path to a bdbag keychain file.")
+        parser.add_argument('--full', action="store_true",
+                            help="Also launch the default system web browser to logout of Globus and clear cached "
+                                 "identity-related browser cookies.")
         parser.set_defaults(func=logout)
 
     def user_info_init(self):

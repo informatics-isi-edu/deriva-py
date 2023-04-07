@@ -2,6 +2,7 @@ import io
 import os
 import re
 import sys
+import datetime
 import errno
 import json
 import shutil
@@ -33,7 +34,8 @@ class Enum(tuple):
 UploadState = Enum(["Success", "Failed", "Pending", "Running", "Paused", "Aborted", "Cancelled", "Timeout"])
 FileUploadState = namedtuple("FileUploadState", ["State", "Status"])
 UploadMetadataReservedKeyNames = ["URI", "file_name", "file_ext", "file_size", "content-disposition", "md5", "sha256",
-                                  "md5_base64", "sha256_base64", "schema", "table", "target_table"]
+                                  "md5_base64", "sha256_base64", "schema", "table", "target_table", "_upload_year_",
+                                  "_upload_month_", "_upload_day_", "_upload_time_"]
 
 DefaultConfig = {
   "version_compatibility": [">=%s" % VERSION],
@@ -202,9 +204,9 @@ class DerivaUpload(object):
         else:
             self._update_internal_config(read_config(config_file))
         if not self.isVersionCompatible():
-            raise DerivaRestoreError("Upload version incompatibility detected",
-                                     "Current version: [%s], required version(s): %s." %
-                                     (self.getVersion(), self.getVersionCompatibility()))
+            raise RuntimeError("Upload version incompatibility detected",
+                               "Current version: [%s], required version(s): %s." %
+                               (self.getVersion(), self.getVersionCompatibility()))
     @classmethod
     def getDefaultServer(cls):
         servers = cls.getServers()
@@ -258,7 +260,7 @@ class DerivaUpload(object):
         if not (os.path.isfile(src) and os.path.isfile(dst)):
             return False
 
-        # This comparison wont work with PyInstaller single-file bundles because the bundle is extracted to a temp dir
+        # This comparison won't work with PyInstaller single-file bundles because the bundle is extracted to a temp dir
         # and every timestamp for every file in the bundle is reset to the bundle extraction/creation time.
         if getattr(sys, 'frozen', False):
             prefix = os.path.sep + "_MEI"
@@ -578,7 +580,7 @@ class DerivaUpload(object):
         self._queryFileMetadata(asset_mapping)
 
         # 5. If "create_record_before_upload" specified in asset_mapping, check for an existing record, creating a new
-        #    one if necessary. Otherwise delay this logic until after the file upload.
+        #    one if necessary. Otherwise, delay this logic until after the file upload.
         record = None
         if stob(asset_mapping.get("create_record_before_upload", False)):
             record = self._getFileRecord(asset_mapping)
@@ -599,7 +601,12 @@ class DerivaUpload(object):
                                allow_versioning=stob(hatrac_options.get("allow_versioning", True)),
                                callback=callback)
         logger.debug("Hatrac upload successful. Result object URI: %s" % versioned_uri)
-        if stob(hatrac_options.get("versioned_uris", True)):
+        versioned_uris = True
+        if "versioned_uris" in hatrac_options:
+            versioned_uris = stob(hatrac_options.get("versioned_uris", True))
+        if "versioned_urls" in hatrac_options:
+            versioned_uris = stob(hatrac_options.get("versioned_urls", True))
+        if versioned_uris:
             self.metadata["URI"] = versioned_uri
         else:
             self.metadata["URI"] = versioned_uri.rsplit(":")[0]
@@ -694,6 +701,12 @@ class DerivaUpload(object):
         self.metadata["file_name"] = self.getFileDisplayName(file_path)
         self.metadata["file_size"] = self.getFileSize(file_path)
 
+        time = datetime.datetime.now()
+        self.metadata["_upload_year_"] = time.year
+        self.metadata["_upload_month_"] = time.month
+        self.metadata["_upload_day_"] = time.day
+        self.metadata["_upload_time_"] = time.timestamp()
+
         self._urlEncodeMetadata(asset_mapping.get("url_encoding_safe_overrides"))
 
     def _updateFileMetadata(self, src, strict=False, no_overwrite=False):
@@ -707,7 +720,7 @@ class DerivaUpload(object):
                                    "ignoring value: %s " % (k, src[k]))
                     del dst[k]
                     continue
-            # dont overwrite any existing metadata field
+            # don't overwrite any existing metadata field
             if no_overwrite:
                 if k in self.metadata:
                     del dst[k]
@@ -1021,8 +1034,8 @@ class DerivaUpload(object):
         for root, dirs, files in walk(path, followlinks=True):
             if filename in files:
                 # found a file
-                found_path = os.path.join(root, filename)
-                file_paths.add(os.path.realpath(found_path))
+                found_path = os.path.normcase(os.path.join(root, filename))
+                file_paths.add(os.path.normcase(os.path.realpath(found_path)))
                 continue
 
         # Next, ascend from the base path looking for the same filename in all parent dirs
@@ -1033,7 +1046,7 @@ class DerivaUpload(object):
                 break
             for entry in scandir(parent):
                 if (entry.name == filename) and entry.is_file():
-                    file_paths.add(os.path.realpath(entry.path))
+                    file_paths.add(os.path.normcase(os.path.realpath(os.path.normcase(entry.path))))
             current = parent
 
         return file_paths

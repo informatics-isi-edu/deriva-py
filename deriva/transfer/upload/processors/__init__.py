@@ -4,9 +4,11 @@ from deriva.core import read_config, format_exception
 from deriva.transfer.upload import DerivaUploadConfigurationError
 from deriva.transfer.upload.processors.base_processor import BaseProcessor
 from deriva.transfer.upload.processors.logging_processor import LoggingProcessor
+from deriva.transfer.upload.processors.metadata_update_processor import MetadataUpdateProcessor
 
 DEFAULT_PROCESSORS = {
-    "LoggingProcessor": LoggingProcessor
+    "LoggingProcessor": LoggingProcessor,
+    "MetadataProcessor": MetadataUpdateProcessor
 }
 
 
