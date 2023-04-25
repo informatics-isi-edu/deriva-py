@@ -1,9 +1,10 @@
+import sys
 from importlib import import_module
 from deriva.core import read_config, format_exception
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError
 from deriva.transfer.download.processors.base_processor import BaseProcessor
 from deriva.transfer.download.processors.query.base_query_processor import CSVQueryProcessor, \
-    JSONEnvUpdateProcessor, JSONQueryProcessor, JSONStreamQueryProcessor
+    JSONEnvUpdateProcessor, JSONQueryProcessor, JSONStreamQueryProcessor, CreateDirProcessor
 from deriva.transfer.download.processors.query.bag_fetch_query_processor import BagFetchQueryProcessor
 from deriva.transfer.download.processors.query.file_download_query_processor import FileDownloadQueryProcessor
 from deriva.transfer.download.processors.transform.fasta_transform_processor import FastaExportTransformProcessor
@@ -19,6 +20,7 @@ from deriva.transfer.download.processors.postprocess.url_post_processor import U
 DEFAULT_QUERY_PROCESSORS = {
     "csv": CSVQueryProcessor,
     "env": JSONEnvUpdateProcessor,
+    "dir": CreateDirProcessor,
     "json": JSONQueryProcessor,
     "json-stream": JSONStreamQueryProcessor,
     "download": FileDownloadQueryProcessor,

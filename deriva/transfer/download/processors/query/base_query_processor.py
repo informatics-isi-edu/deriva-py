@@ -213,3 +213,15 @@ class JSONEnvUpdateProcessor(BaseQueryProcessor):
             self.envars.update(resp[0])
             self._urlencode_envars()
         return {}
+
+
+class CreateDirProcessor(JSONEnvUpdateProcessor):
+    def __init__(self, envars=None, **kwargs):
+        super(CreateDirProcessor, self).__init__(envars, **kwargs)
+        self.ext = ""
+
+    def process(self):
+        super(CreateDirProcessor, self).process()
+        self.create_default_paths()
+        make_dirs(self.output_abspath)
+
