@@ -9,6 +9,7 @@ import shutil
 import tempfile
 import logging
 import platform
+import signal
 from collections import OrderedDict, namedtuple
 from deriva.core import ErmrestCatalog, HatracStore, HatracJobAborted, HatracJobPaused, \
     HatracJobTimeout, urlquote, urlparse, stob, format_exception, get_credential, read_config, write_config, \
@@ -87,10 +88,15 @@ class DerivaUpload(object):
         self.override_credential_file = credential_file
         self.server = self.getDefaultServer() if not server else server
         self.dcctx_cid = dcctx_cid if dcctx_cid else self.__class__.__name__
+        signal.signal(signal.SIGINT, self.interrupt_handler)
         self.initialize()
 
     def __del__(self):
         self.cleanupTransferState()
+
+    def interrupt_handler(self, signum, frame):
+        logger.info("Caught interrupt signal.")
+        self.cancel()
 
     def initialize(self, cleanup=False):
         info = "%s v%s [Python %s, %s]" % (
@@ -490,10 +496,12 @@ class DerivaUpload(object):
     def uploadFiles(self, status_callback=None, file_callback=None):
         self.catalog_model = self.catalog.getCatalogModel()
         for group, assets in self.file_list.items():
+            if self.cancelled:
+                break
             for asset_group_num, asset_mapping, groupdict, file_path in assets:
                 if self.cancelled:
                     self.file_status[file_path] = FileUploadState(UploadState.Cancelled, "Cancelled by user")._asdict()
-                    continue
+                    break
                 try:
                     self.file_status[file_path] = FileUploadState(UploadState.Running, "In-progress")._asdict()
                     if status_callback:
@@ -502,6 +510,7 @@ class DerivaUpload(object):
                     if self.cancelled:
                         self.file_status[file_path] = FileUploadState(UploadState.Cancelled,
                                                                       "Cancelled by user")._asdict()
+                        break
                     else:
                         self.file_status[file_path] = FileUploadState(UploadState.Success, "Complete")._asdict()
                 except HatracJobPaused:
@@ -531,14 +540,17 @@ class DerivaUpload(object):
                 failed_uploads[key] = value["Status"]
 
         if self.skipped_files:
-            logger.warning("The following file(s) were skipped because they did not satisfy the matching criteria "
-                           "of the configuration:\n\n%s\n" % '\n'.join(sorted(self.skipped_files)))
+            logger.warning("The following %d file(s) were skipped because they did not satisfy the matching criteria "
+                           "of the configuration:\n\n%s\n" %
+                           (len(self.skipped_files), '\n'.join(sorted(self.skipped_files))))
 
         if failed_uploads:
-            logger.warning("The following file(s) failed to upload due to errors:\n\n%s\n" %
+            logger.warning("The following %d file(s) failed to upload due to errors:\n\n%s\n" % (len(failed_uploads),
                            '\n'.join(["%s -- %s" % (key, failed_uploads[key])
-                                      for key in sorted(failed_uploads.keys())]))
+                                      for key in sorted(failed_uploads.keys())])))
             raise RuntimeError("One or more file(s) failed to upload due to errors.")
+
+        logger.info("File upload processing completed.")
 
     def uploadFile(self, file_path, asset_mapping, match_groupdict, callback=None):
         """
@@ -1072,7 +1084,7 @@ class DerivaUpload(object):
                                         "%s" % (os.path.dirname(path), format_exception(e)))
 
     def loadTransferState(self, directory, purge=False):
-        transfer_state_file_path = os.path.join(directory, self.getTransferStateFileName())
+        transfer_state_file_path = os.path.normcase(os.path.join(directory, self.getTransferStateFileName()))
         if purge:
             self.delete_dependent_locks(directory)
         self.acquire_dependent_locks(directory)
