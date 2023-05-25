@@ -66,7 +66,6 @@ class HatracStore(DerivaBinding):
             sha256 = hashes['sha256'][1]
 
         r = self.head(path)
-        r.raise_for_status()
         if r.status_code == 200 and \
                 (md5 and r.headers.get('Content-MD5') == md5 or sha256 and r.headers.get('Content-SHA256') == sha256):
             return True
@@ -243,8 +242,7 @@ class HatracStore(DerivaBinding):
         """Delete an object.
         """
         self.check_path(path)
-        resp = self.delete(path)
-        resp.raise_for_status()
+        self.delete(path)
         logging.debug('Deleted object "%s%s".' % (self._server_uri, path))
 
     def put_loc(self,
@@ -410,7 +408,6 @@ class HatracStore(DerivaBinding):
             obj['content-disposition'] = content_disposition
         obj['content-type'] = content_type if content_type else mu.guess_content_type(file_path)
         r = self.post(url, json=obj, headers={'Content-Type': 'application/json'})
-        self._response_raise_for_status(r)
         job_id = r.text.split('/')[-1][:-1]
         logging.debug('Created job_id "%s" for url "%s".' % (job_id,  url))
         return job_id
@@ -420,7 +417,6 @@ class HatracStore(DerivaBinding):
         url = '%s;upload/%s' % (path, job_id)
         headers = {}
         r = self.get(url, headers=headers)
-        r.raise_for_status()
         return r
 
     def finalize_upload_job(self, path, job_id):
@@ -428,38 +424,38 @@ class HatracStore(DerivaBinding):
         url = '%s;upload/%s' % (path, job_id)
         headers = {}
         r = self.post(url, headers=headers)
-        r.raise_for_status()
         return r.text.strip()
 
     def cancel_upload_job(self, path, job_id):
         self.check_path(path)
         url = '%s;upload/%s' % (path, job_id)
         headers = {}
-        r = self.delete(url, headers=headers)
-        r.raise_for_status()
+        self.delete(url, headers=headers)
 
     def is_valid_namespace(self, namespace_path):
         """Check if a namespace already exists.
         """
         headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
-        resp = self.head(namespace_path, headers)
-        if resp.status_code == requests.codes.ok:
+        try:
+            self.head(namespace_path, headers)
             return True
-        if resp.status_code == requests.codes.not_found:
-            return False
-        resp.raise_for_status()
+        except requests.HTTPError as e:
+            if e.response.status_code == requests.codes.not_found:
+                return False
+            raise
 
     def retrieve_namespace(self, namespace_path):
         """Retrieve a namespace.
         """
         headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
-        resp = self.get(namespace_path, headers)
-        if resp.status_code == requests.codes.ok:
+        try:
+            resp = self.get(namespace_path, headers)
             namespaces = resp.json()
             return namespaces
-        if resp.status_code == requests.codes.not_found:
-            return None
-        resp.raise_for_status()
+        except requests.HTTPError as e:
+            if e.response.status_code == requests.codes.not_found:
+                return None
+            raise
 
     def create_namespace(self, namespace_path, parents=True):
         """Create a namespace.
@@ -467,8 +463,7 @@ class HatracStore(DerivaBinding):
         self.check_path(namespace_path)
         url = "?".join([namespace_path, "parents=%s" % str(parents).lower()])
         headers = {'Content-Type': 'application/x-hatrac-namespace', 'Accept': 'application/json'}
-        resp = self.put(url, headers=headers)
-        resp.raise_for_status()
+        self.put(url, headers=headers)
         logging.debug('Created namespace "%s%s".' % (self._server_uri, namespace_path))
 
     def delete_namespace(self, namespace_path):
@@ -476,8 +471,7 @@ class HatracStore(DerivaBinding):
         """
         self.check_path(namespace_path)
         headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
-        resp = self.delete(namespace_path, headers=headers)
-        resp.raise_for_status()
+        self.delete(namespace_path, headers=headers)
         logging.debug('Deleted namespace "%s%s".' % (self._server_uri, namespace_path))
 
     def get_acl(self, resource_name, access=None, role=None):
@@ -491,17 +485,18 @@ class HatracStore(DerivaBinding):
                 url += '/' + urlquote(role)
         elif role:
             raise ValueError('Do not specify "role" if "access" mode is not specified.')
-        resp = self.get(url, headers)
-        if resp.status_code == requests.codes.ok:
+        try:
+            resp = self.get(url, headers)
             if role:
                 return {access: [role]}
             elif access:
                 return {access: resp.json()}
             else:
                 return resp.json()
-        if resp.status_code == requests.codes.not_found:
-            return None
-        resp.raise_for_status()
+        except requests.HTTPError as e:
+            if e.response.status_code == requests.codes.not_found:
+                return None
+            raise
 
     def set_acl(self, resource_name, access, roles, add_role=False):
         """Set the object or namespace ACL resource.
@@ -518,10 +513,8 @@ class HatracStore(DerivaBinding):
             url += '/' + urlquote(roles[0])
         else:
             roles_obj = roles
-        resp = self.put(url, json=roles_obj, headers=headers)
-        if resp.status_code == requests.codes.no_content:
-            return None
-        resp.raise_for_status()
+        self.put(url, json=roles_obj, headers=headers)
+        return None
 
     def del_acl(self, resource_name, access, role=None):
         """Delete the object or namespace ACL resource.
@@ -530,8 +523,6 @@ class HatracStore(DerivaBinding):
         url = "%(resource_name)s;acl/%(access)s" % {'resource_name': resource_name, 'access': urlquote(access)}
         if role:
             url += '/' + urlquote(role)
-        resp = self.delete(url, headers)
-        if resp.status_code == requests.codes.no_content:
-            return None
-        resp.raise_for_status()
+        self.delete(url, headers)
+        return None
 
