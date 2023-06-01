@@ -44,7 +44,9 @@ def get_credential(host,
     creds = credentials.get(host, credentials.get(host.lower(), dict()))
 
     # load globus credentials and merge, if present
-    if os.path.isfile(globus_credential_file) and os.path.getsize(globus_credential_file) > 10:  # Don't load empty json
+    if globus_credential_file is not None and \
+            os.path.isfile(globus_credential_file) and \
+            os.path.getsize(globus_credential_file) > 10:  # Don't load empty json
         try:
             globus_client = GlobusNativeLogin(hosts=[host], config_file=config_file)
             scope_map = globus_client.hosts_to_scope_map(hosts=[host], match_scope_tag=match_scope_tag,
