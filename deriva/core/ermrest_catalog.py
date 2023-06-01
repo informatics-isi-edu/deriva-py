@@ -849,7 +849,7 @@ class ErmrestCatalog(DerivaBinding):
                             ",".join([
                                 urlquote(c.name)
                                 for c in src_model.schemas[sname].tables[tname].column_definitions
-                                if c.name not in {'RID', 'RMT', 'RMB', 'ID'}
+                                if c.name not in {'RID', 'RMT', 'RMB', 'RCB', 'RCT', 'ID'}
                             ])
                         ),
                         json=update

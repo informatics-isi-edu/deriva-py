@@ -39,6 +39,7 @@ class DerivaRestore:
         self.cancelled = False
         self.input_path = kwargs.get("input_path")
         self.exclude_schemas = kwargs.get("exclude_schemas", list())
+        self.exclude_data = kwargs.get("exclude_data", list())
         self.restore_data = not kwargs.get("no_data", False)
         self.data_chunk_size = kwargs.get("data_chunk_size", 10000)
         self.restore_annotations = not kwargs.get("no_annotations", False)
@@ -312,6 +313,7 @@ class DerivaRestore:
         restore_states = {}
         fkeys_deferred = {}
         exclude_schemas = [] if self.exclude_schemas is None else self.exclude_schemas
+        exclude_data = [] if self.exclude_data is None else self.exclude_data
 
         try:
             for sname, schema in src_model.schemas.items():
@@ -395,6 +397,9 @@ class DerivaRestore:
             if self.restore_data:
                 logging.info("Restoring catalog data...")
                 for sname, tname in restore_states.keys():
+                    object_name = "%s:%s" % (sname, tname)
+                    if object_name in exclude_data:
+                        continue
                     tname_uri = "%s:%s" % (urlquote(sname), urlquote(tname))
                     if restore_states[(sname, tname)] == 1:
                         # determine current position in (partial?) copy
@@ -478,7 +483,7 @@ class DerivaRestore:
                                 ",".join([
                                     urlquote(c.name)
                                     for c in src_model.schemas[sname].tables[tname].column_definitions
-                                    if c.name not in {'RID', 'RMT', 'RMB', 'ID'}
+                                    if c.name not in {'RID', 'RMT', 'RMB', 'RCB', 'RCT', 'ID'}
                                 ])
                             ),
                             json=update
