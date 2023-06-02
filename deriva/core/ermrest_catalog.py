@@ -619,11 +619,17 @@ class ErmrestCatalog(DerivaBinding):
         "tag:isrd.isi.edu,2018:clone-state" to save progress markers
         which help it restart efficiently if interrupted.
 
-        Cloning preserves source row RID values so that any RID-based
-        foreign keys are still valid. It is not generally advisable to
-        try to merge more than one source into the same clone, nor to
-        clone on top of rows generated locally in the destination,
-        since this could cause duplicate RID conflicts.
+        Cloning preserves source row RID values for application tables
+        so that any RID-based foreign keys are still valid. It is not
+        generally advisable to try to merge more than one source into
+        the same clone, nor to clone on top of rows generated locally
+        in the destination, since this could cause duplicate RID
+        conflicts.
+
+        Cloning does not preserve all RID values for special ERMrest
+        tables in the public schema (e.g. ERMrest_Client,
+        ERMrest_Group) but normal applications should only consider
+        the ID key of these tables.
 
         Truncation after cloning avoids retaining incremental
         snapshots which contain partial clones.
@@ -658,33 +664,29 @@ class ErmrestCatalog(DerivaBinding):
         fkeys_deferred = {}
         exclude_schemas = [] if exclude_schemas is None else exclude_schemas
 
-        def prune_parts(d):
-            if not copy_annotations and 'annotations' in d:
-                del d['annotations']
+        def prune_parts(d, *extra_victims):
+            victims = set(extra_victims)
+            # we will apply config as a second pass after extending dest model
+            # but loading bulk first may speed that up
+            if not copy_annotations:
+                victims |= {'annotations',}
             if not copy_policy:
-                if 'acls' in d:
-                    del d['acls']
-                if 'acl_bindings' in d:
-                    del d['acl_bindings']
+                victims |= {'acls', 'acl_bindings'}
+            for k in victims:
+                d.pop(k, None)
             return d
 
         def copy_sdef(s):
             """Copy schema definition structure with conditional parts for cloning."""
-            d = prune_parts(s.prejson())
-            if 'tables' in d:
-                del d['tables']
+            d = prune_parts(s.prejson(), 'tables')
             return d
 
         def copy_tdef_core(t):
             """Copy table definition structure with conditional parts excluding fkeys."""
-            d = prune_parts(t.prejson())
+            d = prune_parts(t.prejson(), 'foreign_keys')
             d['column_definitions'] = [ prune_parts(c) for c in d['column_definitions'] ]
             d['keys'] = [ prune_parts(c) for c in d.get('keys', []) ]
-            if 'foreign_keys' in d:
-                del d['foreign_keys']
-            if 'annotations' not in d:
-                d['annotations'] = {}
-                d['annotations'][_clone_state_url] = 1 if copy_data else None
+            d.setdefault('annotations', {})[_clone_state_url] = 1 if copy_data else None
             return d
 
         def copy_tdef_fkeys(t):
@@ -692,7 +694,7 @@ class ErmrestCatalog(DerivaBinding):
             def check(fkdef):
                 for fkc in fkdef['referenced_columns']:
                     if fkc['schema_name'] == 'public' \
-                       and fkc['table_name'] in {'ERMrest_Client', 'ERMrest_Group'} \
+                       and fkc['table_name'] in {'ERMrest_Client', 'ERMrest_Group', 'ERMrest_RID_Lease'} \
                        and fkc['column_name'] == 'RID':
                         raise ValueError("Cannot clone catalog with foreign key reference to %(schema_name)s:%(table_name)s:%(column_name)s" % fkc)
                 return fkdef
@@ -739,6 +741,12 @@ class ErmrestCatalog(DerivaBinding):
                     clone_states[(sname, tname)] = 1 if copy_data else None
                     fkeys_deferred[(sname, tname)] = copy_tdef_fkeys(table)
                 else:
+                    if dst_model.schemas[sname].tables[tname].foreign_keys:
+                        # assume that presence of any destination foreign keys means we already loaded deferred_fkeys
+                        copy_data = False
+                    else:
+                        fkeys_deferred[(sname, tname)] = copy_tdef_fkeys(table)
+
                     src_columns = { c.name: c for c in table.column_definitions }
                     dst_columns = { c.name: c for c in dst_model.schemas[sname].tables[tname].column_definitions }
 
@@ -764,11 +772,8 @@ class ErmrestCatalog(DerivaBinding):
                             raise ValueError("Destination key %s.%s(%s) does not exist in source catalog." % (sname, tname, ', '.join(utuple)))
 
                     clone_states[(sname, tname)] = dst_model.schemas[sname].tables[tname].annotations.get(_clone_state_url)
-                    if dst_model.schemas[sname].tables[tname].foreign_keys:
-                        # assume that presence of any destination foreign keys means we already completed
-                        return dst_catalog
-                    else:
-                        fkeys_deferred[(sname, tname)] = copy_tdef_fkeys(table)
+
+        clone_states[('public', 'ERMrest_RID_Lease')] = None # never try to sync leases
 
         # apply the stage 1 model to the destination in bulk
         if new_model:
@@ -822,38 +827,8 @@ class ErmrestCatalog(DerivaBinding):
                 }:
                     # special sync behavior for magic ermrest tables
                     # HACK: these are assumed small enough to join via local merge of arrays
-                    want = sorted(self.get("/entity/%s?limit=none" % tname_uri).json(), key=lambda r: r['ID'])
-                    have = sorted(dst_catalog.get("/entity/%s?limit=none" % tname_uri).json(), key=lambda r: r['ID'])
-                    create = []
-                    update = []
-
-                    pos_want = 0
-                    pos_have = 0
-                    while pos_want < len(want):
-                        while pos_have < len(have) and have[pos_have]['ID'] < want[pos_want]['ID']:
-                            # dst-only rows will be retained as is
-                            pos_have += 1
-                        if pos_have >= len(have) or have[pos_have]['ID'] > want[pos_want]['ID']:
-                            # src-only rows will be inserted
-                            create.append(want[pos_want])
-                            pos_want += 1
-                        else:
-                            # overlapping rows will be updated
-                            update.append(want[pos_want])
-                            pos_want += 1
-
-                    dst_catalog.post("/entity/%s?nondefaults=RCT,RCB" % tname_uri, json=create)
-                    dst_catalog.put(
-                        "/attributegroup/%s/ID;%s" % (
-                            tname_uri,
-                            ",".join([
-                                urlquote(c.name)
-                                for c in src_model.schemas[sname].tables[tname].column_definitions
-                                if c.name not in {'RID', 'RMT', 'RMB', 'RCB', 'RCT', 'ID'}
-                            ])
-                        ),
-                        json=update
-                    )
+                    page = self.get("/entity/%s?limit=none" % tname_uri).json()
+                    dst_catalog.post("/entity/%s?onconflict=skip" % tname_uri, json=page)
 
                     # record our progress on catalog in case we fail part way through
                     dst_catalog.put(
@@ -872,6 +847,48 @@ class ErmrestCatalog(DerivaBinding):
 
         if new_fkeys:
             dst_catalog.post("/schema", json=new_fkeys)
+
+        # copy over configuration in stage 3
+        # we need to do this after deferred_fkeys to handle acl_bindings projections with joins
+        dst_model = dst_catalog.getCatalogModel()
+
+        for sname, src_schema in src_model.schemas.items():
+            if sname in exclude_schemas:
+                continue
+            dst_schema = dst_model.schemas[sname]
+
+            for tname, src_table in src_schema.tables.items():
+                dst_table = dst_schema.tables[tname]
+
+                if copy_policy:
+                    dst_table.acl_bindings.clear()
+                    dst_table.acl_bindings.update(src_table.acl_bindings)
+
+                for cname, src_col in src_table.columns.elements.items():
+                    dst_col = dst_table.columns[cname]
+
+                    if copy_policy:
+                        dst_col.acl_bindings.clear()
+                        dst_col.acl_bindings.update(src_col.acl_bindings)
+
+                def xlate_column_map(fkey):
+                    dst_from_table = dst_table
+                    dst_to_schema = dst_model.schemas[fkey.pk_table.schema.name]
+                    dst_to_table = dst_to_schema.tables[fkey.pk_table.name]
+                    return {
+                        dst_from_table._own_column(from_col.name): dst_to_table._own_column(to_col.name)
+                        for from_col, to_col in fkey.column_map.items()
+                    }
+
+                for src_fkey in src_table.foreign_keys:
+                    dst_fkey = dst_table.fkey_by_column_map(xlate_column_map(src_fkey))
+
+                    if copy_policy:
+                        dst_fkey.acl_bindings.clear()
+                        dst_fkey.acl_bindings.update(src_fkey.acl_bindings)
+
+        # send all the config changes to the server
+        dst_model.apply()
 
         # truncate cloning history
         if truncate_after:
