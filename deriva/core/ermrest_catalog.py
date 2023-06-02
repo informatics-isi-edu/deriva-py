@@ -857,19 +857,49 @@ class ErmrestCatalog(DerivaBinding):
                 continue
             dst_schema = dst_model.schemas[sname]
 
+            if copy_annotations:
+                dst_schema.annotations.clear()
+                dst_schema.annotations.update(src_schema.annotations)
+
+            if copy_policy:
+                dst_schema.acls.clear()
+                dst_schema.acls.update(src_schema.acls)
+
             for tname, src_table in src_schema.tables.items():
                 dst_table = dst_schema.tables[tname]
 
+                if copy_annotations:
+                    merged = dict(src_table.annotations)
+                    if _clone_state_url in dst_table.annotations:
+                        merged[_clone_state_url] = dst_table.annotations[_clone_state_url]
+                    dst_table.annotations.clear()
+                    dst_table.annotations.update(merged)
+
                 if copy_policy:
+                    dst_table.acls.clear()
+                    dst_table.acls.update(src_table.acls)
                     dst_table.acl_bindings.clear()
                     dst_table.acl_bindings.update(src_table.acl_bindings)
 
                 for cname, src_col in src_table.columns.elements.items():
                     dst_col = dst_table.columns[cname]
 
+                    if copy_annotations:
+                        dst_col.annotations.clear()
+                        dst_col.annotations.update(src_col.annotations)
+
                     if copy_policy:
+                        dst_col.acls.clear()
+                        dst_col.acls.update(src_col.acls)
                         dst_col.acl_bindings.clear()
                         dst_col.acl_bindings.update(src_col.acl_bindings)
+
+                for src_key in src_table.keys:
+                    dst_key = dst_table.key_by_columns([ col.name for col in src_key.unique_columns ])
+
+                    if copy_annotations:
+                        dst_key.annotations.clear()
+                        dst_key.annotations.update(src_key.annotations)
 
                 def xlate_column_map(fkey):
                     dst_from_table = dst_table
@@ -883,7 +913,13 @@ class ErmrestCatalog(DerivaBinding):
                 for src_fkey in src_table.foreign_keys:
                     dst_fkey = dst_table.fkey_by_column_map(xlate_column_map(src_fkey))
 
+                    if copy_annotations:
+                        dst_fkey.annotations.clear()
+                        dst_fkey.annotations.update(src_fkey.annotations)
+
                     if copy_policy:
+                        dst_fkey.acls.clear()
+                        dst_fkey.acls.update(src_fkey.acls)
                         dst_fkey.acl_bindings.clear()
                         dst_fkey.acl_bindings.update(src_fkey.acl_bindings)
 
