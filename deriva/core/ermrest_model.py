@@ -78,11 +78,38 @@ def object_annotation(tag_uri):
 
 def equivalent(doc1, doc2, method=None):
     """Determine whether two dict/array/literal documents are structurally equivalent."""
-    if method == 'acl_binding':
-        # fill in defaults to avoid some false negatives on acl binding comparison
+    # method is used to fill in defaults to avoid some false negatives
+    if method == 'acls':
         if not isinstance(doc1, dict):
             return False
-        def canonicalize(d):
+        def canon_acls(d):
+            return {
+                k: sorted(v)
+                for k, v in d.items()
+            }
+        return equivalent(canon_acls(doc1), canon_acls(doc2))
+    if method == 'catalog_acls':
+        if not isinstance(doc1, dict):
+            return False
+        def canon_cat_acls(d):
+            return {
+                k: d.get(k, [])
+                for k in {'owner', 'read', 'write', 'insert', 'update', 'delete'}
+            }
+        return equivalent(canon_cat_acls(doc1), canon_cat_acls(doc2), method='acls')
+    elif method == 'foreign_key_acls':
+        if not isinstance(doc1, dict):
+            return False
+        def canon_fkey_acls(d):
+            return {
+                k: d.get(k, ['*'])
+                for k in {'insert', 'update'}
+            }
+        return equivalent(canon_fkey_acls(doc1), canon_fkey_acls(doc2), method='acls')
+    elif method == 'acl_bindings':
+        if not isinstance(doc1, dict):
+            return False
+        def canon_acl_bindings(d):
             if not isinstance(d, dict):
                 return d
             def helper(b):
@@ -98,7 +125,7 @@ def equivalent(doc1, doc2, method=None):
                 binding_name: helper(binding)
                 for binding_name, binding in d.items()
             }
-        return equivalent(canonicalize(doc1), canonicalize(doc2))
+        return equivalent(canon_acl_bindings(doc1), canon_acl_bindings(doc2))
     elif isinstance(doc1, dict) and isinstance(doc2, dict):
         return equivalent(sorted(doc1.items()), sorted(doc2.items()))
     elif isinstance(doc1, (list, tuple)) and isinstance(doc2, (list, tuple)):
@@ -200,7 +227,7 @@ class Model (object):
             existing = self.fromcatalog(self.catalog)
         if not equivalent(self.annotations, existing.annotations):
             self.catalog.put('/annotation', json=self.annotations)
-        if not equivalent(self.acls, existing.acls):
+        if not equivalent(self.acls, existing.acls, method='catalog_acls'):
             self.catalog.put('/acl', json=self.acls)
         for sname, schema in self.schemas.items():
             schema.apply(existing.schemas[sname])
@@ -505,7 +532,7 @@ class Schema (object):
             changes['comment'] = self.comment
         if existing is None or not equivalent(self.annotations, existing.annotations):
             changes['annotations'] = self.annotations
-        if existing is None or not equivalent(self.acls, existing.acls):
+        if existing is None or not equivalent(self.acls, existing.acls, method='acls'):
             changes['acls'] = self.acls
         if changes:
             # use alter method to reduce number of web requests
@@ -1077,9 +1104,9 @@ class Table (object):
             changes['comment'] = self.comment
         if existing is None or not equivalent(self.annotations, existing.annotations):
             changes['annotations'] = self.annotations
-        if existing is None or not equivalent(self.acls, existing.acls):
+        if existing is None or not equivalent(self.acls, existing.acls, method='acls'):
             changes['acls'] = self.acls
-        if existing is None or not equivalent(self.acl_bindings, existing.acl_bindings):
+        if existing is None or not equivalent(self.acl_bindings, existing.acl_bindings, method='acl_bindings'):
             changes['acl_bindings'] = self.acl_bindings
         if changes:
             # use alter method to reduce number of web requests
@@ -1522,9 +1549,9 @@ class Column (object):
             changes['comment'] = self.comment
         if existing is None or not equivalent(self.annotations, existing.annotations):
             changes['annotations'] = self.annotations
-        if existing is None or not equivalent(self.acls, existing.acls):
+        if existing is None or not equivalent(self.acls, existing.acls, method='acls'):
             changes['acls'] = self.acls
-        if existing is None or not equivalent(self.acl_bindings, existing.acl_bindings):
+        if existing is None or not equivalent(self.acl_bindings, existing.acl_bindings, method='acl_bindings'):
             changes['acl_bindings'] = self.acl_bindings
         if changes:
             # use alter method to reduce number of web requests
@@ -1736,7 +1763,7 @@ class Key (object):
             self.comment = None
 
     def apply(self, existing=None):
-        """Apply configuration to corresponding table in catalog unless existing already matches.
+        """Apply configuration to corresponding key in catalog unless existing already matches.
 
         :param existing: An instance comparable to self, or None to apply configuration unconditionally.
 
@@ -1958,7 +1985,7 @@ class ForeignKey (object):
             self.comment = None
 
     def apply(self, existing=None):
-        """Apply configuration to corresponding table in catalog unless existing already matches.
+        """Apply configuration to corresponding foreign key in catalog unless existing already matches.
 
         :param existing: An instance comparable to self, or None to apply configuration unconditionally.
 
@@ -1971,9 +1998,9 @@ class ForeignKey (object):
             changes['comment'] = self.comment
         if existing is None or not equivalent(self.annotations, existing.annotations):
             changes['annotations'] = self.annotations
-        if existing is None or not equivalent(self.acls, existing.acls):
+        if existing is None or not equivalent(self.acls, existing.acls, method='foreign_key_acls'):
             changes['acls'] = self.acls
-        if existing is None or not equivalent(self.acl_bindings, existing.acl_bindings):
+        if existing is None or not equivalent(self.acl_bindings, existing.acl_bindings, method='acl_bindings'):
             changes['acl_bindings'] = self.acl_bindings
         if changes:
             # use alter method to reduce number of web requests
