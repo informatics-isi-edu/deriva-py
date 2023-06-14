@@ -98,14 +98,7 @@ def equivalent(doc1, doc2, method=None):
             }
         return equivalent(canon_cat_acls(doc1), canon_cat_acls(doc2), method='acls')
     elif method == 'foreign_key_acls':
-        if not isinstance(doc1, dict):
-            return False
-        def canon_fkey_acls(d):
-            return {
-                k: d.get(k, ['*'])
-                for k in {'insert', 'update'}
-            }
-        return equivalent(canon_fkey_acls(doc1), canon_fkey_acls(doc2), method='acls')
+        return equivalent(doc1, doc2, method='acls')
     elif method == 'acl_bindings':
         if not isinstance(doc1, dict):
             return False
@@ -1977,6 +1970,7 @@ class ForeignKey (object):
         """
         if clear_acls:
             self.acls.clear()
+            self.acls.update({"insert": ["*"], "update": ["*"]})
         if clear_acl_bindings:
             self.acl_bindings.clear()
         if clear_annotations:
