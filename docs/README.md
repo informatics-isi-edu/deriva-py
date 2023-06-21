@@ -4,7 +4,7 @@ This page describes 3 separate but related interfaces for DERIVA.
 
 1. [ERMrest Query and Data Manipulation](#ermrest-query-and-data-manipulation): interfaces for building simple to complex expressions that query or manipulate data in ERMrest, such as selects, joins, aggregates, inserts, updates, etc.
 2. [ERMrest Model Management](#ermrest-model-management): essential model management for ERMrest catalogs, such as creating or dropping tables, columns, etc. Also, see [CHiSEL](https://github.com/informatics-isi-edu/chisel) for ERMrest schema evolution interfaces that build on ERMrest Model Management with operations that combine model management and annotation updates in one.
-3. [ERMrest Catalog](ermrest-catalog): primary interface to an ERMrest catalog and the starting point for accessing the above interfaces.
+3. [ERMrest Catalog](#ermrest-catalog): primary interface to an ERMrest catalog and the starting point for accessing the above interfaces.
 
 ## ERMrest Query and Data Manipulation
 
