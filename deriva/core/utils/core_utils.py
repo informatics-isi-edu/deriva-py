@@ -203,7 +203,7 @@ def get_new_requests_session(url=None, session_config=DEFAULT_SESSION_CONFIG):
                     read=session_config['retry_read'],
                     backoff_factor=session_config['retry_backoff_factor'],
                     status_forcelist=session_config['retry_status_forcelist'],
-                    method_whitelist=Retry.DEFAULT_METHOD_WHITELIST if
+                    allowed_methods=Retry.DEFAULT_ALLOWED_METHODS if
                     # Passing False to method_whitelist means allow all methods
                     not session_config.get("allow_retry_on_all_methods", False) else False,
                     raise_on_status=True)
