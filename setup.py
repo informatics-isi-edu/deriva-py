@@ -71,7 +71,7 @@ setup(
         'portalocker<2.0; python_version <= "3.5"',
         'scandir; python_version <= "2.7"',
         'bdbag>=1.6.0',
-        'globus_sdk<4',
+        'globus_sdk>=3,<4',
         'fair-research-login>=0.2.6',
         'fair-identifiers-client>=0.5',
         'jsonschema>=3.1'
