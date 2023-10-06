@@ -113,7 +113,7 @@ class GlobusAuthUtil:
     def get_client_for_fqdn(self, fqdn):
         if not fqdn:
             raise UsageException("A fqdn (fully qualified domain name) argument is required.")
-        r = self.client.get('/v2/api/clients?fqdn={fqdn}'.format(fqdn=fqdn))
+        r = self.client.get('/v2/api/clients', params={"fqdn": fqdn})
         return r.data
 
     def get_client(self, client_id):
@@ -211,7 +211,7 @@ class GlobusAuthUtil:
     def get_scopes_by_name(self, scope_name):
         if not scope_name:
             raise UsageException("A scope_name argument is required.")
-        scopes = self.client.get('/v2/api/scopes?scope_strings={sname}'.format(sname=scope_name))
+        scopes = self.client.get('/v2/api/scopes', params={"scope_strings": {scope_name}})
         if scopes is None:
             return None
         else:
@@ -220,7 +220,7 @@ class GlobusAuthUtil:
     def get_scopes_by_id(self, id_string):
         if not id_string:
             raise UsageException("A id_string argument is required.")
-        scopes = self.client.get('/v2/api/scopes?ids={ids}'.format(ids=id_string))
+        scopes = self.client.get('/v2/api/scopes', params={"ids": id_string})
         if scopes is None:
             return None
         else:
