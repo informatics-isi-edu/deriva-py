@@ -66,12 +66,12 @@ setup(
         'requests',
         'certifi',
         'pika',
-        'urllib3>=1.1.5,<2.0',
+        'urllib3>=1.26.0,<2.0',
         'portalocker>=1.2.1',
         'portalocker<2.0; python_version <= "3.5"',
         'scandir; python_version <= "2.7"',
         'bdbag>=1.6.0',
-        'globus_sdk<4',
+        'globus_sdk>=3,<4',
         'fair-research-login>=0.2.6',
         'fair-identifiers-client>=0.5',
         'jsonschema>=3.1'
@@ -89,6 +89,8 @@ setup(
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
-        'Programming Language :: Python :: 3.9'
+        'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10',
+        'Programming Language :: Python :: 3.11'
     ]
 )

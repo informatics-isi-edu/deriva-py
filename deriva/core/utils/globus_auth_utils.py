@@ -93,27 +93,27 @@ class GlobusAuthUtil:
             raise UsageException("A supported scope argument is required.")
 
         r = self.client.post("/v2/api/clients/{client_id}/scopes".format(client_id=self.client_id),
-                             json_body=self.from_json(scope))
+                             data=self.from_json(scope))
         return r.data
 
     def update_scope(self, scope_id, scope):
         if not (scope_id and scope):
             raise UsageException("The scope_id and scope arguments are required.")
 
-        r = self.client.put("/v2/api/scopes/{scope_id}".format(scope_id=scope_id), json_body=self.from_json(scope))
+        r = self.client.put("/v2/api/scopes/{scope_id}".format(scope_id=scope_id), data=self.from_json(scope))
         return r.data
 
     def add_fqdn_to_client(self, fqdn):
         if not fqdn:
             raise UsageException("A fqdn (fully qualified domain name) argument is required.")
         r = self.client.post('/v2/api/clients/{client_id}/fqdns'.format(client_id=self.client_id),
-                             json_body={'fqdn': fqdn})
+                             data={'fqdn': fqdn})
         return r.data
 
     def get_client_for_fqdn(self, fqdn):
         if not fqdn:
             raise UsageException("A fqdn (fully qualified domain name) argument is required.")
-        r = self.client.get('/v2/api/clients?fqdn={fqdn}'.format(fqdn=fqdn))
+        r = self.client.get('/v2/api/clients', query_params={"fqdn": fqdn})
         return r.data
 
     def get_client(self, client_id):
@@ -140,12 +140,11 @@ class GlobusAuthUtil:
         if not token:
             raise UsageException("A token argument is required.")
         additional_params = {"access_type": "offline"} if refresh else None
-        r = self.client.oauth2_get_dependent_tokens(token, additional_params)
+        r = self.client.oauth2_get_dependent_tokens(token, additional_params=additional_params)
         return r.data
 
     def new_client(self, client):
-        r = self.client.post("/v2/api/clients",
-                             json_body=self.from_json(client))
+        r = self.client.post("/v2/api/clients", data=self.from_json(client))
         return r.data
 
     def create_client(self,
@@ -184,7 +183,7 @@ class GlobusAuthUtil:
             raise UsageException("A client argument is required.")
 
         r = self.client.put("/v2/api/clients/{client_id}".format(client_id=client_id if client_id else self.client_id),
-                            json_body=self.from_json(client))
+                            data=self.from_json(client))
         return r.data
 
     def delete_client(self, client_id):
@@ -211,7 +210,7 @@ class GlobusAuthUtil:
     def get_scopes_by_name(self, scope_name):
         if not scope_name:
             raise UsageException("A scope_name argument is required.")
-        scopes = self.client.get('/v2/api/scopes?scope_strings={sname}'.format(sname=scope_name))
+        scopes = self.client.get('/v2/api/scopes', query_params={"scope_strings": {scope_name}})
         if scopes is None:
             return None
         else:
@@ -220,7 +219,7 @@ class GlobusAuthUtil:
     def get_scopes_by_id(self, id_string):
         if not id_string:
             raise UsageException("A id_string argument is required.")
-        scopes = self.client.get('/v2/api/scopes?ids={ids}'.format(ids=id_string))
+        scopes = self.client.get('/v2/api/scopes', query_params={"ids": id_string})
         if scopes is None:
             return None
         else:
@@ -271,7 +270,7 @@ class GlobusAuthUtil:
             }
         }
 
-        r = self.client.put('/v2/api/clients/{client_id}'.format(client_id=self.client_id), json_body=d)
+        r = self.client.put('/v2/api/clients/{client_id}'.format(client_id=self.client_id), data=d)
         return r.data
 
     def add_dependent_scopes(self, parent_scope_name, child_scopes,
@@ -310,8 +309,7 @@ class GlobusAuthUtil:
             }
         }
         print(str(d))
-        r = self.client.put('/v2/api/scopes/{i}'.format(i=parent_scope_id),
-                            json_body=d)
+        r = self.client.put('/v2/api/scopes/{i}'.format(i=parent_scope_id), data=d)
         return r.data
 
     def create_scope_with_deps(self, name, description, suffix, dependent_scopes=[], advertised=True,
@@ -341,7 +339,7 @@ class GlobusAuthUtil:
             }
         }
 
-        r = self.client.post("/v2/api/clients/{client_id}/scopes".format(client_id=self.client_id), json_body=scope)
+        r = self.client.post("/v2/api/clients/{client_id}/scopes".format(client_id=self.client_id), data=scope)
         return r.data
 
     def delete_scope(self, scope_name):

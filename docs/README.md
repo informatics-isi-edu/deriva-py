@@ -1,4 +1,12 @@
-## DataPath
+# Deriva Python APIs
+
+This page describes 3 separate but related interfaces for DERIVA.
+
+1. [ERMrest Query and Data Manipulation](#ermrest-query-and-data-manipulation): interfaces for building simple to complex expressions that query or manipulate data in ERMrest, such as selects, joins, aggregates, inserts, updates, etc.
+2. [ERMrest Model Management](#ermrest-model-management): essential model management for ERMrest catalogs, such as creating or dropping tables, columns, etc. Also, see [CHiSEL](https://github.com/informatics-isi-edu/chisel) for ERMrest schema evolution interfaces that build on ERMrest Model Management with operations that combine model management and annotation updates in one.
+3. [ERMrest Catalog](#ermrest-catalog): primary interface to an ERMrest catalog and the starting point for accessing the above interfaces.
+
+## ERMrest Query and Data Manipulation
 
 The `datapath` module is an interface for building ERMrest "data paths" and retrieving data from ERMrest catalogs. It also supports data manipulation (insert, update, delete). In its present form, the module provides a limited 
 programmatic interface to ERMrest.
@@ -9,7 +17,6 @@ programmatic interface to ERMrest.
 - Covers the essentials for data retrieval: link tables, filter on attributes, select attributes, alias tables
 - Retrieve entity sets; all or limited numbers of entities
 - Fetch computed aggregates or grouped aggregates
-- Convert entity sets to Pandas DataFrames
 - Insert and update entities of a table
 - Delete entities identified by a (potentially, complex) data path
 
@@ -286,7 +293,7 @@ invoking the `apply()` method to send them to the server, except that
 configuration changes included in an `alter()` request will happen
 atomically with respect to the other indicated alterations.
 
-## ErmrestCatalog
+## ERMrest Catalog
 
 The `deriva.core.ermrest_catalog.ErmrestCatalog` class provides HTTP
 bindings to an ERMrest catalog as a thin wrapper around the Python
