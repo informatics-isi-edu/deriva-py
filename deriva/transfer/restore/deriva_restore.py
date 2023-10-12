@@ -422,14 +422,16 @@ class DerivaRestore:
                                     total += len(chunk)
                                 else:
                                     break
-                        except:
+                        except Exception as e:
                             table_success = False
+                            logging.error(format_exception(e))
                         finally:
                             table.close()
                             if table_success:
                                 logging.info("Restoration of table data [%s] successful. %s rows restored." %
                                              (tname_uri, total))
                             else:
+                                success = False
                                 logging.warning("Restoration of table data [%s] failed. %s rows restored." %
                                                 (tname_uri, total))
 
@@ -466,6 +468,9 @@ class DerivaRestore:
             new_fkeys = []
             for fkeys in fkeys_deferred.values():
                 new_fkeys.extend(fkeys)
+
+            if new_fkeys:
+                self.dst_catalog.post("/schema", json=new_fkeys)
 
             # copy over configuration in stage 3
             # we need to do this after deferred_fkeys to handle acl_bindings projections with joins
@@ -521,12 +526,38 @@ class DerivaRestore:
                             dst_key.annotations.clear()
                             dst_key.annotations.update(src_key.annotations)
 
+                    def xlate_column_map(fkey):
+                        dst_from_table = dst_table
+                        dst_to_schema = dst_model.schemas[fkey.pk_table.schema.name]
+                        dst_to_table = dst_to_schema.tables[fkey.pk_table.name]
+                        return {
+                            dst_from_table._own_column(from_col.name): dst_to_table._own_column(to_col.name)
+                            for from_col, to_col in fkey.column_map.items()
+                        }
+
+                    for src_fkey in src_table.foreign_keys:
+                        dst_fkey = dst_table.fkey_by_column_map(xlate_column_map(src_fkey))
+
+                        if self.restore_annotations:
+                            dst_fkey.annotations.clear()
+                            dst_fkey.annotations.update(src_fkey.annotations)
+
+                        if self.restore_policy:
+                            dst_fkey.acls.clear()
+                            dst_fkey.acls.update(src_fkey.acls)
+                            dst_fkey.acl_bindings.clear()
+                            dst_fkey.acl_bindings.update(src_fkey.acl_bindings)
+
+            # send all the config changes to the server
+            dst_model.apply()
+
             # restore assets
             if self.restore_assets:
                 self.upload_assets()
 
             # cleanup
-            self.cleanup_restored_catalog()
+            if success:
+                self.cleanup_restored_catalog()
         except:
             success = False
             raise
@@ -544,6 +575,8 @@ class DerivaRestore:
         dst_model = self.dst_catalog.getCatalogModel()
         for sname, schema in dst_model.schemas.items():
             for tname, table in schema.tables.items():
+                if sname == "public" and tname == "ERMrest_RID_Lease":
+                    continue
                 annotation_uri = "/schema/%s/table/%s/annotation/%s" % (
                     urlquote(sname),
                     urlquote(tname),
