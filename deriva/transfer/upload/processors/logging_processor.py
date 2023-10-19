@@ -20,7 +20,7 @@ class LoggingProcessor(BaseProcessor):
             logger.debug("%s input context: %s" % (self.__class__.__name__, input_context))
 
         processor_output = self.kwargs.get("processor_output")
-        if processor_output:
+        if processor_output is not None:
             processor_output.update(output)
         return output
 

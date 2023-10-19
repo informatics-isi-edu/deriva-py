@@ -3,7 +3,7 @@ PROCESSOR_TYPE_KEY = "processor_type"
 PROCESSOR_PARAMS_KEY = "processor_params"
 PRE_PROCESSORS_KEY = "pre_processors"
 POST_PROCESSORS_KEY = "post_processors"
-
+PROCESSOR_MODIFIED_FILE_PATH_KEY = "processor_modified_file_path"
 
 class BaseProcessor(object):
     """

@@ -19,6 +19,7 @@ from deriva.core.utils import hash_utils as hu, mime_utils as mu, version_utils 
 from deriva.transfer.upload import *
 from deriva.transfer.upload.processors import find_processor
 from deriva.transfer.upload.processors.base_processor import *
+from deriva.transfer.upload.processors.archive_processor import ArchiveProcessor
 
 try:
     from os import scandir, walk
@@ -50,6 +51,14 @@ DefaultConfig = {
     }
   ]
 }
+
+
+class UploadEntry(object):
+    def __init__(self, asset_group, asset_mapping, groupdict, path):
+        self.asset_group = asset_group
+        self.asset_mapping = asset_mapping
+        self.groupdict = groupdict
+        self.path = path
 
 
 class DerivaUpload(object):
@@ -401,6 +410,22 @@ class DerivaUpload(object):
             result.append(item)
         return result
 
+    @staticmethod
+    def archive_preprocessing_enabled(asset_mapping):
+        if not asset_mapping:
+            return False
+        if asset_mapping.get("archive_preprocessing_enabled", False):
+            return True
+        pre_processors = asset_mapping.get("pre_processors", [])
+        for processor_config in pre_processors:
+            processor_name = processor_config[PROCESSOR_NAME_KEY]
+            processor_type = processor_config.get(PROCESSOR_TYPE_KEY)
+            processor_impl = find_processor(processor_name, processor_type, bypass_whitelist=True)
+            if issubclass(processor_impl, ArchiveProcessor):
+                asset_mapping["archive_preprocessing_enabled"] = True
+                return True
+        return False
+
     def validateFile(self, root, path, name):
         if self.config.get("relative_path_validation", False):
             file_path = os.path.normpath(os.path.join(os.path.relpath(path, root), name))
@@ -410,7 +435,10 @@ class DerivaUpload(object):
         if not asset_mapping:
             return None
 
-        return asset_group, asset_mapping, groupdict, os.path.abspath(os.path.normpath(os.path.join(path, name)))
+        final_path = os.path.abspath(os.path.normpath(path)) if self.archive_preprocessing_enabled(asset_mapping) else (
+            os.path.abspath(os.path.normpath(os.path.join(path, name))))
+
+        return UploadEntry(asset_group, asset_mapping, groupdict, final_path)
 
     def scanDirectory(self, root, abort_on_invalid_input=False, purge_state=False):
         """
@@ -432,25 +460,27 @@ class DerivaUpload(object):
                 if file_name.startswith(self.DefaultTransferStateBaseName):
                     continue
                 file_path = os.path.normpath(os.path.join(path, file_name))
-                file_entry = self.validateFile(root, path, file_name)
-                if not file_entry:
+                upload_entry = self.validateFile(root, path, file_name)
+                if not upload_entry:
                     logger.info("Skipping file: [%s] -- Invalid file type or directory location." % file_path)
                     self.skipped_files.add(file_path)
                     if abort_on_invalid_input:
                         raise ValueError("Invalid input detected, aborting.")
                 else:
-                    asset_group = file_entry[0]
-                    group_list = file_list.get(asset_group, [])
-                    group_list.append(file_entry)
+                    asset_group = upload_entry.asset_group
+                    group_list = file_list.get(asset_group, {})
+                    group_list.update({upload_entry.path: upload_entry})
                     file_list[asset_group] = group_list
 
         # make sure that file entries in both self.file_list and self.file_status are ordered by the declared order of
         # the asset_mapping for the file
         for group in sorted(file_list.keys()):
             self.file_list[group] = file_list[group]
-            for file_entry in file_list[group]:
-                file_path = file_entry[3]
-                logger.info("Including file: [%s]." % file_path)
+            for upload_entry in file_list[group].values():
+                file_path = upload_entry.path
+                logger.info("Including %s: [%s]." %
+                            ("directory (for archive)" if self.archive_preprocessing_enabled(
+                                upload_entry.asset_mapping) else "file", file_path))
                 status = self.getTransferStateStatus(file_path)
                 if status:
                     self.file_status[file_path] = FileUploadState(UploadState.Paused, status)._asdict()
@@ -477,12 +507,20 @@ class DerivaUpload(object):
                     continue
                 groupdict.update(match.groupdict())
             if ext_pattern:
+                if self.archive_preprocessing_enabled(asset_type):
+                    logger.warning("The 'ext_pattern' parameter is not compatible when archive preprocessing "
+                                   "is enabled. Only input directories matching 'dir_pattern' are supported.")
+                    continue
                 match = re.search(ext_pattern, path, re.IGNORECASE)
                 if not match:
                     logger.debug("The ext_pattern \"%s\" failed to match the input path [%s]" % (ext_pattern, path))
                     continue
                 groupdict.update(match.groupdict())
             if file_pattern:
+                if "archive_options" in asset_type:
+                    logger.warning("The 'file_pattern' parameter is not compatible when archive preprocessing "
+                                   "is enabled. Only input directories matching 'dir_pattern' are supported.")
+                    continue
                 match = re.search(file_pattern, path)
                 if not match:
                     logger.debug("The file_pattern \"%s\" failed to match the input path [%s]" % (file_pattern, path))
@@ -494,43 +532,42 @@ class DerivaUpload(object):
         return None, None, None
 
     def uploadFiles(self, status_callback=None, file_callback=None):
-        self.catalog_model = self.catalog.getCatalogModel()
         for group, assets in self.file_list.items():
             if self.cancelled:
                 break
-            for asset_group_num, asset_mapping, groupdict, file_path in assets:
+            for entry in assets.values():
                 if self.cancelled:
-                    self.file_status[file_path] = FileUploadState(UploadState.Cancelled, "Cancelled by user")._asdict()
+                    self.file_status[entry.path] = FileUploadState(UploadState.Cancelled, "Cancelled by user")._asdict()
                     break
                 try:
-                    self.file_status[file_path] = FileUploadState(UploadState.Running, "In-progress")._asdict()
+                    self.file_status[entry.path] = FileUploadState(UploadState.Running, "In-progress")._asdict()
                     if status_callback:
                         status_callback()
-                    self.uploadFile(file_path, asset_mapping, groupdict, file_callback)
+                    self.uploadFile(entry.path, entry.asset_mapping, entry.groupdict, file_callback)
                     if self.cancelled:
-                        self.file_status[file_path] = FileUploadState(UploadState.Cancelled,
-                                                                      "Cancelled by user")._asdict()
+                        self.file_status[entry.path] = FileUploadState(UploadState.Cancelled,
+                                                                       "Cancelled by user")._asdict()
                         break
                     else:
-                        self.file_status[file_path] = FileUploadState(UploadState.Success, "Complete")._asdict()
+                        self.file_status[entry.path] = FileUploadState(UploadState.Success, "Complete")._asdict()
                 except HatracJobPaused:
-                    status = self.getTransferStateStatus(file_path)
+                    status = self.getTransferStateStatus(entry.path)
                     if status:
-                        self.file_status[file_path] = FileUploadState(
+                        self.file_status[entry.path] = FileUploadState(
                             UploadState.Paused, "Paused: %s" % status)._asdict()
                     continue
                 except HatracJobTimeout:
-                    status = self.getTransferStateStatus(file_path)
+                    status = self.getTransferStateStatus(entry.path)
                     if status:
-                        self.file_status[file_path] = FileUploadState(UploadState.Timeout, "Timeout")._asdict()
+                        self.file_status[entry.path] = FileUploadState(UploadState.Timeout, "Timeout")._asdict()
                     continue
                 except HatracJobAborted:
-                    self.file_status[file_path] = FileUploadState(UploadState.Aborted, "Aborted by user")._asdict()
+                    self.file_status[entry.path] = FileUploadState(UploadState.Aborted, "Aborted by user")._asdict()
                 except:
                     logger.debug("Unexpected exception", exc_info=sys.exc_info())
                     (etype, value, traceback) = sys.exc_info()
-                    self.file_status[file_path] = FileUploadState(UploadState.Failed, format_exception(value))._asdict()
-                self.delTransferState(file_path)
+                    self.file_status[entry.path] = FileUploadState(UploadState.Failed, format_exception(value))._asdict()
+                self.delTransferState(entry.path)
                 if status_callback:
                     status_callback()
 
@@ -561,7 +598,7 @@ class DerivaUpload(object):
         :param callback:
         :return:
         """
-        logger.info("Processing file: [%s]" % file_path)
+        logger.info("Processing: [%s]" % file_path)
 
         if asset_mapping.get("asset_type", "file") == "table":
             self._uploadTable(file_path, asset_mapping, match_groupdict)
@@ -571,12 +608,19 @@ class DerivaUpload(object):
     def _uploadAsset(self, file_path, asset_mapping, match_groupdict, callback=None):
 
         # 1. Populate initial file metadata from directory scan pattern matches
-        file_name = self.getFileDisplayName(file_path)
-        logger.info("Computing metadata for file: [%s]." % file_name)
         self._initFileMetadata(file_path, asset_mapping, match_groupdict)
 
-        # 2. Compute checksum(s) for current file and add to metadata
-        logger.info("Computing checksums for file: [%s]. Please wait..." % file_name)
+        # 2. Execute any configured preprocessors
+        self._execute_processors(file_path, asset_mapping, match_groupdict, processor_list=PRE_PROCESSORS_KEY)
+        if PROCESSOR_MODIFIED_FILE_PATH_KEY in self.processor_output:
+            file_path = self.processor_output[PROCESSOR_MODIFIED_FILE_PATH_KEY]
+            self.metadata["file_name"] = self.getFileDisplayName(file_path)
+            self.metadata["file_size"] = self.getFileSize(file_path)
+
+        logger.debug("Computed metadata for: [%s]." % file_path)
+
+        # 3. Compute checksum(s) for current file and add to metadata
+        logger.info("Computing checksums for file: [%s]. Please wait..." % file_path)
         hashes = self.getFileHashes(file_path, asset_mapping.get('checksum_types', ['md5', 'sha256']))
         for alg, checksum in hashes.items():
             alg = alg.lower()
@@ -584,9 +628,6 @@ class DerivaUpload(object):
             self.metadata[alg + "_base64"] = checksum[1]
         if self.cancelled:
             return
-
-        # 3. Execute any configured preprocessors
-        self._execute_processors(file_path, asset_mapping, match_groupdict, processor_list=PRE_PROCESSORS_KEY)
 
         # 4. Populate additional metadata by querying the catalog
         self._queryFileMetadata(asset_mapping)
@@ -848,8 +889,7 @@ class DerivaUpload(object):
                                            cancel_job_on_error=False)
             return self.store.finalize_upload_job(path, job_id)
         else:
-            logger.info("Uploading file: [%s] to host %s. Please wait..." % (
-                self.getFileDisplayName(file_path), self.server_url))
+            logger.info("Uploading file: [%s] to host %s. Please wait..." % (file_path, self.server_url))
             return self.store.put_loc(uri,
                                       file_path,
                                       md5=md5,
@@ -878,6 +918,9 @@ class DerivaUpload(object):
 
     def _validate_row_key_constraints(self, catalog_table, row):
         logger.debug("Validating row key constraints for %s: %s" % (catalog_table, row))
+        if not self.catalog_model:
+            logger.debug("Fetching catalog model...")
+            self.catalog_model = self.catalog.getCatalogModel()
         schema_name, table_name = self.catalog.splitQualifiedCatalogName(catalog_table)
         schema = self.catalog_model.schemas.get(schema_name)
         table = schema.tables.get(table_name)
