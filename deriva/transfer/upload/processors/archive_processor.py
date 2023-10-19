@@ -1,5 +1,5 @@
 import logging
-from deriva.transfer.upload.processors import BaseProcessor
+from deriva.transfer.upload.processors.base_processor import BaseProcessor, PROCESSOR_MODIFIED_FILE_PATH_KEY
 from bdbag import bdbag_api as bdb
 
 logger = logging.getLogger(__name__)
@@ -23,11 +23,15 @@ class BagArchiveProcessor(ArchiveProcessor):
         self.processor_params = kwargs.get("processor_params", dict())
 
     def process(self):
-        bdb.make_bag(self.file_path)
-        archive_file = bdb.archive_bag(self.file_path, self.processor_params.get("format", "zip"))
-        bdb.revert_bag(self.file_path)
         processor_output = self.kwargs.get("processor_output")
-        if processor_output is not None:
-            processor_output.update({"modified_file_path": archive_file})
+        bdb.make_bag(self.file_path)
+        try:
+            archive_file = bdb.archive_bag(self.file_path, self.processor_params.get("format", "zip"))
+            if processor_output is not None:
+                processor_output.update({PROCESSOR_MODIFIED_FILE_PATH_KEY: archive_file})
+        except:
+            raise
+        finally:
+            bdb.revert_bag(self.file_path)
         return processor_output
 
