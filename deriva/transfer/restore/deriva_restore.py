@@ -9,8 +9,8 @@ import datetime
 import platform
 from collections import OrderedDict
 from bdbag import bdbag_api as bdb
-from deriva.core import get_credential, format_credential, urlquote, format_exception, DEFAULT_SESSION_CONFIG, \
-    __version__ as VERSION
+from deriva.core import (get_credential, format_credential, urlquote, format_exception, read_config,
+                         DEFAULT_SESSION_CONFIG, __version__ as VERSION)
 from deriva.core.utils.version_utils import get_installed_version
 from deriva.core.ermrest_model import Model
 from deriva.core.deriva_server import DerivaServer
@@ -104,37 +104,30 @@ class DerivaRestore:
         self.config = config
 
     def set_credentials(self, credentials):
-        self.catalog.set_credentials(credentials, self.hostname)
-        self.store.set_credentials(credentials, self.hostname)
+        self.dst_catalog.set_credentials(credentials, self.hostname)
         self.credentials = credentials
 
-    def prune_parts(self, dest):
+    def prune_parts(self, dest, *extra_victims):
+        victims = set(extra_victims)
         if not self.restore_annotations and 'annotations' in dest:
-            del dest['annotations']
+            victims |= {'annotations', }
         if not self.restore_policy:
-            if 'acls' in dest:
-                del dest['acls']
-            if 'acl_bindings' in dest:
-                del dest['acl_bindings']
+            victims |= {'acls', 'acl_bindings'}
+        for k in victims:
+            dest.pop(k, None)
         return dest
 
     def copy_sdef(self, schema):
         """Copy schema definition structure with conditional parts for cloning."""
-        dest = self.prune_parts(schema.prejson())
-        if 'tables' in dest:
-            del dest['tables']
+        dest = self.prune_parts(schema.prejson(), 'tables')
         return dest
 
     def copy_tdef_core(self, table):
         """Copy table definition structure with conditional parts excluding fkeys."""
-        dest = self.prune_parts(table.prejson())
+        dest = self.prune_parts(table.prejson(), 'foreign_keys')
         dest['column_definitions'] = [self.prune_parts(column) for column in dest['column_definitions']]
         dest['keys'] = [self.prune_parts(column) for column in dest.get('keys', [])]
-        if 'foreign_keys' in dest:
-            del dest['foreign_keys']
-        if 'annotations' not in dest:
-            dest['annotations'] = {}
-        dest['annotations'][self.RESTORE_STATE_URL] = 1 if self.restore_data else None
+        dest.setdefault('annotations', {})[self.RESTORE_STATE_URL] = 1 if self.restore_data else None
         return dest
 
     def copy_tdef_fkeys(self, table):
@@ -143,7 +136,7 @@ class DerivaRestore:
         def check(fkdef):
             for fkc in fkdef['referenced_columns']:
                 if fkc['schema_name'] == 'public' \
-                        and fkc['table_name'] in {'ERMrest_Client', 'ERMrest_Group'} \
+                        and fkc['table_name'] in {'ERMrest_Client', 'ERMrest_Group', 'ERMrest_RID_Lease'} \
                         and fkc['column_name'] == 'RID':
                     raise DerivaRestoreError(
                         "Cannot restore catalog with foreign key reference to "
@@ -342,6 +335,12 @@ class DerivaRestore:
                         restore_states[(sname, tname)] = 1 if self.restore_data else None
                         fkeys_deferred[(sname, tname)] = self.copy_tdef_fkeys(table)
                     else:
+                        if dst_model.schemas[sname].tables[tname].foreign_keys:
+                            # assume presence of any destination foreign keys means we already loaded deferred_fkeys
+                            self.restore_data = False
+                        else:
+                            fkeys_deferred[(sname, tname)] = self.copy_tdef_fkeys(table)
+
                         src_columns = {c.name: c for c in table.column_definitions}
                         dst_columns = {c.name: c for c in dst_model.schemas[sname].tables[tname].column_definitions}
 
@@ -372,13 +371,8 @@ class DerivaRestore:
 
                         restore_states[(sname, tname)] = \
                             dst_model.schemas[sname].tables[tname].annotations.get(self.RESTORE_STATE_URL)
-                        if dst_model.schemas[sname].tables[tname].foreign_keys:
-                            # assume that presence of any destination foreign keys means we already completed
-                            if self.restore_assets:
-                                self.upload_assets()
-                            return
-                        else:
-                            fkeys_deferred[(sname, tname)] = self.copy_tdef_fkeys(table)
+
+            restore_states[('public', 'ERMrest_RID_Lease')] = None  # never try to sync leases
 
             # apply the stage 1 model to the destination in bulk
             logging.info("Restoring catalog schema...")
@@ -428,14 +422,16 @@ class DerivaRestore:
                                     total += len(chunk)
                                 else:
                                     break
-                        except:
+                        except Exception as e:
                             table_success = False
+                            logging.error(format_exception(e))
                         finally:
                             table.close()
                             if table_success:
                                 logging.info("Restoration of table data [%s] successful. %s rows restored." %
                                              (tname_uri, total))
                             else:
+                                success = False
                                 logging.warning("Restoration of table data [%s] failed. %s rows restored." %
                                                 (tname_uri, total))
 
@@ -454,40 +450,8 @@ class DerivaRestore:
                     }:
                         # special sync behavior for magic ermrest tables
                         # HACK: these are assumed small enough to join via local merge of arrays
-                        want = sorted(self.load_json_file(self.get_table_path(sname, tname, is_bag)),
-                                      key=lambda r: r['ID'])
-                        have = sorted(self.dst_catalog.get("/entity/%s?limit=none" % tname_uri).json(),
-                                      key=lambda r: r['ID'])
-                        create = []
-                        update = []
-
-                        pos_want = 0
-                        pos_have = 0
-                        while pos_want < len(want):
-                            while pos_have < len(have) and have[pos_have]['ID'] < want[pos_want]['ID']:
-                                # dst-only rows will be retained as is
-                                pos_have += 1
-                            if pos_have >= len(have) or have[pos_have]['ID'] > want[pos_want]['ID']:
-                                # src-only rows will be inserted
-                                create.append(want[pos_want])
-                                pos_want += 1
-                            else:
-                                # overlapping rows will be updated
-                                update.append(want[pos_want])
-                                pos_want += 1
-
-                        self.dst_catalog.post("/entity/%s?nondefaults=RCT,RCB" % tname_uri, json=create)
-                        self.dst_catalog.put(
-                            "/attributegroup/%s/ID;%s" % (
-                                tname_uri,
-                                ",".join([
-                                    urlquote(c.name)
-                                    for c in src_model.schemas[sname].tables[tname].column_definitions
-                                    if c.name not in {'RID', 'RMT', 'RMB', 'RCB', 'RCT', 'ID'}
-                                ])
-                            ),
-                            json=update
-                        )
+                        page = self.load_json_file(self.get_table_path(sname, tname, is_bag))
+                        self.dst_catalog.post("/entity/%s?onconflict=skip" % tname_uri, json=page)
 
                         # record our progress on catalog in case we fail part way through
                         self.dst_catalog.put(
@@ -505,16 +469,95 @@ class DerivaRestore:
             for fkeys in fkeys_deferred.values():
                 new_fkeys.extend(fkeys)
 
-            # restore fkeys
             if new_fkeys:
                 self.dst_catalog.post("/schema", json=new_fkeys)
+
+            # copy over configuration in stage 3
+            # we need to do this after deferred_fkeys to handle acl_bindings projections with joins
+            logging.info("Restoring catalog configuration...")
+            dst_model = self.dst_catalog.getCatalogModel()
+
+            for sname, src_schema in src_model.schemas.items():
+                if sname in exclude_schemas:
+                    continue
+                dst_schema = dst_model.schemas[sname]
+
+                if self.restore_annotations:
+                    dst_schema.annotations.clear()
+                    dst_schema.annotations.update(src_schema.annotations)
+
+                if self.restore_policy:
+                    dst_schema.acls.clear()
+                    dst_schema.acls.update(src_schema.acls)
+
+                for tname, src_table in src_schema.tables.items():
+                    dst_table = dst_schema.tables[tname]
+
+                    if self.restore_annotations:
+                        merged = dict(src_table.annotations)
+                        if self.RESTORE_STATE_URL in dst_table.annotations:
+                            merged[self.RESTORE_STATE_URL] = dst_table.annotations[self.RESTORE_STATE_URL]
+                        dst_table.annotations.clear()
+                        dst_table.annotations.update(merged)
+
+                    if self.restore_policy:
+                        dst_table.acls.clear()
+                        dst_table.acls.update(src_table.acls)
+                        dst_table.acl_bindings.clear()
+                        dst_table.acl_bindings.update(src_table.acl_bindings)
+
+                    for cname, src_col in src_table.columns.elements.items():
+                        dst_col = dst_table.columns[cname]
+
+                        if self.restore_annotations:
+                            dst_col.annotations.clear()
+                            dst_col.annotations.update(src_col.annotations)
+
+                        if self.restore_policy:
+                            dst_col.acls.clear()
+                            dst_col.acls.update(src_col.acls)
+                            dst_col.acl_bindings.clear()
+                            dst_col.acl_bindings.update(src_col.acl_bindings)
+
+                    for src_key in src_table.keys:
+                        dst_key = dst_table.key_by_columns([col.name for col in src_key.unique_columns])
+
+                        if self.restore_annotations:
+                            dst_key.annotations.clear()
+                            dst_key.annotations.update(src_key.annotations)
+
+                    def xlate_column_map(fkey):
+                        dst_from_table = dst_table
+                        dst_to_schema = dst_model.schemas[fkey.pk_table.schema.name]
+                        dst_to_table = dst_to_schema.tables[fkey.pk_table.name]
+                        return {
+                            dst_from_table._own_column(from_col.name): dst_to_table._own_column(to_col.name)
+                            for from_col, to_col in fkey.column_map.items()
+                        }
+
+                    for src_fkey in src_table.foreign_keys:
+                        dst_fkey = dst_table.fkey_by_column_map(xlate_column_map(src_fkey))
+
+                        if self.restore_annotations:
+                            dst_fkey.annotations.clear()
+                            dst_fkey.annotations.update(src_fkey.annotations)
+
+                        if self.restore_policy:
+                            dst_fkey.acls.clear()
+                            dst_fkey.acls.update(src_fkey.acls)
+                            dst_fkey.acl_bindings.clear()
+                            dst_fkey.acl_bindings.update(src_fkey.acl_bindings)
+
+            # send all the config changes to the server
+            dst_model.apply()
 
             # restore assets
             if self.restore_assets:
                 self.upload_assets()
 
             # cleanup
-            self.cleanup_restored_catalog()
+            if success:
+                self.cleanup_restored_catalog()
         except:
             success = False
             raise
@@ -532,6 +575,8 @@ class DerivaRestore:
         dst_model = self.dst_catalog.getCatalogModel()
         for sname, schema in dst_model.schemas.items():
             for tname, table in schema.tables.items():
+                if sname == "public" and tname == "ERMrest_RID_Lease":
+                    continue
                 annotation_uri = "/schema/%s/table/%s/annotation/%s" % (
                     urlquote(sname),
                     urlquote(tname),
