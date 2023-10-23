@@ -283,7 +283,25 @@ class Model (object):
 
     @object_annotation(tag.chaise_config)
     def chaise_config(self): pass
-    
+
+    @object_annotation(tag.column_defaults)
+    def column_defaults(self): pass
+
+    @presence_annotation(tag.immutable)
+    def immutable(self): pass
+
+    @presence_annotation(tag.generated)
+    def generated(self): pass
+
+    @presence_annotation(tag.non_deletable)
+    def non_deletable(self): pass
+
+    @object_annotation(tag.export_2019)
+    def export_2019(self): pass
+
+    @object_annotation(tag.export_fragment_definitions)
+    def export_fragment_definitions(self): pass
+
     def configure_baseline_ermrest_client(self, apply=True):
         """Baseline configuration of `ERMrest_Client` table.
 
@@ -607,6 +625,25 @@ class Schema (object):
 
     @object_annotation(tag.display)
     def display(self): pass
+
+    @object_annotation(tag.column_defaults)
+    def column_defaults(self): pass    
+
+    @presence_annotation(tag.immutable)
+    def immutable(self): pass
+
+    @presence_annotation(tag.generated)
+    def generated(self): pass
+
+    @presence_annotation(tag.non_deletable)
+    def non_deletable(self): pass
+
+    @object_annotation(tag.export_2019)
+    def export_2019(self): pass
+
+    @object_annotation(tag.export_fragment_definitions)
+    def export_fragment_definitions(self): pass
+    
 
 class KeyedList (list):
     """Keyed list."""
@@ -1416,6 +1453,9 @@ class Table (object):
     @presence_annotation(tag.generated)
     def generated(self): pass
 
+    @presence_annotation(tag.non_deletable)
+    def non_deletable(self): pass
+    
     @object_annotation(tag.display)
     def display(self): pass
 
@@ -1449,6 +1489,11 @@ class Table (object):
     @object_annotation(tag.google_dataset)
     def google_dataset(self): pass
     
+    @object_annotation(tag.column_defaults)
+    def column_defaults(self): pass
+
+    @object_annotation(tag.viz_3d_display)
+    def viz_3d_display(self): pass
     
 class Column (object):
     """Named column.
@@ -1640,6 +1685,9 @@ class Column (object):
     @presence_annotation(tag.generated)
     def generated(self): pass
 
+    @presence_annotation(tag.required)
+    def required(self): pass
+    
     @object_annotation(tag.display)
     def display(self): pass
 
@@ -1648,6 +1696,7 @@ class Column (object):
 
     @object_annotation(tag.column_display)
     def column_display(self): pass
+    
 
 def _constraint_name_parts(constraint, doc):
     # modern systems should have 0 or 1 names here

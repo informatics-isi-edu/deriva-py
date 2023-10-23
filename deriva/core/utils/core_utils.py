@@ -521,5 +521,7 @@ tag = AttrDict({
     'chaise_config':      'tag:isrd.isi.edu,2019:chaise-config',
     'source_definitions': 'tag:isrd.isi.edu,2019:source-definitions',
     'indexing_preferences': 'tag:isrd.isi.edu,2018:indexing-preferences',
-    'google_dataset': 'tag:isrd.isi.edu,2021:google-dataset',
+    'google_dataset':     'tag:isrd.isi.edu,2021:google-dataset',
+    'column_defaults':    'tag:isrd.isi.edu,2023:column-defaults',
+    'viz_3d_display':     'tag:isrd.isi.edu,2021:viz-3d-display',
 })
