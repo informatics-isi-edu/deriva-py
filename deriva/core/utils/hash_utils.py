@@ -49,8 +49,7 @@ def compute_file_hashes(file_path, hashes=frozenset(['md5'])):
        Digests data read from file denoted by file_path.
     """
     if not os.path.exists(file_path):
-        logging.warning("%s does not exist" % file_path)
-        return
+        raise FileNotFoundError(file_path)
     else:
         logging.debug("Computing [%s] hashes for file [%s]" % (','.join(hashes), file_path))
 
