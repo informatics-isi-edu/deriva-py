@@ -172,7 +172,8 @@ class DerivaRestore:
 
     def get_table_path(self, sname, tname, is_bag):
         return os.path.abspath(
-            os.path.join(self.input_path, "data" if is_bag else "", self.BASE_DATA_INPUT_PATH.format(sname, tname)))
+            os.path.join(self.input_path, "data" if is_bag else "",
+                         self.BASE_DATA_INPUT_PATH.format(urlquote(sname), urlquote(tname))))
 
     def load_json_file(self, file_path):
         with io.open(file_path, 'r', encoding='UTF-8') as file_data:
