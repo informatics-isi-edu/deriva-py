@@ -1760,3 +1760,186 @@ class _AttributeGroup (object):
                     bin.maxval = result.get('maxval', bin.maxval)
                     if (bin.minval is None) or (bin.maxval is None):
                         raise ValueError('Automatic determination of binning bounds failed.')
+
+##
+## EXPERIMENTAL
+##
+
+def datapath_link_by_fkey(path, fk):
+    """Link a table to the path based on a foreign key reference.
+
+    **EXPERIMENTAL ONLY**
+
+    :param path: a DataPath object
+    :param fk: an ermrest_model.ForeignKey object
+    """
+    warnings.warn('This method is experimental. It is likely to change.')
+    assert isinstance(path, DataPath)
+    assert isinstance(fk, _erm.ForeignKey)
+    catalog = path._root._schema._catalog
+
+    # determine 'direction' -- inbound or outbound
+    path_context_table = path.context._base_table._wrapped_table
+    if (path_context_table.schema.name, path_context_table.name) == (fk.table.schema.name, fk.table.name):
+        right = catalog.schemas[fk.pk_table.schema.name].tables[fk.pk_table.name]
+        fkcols = zip(fk.foreign_key_columns, fk.referenced_columns)
+    elif (path_context_table.schema.name, path_context_table.name) == (fk.pk_table.schema.name, fk.pk_table.name):
+        right = catalog.schemas[fk.table.schema.name].tables[fk.table.name]
+        fkcols = zip(fk.referenced_columns, fk.foreign_key_columns)
+    else:
+        raise ValueError('context table not referenced by fkey')
+
+    # compose join condition
+    on = None
+    for lcol, rcol in fkcols:
+        lcol = catalog.schemas[lcol.table.schema.name].tables[lcol.table.name].columns[lcol.name]
+        rcol = catalog.schemas[rcol.table.schema.name].tables[rcol.table.name].columns[rcol.name]
+        if on:
+            on = on & (lcol == rcol)
+        else:
+            on = lcol == rcol
+
+    # link
+    path.link(right, on=on, join_type='left')
+
+
+def datapath_deserialize_vizcolumn(path, vizcol, sources=None):
+    """Deserializes a visual column specification.
+
+    **EXPERIMENTAL ONLY**
+
+    If the visible column specifies a foreign key path, the datapath object
+    will be changed by linking the foreign keys in the path.
+
+    :param path: a datapath object
+    :param vizcol: a visible column specification
+    :return: the element to be projected from the datapath or None
+    """
+    warnings.warn('This method is experimental. It is likely to change.')
+    sources = sources if sources else {}
+    context = path.context
+    table = context._wrapped_table
+    model = table.schema.model
+
+    if isinstance(vizcol, str):
+        # column name specification
+        return context.columns[vizcol]
+    elif isinstance(vizcol, list):
+        # constraint specification
+        fk = model.fkey(vizcol)  # todo: also handle keys
+        datapath_link_by_fkey(path, fk)
+        return ArrayD(path.context).alias(path.context._name + '_all')  # project all attributes
+    elif isinstance(vizcol, dict):
+        # resolve visible column
+        while 'sourcekey' in vizcol:
+            temp = sources.get(vizcol['sourcekey'], {})
+            if temp == vizcol:
+                raise ValueError('Visible column self reference for sourcekey "%s"' % vizcol['sourcekey'])
+            vizcol = temp
+        # deserialize source definition
+        source = vizcol.get('source')
+        if not source:
+            # case: none
+            warnings.warn('Could not resolve source definition for visible column')
+            return None
+        elif isinstance(source, str):
+            # case: column name
+            return context.columns[source]
+        elif isinstance(source, list):
+            # case: path expression
+            # ...validate syntax
+            if not all(isinstance(obj, dict) for obj in source[:-1]):
+                raise ValueError('Source path element must be a foreign key dict')
+            if not isinstance(source[-1], str):
+                raise ValueError('Source path must terminate in a column name string')
+            # link path elements by fkey
+            for path_elem in source[:-1]:
+                try:
+                    fk = model.fkey(path_elem.get('inbound', path_elem.get('outbound')))
+                    datapath_link_by_fkey(path, fk)
+                except KeyError as e:
+                    raise ValueError('Invalid foreign key constraint name: %s' % str(e))
+            # return terminating attribute
+            path_elem = source[-1]
+            if vizcol.get('entity', True):
+                # project all attributes
+                return ArrayD(path.context).alias(path.context._name)
+            else:
+                # project named column
+                return ArrayD(path.context.columns[path_elem]).alias(path.context._name + '_' + path_elem)
+        else:
+            raise ValueError('Malformed source: %s' % str(source))
+    else:
+        raise ValueError('Malformed visible column: %s' % str(vizcol))
+
+
+def datapath_contextualize(path, context_name='*', context_body=None, groupkey_name='RID'):
+    """Contextualizes a data path to a named visible columns context.
+
+    **EXPERIMENTAL ONLY**
+
+    Limitations: This method does not yet support key references in the visible columns definition.
+
+    :param path: a datapath object
+    :param context_name: name of the context within the path's terminating table's "visible columns" annotations
+    :param context_body: a list of visible column definitions, if given, the `context_name` will be ignored
+    :param groupkey_name: column name for the group by key of the generated query expression (default: 'RID')
+    """
+    warnings.warn('This method is experimental. It is likely to change.')
+    assert isinstance(path, DataPath)
+    path = copy.deepcopy(path)
+    context = path.context
+    table = context._wrapped_table
+    sources = table.annotations.get(_erm.tag.source_definitions, {}).get('sources')
+    vizcols = context_body if context_body else table.annotations.get(_erm.tag.visible_columns, {}).get(context_name, [])
+    if not vizcols:
+        raise ValueError('Visible columns context "%s" not found for table %s:%s' % (context_name, table.schema.name, table.name))
+    groupkey = context.columns[groupkey_name]
+    projection = []
+
+    for vizcol in vizcols:
+        try:
+            projection.append(datapath_deserialize_vizcolumn(path, vizcol, sources=sources))
+            path.context = context
+        except ValueError as e:
+            logger.warning(str(e))
+
+    def not_same_as_group_key(x):
+        assert isinstance(groupkey, _ColumnWrapper)
+        if not isinstance(x, _ColumnWrapper):
+            return True
+        return groupkey._wrapped_column != x._wrapped_column
+
+    projection = filter(not_same_as_group_key, projection)  # project groupkey only once
+    query = path.groupby(groupkey).attributes(*projection)
+    return query
+
+
+def datapath_generate_denormalized_context(path):
+    """Generates a denormalized form of the table expressed in a visible columns specification.
+
+    **EXPERIMENTAL ONLY**
+
+    """
+    context = path.context
+    table = context._wrapped_table
+
+    vizcols = []
+    for col in table.column_definitions:
+        vizcols.append(col.name)
+
+    for fkey in table.foreign_keys:
+        vizcols.append(fkey.names[0])
+
+    return vizcols
+
+
+def datapath_denormalize(path, groupkey_name='RID'):
+    """Denormalizes a path based on the outbound foreign keys of the context's underlying table definition.
+
+    **EXPERIMENTAL ONLY**
+
+    :param path: a DataPath object
+    :param groupkey_name: column name for the group by key of the generated query expression (default: 'RID')
+    """
+    return datapath_contextualize(path, context_body=datapath_generate_denormalized_context(path), groupkey_name=groupkey_name)
