@@ -1816,6 +1816,7 @@ def datapath_deserialize_vizcolumn(path, vizcol, sources=None):
     :return: the element to be projected from the datapath or None
     """
     warnings.warn('This method is experimental. It is likely to change.')
+    assert isinstance(path, DataPath)
     sources = sources if sources else {}
     context = path.context
     table = context._wrapped_table
@@ -1921,6 +1922,7 @@ def datapath_generate_denormalized_context(path):
     **EXPERIMENTAL ONLY**
 
     """
+    assert isinstance(path, DataPath)
     context = path.context
     table = context._wrapped_table
 
@@ -1942,4 +1944,5 @@ def datapath_denormalize(path, groupkey_name='RID'):
     :param path: a DataPath object
     :param groupkey_name: column name for the group by key of the generated query expression (default: 'RID')
     """
+    assert isinstance(path, DataPath)
     return datapath_contextualize(path, context_body=datapath_generate_denormalized_context(path), groupkey_name=groupkey_name)
