@@ -1966,39 +1966,62 @@ def _datapath_generate_simple_denormalization(path):
         for fkey in table.foreign_keys if len(fkey.foreign_key_columns) == 1
     }
 
-    # name columns to look for in related tables
-    name_candidates = [
-        'preferred_name',
-        'full_name',
-        'name',
-        'title',
-        'label'
-    ]
+    def _fkey_to_vizcol(name, fk, inbound=None):
+        # name columns to look for in related tables
+        name_candidates = [
+            'displayname',
+            'preferredname',
+            'fullname',
+            'name',
+            'title',
+            'label'
+        ]
 
+        # determine terminal column
+        terminal = 'RID'
+        for candidate_col in fk.pk_table.columns:
+            if candidate_col.name.lower().replace(' ', '').replace('_', '') in name_candidates:
+                terminal = candidate_col.name
+                break
+
+        # define source path
+        source = [{'outbound': fk.names[0]}, terminal]
+        if inbound:
+            source = [{'inbound': inbound.names[0]}] + source
+
+        # return vizcol spec
+        return {
+            'markdown_name': name,
+            'source': source,
+            'entity': terminal == 'RID'
+        }
+
+    # assemble the visible column:
+    #  1. column or single column fkeys
+    #  2. all other (outbound fkey) related tables
+    #  3. all associated tables
     vizcols = []
     for col in table.column_definitions:
         if col.name in single_column_fkeys:
             fkey = single_column_fkeys[col.name]
-
-            # detemine terminal column
-            terminal = 'RID'
-            for candidate_col in fkey.pk_table.columns:
-                if candidate_col.name.lower().replace(' ', '_') in name_candidates:
-                    terminal = candidate_col.name
-                    break
-
-            vizcols.append({
-                'markdown_name': col.name,
-                'source': [{'outbound': fkey.names[0]}, terminal],
-                'entity': terminal == 'RID'
-            })
+            vizcols.append(_fkey_to_vizcol(col.name, fkey))
             del single_column_fkeys[col.name]
             fkeys.remove(fkey)
         else:
             vizcols.append(col.name)
 
-    for fkey in fkeys:
-        vizcols.append(fkey.names[0])
+    for outbound_fkey in fkeys:
+        vizcols.append(_fkey_to_vizcol(outbound_fkey.constraint_name, outbound_fkey))
+
+    for inbound_fkey in table.referenced_by:
+        if inbound_fkey.table.is_association():
+            vizcols.append(
+                _fkey_to_vizcol(
+                    inbound_fkey.table.name,
+                    inbound_fkey.table.foreign_keys[0] if inbound_fkey != inbound_fkey.table.foreign_keys[0] else inbound_fkey.table.foreign_keys[1],
+                    inbound=inbound_fkey
+                )
+            )
 
     return vizcols
 
