@@ -12,7 +12,8 @@ import os
 import unittest
 import sys
 from deriva.core import DerivaServer, get_credential, ermrest_model as _em, __version__
-from deriva.core.datapath import DataPathException, Min, Max, Sum, Avg, Cnt, CntD, Array, ArrayD, Bin
+from deriva.core.datapath import DataPathException, Min, Max, Sum, Avg, Cnt, CntD, Array, ArrayD, Bin, \
+    simple_denormalization_with_whole_entities
 
 # unittests did not support 'subTests' until 3.4
 if sys.version_info[0] < 3 or sys.version_info[1] < 4:
@@ -141,11 +142,12 @@ def populate_test_catalog(catalog):
     """Populate the test catalog."""
     paths = catalog.getPathBuilder()
     logger.debug("Inserting project...")
-    logger.debug("Inserting experiment types...")
     proj_table = paths.schemas[SNAME_ISA].tables[TNAME_PROJECT]
+    logger.debug("Inserting investigators...")
     proj_table.insert([
         {"Investigator": TEST_PROJ_INVESTIGATOR, "Num": TEST_PROJ_NUM}
     ])
+    logger.debug("Inserting experiment types...")
     type_table = paths.schemas[SNAME_VOCAB].tables[TNAME_EXPERIMENT_TYPE]
     types = type_table.insert([
         {"Name": "{}".format(name), "Description": "NA"} for name in range(TEST_EXPTYPE_MAX)
@@ -826,6 +828,26 @@ class DatapathTests (unittest.TestCase):
         self.assertNotEqual(path.uri, original_uri, "Merged path's URI should have changed from its original URI")
         self.assertEqual(path.context._name, path3.context._name, "Context of composed paths should equal far right-hand path's context")
         self.assertGreater(len(path.Experiment.entities()), 0, "Should have returned results")
+
+    def test_simple_denormalization(self):
+        entities = self.experiment.entities()
+        results = self.experiment.denormalize()
+        self.assertEqual(len(entities), len(results))
+        self.assertEqual(entities[0].keys(), results[0].keys())
+        self.assertIn('Type', results[0])
+        self.assertTrue(entities[0]['Type'].startswith('TEST:'))
+        self.assertTrue(results[0]['Type'])
+        self.assertFalse(results[0]['Type'].startswith('TEST:'))
+
+    def test_simple_denormalization_w_entities(self):
+        entities = self.experiment.entities()
+        results = self.experiment.denormalize(heuristic=simple_denormalization_with_whole_entities)
+        self.assertEqual(len(entities), len(results))
+        self.assertLess(len(entities[0].keys()), len(results[0].keys()))
+        self.assertIn('Experiment_Project Investigator_Project_Num_fkey', results[0])
+        self.assertIsInstance(results[0]['Experiment_Project Investigator_Project_Num_fkey'], list)
+        self.assertIsInstance(results[0]['Experiment_Project Investigator_Project_Num_fkey'][0], dict)
+        self.assertIn('RID', results[0]['Experiment_Project Investigator_Project_Num_fkey'][0])
 
 
 if __name__ == '__main__':
