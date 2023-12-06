@@ -395,7 +395,8 @@ class DataPath (object):
         By default links use inner join semantics on the foreign key / key equality comparison. The `join_type`
         parameter can be used to specify `left`, `right`, or `full` outer join semantics.
 
-        :param right: the right hand table of the link expression
+        :param right: the right hand table of the link expression; if the table or alias name is in use, an incremental
+        number will be used to disambiguate tables instances of the same original name.
         :param on: an equality comparison between key and foreign key columns, a conjunction of such comparisons, or a foreign key object
         :param join_type: the join type of this link which may be 'left', 'right', 'full' outer joins or '' for inner
         join link by default.
@@ -413,7 +414,7 @@ class DataPath (object):
             raise ValueError("'on' must be specified for outer joins")
         if right._schema._catalog != self._root._schema._catalog:
             raise ValueError("'right' is from a different catalog. Cannot link across catalogs.")
-        if isinstance(right, _TableAlias) and right._name in self._table_instances:
+        if isinstance(right, _TableAlias) and right._parent == self:
             raise ValueError("'right' is a table alias that has already been used.")
         else:
             # Generate an unused alias name for the table
@@ -606,16 +607,17 @@ class DataPath (object):
 
         return self
 
-    def denormalize(self, context_name=None, groupkey_name='RID'):
+    def denormalize(self, context_name=None, heuristic=None, groupkey_name='RID'):
         """Denormalizes a path based on a visible-columns annotation 'context' or a heuristic approach.
 
         This method does not mutate this object. It returns a result set representing the denormalization of the path.
 
         :param context_name: name of the visible-columns context or if none given, will attempt apply heuristics
+        :param heuristic: heuristic to apply if no context name specified
         :param groupkey_name: column name for the group by key of the generated query expression (default: 'RID')
         :return: a results set.
         """
-        return _datapath_denormalize(self, context_name=context_name, groupkey_name=groupkey_name)
+        return _datapath_denormalize(self, context_name=context_name, heuristic=heuristic, groupkey_name=groupkey_name)
 
 
 class _ResultSet (object):
@@ -808,16 +810,17 @@ class _TableWrapper (object):
         """
         return _AttributeGroup(self, self._query, keys)
 
-    def denormalize(self, context_name=None, groupkey_name='RID'):
+    def denormalize(self, context_name=None, heuristic=None, groupkey_name='RID'):
         """Denormalizes a path based on a visible-columns annotation 'context' or a heuristic approach.
 
         This method does not mutate this object. It returns a result set representing the denormalization of the path.
 
         :param context_name: name of the visible-columns context or if none given, will attempt apply heuristics
+        :param heuristic: heuristic to apply if no context name specified
         :param groupkey_name: column name for the group by key of the generated query expression (default: 'RID')
         :return: a results set.
         """
-        return self.path.denormalize(context_name=context_name, groupkey_name=groupkey_name)
+        return self.path.denormalize(context_name=context_name, heuristic=heuristic, groupkey_name=groupkey_name)
 
     def insert(self, entities, defaults=set(), nondefaults=set(), add_system_defaults=True, on_conflict_skip=False):
         """Inserts entities into the table.
@@ -1787,11 +1790,12 @@ class _AttributeGroup (object):
 ## UTILITIES FOR DENORMALIZATION ##############################################
 ##
 
-def _datapath_left_outer_join_by_fkey(path, fk):
+def _datapath_left_outer_join_by_fkey(path, fk, alias_name=None):
     """Link a table to the path based on a foreign key reference.
 
     :param path: a DataPath object
     :param fk: an ermrest_model.ForeignKey object
+    :param alias_name: an optional 'alias' name to use for the foreign table
     """
     assert isinstance(path, DataPath)
     assert isinstance(fk, _erm.ForeignKey)
@@ -1819,7 +1823,7 @@ def _datapath_left_outer_join_by_fkey(path, fk):
             on = lcol == rcol
 
     # link
-    path.link(right, on=on, join_type='left')
+    path.link(right.alias(alias_name) if alias_name else right, on=on, join_type='left')
 
 
 def _datapath_deserialize_vizcolumn(path, vizcol, sources=None):
@@ -1845,7 +1849,7 @@ def _datapath_deserialize_vizcolumn(path, vizcol, sources=None):
         # constraint specification
         try:
             fk = model.fkey(vizcol)
-            _datapath_left_outer_join_by_fkey(path, fk)
+            _datapath_left_outer_join_by_fkey(path, fk, alias_name='F')
             return ArrayD(path.context).alias(path.context._name)  # project all attributes
         except KeyError as e:
             raise ValueError('Invalid foreign key constraint name: %s. If this is a key constraint name, note that keys are not supported at this time.' % str(e))
@@ -1876,7 +1880,7 @@ def _datapath_deserialize_vizcolumn(path, vizcol, sources=None):
             for path_elem in source[:-1]:
                 try:
                     fk = model.fkey(path_elem.get('inbound', path_elem.get('outbound')))
-                    _datapath_left_outer_join_by_fkey(path, fk)
+                    _datapath_left_outer_join_by_fkey(path, fk, alias_name='F')
                     outbound_only = outbound_only and 'outbound' in path_elem
                 except KeyError as e:
                     raise ValueError('Invalid foreign key constraint name: %s' % str(e))
@@ -1950,10 +1954,12 @@ def _datapath_contextualize(path, context_name='*', context_body=None, groupkey_
     return query
 
 
-def _datapath_generate_simple_denormalization(path):
+def _datapath_generate_simple_denormalization(path, skip_whole_entities=True):
     """Generates a denormalized form of the table expressed in a visible columns specification.
 
     :param path: a datapath object
+    :param skip_whole_entities: if a denormalization cannot find a 'name' like terminal, skip it, else include the whole
+    related entity in the denormalized expression
     :return: a generated visible columns specification based on a denormalization heuristic
     """
     assert isinstance(path, DataPath)
@@ -2023,17 +2029,35 @@ def _datapath_generate_simple_denormalization(path):
                 )
             )
 
+    if skip_whole_entities:
+        vizcols = filter(lambda v: not isinstance(v, dict) or not v.get('entity'), vizcols)
+
     return vizcols
 
+def simple_denormalization(path):
+    """A simple heuristic denormalization."""
+    return _datapath_generate_simple_denormalization(path)
 
-def _datapath_denormalize(path, context_name=None, groupkey_name='RID'):
+def simple_denormalization_with_whole_entities(path):
+    """A simple heuristic denormalization with related and associated entities."""
+    return _datapath_generate_simple_denormalization(path, skip_whole_entities=False)
+
+def _datapath_denormalize(path, context_name=None, heuristic=None, groupkey_name='RID'):
     """Denormalizes a path based on annotations or heuristics.
 
     :param path: a DataPath object
     :param context_name: name of the visible-columns context or if none given, will attempt apply heuristics
+    :param heuristic: heuristic to apply if no context name specified
     :param groupkey_name: column name for the group by key of the generated query expression (default: 'RID')
     """
     assert isinstance(path, DataPath)
     assert context_name is None or isinstance(context_name, str)
-    context_body = None if context_name else _datapath_generate_simple_denormalization(path)
-    return _datapath_contextualize(path, context_name=context_name, context_body=context_body, groupkey_name=groupkey_name)
+    assert isinstance(groupkey_name, str)
+    heuristic = heuristic or simple_denormalization
+    assert callable(heuristic)
+    return _datapath_contextualize(
+        path,
+        context_name=context_name,
+        context_body=None if context_name else heuristic(path),
+        groupkey_name=groupkey_name
+    )
