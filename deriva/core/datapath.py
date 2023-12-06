@@ -636,6 +636,7 @@ class _ResultSet (object):
         self._fetcher_fn = fetcher_fn
         self._results_doc = None
         self._sort_keys = None
+        self._limit = None
         self.uri = uri
 
     @property
@@ -669,6 +670,19 @@ class _ResultSet (object):
         self._results_doc = None
         return self
 
+    def limit(self, n):
+        """Set a limit on the number of results to be returned.
+
+        :param n: integer or None.
+        :return: self
+        """
+        try:
+            self._limit = None if n is None else int(n)
+            self._results_doc = None
+            return self
+        except ValueError:
+            raise ValueError('limit argument "n" must be an integer or None')
+
     def fetch(self, limit=None, headers=DEFAULT_HEADERS):
         """Fetches the results from the catalog.
 
@@ -676,7 +690,7 @@ class _ResultSet (object):
         :param headers: headers to send in request to server
         :return: self
         """
-        limit = int(limit) if limit else None
+        limit = int(limit) if limit else self._limit
         self._results_doc = self._fetcher_fn(limit, self._sort_keys, headers)
         logger.debug("Fetched %d entities" % len(self._results_doc))
         return self
