@@ -833,7 +833,7 @@ class DatapathTests (unittest.TestCase):
         entities = self.experiment.entities()
         results = self.experiment.denormalize()
         self.assertEqual(len(entities), len(results))
-        self.assertEqual(entities[0].keys(), results[0].keys())
+        self.assertNotEqual(entities[0].keys(), results[0].keys())
         self.assertIn('Type', results[0])
         self.assertTrue(entities[0]['Type'].startswith('TEST:'))
         self.assertTrue(results[0]['Type'])

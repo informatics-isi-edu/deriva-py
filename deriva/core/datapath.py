@@ -1968,12 +1968,11 @@ def _datapath_contextualize(path, context_name='*', context_body=None, groupkey_
     return query
 
 
-def _datapath_generate_simple_denormalization(path, skip_whole_entities=True):
+def _datapath_generate_simple_denormalization(path, include_whole_entities=False):
     """Generates a denormalized form of the table expressed in a visible columns specification.
 
     :param path: a datapath object
-    :param skip_whole_entities: if a denormalization cannot find a 'name' like terminal, skip it, else include the whole
-    related entity in the denormalized expression
+    :param include_whole_entities: if a denormalization cannot find a 'name' like terminal, include the whole entity (i.e., all attributes), else return just the 'RID'
     :return: a generated visible columns specification based on a denormalization heuristic
     """
     assert isinstance(path, DataPath)
@@ -2013,7 +2012,7 @@ def _datapath_generate_simple_denormalization(path, skip_whole_entities=True):
         return {
             'markdown_name': name,
             'source': source,
-            'entity': terminal == 'RID'
+            'entity': include_whole_entities and terminal == 'RID'
         }
 
     # assemble the visible column:
@@ -2043,9 +2042,6 @@ def _datapath_generate_simple_denormalization(path, skip_whole_entities=True):
                 )
             )
 
-    if skip_whole_entities:
-        vizcols = filter(lambda v: not isinstance(v, dict) or not v.get('entity'), vizcols)
-
     return vizcols
 
 def simple_denormalization(path):
@@ -2054,7 +2050,7 @@ def simple_denormalization(path):
 
 def simple_denormalization_with_whole_entities(path):
     """A simple heuristic denormalization with related and associated entities."""
-    return _datapath_generate_simple_denormalization(path, skip_whole_entities=False)
+    return _datapath_generate_simple_denormalization(path, include_whole_entities=True)
 
 def _datapath_denormalize(path, context_name=None, heuristic=None, groupkey_name='RID'):
     """Denormalizes a path based on annotations or heuristics.
