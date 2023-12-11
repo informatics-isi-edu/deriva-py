@@ -395,7 +395,8 @@ class DataPath (object):
         By default links use inner join semantics on the foreign key / key equality comparison. The `join_type`
         parameter can be used to specify `left`, `right`, or `full` outer join semantics.
 
-        :param right: the right hand table of the link expression
+        :param right: the right hand table of the link expression; if the table or alias name is in use, an incremental
+        number will be used to disambiguate tables instances of the same original name.
         :param on: an equality comparison between key and foreign key columns, a conjunction of such comparisons, or a foreign key object
         :param join_type: the join type of this link which may be 'left', 'right', 'full' outer joins or '' for inner
         join link by default.
@@ -413,7 +414,7 @@ class DataPath (object):
             raise ValueError("'on' must be specified for outer joins")
         if right._schema._catalog != self._root._schema._catalog:
             raise ValueError("'right' is from a different catalog. Cannot link across catalogs.")
-        if isinstance(right, _TableAlias) and right._name in self._table_instances:
+        if isinstance(right, _TableAlias) and right._parent == self:
             raise ValueError("'right' is a table alias that has already been used.")
         else:
             # Generate an unused alias name for the table
@@ -606,6 +607,18 @@ class DataPath (object):
 
         return self
 
+    def denormalize(self, context_name=None, heuristic=None, groupkey_name='RID'):
+        """Denormalizes a path based on a visible-columns annotation 'context' or a heuristic approach.
+
+        This method does not mutate this object. It returns a result set representing the denormalization of the path.
+
+        :param context_name: name of the visible-columns context or if none given, will attempt apply heuristics
+        :param heuristic: heuristic to apply if no context name specified
+        :param groupkey_name: column name for the group by key of the generated query expression (default: 'RID')
+        :return: a results set.
+        """
+        return _datapath_denormalize(self, context_name=context_name, heuristic=heuristic, groupkey_name=groupkey_name)
+
 
 class _ResultSet (object):
     """A set of results for various queries or data manipulations.
@@ -623,6 +636,7 @@ class _ResultSet (object):
         self._fetcher_fn = fetcher_fn
         self._results_doc = None
         self._sort_keys = None
+        self._limit = None
         self.uri = uri
 
     @property
@@ -656,6 +670,19 @@ class _ResultSet (object):
         self._results_doc = None
         return self
 
+    def limit(self, n):
+        """Set a limit on the number of results to be returned.
+
+        :param n: integer or None.
+        :return: self
+        """
+        try:
+            self._limit = None if n is None else int(n)
+            self._results_doc = None
+            return self
+        except ValueError:
+            raise ValueError('limit argument "n" must be an integer or None')
+
     def fetch(self, limit=None, headers=DEFAULT_HEADERS):
         """Fetches the results from the catalog.
 
@@ -663,7 +690,7 @@ class _ResultSet (object):
         :param headers: headers to send in request to server
         :return: self
         """
-        limit = int(limit) if limit else None
+        limit = int(limit) if limit else self._limit
         self._results_doc = self._fetcher_fn(limit, self._sort_keys, headers)
         logger.debug("Fetched %d entities" % len(self._results_doc))
         return self
@@ -796,6 +823,18 @@ class _TableWrapper (object):
         See the docs for this method in `DataPath` for more information.
         """
         return _AttributeGroup(self, self._query, keys)
+
+    def denormalize(self, context_name=None, heuristic=None, groupkey_name='RID'):
+        """Denormalizes a path based on a visible-columns annotation 'context' or a heuristic approach.
+
+        This method does not mutate this object. It returns a result set representing the denormalization of the path.
+
+        :param context_name: name of the visible-columns context or if none given, will attempt apply heuristics
+        :param heuristic: heuristic to apply if no context name specified
+        :param groupkey_name: column name for the group by key of the generated query expression (default: 'RID')
+        :return: a results set.
+        """
+        return self.path.denormalize(context_name=context_name, heuristic=heuristic, groupkey_name=groupkey_name)
 
     def insert(self, entities, defaults=set(), nondefaults=set(), add_system_defaults=True, on_conflict_skip=False):
         """Inserts entities into the table.
@@ -1760,3 +1799,275 @@ class _AttributeGroup (object):
                     bin.maxval = result.get('maxval', bin.maxval)
                     if (bin.minval is None) or (bin.maxval is None):
                         raise ValueError('Automatic determination of binning bounds failed.')
+
+##
+## UTILITIES FOR DENORMALIZATION ##############################################
+##
+
+def _datapath_left_outer_join_by_fkey(path, fk, alias_name=None):
+    """Link a table to the path based on a foreign key reference.
+
+    :param path: a DataPath object
+    :param fk: an ermrest_model.ForeignKey object
+    :param alias_name: an optional 'alias' name to use for the foreign table
+    """
+    assert isinstance(path, DataPath)
+    assert isinstance(fk, _erm.ForeignKey)
+    catalog = path._root._schema._catalog
+
+    # determine 'direction' -- inbound or outbound
+    path_context_table = path.context._base_table._wrapped_table
+    if (path_context_table.schema.name, path_context_table.name) == (fk.table.schema.name, fk.table.name):
+        right = catalog.schemas[fk.pk_table.schema.name].tables[fk.pk_table.name]
+        fkcols = zip(fk.foreign_key_columns, fk.referenced_columns)
+    elif (path_context_table.schema.name, path_context_table.name) == (fk.pk_table.schema.name, fk.pk_table.name):
+        right = catalog.schemas[fk.table.schema.name].tables[fk.table.name]
+        fkcols = zip(fk.referenced_columns, fk.foreign_key_columns)
+    else:
+        raise ValueError('Context table "%s" not referenced by foreign key "%s"' % (path_context_table.name, fk.constraint_name))
+
+    # compose join condition
+    on = None
+    for lcol, rcol in fkcols:
+        lcol = catalog.schemas[lcol.table.schema.name].tables[lcol.table.name].columns[lcol.name]
+        rcol = catalog.schemas[rcol.table.schema.name].tables[rcol.table.name].columns[rcol.name]
+        if on:
+            on = on & (lcol == rcol)
+        else:
+            on = lcol == rcol
+
+    # link
+    path.link(right.alias(alias_name) if alias_name else right, on=on, join_type='left')
+
+
+def _datapath_deserialize_vizcolumn(path, vizcol, sources=None):
+    """Deserializes a visual column specification.
+
+    If the visible column specifies a foreign key path, the datapath object
+    will be changed by linking the foreign keys in the path.
+
+    :param path: a datapath object
+    :param vizcol: a visible column specification
+    :return: the element to be projected from the datapath or None
+    """
+    assert isinstance(path, DataPath)
+    sources = sources if sources else {}
+    context = path.context
+    table = context._wrapped_table
+    model = table.schema.model
+
+    if isinstance(vizcol, str):
+        # column name specification
+        return context.columns[vizcol]
+    elif isinstance(vizcol, list):
+        # constraint specification
+        try:
+            fk = model.fkey(vizcol)
+            _datapath_left_outer_join_by_fkey(path, fk, alias_name='F')
+            return ArrayD(path.context).alias(path.context._name)  # project all attributes
+        except KeyError as e:
+            raise ValueError('Invalid foreign key constraint name: %s. If this is a key constraint name, note that keys are not supported at this time.' % str(e))
+    elif isinstance(vizcol, dict):
+        # resolve visible column
+        while 'sourcekey' in vizcol:
+            temp = sources.get(vizcol['sourcekey'], {})
+            if temp == vizcol:
+                raise ValueError('Visible column self reference for sourcekey "%s"' % vizcol['sourcekey'])
+            vizcol = temp
+        # deserialize source definition
+        source = vizcol.get('source')
+        if not source:
+            # case: none
+            raise ValueError('Could not resolve source definition for visible column')
+        elif isinstance(source, str):
+            # case: column name
+            return context.columns[source]
+        elif isinstance(source, list):
+            # case: path expression
+            # ...validate syntax
+            if not all(isinstance(obj, dict) for obj in source[:-1]):
+                raise ValueError('Source path element must be a foreign key dict')
+            if not isinstance(source[-1], str):
+                raise ValueError('Source path must terminate in a column name string')
+            # link path elements by fkey; and track whether path is outbound only fkeys
+            outbound_only = True
+            for path_elem in source[:-1]:
+                try:
+                    fk = model.fkey(path_elem.get('inbound', path_elem.get('outbound')))
+                    _datapath_left_outer_join_by_fkey(path, fk, alias_name='F')
+                    outbound_only = outbound_only and 'outbound' in path_elem
+                except KeyError as e:
+                    raise ValueError('Invalid foreign key constraint name: %s' % str(e))
+            # return terminating column or entity
+            # ...get terminal name
+            terminal = source[-1]
+            # ...get alias name
+            alias = vizcol.get('markdown_name', vizcol.get('name', path.context._name + '_' + terminal))
+            # ...get aggregate function
+            aggregate = {
+                'min': Min,
+                'max': Max,
+                'cnt': Cnt,
+                'cnd_d': CntD,
+                'array': Array,
+                'array_d': ArrayD
+            }.get(vizcol.get('aggregate'), ArrayD)
+            # ...determine projection mode
+            if vizcol.get('entity', True):
+                # case: whole entities
+                return aggregate(path.context).alias(alias)
+            else:
+                # case: specified attribute value(s)
+                if outbound_only:
+                    # for outbound only paths, we can project a single value
+                    return path.context.columns[terminal].alias(alias)
+                else:
+                    # otherwise, we need to use aggregate the values
+                    return aggregate(path.context.columns[terminal]).alias(alias)
+        else:
+            raise ValueError('Malformed source: %s' % str(source))
+    else:
+        raise ValueError('Malformed visible column: %s' % str(vizcol))
+
+
+def _datapath_contextualize(path, context_name='*', context_body=None, groupkey_name='RID'):
+    """Contextualizes a data path to a named visible columns context.
+
+    :param path: a datapath object
+    :param context_name: name of the context within the path's terminating table's "visible columns" annotations
+    :param context_body: a list of visible column definitions, if given, the `context_name` will be ignored
+    :param groupkey_name: column name for the group by key of the generated query expression (default: 'RID')
+    :return: a 'contextualized' attribute group query object
+    """
+    assert isinstance(path, DataPath)
+    path = copy.deepcopy(path)
+    context = path.context
+    table = context._wrapped_table
+    sources = table.annotations.get(_erm.tag.source_definitions, {}).get('sources')
+    vizcols = context_body if context_body else table.annotations.get(_erm.tag.visible_columns, {}).get(context_name, [])
+    if not vizcols:
+        raise ValueError('Visible columns context "%s" not found for table %s:%s' % (context_name, table.schema.name, table.name))
+    groupkey = context.columns[groupkey_name]
+    projection = []
+
+    for vizcol in vizcols:
+        try:
+            projection.append(_datapath_deserialize_vizcolumn(path, vizcol, sources=sources))
+            path.context = context
+        except ValueError as e:
+            logger.warning(str(e))
+
+    def not_same_as_group_key(x):
+        assert isinstance(groupkey, _ColumnWrapper)
+        if not isinstance(x, _ColumnWrapper):
+            return True
+        return groupkey._wrapped_column != x._wrapped_column
+
+    projection = filter(not_same_as_group_key, projection)  # project groupkey only once
+    query = path.groupby(groupkey).attributes(*projection)
+    return query
+
+
+def _datapath_generate_simple_denormalization(path, include_whole_entities=False):
+    """Generates a denormalized form of the table expressed in a visible columns specification.
+
+    :param path: a datapath object
+    :param include_whole_entities: if a denormalization cannot find a 'name' like terminal, include the whole entity (i.e., all attributes), else return just the 'RID'
+    :return: a generated visible columns specification based on a denormalization heuristic
+    """
+    assert isinstance(path, DataPath)
+    context = path.context
+    table = context._wrapped_table
+
+    fkeys = list(table.foreign_keys)
+    single_column_fkeys = {
+        fkey.foreign_key_columns[0].name: fkey
+        for fkey in table.foreign_keys if len(fkey.foreign_key_columns) == 1
+    }
+
+    def _fkey_to_vizcol(name, fk, inbound=None):
+        # name columns to look for in related tables
+        name_candidates = [
+            'displayname',
+            'preferredname',
+            'fullname',
+            'name',
+            'title',
+            'label'
+        ]
+
+        # determine terminal column
+        terminal = 'RID'
+        for candidate_col in fk.pk_table.columns:
+            if candidate_col.name.lower().replace(' ', '').replace('_', '') in name_candidates:
+                terminal = candidate_col.name
+                break
+
+        # define source path
+        source = [{'outbound': fk.names[0]}, terminal]
+        if inbound:
+            source = [{'inbound': inbound.names[0]}] + source
+
+        # return vizcol spec
+        return {
+            'markdown_name': name,
+            'source': source,
+            'entity': include_whole_entities and terminal == 'RID'
+        }
+
+    # assemble the visible column:
+    #  1. column or single column fkeys
+    #  2. all other (outbound fkey) related tables
+    #  3. all associated tables
+    vizcols = []
+    for col in table.column_definitions:
+        if col.name in single_column_fkeys:
+            fkey = single_column_fkeys[col.name]
+            vizcols.append(_fkey_to_vizcol(col.name, fkey))
+            del single_column_fkeys[col.name]
+            fkeys.remove(fkey)
+        else:
+            vizcols.append(col.name)
+
+    for outbound_fkey in fkeys:
+        vizcols.append(_fkey_to_vizcol(outbound_fkey.constraint_name, outbound_fkey))
+
+    for inbound_fkey in table.referenced_by:
+        if inbound_fkey.table.is_association():
+            vizcols.append(
+                _fkey_to_vizcol(
+                    inbound_fkey.table.name,
+                    inbound_fkey.table.foreign_keys[0] if inbound_fkey != inbound_fkey.table.foreign_keys[0] else inbound_fkey.table.foreign_keys[1],
+                    inbound=inbound_fkey
+                )
+            )
+
+    return vizcols
+
+def simple_denormalization(path):
+    """A simple heuristic denormalization."""
+    return _datapath_generate_simple_denormalization(path)
+
+def simple_denormalization_with_whole_entities(path):
+    """A simple heuristic denormalization with related and associated entities."""
+    return _datapath_generate_simple_denormalization(path, include_whole_entities=True)
+
+def _datapath_denormalize(path, context_name=None, heuristic=None, groupkey_name='RID'):
+    """Denormalizes a path based on annotations or heuristics.
+
+    :param path: a DataPath object
+    :param context_name: name of the visible-columns context or if none given, will attempt apply heuristics
+    :param heuristic: heuristic to apply if no context name specified
+    :param groupkey_name: column name for the group by key of the generated query expression (default: 'RID')
+    """
+    assert isinstance(path, DataPath)
+    assert context_name is None or isinstance(context_name, str)
+    assert isinstance(groupkey_name, str)
+    heuristic = heuristic or simple_denormalization
+    assert callable(heuristic)
+    return _datapath_contextualize(
+        path,
+        context_name=context_name,
+        context_body=None if context_name else heuristic(path),
+        groupkey_name=groupkey_name
+    )
