@@ -85,8 +85,8 @@ class DerivaUploadCLI(BaseCLI):
                                    args.no_config_update,
                                    args.purge_state,
                                    args.dry_run)
-        except (RuntimeError, FileNotFoundError, DerivaUploadError, DerivaUploadConfigurationError,
-                DerivaUploadCatalogCreateError, DerivaUploadCatalogUpdateError) as e:
+        except (RuntimeError, DerivaUploadError, DerivaUploadConfigurationError, DerivaUploadCatalogCreateError,
+                DerivaUploadCatalogUpdateError) as e:
             sys.stderr.write(("\n" if not args.quiet else "") + format_exception(e))
             if args.debug:
                 traceback.print_exc()

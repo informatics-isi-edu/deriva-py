@@ -40,7 +40,7 @@ UploadMetadataReservedKeyNames = ["URI", "file_name", "file_ext", "file_size", "
                                   "_upload_month_", "_upload_day_", "_upload_time_"]
 
 DefaultConfig = {
-  "version_compatibility": [[">=%s" % VERSION]],
+  "version_compatibility": [">=%s" % VERSION],
   "version_update_url": "https://github.com/informatics-isi-edu/deriva-py/releases",
   "asset_mappings": [
     {
@@ -150,10 +150,6 @@ class DerivaUpload(object):
              2. Sub-classes of this class to bundle their own default configuration files in an arbitrary location.
              3. The updating of already deployed configuration files if bundled internal defaults are newer.             
         """
-        if self.override_config_file and not os.path.isfile(self.override_config_file):
-            raise DerivaUploadConfigurationError(
-                "The configuration file %s could not be found." % self.override_config_file)
-
         config_file = self.override_config_file if self.override_config_file else None
         # 1. If we don't already have a valid (i.e., overridden) path to a config file...
         if not (config_file and os.path.isfile(config_file)):
@@ -439,10 +435,8 @@ class DerivaUpload(object):
         if not asset_mapping:
             return None
 
-        if self.archive_preprocessing_enabled(asset_mapping):
-            final_path = os.path.abspath(os.path.normpath(groupdict.get("archive_path", path)))
-        else:
-            final_path = os.path.abspath(os.path.normpath(os.path.join(path, name)))
+        final_path = os.path.abspath(os.path.normpath(path)) if self.archive_preprocessing_enabled(asset_mapping) else (
+            os.path.abspath(os.path.normpath(os.path.join(path, name))))
 
         return UploadEntry(asset_group, asset_mapping, groupdict, final_path)
 
@@ -456,7 +450,7 @@ class DerivaUpload(object):
         """
         root = os.path.abspath(root)
         if not os.path.isdir(root):
-            raise FileNotFoundError("Invalid directory specified: [%s]" % root)
+            raise ValueError("Invalid directory specified: [%s]" % root)
         self.loadTransferState(root, purge=purge_state)
 
         logger.info("Scanning files in directory [%s]..." % root)
@@ -471,7 +465,7 @@ class DerivaUpload(object):
                     logger.info("Skipping file: [%s] -- Invalid file type or directory location." % file_path)
                     self.skipped_files.add(file_path)
                     if abort_on_invalid_input:
-                        raise DerivaUploadError("Invalid input detected, aborting.")
+                        raise ValueError("Invalid input detected, aborting.")
                 else:
                     asset_group = upload_entry.asset_group
                     group_list = file_list.get(asset_group, {})
@@ -523,7 +517,7 @@ class DerivaUpload(object):
                     continue
                 groupdict.update(match.groupdict())
             if file_pattern:
-                if self.archive_preprocessing_enabled(asset_type):
+                if "archive_options" in asset_type:
                     logger.warning("The 'file_pattern' parameter is not compatible when archive preprocessing "
                                    "is enabled. Only input directories matching 'dir_pattern' are supported.")
                     continue
@@ -622,8 +616,6 @@ class DerivaUpload(object):
             file_path = self.processor_output[PROCESSOR_MODIFIED_FILE_PATH_KEY]
             self.metadata["file_name"] = self.getFileDisplayName(file_path)
             self.metadata["file_size"] = self.getFileSize(file_path)
-            self.metadata["file_ext"] = os.path.splitext(file_path)[1]
-            self._urlEncodeMetadata(asset_mapping.get("url_encoding_safe_overrides"))
 
         logger.debug("Computed metadata for: [%s]." % file_path)
 
@@ -772,7 +764,7 @@ class DerivaUpload(object):
 
     def _updateFileMetadata(self, src, strict=False, no_overwrite=False):
         if not (isinstance(src, dict)):
-            raise ValueError("Invalid input parameter type(s): (src = %s), expected (dict)" % type(src).__name__)
+            ValueError("Invalid input parameter type(s): (src = %s), expected (dict)" % type(src).__name__)
         dst = src.copy()
         for k in src.keys():
             if strict:

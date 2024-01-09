@@ -393,12 +393,6 @@ class Model (object):
             if www_name not in self.schemas:
                 self.create_schema(Schema.define_www(www_name))
 
-        # Create Saved_Queries schema
-        if stob(kwargs.get("includeSavedQueriesSchema", True)):
-            sq_name = kwargs.get("savedQueriesSchemaName", "Saved_Queries")
-            if sq_name not in self.schemas:
-                self.create_schema(Schema.define_saved_queries(sq_name))
-
         # Configure baseline annotations
         self.annotations.update({
             # Set up catalog-wide name style
@@ -505,29 +499,6 @@ class Schema (object):
             )
         }
         return www_schema
-
-    @classmethod
-    def define_saved_query(cls, sname, comment=None, acls={}, annotations={}):
-        """Build a schema definition for per-user saved queries.
-
-        Defines a schema with a "Page" wiki-like page table definition and a
-        "File" asset table definition for attachments to the wiki pages.
-
-        :param sname: schema name
-        :param comment: a comment string for the table
-        :param acls: a dictionary of ACLs for specific access modes
-        :param annotations: a dictionary of annotations
-        """
-        sq_schema = Schema.define(
-            sname,
-            comment=comment if comment is not None else "Schema for tables that will be displayed as web content",
-            acls=acls,
-            annotations=annotations
-        )
-        sq_schema["tables"] = {
-            "saved_query": Table.define_saved_query("saved_query")
-        }
-        return sq_schema
 
     def prejson(self, prune=True):
         """Produce native Python representation of schema, suitable for JSON serialization."""
