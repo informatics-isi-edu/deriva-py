@@ -538,6 +538,7 @@ class DerivaUpload(object):
         return None, None, None
 
     def uploadFiles(self, status_callback=None, file_callback=None):
+        completed = 0
         for group, assets in self.file_list.items():
             if self.cancelled:
                 break
@@ -556,6 +557,7 @@ class DerivaUpload(object):
                         break
                     else:
                         self.file_status[entry.path] = FileUploadState(UploadState.Success, "Complete")._asdict()
+                        completed += 1
                 except HatracJobPaused:
                     status = self.getTransferStateStatus(entry.path)
                     if status:
@@ -578,22 +580,26 @@ class DerivaUpload(object):
                     status_callback()
 
         failed_uploads = dict()
-        for key, value in self.file_status.items():
-            if (value["State"] == UploadState.Failed) or (value["State"] == UploadState.Timeout):
-                failed_uploads[key] = value["Status"]
+        try:
+            for key, value in self.file_status.items():
+                if (value["State"] == UploadState.Failed) or (value["State"] == UploadState.Timeout):
+                    failed_uploads[key] = value["Status"]
 
-        if self.skipped_files:
-            logger.warning("The following %d file(s) were skipped because they did not satisfy the matching criteria "
-                           "of the configuration:\n\n%s\n" %
-                           (len(self.skipped_files), '\n'.join(sorted(self.skipped_files))))
+            if self.skipped_files:
+                logger.warning("The following %d file(s) were skipped because they did not satisfy the matching "
+                               "criteria of the configuration:\n\n%s\n" %
+                               (len(self.skipped_files), '\n'.join(sorted(self.skipped_files))))
 
-        if failed_uploads:
-            logger.warning("The following %d file(s) failed to upload due to errors:\n\n%s\n" % (len(failed_uploads),
-                           '\n'.join(["%s -- %s" % (key, failed_uploads[key])
-                                      for key in sorted(failed_uploads.keys())])))
-            raise RuntimeError("One or more file(s) failed to upload due to errors.")
-
-        logger.info("File upload processing completed.")
+            if failed_uploads:
+                logger.warning("The following %d file(s) failed to upload due to errors:\n\n%s\n" %
+                               (len(failed_uploads), '\n'.join(["%s -- %s" % (key, failed_uploads[key])
+                                                                for key in sorted(failed_uploads.keys())])))
+                raise RuntimeError("%s file(s) failed to upload due to errors." % len(failed_uploads))
+        finally:
+            logger.info("File upload processing completed: %s file(s) were uploaded successfully, "
+                        "%s files failed to upload due to errors, "
+                        "%s files were skipped because they did not satisfy the matching criteria of the configuration."
+                        % (completed, len(failed_uploads), len(self.skipped_files)))
 
     def uploadFile(self, file_path, asset_mapping, match_groupdict, callback=None):
         """
