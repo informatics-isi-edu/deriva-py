@@ -3,14 +3,13 @@ import os
 import re
 import sys
 import datetime
-import errno
 import json
 import shutil
 import tempfile
 import logging
 import platform
 import signal
-from collections import OrderedDict, namedtuple
+from collections import OrderedDict
 from deriva.core import ErmrestCatalog, HatracStore, HatracJobAborted, HatracJobPaused, \
     HatracJobTimeout, urlquote, urlparse, stob, format_exception, get_credential, read_config, write_config, \
     copy_config, resource_path, make_dirs, lock_file, DEFAULT_CHUNK_SIZE, IS_PY2, __version__ as VERSION
@@ -34,7 +33,6 @@ class Enum(tuple):
 
 
 UploadState = Enum(["Success", "Failed", "Pending", "Running", "Paused", "Aborted", "Cancelled", "Timeout"])
-FileUploadState = namedtuple("FileUploadState", ["State", "Status"])
 UploadMetadataReservedKeyNames = ["URI", "file_name", "file_ext", "file_size", "content-disposition", "md5", "sha256",
                                   "md5_base64", "sha256_base64", "schema", "table", "target_table", "_upload_year_",
                                   "_upload_month_", "_upload_day_", "_upload_time_"]
@@ -51,6 +49,20 @@ DefaultConfig = {
     }
   ]
 }
+
+
+class FileUploadState:
+    def __init__(self, state=UploadState.Pending, status="Pending", result=None):
+        self.state = state
+        self.status = status
+        self.result = result
+
+    def asdict(self):
+        return OrderedDict({
+            "State": self.state,
+            "Status": self.status,
+            "Result": self.result
+        })
 
 
 class UploadEntry(object):
@@ -489,9 +501,9 @@ class DerivaUpload(object):
                                 upload_entry.asset_mapping) else "file", file_path))
                 status = self.getTransferStateStatus(file_path)
                 if status:
-                    self.file_status[file_path] = FileUploadState(UploadState.Paused, status)._asdict()
+                    self.file_status[file_path] = FileUploadState(UploadState.Paused, status).asdict()
                 else:
-                    self.file_status[file_path] = FileUploadState(UploadState.Pending, "Pending")._asdict()
+                    self.file_status[file_path] = FileUploadState(UploadState.Pending, "Pending").asdict()
 
     def getAssetMapping(self, file_path):
         """
@@ -544,37 +556,40 @@ class DerivaUpload(object):
                 break
             for entry in assets.values():
                 if self.cancelled:
-                    self.file_status[entry.path] = FileUploadState(UploadState.Cancelled, "Cancelled by user")._asdict()
+                    self.file_status[entry.path] = FileUploadState(UploadState.Cancelled, "Cancelled by user").asdict()
                     break
                 try:
-                    self.file_status[entry.path] = FileUploadState(UploadState.Running, "In-progress")._asdict()
+                    self.file_status[entry.path] = FileUploadState(UploadState.Running, "In-progress").asdict()
                     if status_callback:
                         status_callback()
-                    self.uploadFile(entry.path, entry.asset_mapping, entry.groupdict, file_callback)
+                    result = self.uploadFile(entry.path,
+                                             entry.asset_mapping,
+                                             entry.groupdict,
+                                             file_callback or self.defaultFileCallback)
                     if self.cancelled:
                         self.file_status[entry.path] = FileUploadState(UploadState.Cancelled,
-                                                                       "Cancelled by user")._asdict()
+                                                                       "Cancelled by user").asdict()
                         break
                     else:
-                        self.file_status[entry.path] = FileUploadState(UploadState.Success, "Complete")._asdict()
+                        self.file_status[entry.path] = FileUploadState(UploadState.Success, "Complete", result).asdict()
                         completed += 1
                 except HatracJobPaused:
                     status = self.getTransferStateStatus(entry.path)
                     if status:
                         self.file_status[entry.path] = FileUploadState(
-                            UploadState.Paused, "Paused: %s" % status)._asdict()
+                            UploadState.Paused, "Paused: %s" % status).asdict()
                     continue
                 except HatracJobTimeout:
                     status = self.getTransferStateStatus(entry.path)
                     if status:
-                        self.file_status[entry.path] = FileUploadState(UploadState.Timeout, "Timeout")._asdict()
+                        self.file_status[entry.path] = FileUploadState(UploadState.Timeout, "Timeout").asdict()
                     continue
                 except HatracJobAborted:
-                    self.file_status[entry.path] = FileUploadState(UploadState.Aborted, "Aborted by user")._asdict()
+                    self.file_status[entry.path] = FileUploadState(UploadState.Aborted, "Aborted by user").asdict()
                 except:
                     logger.debug("Unexpected exception", exc_info=sys.exc_info())
                     (etype, value, traceback) = sys.exc_info()
-                    self.file_status[entry.path] = FileUploadState(UploadState.Failed, format_exception(value))._asdict()
+                    self.file_status[entry.path] = FileUploadState(UploadState.Failed, format_exception(value)).asdict()
                 self.delTransferState(entry.path)
                 if status_callback:
                     status_callback()
@@ -596,10 +611,12 @@ class DerivaUpload(object):
                                                                 for key in sorted(failed_uploads.keys())])))
                 raise RuntimeError("%s file(s) failed to upload due to errors." % len(failed_uploads))
         finally:
-            logger.info("File upload processing completed: %s file(s) were uploaded successfully, "
+            logger.info("File upload processing completed: %s files were uploaded successfully, "
                         "%s files failed to upload due to errors, "
                         "%s files were skipped because they did not satisfy the matching criteria of the configuration."
                         % (completed, len(failed_uploads), len(self.skipped_files)))
+
+        return self.file_status
 
     def uploadFile(self, file_path, asset_mapping, match_groupdict, callback=None):
         """
@@ -613,9 +630,9 @@ class DerivaUpload(object):
         logger.info("Processing: [%s]" % file_path)
 
         if asset_mapping.get("asset_type", "file") == "table":
-            self._uploadTable(file_path, asset_mapping, match_groupdict)
+            return self._uploadTable(file_path, asset_mapping, match_groupdict)
         else:
-            self._uploadAsset(file_path, asset_mapping, match_groupdict, callback)
+            return self._uploadAsset(file_path, asset_mapping, match_groupdict, callback)
 
     def _uploadAsset(self, file_path, asset_mapping, match_groupdict, callback=None):
 
@@ -649,6 +666,7 @@ class DerivaUpload(object):
         # 5. If "create_record_before_upload" specified in asset_mapping, check for an existing record, creating a new
         #    one if necessary. Otherwise, delay this logic until after the file upload.
         record = None
+        result = None
         if stob(asset_mapping.get("create_record_before_upload", False)):
             record = self._getFileRecord(asset_mapping)
 
@@ -681,7 +699,7 @@ class DerivaUpload(object):
 
         # 7. Check for an existing record and create a new one if necessary
         if not record:
-            record = self._getFileRecord(asset_mapping)
+            record, result = self._getFileRecord(asset_mapping)
 
         # 8. Update an existing record, if necessary
         column_map = asset_mapping.get("column_map", {})
@@ -694,10 +712,15 @@ class DerivaUpload(object):
                     "A required 'record_update_template' parameter for this asset mapping could not be found in the "
                     "configuration. The record will not be updated.")
             logger.info("Updating catalog for file [%s]" % self.getFileDisplayName(file_path))
-            self._catalogRecordUpdate(self.metadata['target_table'], record, updated_record, record_update_template)
+            result = self._catalogRecordUpdate(self.metadata['target_table'],
+                                               record,
+                                               updated_record,
+                                               record_update_template)[0]
 
         # 9. Execute any configured post_processors
         self._execute_processors(file_path, asset_mapping, match_groupdict, processor_list=POST_PROCESSORS_KEY)
+
+        return result
 
     def _uploadTable(self, file_path, asset_mapping, match_groupdict, callback=None):
         if self.cancelled:
@@ -733,6 +756,7 @@ class DerivaUpload(object):
         Helper function that queries the catalog to get a record linked to the asset, or create it if it doesn't exist.
         :return: the file record
         """
+        record = None
         column_map = asset_mapping.get("column_map", {})
         rqt = asset_mapping['record_query_template']
         try:
@@ -741,14 +765,16 @@ class DerivaUpload(object):
             raise DerivaUploadConfigurationError("Record query template substitution error: %s" % format_exception(e))
         result = self.catalog.get(path).json()
         if result:
-            self._updateFileMetadata(result[0], no_overwrite=True)
-            return self.pruneDict(result[0], column_map)
+            record = result[0]
+            self._updateFileMetadata(record, no_overwrite=True)
+            return self.pruneDict(record, column_map), record
         else:
             row = self.interpolateDict(self.metadata, column_map)
             result = self._catalogRecordCreate(self.metadata['target_table'], row)
             if result:
-                self._updateFileMetadata(result[0])
-            return self.interpolateDict(self.metadata, column_map, allowNone=True)
+                record = result[0]
+                self._updateFileMetadata(record)
+            return self.interpolateDict(self.metadata, column_map, allowNone=True), record
 
     def _urlEncodeMetadata(self, safe_overrides=None):
         urlencoded = dict()

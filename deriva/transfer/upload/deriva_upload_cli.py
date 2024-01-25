@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import traceback
 from deriva.transfer import DerivaUpload, DerivaUploadError, DerivaUploadConfigurationError, \
     DerivaUploadCatalogCreateError, DerivaUploadCatalogUpdateError
@@ -20,6 +21,9 @@ class DerivaUploadCLI(BaseCLI):
         self.parser.add_argument('--dry-run', action="store_true",
                                  help="Scan the input directory for matching files to upload, "
                                       "but do not transfer any files.")
+        self.parser.add_argument('--output-file', metavar='<file>',
+                                 help="Optional path where a JSON-formatted output file will be written, "
+                                      "containing file upload status and associated metadata.")
         self.parser.add_argument("--catalog", default=1, metavar="<1>", help="Catalog number. Default: 1")
         self.parser.add_argument("path", metavar="<input dir>", help="Path to an input directory.")
         self.uploader = uploader
@@ -34,7 +38,8 @@ class DerivaUploadCLI(BaseCLI):
                credential_file=None,
                no_update=False,
                purge=False,
-               dry_run=False):
+               dry_run=False,
+               output_file=None):
 
         if not issubclass(uploader, DerivaUpload):
             raise TypeError("DerivaUpload subclass required")
@@ -62,7 +67,10 @@ class DerivaUploadCLI(BaseCLI):
                 deriva_uploader.getVersion(), deriva_uploader.getVersionCompatibility()))
         deriva_uploader.scanDirectory(data_path, abort_on_invalid_input=False, purge_state=purge)
         if not dry_run:
-            deriva_uploader.uploadFiles(file_callback=deriva_uploader.defaultFileCallback)
+            results = deriva_uploader.uploadFiles()
+            if output_file:
+                with open(output_file, "w") as output:
+                    json.dump(results, output)
         deriva_uploader.cleanup()
 
     def main(self):
@@ -84,7 +92,8 @@ class DerivaUploadCLI(BaseCLI):
                                    args.credential_file,
                                    args.no_config_update,
                                    args.purge_state,
-                                   args.dry_run)
+                                   args.dry_run,
+                                   args.output_file)
         except (RuntimeError, FileNotFoundError, DerivaUploadError, DerivaUploadConfigurationError,
                 DerivaUploadCatalogCreateError, DerivaUploadCatalogUpdateError) as e:
             sys.stderr.write(("\n" if not args.quiet else "") + format_exception(e))
