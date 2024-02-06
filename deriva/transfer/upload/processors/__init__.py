@@ -4,11 +4,13 @@ from deriva.core import read_config, format_exception
 from deriva.transfer.upload import DerivaUploadConfigurationError
 from deriva.transfer.upload.processors.base_processor import BaseProcessor
 from deriva.transfer.upload.processors.archive_processor import BagArchiveProcessor
+from deriva.transfer.upload.processors.rename_processor import FileRenameProcessor
 from deriva.transfer.upload.processors.logging_processor import LoggingProcessor
 from deriva.transfer.upload.processors.metadata_update_processor import MetadataUpdateProcessor
 
 DEFAULT_PROCESSORS = {
     "BagArchiveProcessor": BagArchiveProcessor,
+    "FileRenameProcessor": FileRenameProcessor,
     "LoggingProcessor": LoggingProcessor,
     "MetadataProcessor": MetadataUpdateProcessor
 }

@@ -6,6 +6,7 @@ import datetime
 import json
 import shutil
 import tempfile
+import pathlib
 import logging
 import platform
 import signal
@@ -33,9 +34,10 @@ class Enum(tuple):
 
 
 UploadState = Enum(["Success", "Failed", "Pending", "Running", "Paused", "Aborted", "Cancelled", "Timeout"])
-UploadMetadataReservedKeyNames = ["URI", "file_name", "file_ext", "file_size", "content-disposition", "md5", "sha256",
-                                  "md5_base64", "sha256_base64", "schema", "table", "target_table", "_upload_year_",
-                                  "_upload_month_", "_upload_day_", "_upload_time_"]
+UploadMetadataReservedKeyNames = [
+    "URI", "file_name", "file_ext", "file_size", "base_path", "base_name", "content-disposition", "md5", "sha256",
+    "md5_base64", "sha256_base64", "schema", "table", "target_table", "_upload_year_", "_upload_month_", "_upload_day_",
+    "_upload_time_"]
 
 DefaultConfig = {
   "version_compatibility": [[">=%s" % VERSION]],
@@ -643,12 +645,10 @@ class DerivaUpload(object):
         self._execute_processors(file_path, asset_mapping, match_groupdict, processor_list=PRE_PROCESSORS_KEY)
         if PROCESSOR_MODIFIED_FILE_PATH_KEY in self.processor_output:
             file_path = self.processor_output[PROCESSOR_MODIFIED_FILE_PATH_KEY]
-            self.metadata["file_name"] = self.getFileDisplayName(file_path)
-            self.metadata["file_size"] = self.getFileSize(file_path)
-            self.metadata["file_ext"] = os.path.splitext(file_path)[1]
-            self._urlEncodeMetadata(asset_mapping.get("url_encoding_safe_overrides"))
-
-        logger.debug("Computed metadata for: [%s]." % file_path)
+        self._urlEncodeMetadata(asset_mapping.get("url_encoding_safe_overrides"))
+        logger.info("Computed metadata for: [%s]." % file_path)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Current metadata: %s" % self.metadata)
 
         # 3. Compute checksum(s) for current file and add to metadata
         logger.info("Computing checksums for file: [%s]. Please wait..." % file_path)
@@ -662,11 +662,12 @@ class DerivaUpload(object):
 
         # 4. Populate additional metadata by querying the catalog
         self._queryFileMetadata(asset_mapping)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Updated metadata: %s" % self.metadata)
 
         # 5. If "create_record_before_upload" specified in asset_mapping, check for an existing record, creating a new
         #    one if necessary. Otherwise, delay this logic until after the file upload.
-        record = None
-        result = None
+        result = record = None
         if stob(asset_mapping.get("create_record_before_upload", False)):
             record = self._getFileRecord(asset_mapping)
 
@@ -716,6 +717,9 @@ class DerivaUpload(object):
                                                record,
                                                updated_record,
                                                record_update_template)[0]
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Updated catalog for file [%s]: %s" % (self.getFileDisplayName(file_path), result))
+            record, result = self._getFileRecord(asset_mapping)
 
         # 9. Execute any configured post_processors
         self._execute_processors(file_path, asset_mapping, match_groupdict, processor_list=POST_PROCESSORS_KEY)
@@ -789,10 +793,14 @@ class DerivaUpload(object):
     def _initFileMetadata(self, file_path, asset_mapping, match_groupdict):
         self.metadata.clear()
         self._updateFileMetadata(match_groupdict)
-
         self.metadata['target_table'] = self.getCatalogTable(asset_mapping, match_groupdict)
+
         self.metadata["file_name"] = self.getFileDisplayName(file_path)
         self.metadata["file_size"] = self.getFileSize(file_path)
+        if self.metadata["file_ext"] is None:
+            self.metadata["file_ext"] = "".join(pathlib.PurePath(file_path).suffixes)
+        self.metadata["base_path"] = os.path.dirname(file_path)
+        self.metadata["base_name"] = self.metadata["file_name"].rsplit(self.metadata["file_ext"])[0]
 
         time = datetime.datetime.now()
         self.metadata["_upload_year_"] = time.year
@@ -823,7 +831,10 @@ class DerivaUpload(object):
         """
         Helper function that queries the catalog to get required metadata for a given file/asset
         """
-        for uri in asset_mapping.get("metadata_query_templates", []):
+        metadata_queries = asset_mapping.get("metadata_query_templates", [])
+        if logger.isEnabledFor(logging.DEBUG) and metadata_queries:
+            logger.debug("Querying catalog for additional metadata...")
+        for uri in metadata_queries:
             try:
                 path = uri.format(**self.metadata)
             except KeyError as e:
@@ -831,7 +842,6 @@ class DerivaUpload(object):
             result = self.catalog.get(path).json()
             if result:
                 self._updateFileMetadata(result[0], True)
-                self._urlEncodeMetadata(asset_mapping.get("url_encoding_safe_overrides"))
             else:
                 raise RuntimeError("Metadata query did not return any results: %s" % path)
 
@@ -843,6 +853,7 @@ class DerivaUpload(object):
             except KeyError as e:
                 logger.warning("Column value template substitution error: %s" % format_exception(e))
                 continue
+
         self._urlEncodeMetadata(asset_mapping.get("url_encoding_safe_overrides"))
 
     def _getFileExtensionMetadata(self, ext):
@@ -1085,6 +1096,8 @@ class DerivaUpload(object):
                         **kwargs)
                     proc_class = processor.__class__.__module__
                     proc_name = processor.__class__.__name__
+                    if processor_params.get(PROCESSOR_REQUIRES_METADATA_QUERY_KEY, False):
+                        self._queryFileMetadata(asset_mapping)
                     logger.debug("Attempting to execute upload processor class %s from module: %s" %
                                  (proc_name, proc_class))
                     output = processor.process()
