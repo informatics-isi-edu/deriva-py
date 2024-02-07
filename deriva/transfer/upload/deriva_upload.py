@@ -37,7 +37,7 @@ UploadState = Enum(["Success", "Failed", "Pending", "Running", "Paused", "Aborte
 UploadMetadataReservedKeyNames = [
     "URI", "file_name", "file_ext", "file_size", "base_path", "base_name", "content-disposition", "md5", "sha256",
     "md5_base64", "sha256_base64", "schema", "table", "target_table", "_upload_year_", "_upload_month_", "_upload_day_",
-    "_upload_time_"]
+    "_upload_time_", "_identity_id", "_identity_display_name", "_identity_full_name", "_identity_email"]
 
 DefaultConfig = {
   "version_compatibility": [[">=%s" % VERSION]],
@@ -103,7 +103,7 @@ class DerivaUpload(object):
         self.metadata = dict()
         self.catalog_metadata = {"table_metadata": {}}
         self.processor_output = dict()
-
+        self.identity = dict()
         self.file_list = OrderedDict()
         self.file_status = OrderedDict()
         self.skipped_files = set()
@@ -154,6 +154,10 @@ class DerivaUpload(object):
         if self.store:
             del self.store
         self.store = HatracStore(protocol, host, self.credentials, session_config=session_config)
+
+        # determine identity
+        attributes = self.catalog.get_authn_session().json()
+        self.identity = attributes.get("client", self.identity)
 
         # init dcctx cid to a default
         self.set_dcctx_cid(self.dcctx_cid)
@@ -807,6 +811,10 @@ class DerivaUpload(object):
         self.metadata["_upload_month_"] = time.month
         self.metadata["_upload_day_"] = time.day
         self.metadata["_upload_time_"] = time.timestamp()
+        self.metadata["_identity_id"] = self.identity.get("id", "anonymous")
+        self.metadata["_identity_display_name"] = self.identity.get("display_name")
+        self.metadata["_identity_full_name"] = self.identity.get("full_name")
+        self.metadata["_identity_email"] = self.identity.get("email")
 
         self._urlEncodeMetadata(asset_mapping.get("url_encoding_safe_overrides"))
 
