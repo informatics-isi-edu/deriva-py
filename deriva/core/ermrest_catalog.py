@@ -7,7 +7,7 @@ import codecs
 import csv
 import json
 import requests
-from collections import namedtuple
+from typing import NamedTuple
 
 from . import urlquote, urlsplit, urlunsplit, datapath, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, DEFAULT_SESSION_CONFIG, \
     Megabyte, Kilobyte, get_transfer_summary, IS_PY2
@@ -129,7 +129,11 @@ _clone_state_url = "tag:isrd.isi.edu,2018:clone-status"
 
 DEFAULT_PAGE_SIZE = 100000
 
-ResolveRidResult = namedtuple('ResolveRidResult', [ 'datapath', 'table', 'rid' ])
+class ResolveRidResult (NamedTuple):
+    datapath: datapath.DataPath
+    table: ermrest_model.Table
+    rid: str
+
 
 class ErmrestCatalog(DerivaBinding):
     """Persistent handle for an ERMrest catalog.
@@ -388,8 +392,8 @@ class ErmrestCatalog(DerivaBinding):
             return None
         return entity[0], entity[1]
 
-    def resolve_rid(self, rid, model=None, builder=None):
-        """Resolve a RID value to return a ResolveRidResult namedtuple with fields (datapath, table, rid).
+    def resolve_rid(self, rid: str, model: ermrest_model.Model=None, builder: datapath._CatalogWrapper=None) -> ResolveRidResult:
+        """Resolve a RID value to return a ResolveRidResult (a named tuple).
 
         :param rid: The RID (str) to resolve
         :param model: A result from self.getCatalogModel() to reuse
