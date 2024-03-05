@@ -159,6 +159,7 @@ class DerivaDownload(object):
         bag_path = None
         bag_archiver = None
         bag_algorithms = None
+        bag_idempotent = False
         bag_config = self.config.get('bag')
         create_bag = True if bag_config else False
         if create_bag:
@@ -167,12 +168,13 @@ class DerivaDownload(object):
             bag_path = os.path.abspath(os.path.join(self.output_dir, bag_name))
             bag_archiver = bag_config.get('bag_archiver')
             bag_algorithms = bag_config.get('bag_algorithms', ['sha256'])
+            bag_idempotent = stob(bag_config.get('bag_idempotent', False))
             bag_metadata = bag_config.get('bag_metadata', {"Internal-Sender-Identifier":
                                                            "deriva@%s" % self.server_url})
-            bag_ro = create_bag and stob(bag_config.get('bag_ro', "True"))
+            bag_ro = create_bag and not bag_idempotent and stob(bag_config.get('bag_ro', "True"))
             if create_bag:
                 bdb.ensure_bag_path_exists(bag_path)
-                bag = bdb.make_bag(bag_path, algs=bag_algorithms, metadata=bag_metadata)
+                bag = bdb.make_bag(bag_path, algs=bag_algorithms, metadata=bag_metadata, idempotent=bag_idempotent)
                 if bag_ro:
                     ro_author_name = bag.info.get("Contact-Name",
                                                   None if not identity else
@@ -267,7 +269,8 @@ class DerivaDownload(object):
                              algs=bag_algorithms,
                              remote_file_manifest=remote_file_manifest
                              if (remote_file_manifest and os.path.getsize(remote_file_manifest) > 0) else None,
-                             update=True)
+                             update=True,
+                             idempotent=bag_idempotent)
             except Exception as e:
                 logging.fatal("Exception while updating bag manifests: %s" % format_exception(e))
                 bdb.cleanup_bag(bag_path)
@@ -280,7 +283,9 @@ class DerivaDownload(object):
 
             if bag_archiver is not None:
                 try:
-                    archive = bdb.archive_bag(bag_path, bag_archiver.lower())
+                    archive = bdb.archive_bag(bag_path,
+                                              bag_archiver.lower(),
+                                              idempotent=bag_idempotent)
                     bdb.cleanup_bag(bag_path)
                     outputs = {os.path.basename(archive): {LOCAL_PATH_KEY: archive}}
                 except Exception as e:

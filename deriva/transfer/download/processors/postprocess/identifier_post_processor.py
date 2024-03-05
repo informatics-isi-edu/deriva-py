@@ -2,10 +2,11 @@ import json
 import logging
 from importlib import import_module
 from deriva.core import get_credential, urlsplit, urlunsplit, format_exception, stob
+from deriva.core.utils.globus_auth_utils import GlobusNativeLogin
 from deriva.core.utils.webauthn_utils import get_wallet_entries
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError
 from deriva.transfer.download.processors.base_processor import *
-from fair_identifiers_client.config import config
+from fair_research_login.client import NoSavedTokens, TokensExpired
 from fair_identifiers_client.identifiers_api import identifiers_client, IdentifierClient, AccessTokenAuthorizer, \
     IdentifierClientError
 
@@ -16,6 +17,7 @@ class FAIRIdentifierPostProcessor(BaseProcessor):
     """
 
     IDENTIFIER_SERVICE = "https://identifiers.fair-research.org/"
+    IDENTIFIER_SERVICE_WRITER_SCOPE = "https://auth.globus.org/scopes/identifiers.fair-research.org/writer"
     TEST_IDENTIFIER_NAMESPACE = "minid-test"
     IDENTIFIER_NAMESPACE = "minid"
 
@@ -28,12 +30,25 @@ class FAIRIdentifierPostProcessor(BaseProcessor):
         if self.wallet:
             entries = get_wallet_entries(self.wallet, "oauth2",
                                          credential_source="https://auth.globus.org",
-                                         scopes=["https://auth.globus.org/scopes/identifiers.fair-research.org/writer"])
+                                         scopes=[self.IDENTIFIER_SERVICE_WRITER_SCOPE])
             token = entries[0].get("access_token") if entries else None
-            ac = AccessTokenAuthorizer(token) if token else None
-            return IdentifierClient(base_url=self.IDENTIFIER_SERVICE, app_name="DERIVA Export", authorizer=ac)
         else:
-            return identifiers_client(config)
+            tokens = None
+            host = self.envars["hostname"]
+            gnl = GlobusNativeLogin(host=host)
+            try:
+                tokens = gnl.client.load_tokens()
+            except NoSavedTokens:
+                pass
+            except TokensExpired as e:
+                raise RuntimeError(
+                    "Unable to obtain token set due to refresh token expiry. Please logout of the expired scopes. %s" %
+                    format_exception(e))
+            if not tokens:
+                raise RuntimeError("Login required. No saved tokens.")
+            token = gnl.find_access_token_for_scope(self.IDENTIFIER_SERVICE_WRITER_SCOPE, tokens)
+        ac = AccessTokenAuthorizer(token) if token else None
+        return IdentifierClient(base_url=self.IDENTIFIER_SERVICE, app_name="DERIVA Export", authorizer=ac)
 
     def process(self):
         ic = self.load_identifier_client()
@@ -55,11 +70,18 @@ class FAIRIdentifierPostProcessor(BaseProcessor):
             if created_by:
                 metadata.update({"created_by": created_by})
             visible_to = self.parameters.get("visible_to", ["public"])
-            locations = v.get(REMOTE_PATHS_KEY)
+            locations = v.get(REMOTE_PATHS_KEY) or self.parameters.get("locations")
             if not locations:
                 raise DerivaDownloadConfigurationError(
                     "Invalid URLs: One or more location URLs must be specified when registering an identifier.")
-
+            env_column_map = self.parameters.get("env_column_map")
+            if env_column_map:
+                env_metadata = {}
+                for key, val in env_column_map.items():
+                    item = self.envars.get(env_column_map[key])
+                    if item:
+                        env_metadata[val] = item
+                metadata.update(env_metadata)
             kwargs = {
                 "namespace": namespace,
                 "visible_to": visible_to,
