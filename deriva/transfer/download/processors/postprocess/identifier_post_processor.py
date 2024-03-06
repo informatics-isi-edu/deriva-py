@@ -80,7 +80,7 @@ class FAIRIdentifierPostProcessor(BaseProcessor):
             if env_column_map:
                 env_metadata = {}
                 for key, val in env_column_map.items():
-                    item = self.envars.get(env_column_map[key])
+                    item = self.envars.get(key)
                     if item:
                         env_metadata[val] = item
                 metadata.update(env_metadata)
