@@ -7,8 +7,7 @@ from deriva.core.utils.webauthn_utils import get_wallet_entries
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError
 from deriva.transfer.download.processors.base_processor import *
 from fair_research_login.client import NoSavedTokens, TokensExpired
-from fair_identifiers_client.identifiers_api import identifiers_client, IdentifierClient, AccessTokenAuthorizer, \
-    IdentifierClientError
+from fair_identifiers_client.identifiers_api import IdentifierClient, AccessTokenAuthorizer, IdentifierClientError
 
 
 class FAIRIdentifierPostProcessor(BaseProcessor):
@@ -17,6 +16,7 @@ class FAIRIdentifierPostProcessor(BaseProcessor):
     """
 
     IDENTIFIER_SERVICE = "https://identifiers.fair-research.org/"
+    IDENTIFIER_SERVICE_TEST = "https://identifiers-test.fair-research.org/"
     IDENTIFIER_SERVICE_WRITER_SCOPE = "https://auth.globus.org/scopes/identifiers.fair-research.org/writer"
     TEST_IDENTIFIER_NAMESPACE = "minid-test"
     IDENTIFIER_NAMESPACE = "minid"
@@ -24,7 +24,7 @@ class FAIRIdentifierPostProcessor(BaseProcessor):
     def __init__(self, envars=None, **kwargs):
         super(FAIRIdentifierPostProcessor, self).__init__(envars, **kwargs)
 
-    def load_identifier_client(self):
+    def load_identifier_client(self, identifiers_service_url):
         if not self.identity:
             logging.warning("Unauthenticated (anonymous) identity being used with identifier client")
         if self.wallet:
@@ -48,11 +48,13 @@ class FAIRIdentifierPostProcessor(BaseProcessor):
                 raise RuntimeError("Login required. No saved tokens.")
             token = gnl.find_access_token_for_scope(self.IDENTIFIER_SERVICE_WRITER_SCOPE, tokens)
         ac = AccessTokenAuthorizer(token) if token else None
-        return IdentifierClient(base_url=self.IDENTIFIER_SERVICE, app_name="DERIVA Export", authorizer=ac)
+        return IdentifierClient(base_url=identifiers_service_url, app_name="DERIVA Export", authorizer=ac)
 
     def process(self):
-        ic = self.load_identifier_client()
         test = stob(self.parameters.get("test", "False"))
+        test_service = stob(self.parameters.get("test_service", "False"))
+        identifiers_service_url = self.IDENTIFIER_SERVICE_TEST if test_service else self.IDENTIFIER_SERVICE
+        ic = self.load_identifier_client(identifiers_service_url)
         namespace = (self.TEST_IDENTIFIER_NAMESPACE if test else self.IDENTIFIER_NAMESPACE)
         for k, v in self.outputs.items():
             file_path = v[LOCAL_PATH_KEY]
@@ -99,7 +101,7 @@ class FAIRIdentifierPostProcessor(BaseProcessor):
                 identifier = minid["identifier"]
                 v[IDENTIFIER_KEY] = identifier
                 v[IDENTIFIER_LANDING_PAGE] = \
-                    self.parameters.get("redirect_base", "") + self.IDENTIFIER_SERVICE + identifier
+                    self.parameters.get("redirect_base", "") + identifiers_service_url + identifier
             except IdentifierClientError as e:
                 raise DerivaDownloadError("Unable to create identifier: %s" % format_exception(e))
 
