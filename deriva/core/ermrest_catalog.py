@@ -7,6 +7,7 @@ import codecs
 import csv
 import json
 import requests
+from typing import NamedTuple
 
 from . import urlquote, urlsplit, urlunsplit, datapath, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, DEFAULT_SESSION_CONFIG, \
     Megabyte, Kilobyte, get_transfer_summary, IS_PY2
@@ -127,6 +128,11 @@ class ErmrestCatalogMutationError(Exception):
 _clone_state_url = "tag:isrd.isi.edu,2018:clone-status"
 
 DEFAULT_PAGE_SIZE = 100000
+
+class ResolveRidResult (NamedTuple):
+    datapath: datapath.DataPath
+    table: ermrest_model.Table
+    rid: str
 
 
 class ErmrestCatalog(DerivaBinding):
@@ -385,6 +391,52 @@ class ErmrestCatalog(DerivaBinding):
             logging.debug("Unable to tokenize %s into a fully qualified <schema:table> name." % name)
             return None
         return entity[0], entity[1]
+
+    def resolve_rid(self, rid: str, model: ermrest_model.Model=None, builder: datapath._CatalogWrapper=None) -> ResolveRidResult:
+        """Resolve a RID value to return a ResolveRidResult (a named tuple).
+
+        :param rid: The RID (str) to resolve
+        :param model: A result from self.getCatalogModel() to reuse
+        :param builder: A result from self.getPathBuilder() to reuse
+
+        Raises KeyError if RID is not found in the catalog.
+
+        The elements of the ResolveRidResult namedtuple provide more
+        information about the entity identified by the supplied RID in
+        this catalog:
+
+        - datapath: datapath instance for querying the resolved entity
+        - table: ermrest_model.Table instance containing the entity
+        - rid: normalized version of the input RID value
+
+        Example to simply retrieve entity content:
+
+           path, _, _ = catalog.resolve_rid('1-0000')
+           data = path.entities().fetch()[0]
+
+        """
+        if model is None:
+            model = self.getCatalogModel()
+        if builder is None:
+            builder = self.getPathBuilder()
+        try:
+            r = self.get('/entity_rid/%s' % urlquote(rid))
+            info = r.json()
+            sname = info['schema_name']
+            tname = info['table_name']
+            rid = info['RID']
+
+            ptable = builder.schemas[sname].tables[tname]
+
+            return ResolveRidResult(
+                ptable.path.filter(ptable.RID == rid),
+                model.schemas[sname].tables[tname],
+                rid
+            )
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == requests.codes.not_found:
+                raise KeyError(rid)
+            raise
 
     def getAsFile(self,
                   path,
