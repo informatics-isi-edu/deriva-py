@@ -78,11 +78,7 @@ class FAIRIdentifierPostProcessor(BaseProcessor):
                     "Invalid URLs: One or more location URLs must be specified when registering an identifier.")
             env_column_map = self.parameters.get("env_column_map")
             if env_column_map:
-                env_metadata = {}
-                for key, val in env_column_map.items():
-                    item = self.envars.get(key)
-                    if item:
-                        env_metadata[val] = item
+                env_metadata = {key: val.format(**self.envars) for key, val in env_column_map.items()}
                 metadata.update(env_metadata)
             kwargs = {
                 "namespace": namespace,

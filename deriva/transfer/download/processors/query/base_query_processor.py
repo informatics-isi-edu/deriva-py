@@ -206,11 +206,18 @@ class JSONStreamQueryProcessor(BaseQueryProcessor):
 class JSONEnvUpdateProcessor(BaseQueryProcessor):
     def __init__(self, envars=None, **kwargs):
         super(JSONEnvUpdateProcessor, self).__init__(envars, **kwargs)
+        self.query_keys = self.parameters.get("query_keys")
 
     def process(self):
         resp = self.catalogQuery(headers={'accept': "application/json"}, as_file=False)
         if resp:
-            self.envars.update(resp[0])
+            if isinstance(resp, list):
+                resp = resp[0]
+            if self.query_keys is not None:
+                results = {key: resp[key] for key in self.query_keys}
+            else:
+                results = resp
+            self.envars.update(results)
             self._urlencode_envars()
         return {}
 
