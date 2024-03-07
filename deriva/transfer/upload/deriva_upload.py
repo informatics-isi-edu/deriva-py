@@ -156,8 +156,9 @@ class DerivaUpload(object):
         self.store = HatracStore(protocol, host, self.credentials, session_config=session_config)
 
         # determine identity
-        attributes = self.catalog.get_authn_session().json()
-        self.identity = attributes.get("client", self.identity)
+        if self.credentials:
+            attributes = self.catalog.get_authn_session().json()
+            self.identity = attributes.get("client", self.identity)
 
         # init dcctx cid to a default
         self.set_dcctx_cid(self.dcctx_cid)
@@ -232,6 +233,8 @@ class DerivaUpload(object):
         self.credentials = credentials
         self.catalog.set_credentials(self.credentials, host)
         self.store.set_credentials(self.credentials, host)
+        attributes = self.catalog.get_authn_session().json()
+        self.identity = attributes.get("client", self.identity)
 
     def setConfig(self, config_file):
         if not config_file:
