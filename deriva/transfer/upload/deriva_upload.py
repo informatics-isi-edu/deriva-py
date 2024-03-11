@@ -804,10 +804,11 @@ class DerivaUpload(object):
 
         self.metadata["file_name"] = self.getFileDisplayName(file_path)
         self.metadata["file_size"] = self.getFileSize(file_path)
-        if self.metadata["file_ext"] is None:
+        if "file_ext" not in self.metadata:
             self.metadata["file_ext"] = "".join(pathlib.PurePath(file_path).suffixes)
         self.metadata["base_path"] = os.path.dirname(file_path)
-        self.metadata["base_name"] = self.metadata["file_name"].rsplit(self.metadata["file_ext"])[0]
+        self.metadata["base_name"] = self.metadata["file_name"].rsplit(
+            self.metadata["file_ext"])[0] if self.metadata["file_ext"] else self.metadata["file_name"]
 
         time = datetime.datetime.now()
         self.metadata["_upload_year_"] = time.year
@@ -1107,7 +1108,8 @@ class DerivaUpload(object):
                         **kwargs)
                     proc_class = processor.__class__.__module__
                     proc_name = processor.__class__.__name__
-                    if processor_params.get(PROCESSOR_REQUIRES_METADATA_QUERY_KEY, False):
+                    if processor_params is not None and processor_params.get(
+                            PROCESSOR_REQUIRES_METADATA_QUERY_KEY, False):
                         self._queryFileMetadata(asset_mapping)
                     logger.debug("Attempting to execute upload processor class %s from module: %s" %
                                  (proc_name, proc_class))
