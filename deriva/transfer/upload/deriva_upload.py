@@ -13,7 +13,7 @@ import signal
 from collections import OrderedDict
 from deriva.core import ErmrestCatalog, HatracStore, HatracJobAborted, HatracJobPaused, \
     HatracJobTimeout, urlquote, urlparse, stob, format_exception, get_credential, read_config, write_config, \
-    copy_config, resource_path, make_dirs, lock_file, DEFAULT_CHUNK_SIZE, IS_PY2, __version__ as VERSION
+    copy_config, resource_path, make_dirs, lock_file, DEFAULT_CHUNK_SIZE, __version__ as VERSION
 from deriva.core import DEFAULT_SESSION_CONFIG, DEFAULT_CREDENTIAL_FILE
 from deriva.core.utils import hash_utils as hu, mime_utils as mu, version_utils as vu
 from deriva.transfer.upload import *
@@ -412,8 +412,6 @@ class DerivaUpload(object):
             with io.open(updated_config_path, 'w', newline='\n', encoding='utf-8') as config:
                 remote_config_data = json.dumps(
                     remote_config, ensure_ascii=False, sort_keys=True, separators=(',', ': '), indent=2)
-                if IS_PY2 and isinstance(remote_config_data, str):
-                    remote_config_data = unicode(remote_config_data, 'utf-8')
                 config.write(remote_config_data)
             new_md5 = hu.compute_file_hashes(updated_config_path, hashes=['md5'])['md5'][0]
             if current_md5 != new_md5:
@@ -1199,7 +1197,7 @@ class DerivaUpload(object):
         self.acquire_dependent_locks(directory)
         try:
             if not os.path.isfile(transfer_state_file_path):
-                with lock_file(transfer_state_file_path, mode="wb" if IS_PY2 else "w") as tsfp:
+                with lock_file(transfer_state_file_path, "w") as tsfp:
                     json.dump(self.transfer_state, tsfp)
 
             transfer_state_lock = self.transfer_state_locks.get(transfer_state_file_path)
