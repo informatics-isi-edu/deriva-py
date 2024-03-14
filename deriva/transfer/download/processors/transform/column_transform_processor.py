@@ -3,7 +3,7 @@ import os
 import json
 import logging
 from enum import Enum
-from deriva.core import json_item_handler, force_unicode
+from deriva.core import json_item_handler
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError
 from deriva.transfer.download.processors.transform.base_transform_processor import BaseTransformProcessor
 
@@ -50,7 +50,7 @@ class ColumnTransformProcessor(BaseTransformProcessor):
                             raise DerivaDownloadError(
                                 "Unknown function '%s' in column transform [%s]" % (func, v))
                     output_file.writelines(''.join(
-                        [force_unicode(json.dumps(item, ensure_ascii=False)), '\n']))
+                        [json.dumps(item, ensure_ascii=False), '\n']))
                 json_item_handler(self.input_abspath, row_handler)
                 self.writer.flush()
                 self.writer.close()
