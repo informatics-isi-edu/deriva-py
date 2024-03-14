@@ -42,7 +42,7 @@ setup(
         'deriva.config': ['examples/*.json'],
         'deriva.core': ['schemas/*.schema.json']
     },
-    python_requires='>=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*, !=3.5.*, <4',
+    python_requires='>=3.8, <4',
     entry_points={
         'console_scripts': [
             'deriva-upload-cli = deriva.transfer.upload.__main__:main',
@@ -68,8 +68,7 @@ setup(
         'pika',
         'urllib3>=1.26.0,<2.0',
         'portalocker>=1.2.1',
-        'scandir; python_version <= "2.7"',
-        'bdbag>=1.6.0',
+        'bdbag>=1.7.2',
         'globus_sdk>=3,<4',
         'fair-research-login>=0.3.1',
         'fair-identifiers-client>=0.5.1',
@@ -87,6 +86,7 @@ setup(
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3.10',
-        'Programming Language :: Python :: 3.11'
+        'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.12'
     ]
 )

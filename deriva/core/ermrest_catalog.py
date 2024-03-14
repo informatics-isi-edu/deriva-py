@@ -10,7 +10,7 @@ import requests
 from typing import NamedTuple
 
 from . import urlquote, urlsplit, urlunsplit, datapath, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, DEFAULT_SESSION_CONFIG, \
-    Megabyte, Kilobyte, get_transfer_summary, IS_PY2
+    Megabyte, Kilobyte, get_transfer_summary
 from .deriva_binding import DerivaBinding, DerivaPathError
 from . import ermrest_model
 from .ermrest_model import nochange
@@ -592,7 +592,7 @@ class ErmrestCatalog(DerivaBinding):
                     if buf == b"[]\n" or buf == b"{}\n":
                         delete_file = True
                 elif content_type == "text/csv":
-                    reader = csv.reader(codecs.iterdecode(destfile, 'utf-8') if not IS_PY2 else destfile)
+                    reader = csv.reader(codecs.iterdecode(destfile, 'utf-8'))
                     rowcount = 0
                     for row in reader:
                         rowcount += 1

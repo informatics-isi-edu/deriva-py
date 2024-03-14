@@ -14,18 +14,6 @@ import sys
 from deriva.core import DerivaServer, get_credential, ermrest_model as _em, __version__
 from deriva.core.datapath import DataPathException, Min, Max, Sum, Avg, Cnt, CntD, Array, ArrayD, Bin
 
-# unittests did not support 'subTests' until 3.4
-if sys.version_info[0] < 3 or sys.version_info[1] < 4:
-    HAS_SUBTESTS = False
-else:
-    HAS_SUBTESTS = True
-
-# unittests did not support 'assertWarns' until 3.2
-if sys.version_info[0] < 3 or sys.version_info[1] < 2:
-    HAS_ASSERTWARNS = False
-else:
-    HAS_ASSERTWARNS = True
-
 try:
     from pandas import DataFrame
     HAS_PANDAS = True
@@ -347,7 +335,6 @@ class DatapathTests (unittest.TestCase):
                 Min(self.experiment.column_definitions['Amount'])
             )
 
-    @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
     def test_aggregate_fns(self):
         tests = [
             ('min_amount',      Min,    0),
@@ -378,7 +365,6 @@ class DatapathTests (unittest.TestCase):
         self.assertIn('max_amount', result)
         self.assertEqual(result['max_amount'], TEST_EXP_MAX-1)
 
-    @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
     def test_aggregate_fns_array_star(self):
         path = self.experiment.path
         tests = [
@@ -395,7 +381,6 @@ class DatapathTests (unittest.TestCase):
                 self.assertEqual(len(result['arr']), TEST_EXP_MAX)
                 self.assertIn('Time', result['arr'][0])
 
-    @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
     def test_aggregate_fns_cnt_star(self):
         path = self.experiment.path
         tests = [
@@ -409,7 +394,6 @@ class DatapathTests (unittest.TestCase):
                 self.assertIn('cnt', result)
                 self.assertEqual(result['cnt'], TEST_EXP_MAX)
 
-    @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
     def test_attributegroup_fns(self):
         tests = [
             ('one group key',     [self.experiment.column_definitions['Type']]),
@@ -420,7 +404,6 @@ class DatapathTests (unittest.TestCase):
             with self.subTest(name=test_name):
                 self._do_attributegroup_fn_subtests(group_key)
 
-    @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
     def _do_attributegroup_fn_subtests(self, group_key):
         """Helper method for running common attributegroup subtests for different group keys."""
         tests = [
@@ -444,7 +427,6 @@ class DatapathTests (unittest.TestCase):
                 self.assertIn(name, result)
                 self.assertEqual(result[name], value)
 
-    @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
     def test_attributegroup_w_bin(self):
         tests = [
             ('min/max given',     0,    TEST_EXP_MAX),
@@ -488,7 +470,6 @@ class DatapathTests (unittest.TestCase):
                         continue
                     self.assertTrue(compare(result[name], bin))
 
-    @unittest.skipUnless(HAS_SUBTESTS, "This tests is not available unless running python 3.4+")
     def test_attributegroup_w_bin_sort(self):
         bin_name = 'bin'
         nbins = int(TEST_EXP_MAX/20)
@@ -515,7 +496,6 @@ class DatapathTests (unittest.TestCase):
                 self.assertIn(name, results[0])
                 self.assertTrue(compfn(name, results[0], results[1]))
 
-    @unittest.skipUnless(HAS_SUBTESTS, "This test is not available unless running python 3.4+")
     def test_attributegroup_w_bin_resolution(self):
         binkey = self.experiment.column_definitions['Empty']
         binname = 'bin'
@@ -766,7 +746,6 @@ class DatapathTests (unittest.TestCase):
         for i in range(TEST_EXP_MAX):
             self.assertEqual(ig(results[i]), ig(entities_copy[i]), 'copied values do not match')
 
-    @unittest.skipUnless(HAS_SUBTESTS, "This test is not available unless running python 3.4+")
     def test_deepcopy_of_paths(self):
         paths = [
             self.experiment.path,

@@ -1,6 +1,6 @@
 import mimetypes
 import re
-from deriva.core import urlunquote, IS_PY2
+from deriva.core import urlunquote
 
 if not mimetypes.inited:
     mimetypes.init()
@@ -38,11 +38,5 @@ def parse_content_disposition(value):
         n = urlunquote(str(n))
     except Exception as e:
         raise ValueError('Invalid URL encoding of content-disposition filename component. %s.' % e)
-
-    try:
-        if IS_PY2:
-            n = n.decode('utf8')
-    except Exception as e:
-        raise ValueError('Invalid UTF-8 encoding of content-disposition filename component. %s.' % e)
 
     return n
