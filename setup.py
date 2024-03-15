@@ -61,12 +61,11 @@ setup(
         ]
     },
     install_requires=[
-        'setuptools>=20.2',
         'packaging',
         'requests',
         'certifi',
         'pika',
-        'urllib3>=1.26.0,<2.0',
+        'urllib3>=1.26,<3',
         'portalocker>=1.2.1',
         'bdbag>=1.7.2',
         'globus_sdk>=3,<4',
