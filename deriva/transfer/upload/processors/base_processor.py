@@ -4,6 +4,8 @@ PROCESSOR_PARAMS_KEY = "processor_params"
 PRE_PROCESSORS_KEY = "pre_processors"
 POST_PROCESSORS_KEY = "post_processors"
 PROCESSOR_MODIFIED_FILE_PATH_KEY = "processor_modified_file_path"
+PROCESSOR_REQUIRES_METADATA_QUERY_KEY = "requires_metadata_query"
+
 
 class BaseProcessor(object):
     """

@@ -4,9 +4,6 @@ import re
 from deriva.core import ErmrestCatalog, AttrDict, ermrest_model, get_credential
 from deriva.config.base_config import BaseSpec, BaseSpecList, ConfigUtil, ConfigBaseCLI
 
-if sys.version_info > (3,):
-    unicode = str
-
 MY_VERSION = 0.99
 
 

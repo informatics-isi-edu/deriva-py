@@ -1,0 +1,212 @@
+{
+  "bag": {
+    "bag_name": "file",
+    "bag_algorithms": [
+      "md5"
+    ],
+    "bag_archiver": "zip",
+    "bag_metadata": {}
+  },
+  "catalog": {
+    "host": "https://app-dev.nih-cfde.org",
+    "catalog_id": "237",
+    "query_processors": [
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "file",
+          "query_path": "/entity/M:=CFDE:file/c2m2:file?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "project",
+          "query_path": "/entity/M:=CFDE:file/cf:=(core_fact)/CFDE:core_fact_project/(project)=(CFDE:project_in_project_transitive:member_project)/p:=(leader_project)=(c2m2:project:nid)?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "project_in_project",
+          "query_path": "/entity/M:=CFDE:file/cf:=(core_fact)/CFDE:core_fact_project/(project)=(CFDE:project_in_project_transitive:member_project)/(leader_project)=(CFDE:project_in_project:child_project)/c2m2:project_in_project?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "file_format",
+          "query_path": "/entity/M:=CFDE:file/(core_fact)/CFDE:core_fact_file_format/(file_format)=(c2m2:file_format:nid)?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "data_type",
+          "query_path": "/entity/M:=CFDE:file/(core_fact)/CFDE:core_fact_data_type/(data_type)=(c2m2:data_type:nid)?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "assay_type",
+          "query_path": "/entity/M:=CFDE:file/(core_fact)/CFDE:core_fact_assay_type/(assay_type)=(c2m2:assay_type:nid)?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "biosample",
+          "query_path": "/entity/M:=CFDE:file/CFDE:file_describes_biosample/(biosample)=(c2m2:biosample:nid)?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "anatomy",
+          "query_path": "/entity/M:=CFDE:file/(core_fact)/CFDE:core_fact_anatomy/(anatomy)=(c2m2:anatomy:nid)?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "disease",
+          "query_path": "/entity/M:=CFDE:file/(core_fact)/CFDE:core_fact_disease/(disease)=(c2m2:disease:nid)?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "gene",
+          "query_path": "/entity/M:=CFDE:file/(gene_fact)/CFDE:gene_fact_gene/(gene)=(c2m2:gene:nid)?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "substance",
+          "query_path": "/entity/M:=CFDE:file/(pubchem_fact)/CFDE:pubchem_fact_substance/(substance)=(c2m2:substance:nid)?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "compound",
+          "query_path": "/entity/M:=CFDE:file/(pubchem_fact)/CFDE:pubchem_fact_compound/(compound)=(c2m2:compound:nid)?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "biosample_disease",
+          "query_path": "/entity/M:=CFDE:file/CFDE:file_describes_biosample/(biosample)=(CFDE:biosample_disease:biosample)/c2m2:biosample_disease?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "biosample_gene",
+          "query_path": "/entity/M:=CFDE:file/CFDE:file_describes_biosample/(biosample)=(CFDE:biosample_gene:biosample)/c2m2:biosample_gene?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "biosample_substance",
+          "query_path": "/entity/M:=CFDE:file/CFDE:file_describes_biosample/(biosample)=(CFDE:biosample_substance:biosample)/c2m2:biosample_substance?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "biosample_from_subject",
+          "query_path": "/entity/M:=CFDE:file/CFDE:file_describes_biosample/(biosample)=(CFDE:biosample_from_subject:biosample)/c2m2:biosample_from_subject?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "subject",
+          "query_path": "/entity/M:=CFDE:file/CFDE:file_describes_subject/(subject)=(c2m2:subject:nid)?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "subject_granularity",
+          "query_path": "/entity/M:=CFDE:file/(core_fact)/CFDE:core_fact_subject_granularity/(subject_granularity)=(c2m2:subject_granularity:nid)?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "subject_role_taxonomy",
+          "query_path": "/entity/M:=CFDE:file/CFDE:file_describes_subject/(subject)/CFDE:subject_role_taxonomy/c2m2:subject_role_taxonomy?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "subject_role",
+          "query_path": "/entity/M:=CFDE:file/(core_fact)/CFDE:core_fact_subject_role/(subject_role)=(c2m2:subject_role:nid)?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "ncbi_taxonomy",
+          "query_path": "/entity/M:=CFDE:file/(core_fact)/CFDE:core_fact_ncbi_taxonomy/(ncbi_taxon)=(c2m2:ncbi_taxonomy:nid)?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "sex",
+          "query_path": "/entity/M:=CFDE:file/(core_fact)/CFDE:core_fact_sex/(sex)=(c2m2:sex:nid)?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "race",
+          "query_path": "/entity/M:=CFDE:file/(core_fact)/CFDE:core_fact_race/(race)=(c2m2:race:nid)?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "ethnicity",
+          "query_path": "/entity/M:=CFDE:file/(core_fact)/CFDE:core_fact_ethnicity/(ethnicity)=(c2m2:ethnicity:nid)?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "subject_race",
+          "query_path": "/entity/M:=CFDE:file/CFDE:file_describes_subject/(subject)=(CFDE:subject_race:subject)/c2m2:subject_race?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "subject_substance",
+          "query_path": "/entity/M:=CFDE:file/CFDE:file_describes_subject/(subject)=(CFDE:subject_substance:subject)/c2m2:subject_substance?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "subject_disease",
+          "query_path": "/entity/M:=CFDE:file/CFDE:file_describes_subject/(subject)=(CFDE:subject_disease:subject)/c2m2:subject_disease?limit=none"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "output_path": "subject_phenotype",
+          "query_path": "/entity/M:=CFDE:file/CFDE:file_describes_subject/(subject)=(CFDE:subject_phenotype:subject)/c2m2:subject_phenotype?limit=none"
+        }
+      }
+    ]
+  }
+}

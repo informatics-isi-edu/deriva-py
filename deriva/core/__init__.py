@@ -1,4 +1,4 @@
-__version__ = "1.6.5"
+__version__ = "1.7.1"
 
 from deriva.core.utils.core_utils import *
 from deriva.core.base_cli import BaseCLI, KeyValuePairArgs
@@ -17,7 +17,8 @@ def get_credential(host,
                    config_file=DEFAULT_CONFIG_FILE,
                    requested_scope=None,
                    force_scope_lookup=False,
-                   match_scope_tag="deriva-all"):
+                   match_scope_tag="deriva-all",
+                   update_bdbag_keychain=True):
     """
     This function is used to get authorization credentials (in dict form) for use with various deriva-py API calls
     which take it as a parameter. A user must have already authenticated to the target host using either `deriva-auth`
@@ -36,7 +37,9 @@ def get_credential(host,
     :param match_scope_tag: In the case that a host-to-scope mapping request returns multiple scopes, this is the key
         value ("tag") to match against in the result dict. By convention, the default is set to "deriva-all", which is
         the expected response from webauthn.
-
+    :param update_bdbag_keychain: Updates the bdbag keychain file with the bearer token mapped to `host`. This is
+        done to ensure that the bdbag keychain is updated when a refreshable bearer-token gets refreshed during the
+        login check. Defaults to True.
     :return: A dict containing credential authorization values mapped by authorization type
     """
     # load deriva credential set first
@@ -64,6 +67,8 @@ def get_credential(host,
                                                                      match_scope_tag=match_scope_tag)
                 if token:
                     creds["bearer-token"] = token
+                    if update_bdbag_keychain:
+                        globus_client.update_bdbag_keychain(token=token, host=host)
         except Exception as e:
             logging.warning("Exception while getting Globus credentials: %s" % format_exception(e))
 

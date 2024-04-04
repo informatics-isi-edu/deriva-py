@@ -13,29 +13,10 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from collections import OrderedDict
 from distutils import util as du_util
+from urllib.parse import quote as _urlquote, unquote as urlunquote
+from urllib.parse import urlparse, urlsplit, urlunsplit, urljoin
+from http.cookiejar import MozillaCookieJar
 
-IS_PY2 = (sys.version_info[0] == 2)
-IS_PY3 = (sys.version_info[0] == 3)
-
-
-def force_unicode_py2(s):
-    """Reliably return a Unicode string given a possible unicode or byte string"""
-    if isinstance(s, str):
-        return s.decode("utf-8")
-    else:
-        return unicode(s)
-
-
-if IS_PY3:
-    from urllib.parse import quote as _urlquote, unquote as urlunquote
-    from urllib.parse import urlparse, urlsplit, urlunsplit, urljoin
-    from http.cookiejar import MozillaCookieJar
-    force_unicode = str
-else:
-    from urllib import quote as _urlquote, unquote as urlunquote
-    from urlparse import urlparse, urlsplit, urlunsplit, urljoin
-    from cookielib import MozillaCookieJar
-    force_unicode = force_unicode_py2
 
 Kilobyte = 1024
 Megabyte = Kilobyte ** 2
@@ -57,7 +38,7 @@ DEFAULT_CREDENTIAL_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'credential.json')
 DEFAULT_GLOBUS_CREDENTIAL_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'globus-credential.json')
 DEFAULT_CONFIG_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'config.json')
 DEFAULT_COOKIE_JAR_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'cookies.txt')
-DEFAULT_REQUESTS_TIMEOUT = (6.3, 63)  # (connect, read), in seconds
+DEFAULT_REQUESTS_TIMEOUT = (6, 63)  # (connect, read), integer in seconds
 DEFAULT_SESSION_CONFIG = {
     "timeout": DEFAULT_REQUESTS_TIMEOUT,
     "retry_connect": 2,
@@ -237,8 +218,6 @@ def write_config(config_file=DEFAULT_CONFIG_FILE, config=DEFAULT_CONFIG):
     make_dirs(config_dir, mode=0o750)
     with io.open(config_file, 'w', newline='\n', encoding='utf-8') as cf:
         config_data = json.dumps(config, ensure_ascii=False, indent=2)
-        if IS_PY2 and isinstance(config_data, str):
-            config_data = unicode(config_data, 'utf-8')
         cf.write(config_data)
         cf.close()
 
@@ -275,8 +254,6 @@ def write_credential(credential_file=DEFAULT_CREDENTIAL_FILE, credential=DEFAULT
     with lock_file(credential_file, mode='w', exclusive=True) as cf:
         os.chmod(credential_file, 0o600)
         credential_data = json.dumps(credential, ensure_ascii=False, indent=2)
-        if IS_PY2 and isinstance(credential_data, str):
-            credential_data = unicode(credential_data, 'utf-8')
         cf.write(credential_data)
         cf.flush()
         os.fsync(cf.fileno())

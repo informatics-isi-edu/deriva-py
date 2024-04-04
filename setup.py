@@ -42,7 +42,7 @@ setup(
         'deriva.config': ['examples/*.json'],
         'deriva.core': ['schemas/*.schema.json']
     },
-    python_requires='>=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*, !=3.5.*, <4',
+    python_requires='>=3.8, <4',
     entry_points={
         'console_scripts': [
             'deriva-upload-cli = deriva.transfer.upload.__main__:main',
@@ -61,19 +61,16 @@ setup(
         ]
     },
     install_requires=[
-        'setuptools>=20.2',
         'packaging',
         'requests',
         'certifi',
         'pika',
-        'urllib3>=1.26.0,<2.0',
+        'urllib3>=1.26,<3',
         'portalocker>=1.2.1',
-        'portalocker<2.0; python_version <= "3.5"',
-        'scandir; python_version <= "2.7"',
-        'bdbag>=1.6.0',
+        'bdbag>=1.7.2',
         'globus_sdk>=3,<4',
-        'fair-research-login>=0.2.6',
-        'fair-identifiers-client>=0.5',
+        'fair-research-login>=0.3.1',
+        'fair-identifiers-client>=0.5.1',
         'jsonschema>=3.1'
     ],
     license='Apache 2.0',
@@ -85,12 +82,10 @@ setup(
         'Operating System :: MacOS :: MacOS X',
         'Operating System :: Microsoft :: Windows',
         'Programming Language :: Python',
-        'Programming Language :: Python :: 2.7',
-        'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3.10',
-        'Programming Language :: Python :: 3.11'
+        'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.12'
     ]
 )
