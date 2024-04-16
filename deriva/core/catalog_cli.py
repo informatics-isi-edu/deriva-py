@@ -55,21 +55,21 @@ class DerivaCatalogCLI (BaseCLI):
 
         # parent arg parser
         self.remove_options(['--config-file', '--credential-file'])
-        self.parser.add_argument("--protocol", choices=["http", "https"], default='https',
+        self.parser.add_argument("-p", "--protocol", choices=["http", "https"], default='https',
                                  help="transport protocol: 'http' or 'https'")
         subparsers = self.parser.add_subparsers(title='sub-commands', dest='subcmd')
 
         # exists parser
         exists_parser = subparsers.add_parser('exists', help="Check if catalog exists.")
-        exists_parser.add_argument("id", metavar="<id>", type=str, help="catalog id")
+        exists_parser.add_argument("id", metavar="<id>", type=str, help="Catalog ID")
         exists_parser.set_defaults(func=self.catalog_exists)
 
         # create parser
         create_parser = subparsers.add_parser('create', help="Create a new catalog.")
-        create_parser.add_argument("--id", metavar="<id>", type=str, help="catalog id")
-        create_parser.add_argument("--owner", metavar="<owner> <owner> ...",
+        create_parser.add_argument("--id", metavar="<id>", type=str, help="Catalog ID")
+        create_parser.add_argument("-o", "--owner", metavar="<owner> <owner> ...",
                                    nargs="+", help="List of quoted user or group identifier strings.")
-        create_parser.add_argument("--auto-configure", action="store_true",
+        create_parser.add_argument("-a", "--auto-configure", action="store_true",
                                    help="Configure the new catalog with a set of baseline defaults")
         create_parser.add_argument("--configure-args", metavar="[key=value key=value ...]",
                                    nargs='+', action=KeyValuePairArgs, default={},
@@ -80,11 +80,12 @@ class DerivaCatalogCLI (BaseCLI):
 
         # get parser
         get_parser = subparsers.add_parser('get', help="Send a HTTP GET request to the catalog.")
-        get_parser.add_argument("id", metavar="<id>", type=str, help="catalog id")
+        get_parser.add_argument("id", metavar="<id>", type=str, help="Catalog ID")
         get_parser.add_argument("path", metavar="<request-path>", help="The ERMRest API path.")
-        get_parser.add_argument("--output-file", metavar="<output file path>", help="Path to output file.")
-        get_parser.add_argument("--output-format", choices=["json", "json-stream", "csv"], default="json")
-        get_parser.add_argument("--auto-delete", action="store_true",
+        get_parser.add_argument("-o", "--output-file", metavar="<output file path>", help="Path to output file.")
+        get_parser.add_argument("-f", "--output-format", choices=["json", "json-stream", "csv"], default="json",
+                                help="The output file format. Defaults to 'json'")
+        get_parser.add_argument("-a", "--auto-delete", action="store_true",
                                 help="Automatically delete output file if no results are returned.")
         get_parser.add_argument("--headers", metavar="[key=value key=value ...]",
                                 nargs='+', action=KeyValuePairArgs, default={},
@@ -95,10 +96,12 @@ class DerivaCatalogCLI (BaseCLI):
 
         # put parser
         put_parser = subparsers.add_parser('put', help="Send a HTTP PUT request to the catalog.")
-        put_parser.add_argument("id", metavar="<id>", type=str, help="catalog id")
+        put_parser.add_argument("id", metavar="<id>", type=str, help="Catalog ID")
         put_parser.add_argument("path", metavar="<request-path>", help="The ERMRest API path.")
-        put_parser.add_argument("--input-file", metavar="<output file path>", help="Path to input file.")
-        put_parser.add_argument("--input-format", choices=["json", "json-stream", "csv"], default="json")
+        put_parser.add_argument("input-file", metavar="<input file path>",
+                                help="Path to an input file containing the request message body.")
+        put_parser.add_argument("-f", "--input-format", choices=["json", "json-stream", "csv"], default="json",
+                                help="The input file format. Defaults to 'json'")
         put_parser.add_argument("--headers", metavar="[key=value key=value ...]",
                                 nargs='+', action=KeyValuePairArgs, default={},
                                 help="Variable length of whitespace-delimited key=value pair arguments used for "
@@ -108,10 +111,12 @@ class DerivaCatalogCLI (BaseCLI):
 
         # post parser
         post_parser = subparsers.add_parser('post', help="Send a HTTP POST request to the catalog.")
-        post_parser.add_argument("id", metavar="<id>", type=str, help="catalog id")
+        post_parser.add_argument("id", metavar="<id>", type=str, help="Catalog ID")
         post_parser.add_argument("path", metavar="<request-path>", help="The ERMRest API path.")
-        post_parser.add_argument("--input-file", metavar="<input file path>", help="Path to input file.")
-        post_parser.add_argument("--input-format", choices=["json", "json-stream", "csv"], default="json")
+        post_parser.add_argument("input-file", metavar="<input file path>",
+                                 help="Path to an input file containing the request message body.")
+        post_parser.add_argument("-f", "--input-format", choices=["json", "json-stream", "csv"], default="json",
+                                 help="The input file format. Defaults to 'json'")
         post_parser.add_argument("--headers", metavar="[key=value key=value ...]",
                                  nargs='+', action=KeyValuePairArgs, default={},
                                  help="Variable length of whitespace-delimited key=value pair arguments used for "
@@ -122,7 +127,7 @@ class DerivaCatalogCLI (BaseCLI):
         # delete parser
         del_parser = subparsers.add_parser('delete', help="Send a HTTP DELETE request to the catalog. "
                                                           "Use the 'drop' command to delete the entire catalog.")
-        del_parser.add_argument("id", metavar="<id>", type=str, help="catalog id")
+        del_parser.add_argument("id", metavar="<id>", type=str, help="Catalog ID")
         del_parser.add_argument("path", metavar="<request-path>", help="The ERMRest API path.")
         del_parser.add_argument("--headers", metavar="[key=value key=value ...]",
                                 nargs='+', action=KeyValuePairArgs, default={},
@@ -133,12 +138,12 @@ class DerivaCatalogCLI (BaseCLI):
 
         # drop parser
         drop_parser = subparsers.add_parser('drop', help="Delete a catalog.")
-        drop_parser.add_argument("id", metavar="<id>", type=str, help="catalog id")
+        drop_parser.add_argument("id", metavar="<id>", type=str, help="Catalog ID")
         drop_parser.set_defaults(func=self.catalog_drop)
 
         # clone parser
         clone_parser = subparsers.add_parser('clone', help="Clone a source catalog to a new destination catalog.")
-        clone_parser.add_argument("id", metavar="<id>", type=str, help="catalog id")
+        clone_parser.add_argument("id", metavar="<id>", type=str, help="Catalog ID")
         clone_parser.add_argument("--no-copy-data", action="store_false",
                                   help="Do not copy table contents.")
         clone_parser.add_argument("--no-copy-annotations", action="store_false",
@@ -154,8 +159,8 @@ class DerivaCatalogCLI (BaseCLI):
         # create_alias parser
         create_alias_parser = subparsers.add_parser('create-alias', help="Create a new catalog alias")
         create_alias_parser.add_argument("--id", metavar="<id>", type=str, help="The alias id.")
-        create_alias_parser.add_argument("--alias-target", metavar="<alias>", help="The target catalog id.")
-        create_alias_parser.add_argument("--owner", metavar="<owner> <owner> ...",
+        create_alias_parser.add_argument("-t", "--alias-target", metavar="<alias>", help="The target catalog id.")
+        create_alias_parser.add_argument("-o", "--owner", metavar="<owner> <owner> ...",
                                          nargs="+", help="List of quoted user or group identifier strings.")
         create_alias_parser.set_defaults(func=self.catalog_alias_create)
 
@@ -167,10 +172,10 @@ class DerivaCatalogCLI (BaseCLI):
         # update_alias parser
         update_alias_parser = subparsers.add_parser('update-alias', help="Update an existing catalog alias")
         update_alias_parser.add_argument("--id", metavar="<id>", type=str, help="The alias id.")
-        update_alias_parser.add_argument("--alias-target", metavar="<alias>", nargs='?', default=nochange, const=None,
+        update_alias_parser.add_argument("-t", "--alias-target", metavar="<alias>", nargs='?', default=nochange, const=None,
                                          help="The target catalog id. If specified without a catalog id as an argument "
                                               "value, the existing alias target will be cleared ")
-        update_alias_parser.add_argument("--owner", metavar="<owner> <owner> ...", nargs='+', default=nochange,
+        update_alias_parser.add_argument("-o", "--owner", metavar="<owner> <owner> ...", nargs='+', default=nochange,
                                          help="List of quoted user or group identifier strings.")
         update_alias_parser.set_defaults(func=self.catalog_alias_update)
 
@@ -194,9 +199,29 @@ class DerivaCatalogCLI (BaseCLI):
         self.id = args.id
         self.server = DerivaServer(self.protocol,
                                    args.host,
-                                   credentials=DerivaCatalogCLI._get_credential(self.host,
-                                                                                token=args.token,
-                                                                                oauth2_token=args.oauth2_token))
+                                   credentials=DerivaCatalogCLI._get_credential(
+                                       self.host,
+                                       token=args.token,
+                                       oauth2_token=args.oauth2_token))
+
+    @staticmethod
+    def _decorate_headers(headers, file_format, method="get"):
+
+        header_format_map = {
+            "json": "application/json",
+            "json-stream": "application/x-json-stream",
+            "csv": "text/csv"
+        }
+
+        format_type = header_format_map.get(file_format)
+        if format_type is None:
+            raise UsageException("Unsupported format: %s" % file_format)
+        if str(method).lower() in ["get", "head"]:
+            headers["accept"] = format_type
+        elif str(method).lower() in ["post", "put"]:
+            headers["content-type"] = format_type
+        else:
+            raise UsageException("Unsupported method: %s" % method)
 
     def catalog_exists(self, args):
         """Implements the catalog_exists sub-command.
@@ -250,16 +275,7 @@ class DerivaCatalogCLI (BaseCLI):
         """
         headers = DEFAULT_HEADERS.copy()
         headers.update(args.headers)
-
-        if args.output_format == "json":
-            headers["accept"] = "application/json"
-        elif args.output_format == "json-stream":
-            headers["accept"] = "application/x-json-stream"
-        elif args.output_format == "csv":
-            headers["accept"] = "text/csv"
-        else:
-            raise UsageException("Unsupported output format: %s" % args.output_format)
-
+        self._decorate_headers(headers, args.output_format)
         catalog = self.server.connect_ermrest(args.id)
         try:
             if args.output_file:
@@ -278,13 +294,41 @@ class DerivaCatalogCLI (BaseCLI):
                 os.remove(args.output_file)
             raise
 
-    # TODO: implement PUT at some point
     def catalog_put(self, args):
-        raise NotImplementedError
+        """Implements the catalog_put sub-command.
+        """
+        headers = DEFAULT_HEADERS.copy()
+        headers.update(args.headers)
+        self._decorate_headers(headers, args.input_format, "put")
+        try:
+            catalog = self.server.connect_ermrest(args.id)
+            with open(args.input_file, "rb") as input_file:
+                resp = catalog.put(args.path, data=input_file, headers=headers)
+                if not args.quiet:
+                    pp(resp.json())
+        except HTTPError as e:
+            if e.response.status_code == requests.codes.not_found:
+                raise ResourceException('Catalog not found', e)
+            else:
+                raise e
 
-    # TODO: implement POST at some point
     def catalog_post(self, args):
-        raise NotImplementedError
+        """Implements the catalog_post sub-command.
+        """
+        headers = DEFAULT_HEADERS.copy()
+        headers.update(args.headers)
+        self._decorate_headers(headers, args.input_format, "post")
+        try:
+            catalog = self.server.connect_ermrest(args.id)
+            with open(args.input_file, "rb") as input_file:
+                resp = catalog.post(args.path, data=input_file, headers=headers)
+                if not args.quiet:
+                    pp(resp.json())
+        except HTTPError as e:
+            if e.response.status_code == requests.codes.not_found:
+                raise ResourceException('Catalog not found', e)
+            else:
+                raise e
 
     def catalog_delete(self, args):
         """Implements the catalog_delete sub-command.
