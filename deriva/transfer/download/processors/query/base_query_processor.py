@@ -228,7 +228,8 @@ class CreateDirProcessor(JSONEnvUpdateProcessor):
         self.ext = ""
 
     def process(self):
-        super(CreateDirProcessor, self).process()
+        outputs = super(CreateDirProcessor, self).process()
         self.create_default_paths()
         make_dirs(self.output_abspath)
 
+        return outputs
