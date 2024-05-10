@@ -53,11 +53,15 @@ class DerivaServer (DerivaBinding):
         """
         return ErmrestCatalog.connect(self, catalog_id, snaptime)
 
-    def create_ermrest_catalog(self, id=None, owner=None):
+    def create_ermrest_catalog(self, id=None, owner=None, name=None, description=None, is_persistent=None, clone_source=None):
         """Create an ERMrest catalog.
 
         :param id: The (str) id desired by the client (default None)
         :param owner: The initial (list of str) ACL desired by the client (default None)
+        :param name: Initial (str) catalog name if not None
+        :param description: Initial (str) catalog description if not None
+        :param is_persistent: Initial (bool) catalog persistence flag if not None
+        :param clone_source: Initial catalog clone_source if not None
 
         The new catalog id will be returned in the response, and used
         in future catalog access. The use of the id parameter
@@ -77,8 +81,17 @@ class DerivaServer (DerivaBinding):
         owner ACL influences which client(s) are allowed to retry
         creation with the same id.
 
+        The name, description, is_persistent, and clone_source
+        parameters are passed through to the catalog creation service
+        to initialize those respective metadata fields of the new
+        catalog's registry entry. See ERMrest documentation for more
+        detail. Authorization failures may occur when attempting to
+        set the is_persistent flag. By default, these fields are not
+        initialized in the catalog creation request, and they instead
+        receive server-assigned defaults.
+
         """
-        return ErmrestCatalog.create(self, id, owner)
+        return ErmrestCatalog.create(self, id, owner, name, description, is_persistent, clone_source)
 
     def connect_ermrest_alias(self, id):
         """Connect to an ERMrest alias and return the alias binding.
@@ -88,12 +101,14 @@ class DerivaServer (DerivaBinding):
         """
         return ErmrestAlias.connect(self, id)
 
-    def create_ermrest_alias(self, id=None, owner=None, alias_target=None):
+    def create_ermrest_alias(self, id=None, owner=None, alias_target=None, name=None, description=None):
         """Create an ERMrest catalog alias.
 
         :param id: The (str) id desired by the client (default None)
         :param owner: The initial (list of str) ACL desired by the client (default None)
         :param alias_target: The initial target catalog id binding desired by the client (default None)
+        :param name: Initial (str) catalog name if not None
+        :param description: Initial (str) catalog description if not None
 
         The new alias id will be returned in the response, and used
         in future alias access. The use of the id parameter
@@ -118,8 +133,13 @@ class DerivaServer (DerivaBinding):
         influences which client(s) are allowed to retry creation with
         the same id.
 
+        The name and description parameters are passed through to the
+        alias creation service to initialize those respective metadata
+        fields of the new aliase's registry entry. See ERMrest
+        documentation for more detail.
+
         """
-        return ErmrestAlias.create(self, id, owner, alias_target)
+        return ErmrestAlias.create(self, id, owner, alias_target, name, description)
 
 class ErmrestCatalogMutationError(Exception):
     pass
@@ -204,15 +224,22 @@ class ErmrestCatalog(DerivaBinding):
         )
 
     @classmethod
-    def _digest_catalog_args(cls, id, owner):
+    def _digest_catalog_args(cls, id, owner, name=None, description=None, is_persistent=None, clone_source=None):
         rep = dict()
 
-        if isinstance(id, str):
-            rep['id'] = id
-        elif isinstance(id, (type(nochange), type(None))):
-            pass
-        else:
-            raise TypeError('id must be of type str or None or nochange, not %s' % type(id))
+        for v, k, typ in [
+                (id, 'id', str),
+                (name, 'name', str),
+                (description, 'description', str),
+                (is_persistent, 'is_persistent', bool),
+                (clone_source, 'clone_source', str),
+        ]:
+            if isinstance(v, typ):
+                rep[k] = v
+            elif isinstance(v, (type(nochange), type(None))):
+                pass
+            else:
+                raise TypeError('%s must be of type %s or None or nochange, not %s' % (k, typ.__name__, type(v)))
 
         if isinstance(owner, list):
             for e in owner:
@@ -227,12 +254,16 @@ class ErmrestCatalog(DerivaBinding):
         return rep
 
     @classmethod
-    def create(cls, deriva_server, id=None, owner=None):
+    def create(cls, deriva_server, id=None, owner=None, name=None, description=None, is_persistent=None, clone_source=None):
         """Create an ERMrest catalog and return the ERMrest catalog binding.
 
         :param deriva_server: The DerivaServer binding which hosts ermrest.
         :param id: The (str) id desired by the client (default None)
         :param owner: The initial (list of str) ACL desired by the client (default None)
+        :param name: Initial (str) catalog name if not None
+        :param description: Initial (str) catalog description if not None
+        :param is_persistent: Initial (bool) catalog persistence flag if not None
+        :param clone_source: Initial catalog clone_source if not None
 
         The new catalog id will be returned in the response, and used
         in future catalog access. The use of the id parameter
@@ -252,9 +283,18 @@ class ErmrestCatalog(DerivaBinding):
         influences which client(s) are allowed to retry creation with
         the same id.
 
+        The name, description, is_persistent, and clone_source
+        parameters are passed through to the catalog creation service
+        to initialize those respective metadata fields of the new
+        catalog's registry entry. See ERMrest documentation for more
+        detail. Authorization failures may occur when attempting to
+        set the is_persistent flag. By default, these fields are not
+        initialized in the catalog creation request, and they instead
+        receive server-assigned defaults.
+
         """
         path = '/ermrest/catalog'
-        r = deriva_server.post(path, json=cls._digest_catalog_args(id, owner))
+        r = deriva_server.post(path, json=cls._digest_catalog_args(id, owner, name, description, is_persistent, clone_source))
         r.raise_for_status()
         return cls.connect(deriva_server, r.json()['id'])
 
@@ -1051,8 +1091,8 @@ class ErmrestAlias(DerivaBinding):
         )
 
     @classmethod
-    def _digest_alias_args(cls, id, owner, alias_target):
-        rep = ErmrestCatalog._digest_catalog_args(id, owner)
+    def _digest_alias_args(cls, id, owner, alias_target, name, description):
+        rep = ErmrestCatalog._digest_catalog_args(id, owner, name, description)
 
         if isinstance(alias_target, (str, type(None))):
             rep['alias_target'] = alias_target
@@ -1064,13 +1104,15 @@ class ErmrestAlias(DerivaBinding):
         return rep
 
     @classmethod
-    def create(cls, deriva_server, id=None, owner=None, alias_target=None):
+    def create(cls, deriva_server, id=None, owner=None, alias_target=None, name=None, description=None):
         """Create an ERMrest catalog alias.
 
         :param deriva_server: The DerivaServer binding which hosts ermrest
         :param id: The (str) id desired by the client (default None)
         :param owner: The initial (list of str) ACL desired by the client (default None)
         :param alias_target: The initial target catalog id desired by the client (default None)
+        :param name: Initial (str) catalog name if not None
+        :param description: Initial (str) catalog description if not None
 
         The new alias id will be returned in the response, and used
         in future alias access. The use of the id parameter
@@ -1095,9 +1137,14 @@ class ErmrestAlias(DerivaBinding):
         influences which client(s) are allowed to retry creation with
         the same id.
 
+        The name and description parameters are passed through to the
+        alias creation service to initialize those respective metadata
+        fields of the new aliase's registry entry. See ERMrest
+        documentation for more detail.
+
         """
         path = '/ermrest/alias'
-        r = deriva_server.post(path, json=cls._digest_alias_args(id, owner, alias_target))
+        r = deriva_server.post(path, json=cls._digest_alias_args(id, owner, alias_target, name, description))
         r.raise_for_status()
         return cls.connect(deriva_server, r.json()['id'])
 
