@@ -695,7 +695,8 @@ class ErmrestCatalog(DerivaBinding):
                       copy_annotations=True,
                       copy_policy=True,
                       truncate_after=True,
-                      exclude_schemas=None):
+                      exclude_schemas=None,
+                      dst_properties=None):
         """Clone this catalog's content into dest_catalog, creating a new catalog if needed.
 
         :param dst_catalog: Destination catalog or None to request creation of new destination (default).
@@ -704,12 +705,21 @@ class ErmrestCatalog(DerivaBinding):
         :param copy_policy: Copy access-control policies when True (default).
         :param truncate_after: Truncate destination history after cloning when True (default).
         :param exclude_schemas: A list of schema names to exclude from the cloning process.
+        :param dst_properties: A dictionary of custom catalog-creation properties.
 
-        When dest_catalog is provided, attempt an idempotent clone,
+        When dst_catalog is provided, attempt an idempotent clone,
         assuming content MAY be partially cloned already using the
         same parameters. This routine uses a table-level annotation
         "tag:isrd.isi.edu,2018:clone-state" to save progress markers
         which help it restart efficiently if interrupted.
+
+        When dst_catalog is not provided, a new catalog is
+        provisioned. The optional dst_properties can customize
+        metadata properties during this step:
+
+        - name: str
+        - description: str (markdown-formatted)
+        - is_persistent: boolean
 
         Cloning preserves source row RID values for application tables
         so that any RID-based foreign keys are still valid. It is not
@@ -732,10 +742,33 @@ class ErmrestCatalog(DerivaBinding):
         session_config["allow_retry_on_all_methods"] = True
 
         if dst_catalog is None:
-            # TODO: refactor with DerivaServer someday
-            server = DerivaBinding(self._scheme, self._server, self._credentials, self._caching, session_config)
-            dst_id = server.post("/ermrest/catalog").json()["id"]
-            dst_catalog = ErmrestCatalog(self._scheme, self._server, dst_id, self._credentials, self._caching, session_config)
+            if dst_properties is not None:
+                if not isinstance(dst_properties, dict):
+                    raise TypeError('dst_properties must be of type dict or None, not %s' % (type(dst_properties),))
+            else:
+                dst_properties = {}
+            kwargs = {
+                "name": dst_properties.get('name', 'Clone of %r' % (self._catalog_id,)),
+                "description": dst_properties.get(
+                    'description',
+                    '''A cloned copy of catalog %r made with ErmrestCatalog.clone_catalog() using the following parameters:
+- `copy_data`: %r
+- `copy_annotations`: %r
+- `copy_policy`: %r
+- `truncate_after`: %r
+- `exclude_schemas`: %r
+''' % (
+    self._catalog_id,
+    copy_data,
+    copy_annotations,
+    copy_policy,
+    truncate_after,
+    exclude_schemas,
+)),
+                "clone_source": dst_properties.get('clone_source', self._catalog_id),
+            }
+            server = self.deriva_server
+            dst_catalog = server.create_ermrest_catalog(**kwargs)
 
         # set top-level config right away and find fatal usage errors...
         if copy_policy:
