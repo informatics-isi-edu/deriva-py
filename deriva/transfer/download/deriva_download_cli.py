@@ -7,7 +7,8 @@ import requests
 from requests.exceptions import HTTPError, ConnectionError
 from deriva.transfer import GenericDownloader
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError, \
-    DerivaDownloadAuthenticationError, DerivaDownloadAuthorizationError, DerivaDownloadTimeoutError
+    DerivaDownloadAuthenticationError, DerivaDownloadAuthorizationError, DerivaDownloadTimeoutError, \
+    DerivaDownloadBaggingError
 from deriva.core import BaseCLI, KeyValuePairArgs, format_credential, format_exception, urlparse
 
 
@@ -71,7 +72,7 @@ class DerivaDownloadCLI(BaseCLI):
                     raise DerivaDownloadAuthorizationError(
                         "A requested operation was forbidden. Server responded: %s" % e)
         except (DerivaDownloadError, DerivaDownloadConfigurationError, DerivaDownloadAuthenticationError,
-                DerivaDownloadAuthorizationError, DerivaDownloadTimeoutError) as e:
+                DerivaDownloadAuthorizationError, DerivaDownloadTimeoutError, DerivaDownloadBaggingError) as e:
             sys.stderr.write(("\n" if not args.quiet else "") + format_exception(e))
             if args.debug:
                 traceback.print_exc()

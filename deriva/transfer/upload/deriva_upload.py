@@ -557,6 +557,10 @@ class DerivaUpload(object):
         return None, None, None
 
     def uploadFiles(self, status_callback=None, file_callback=None):
+        if not self.identity:
+            raise DerivaUploadAuthenticationError("Unable to determine user identity for %s. "
+                                                  "Please ensure that you are authenticated successfully." %
+                                                  self.server_url)
         completed = 0
         for group, assets in self.file_list.items():
             if self.cancelled:

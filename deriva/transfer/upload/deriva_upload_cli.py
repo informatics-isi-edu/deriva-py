@@ -3,7 +3,7 @@ import sys
 import json
 import traceback
 from deriva.transfer import DerivaUpload, DerivaUploadError, DerivaUploadConfigurationError, \
-    DerivaUploadCatalogCreateError, DerivaUploadCatalogUpdateError
+    DerivaUploadCatalogCreateError, DerivaUploadCatalogUpdateError, DerivaUploadAuthenticationError
 from deriva.core import BaseCLI, write_config, format_credential, format_exception, urlparse
 
 
@@ -95,7 +95,7 @@ class DerivaUploadCLI(BaseCLI):
                                    args.dry_run,
                                    args.output_file)
         except (RuntimeError, FileNotFoundError, DerivaUploadError, DerivaUploadConfigurationError,
-                DerivaUploadCatalogCreateError, DerivaUploadCatalogUpdateError) as e:
+                DerivaUploadCatalogCreateError, DerivaUploadCatalogUpdateError, DerivaUploadAuthenticationError) as e:
             sys.stderr.write(("\n" if not args.quiet else "") + format_exception(e))
             if args.debug:
                 traceback.print_exc()

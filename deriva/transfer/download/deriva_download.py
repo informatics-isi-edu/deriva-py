@@ -7,6 +7,7 @@ import platform
 import requests
 from requests.exceptions import HTTPError
 from bdbag import bdbag_api as bdb, bdbag_ro as ro, BAG_PROFILE_TAG, BDBAG_RO_PROFILE_ID
+from bdbag.bdbagit import BagValidationError
 from deriva.core import ErmrestCatalog, HatracStore, format_exception, get_credential, format_credential, read_config, \
     stob, Megabyte, __version__ as VERSION
 from deriva.core.utils.version_utils import get_installed_version
@@ -14,7 +15,11 @@ from deriva.transfer.download.processors import find_query_processor, find_trans
 from deriva.transfer.download.processors.base_processor import LOCAL_PATH_KEY, REMOTE_PATHS_KEY, SERVICE_URL_KEY, \
     FILE_SIZE_KEY
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError, \
-    DerivaDownloadAuthenticationError, DerivaDownloadAuthorizationError, DerivaDownloadTimeoutError
+    DerivaDownloadAuthenticationError, DerivaDownloadAuthorizationError, DerivaDownloadTimeoutError, \
+    DerivaDownloadBaggingError
+
+
+logger = logging.getLogger(__name__)
 
 
 class DerivaDownload(object):
@@ -43,7 +48,7 @@ class DerivaDownload(object):
         info = "%s v%s [Python %s, %s]" % (
             self.__class__.__name__, get_installed_version(VERSION),
             platform.python_version(), platform.platform(aliased=True))
-        logging.info("Initializing downloader: %s" % info)
+        logger.info("Initializing downloader: %s" % info)
 
         if not self.server:
             raise DerivaDownloadConfigurationError("Server not specified!")
@@ -145,12 +150,12 @@ class DerivaDownload(object):
             try:
                 if not self.credentials:
                     self.set_credentials(get_credential(self.hostname))
-                logging.info("Validating credentials for host: %s" % self.hostname)
+                logger.info("Validating credentials for host: %s" % self.hostname)
                 attributes = self.catalog.get_authn_session().json()
                 identity = attributes["client"]
             except HTTPError as he:
                 if he.response.status_code == 404:
-                    logging.info("No existing login session found for host: %s" % self.hostname)
+                    logger.info("No existing login session found for host: %s" % self.hostname)
             except Exception as e:
                 raise DerivaDownloadAuthenticationError("Unable to validate credentials: %s" % format_exception(e))
         wallet = kwargs.get("wallet", {})
@@ -160,6 +165,7 @@ class DerivaDownload(object):
         bag_archiver = None
         bag_algorithms = None
         bag_idempotent = False
+        bag_strict = True
         bag_config = self.config.get('bag')
         create_bag = True if bag_config else False
         if create_bag:
@@ -171,7 +177,8 @@ class DerivaDownload(object):
             bag_idempotent = stob(bag_config.get('bag_idempotent', False))
             bag_metadata = bag_config.get('bag_metadata', {"Internal-Sender-Identifier":
                                                            "deriva@%s" % self.server_url})
-            bag_ro = create_bag and not bag_idempotent and stob(bag_config.get('bag_ro', "True"))
+            bag_ro = create_bag and not bag_idempotent and stob(bag_config.get('bag_ro', True))
+            bag_strict = stob(bag_config.get('bag_strict', True))
             if create_bag:
                 bdb.ensure_bag_path_exists(bag_path)
                 bag = bdb.make_bag(bag_path, algs=bag_algorithms, metadata=bag_metadata, idempotent=bag_idempotent)
@@ -211,12 +218,13 @@ class DerivaDownload(object):
                                             allow_anonymous=self.allow_anonymous,
                                             timeout=self.timeout)
                 outputs = processor.process()
+                assert outputs is not None
                 if processor.should_abort():
                     raise DerivaDownloadTimeoutError("Timeout (%s seconds) waiting for processor [%s] to complete." %
                                                      (self.timeout_secs, processor_name))
                 self.check_payload_size(outputs)
             except Exception as e:
-                logging.error(format_exception(e))
+                logger.error(format_exception(e))
                 if create_bag:
                     bdb.cleanup_bag(bag_path)
                     if remote_file_manifest and os.path.isfile(remote_file_manifest):
@@ -270,16 +278,27 @@ class DerivaDownload(object):
                              remote_file_manifest=remote_file_manifest
                              if (remote_file_manifest and os.path.getsize(remote_file_manifest) > 0) else None,
                              update=True,
-                             idempotent=bag_idempotent)
-            except Exception as e:
-                logging.fatal("Exception while updating bag manifests: %s" % format_exception(e))
+                             idempotent=bag_idempotent,
+                             strict=bag_strict)
+            except BagValidationError as bve:
+                msg = "Unable to validate bag.%s Error: %s" % (
+                    "" if not bag_strict else
+                    " Strict checking has been enabled, which most likely means that this bag "
+                    "is empty (has no payload files or fetch references) and therefore invalid.",
+                    format_exception(bve))
+                logger.error(msg)
                 bdb.cleanup_bag(bag_path)
-                raise
+                raise DerivaDownloadBaggingError(msg)
+            except Exception as e:
+                msg = "Unhandled exception while updating bag manifests: %s" % format_exception(e)
+                logger.error(msg)
+                bdb.cleanup_bag(bag_path)
+                raise DerivaDownloadBaggingError(msg)
             finally:
                 if remote_file_manifest and os.path.isfile(remote_file_manifest):
                     os.remove(remote_file_manifest)
 
-            logging.info('Created bag: %s' % bag_path)
+            logger.info('Created bag: %s' % bag_path)
 
             if bag_archiver is not None:
                 try:
@@ -289,8 +308,9 @@ class DerivaDownload(object):
                     bdb.cleanup_bag(bag_path)
                     outputs = {os.path.basename(archive): {LOCAL_PATH_KEY: archive}}
                 except Exception as e:
-                    logging.error("Exception while creating data bag archive: %s" % format_exception(e))
-                    raise
+                    msg = "Exception while creating data bag archive: %s" % format_exception(e)
+                    logger.error(msg)
+                    raise DerivaDownloadBaggingError(msg)
             else:
                 outputs = {os.path.basename(bag_path): {LOCAL_PATH_KEY: bag_path}}
 
@@ -318,7 +338,7 @@ class DerivaDownload(object):
                             (self.timeout_secs, processor_name))
                     self.check_payload_size(outputs)
                 except Exception as e:
-                    logging.error(format_exception(e))
+                    logger.error(format_exception(e))
                     raise
 
         return outputs

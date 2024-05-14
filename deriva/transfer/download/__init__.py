@@ -16,3 +16,7 @@ class DerivaDownloadAuthorizationError(Exception):
 
 class DerivaDownloadTimeoutError(Exception):
     pass
+
+
+class DerivaDownloadBaggingError(Exception):
+    pass

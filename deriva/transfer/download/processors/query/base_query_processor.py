@@ -21,8 +21,8 @@ class BaseQueryProcessor(BaseProcessor):
         self.catalog = kwargs["catalog"]
         self.store = kwargs["store"]
         self.base_path = kwargs["base_path"]
-        self.query = self.parameters["query_path"]
-        if self.envars:
+        self.query = self.parameters.get("query_path", "")
+        if self.query and self.envars:
             self.query = self.query.format(**self.envars)
         self.sub_path = self.parameters.get("output_path")
         self.output_filename = self.parameters.get("output_filename")
@@ -59,6 +59,9 @@ class BaseQueryProcessor(BaseProcessor):
         return self.outputs
 
     def catalogQuery(self, headers=None, as_file=True):
+        if not self.query:
+            return {}
+
         if not headers:
             headers = self.HEADERS.copy()
         else:
@@ -175,8 +178,9 @@ class BaseQueryProcessor(BaseProcessor):
                                                                      envars=self.envars)
 
     def __del__(self):
-        for session in self.sessions.values():
-            session.close()
+        if self.sessions:
+            for session in self.sessions.values():
+                session.close()
 
 
 class CSVQueryProcessor(BaseQueryProcessor):
@@ -228,8 +232,8 @@ class CreateDirProcessor(JSONEnvUpdateProcessor):
         self.ext = ""
 
     def process(self):
-        outputs = super(CreateDirProcessor, self).process()
+        super(CreateDirProcessor, self).process()
         self.create_default_paths()
         make_dirs(self.output_abspath)
 
-        return outputs
+        return self.outputs

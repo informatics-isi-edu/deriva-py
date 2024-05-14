@@ -12,3 +12,7 @@ class DerivaUploadCatalogCreateError (RuntimeError):
 
 class DerivaUploadCatalogUpdateError (RuntimeError):
     pass
+
+
+class DerivaUploadAuthenticationError (RuntimeError):
+    pass
