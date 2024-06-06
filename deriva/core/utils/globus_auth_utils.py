@@ -52,7 +52,7 @@ class GlobusAuthUtil:
         client_id = kwargs.get("client_id")
         client_secret = kwargs.get("client_secret")
         if not (client_id and client_secret):
-            cred_file = kwargs.get("credential_file", CLIENT_CRED_FILE)
+            cred_file = kwargs.get("credential_file", CLIENT_CRED_FILE) or CLIENT_CRED_FILE
             if os.path.isfile(cred_file):
                 creds = read_config(cred_file)
                 if creds:
@@ -60,6 +60,8 @@ class GlobusAuthUtil:
                     if client:
                         client_id = client.get('client_id')
                         client_secret = client.get('client_secret')
+            else:
+                logging.warning("No Globus client credential file found at: %s" % CLIENT_CRED_FILE)
 
         if not (client_id and client_secret):
             logging.warning("Client ID and secret not specified and/or could not be determined.")
