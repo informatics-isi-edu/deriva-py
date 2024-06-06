@@ -61,7 +61,7 @@ class GlobusAuthUtil:
                         client_id = client.get('client_id')
                         client_secret = client.get('client_secret')
             else:
-                logging.warning("No Globus client credential file found at: %s" % CLIENT_CRED_FILE)
+                logging.warning("No Globus client credential file found at: %s" % cred_file)
 
         if not (client_id and client_secret):
             logging.warning("Client ID and secret not specified and/or could not be determined.")
