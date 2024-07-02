@@ -233,8 +233,11 @@ class DerivaUpload(object):
         self.credentials = credentials
         self.catalog.set_credentials(self.credentials, host)
         self.store.set_credentials(self.credentials, host)
-        attributes = self.catalog.get_authn_session().json()
-        self.identity = attributes.get("client", self.identity)
+        try:
+            attributes = self.catalog.get_authn_session().json()
+            self.identity = attributes.get("client", self.identity)
+        except Exception as e:
+            logger.warning("Unable to determine user identity: %s" % e)
 
     def setConfig(self, config_file):
         if not config_file:
