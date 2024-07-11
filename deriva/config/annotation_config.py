@@ -33,7 +33,7 @@ class AttrSpecList(BaseSpecList):
             return None
         new = []
         for item in orig_list:
-            new.append(unicode(item))
+            new.append(item)
         return new
 
     def add_list(self, dictlist):
@@ -85,7 +85,7 @@ class AttrConfig:
         self.toplevel_config = ConfigUtil.find_toplevel_node(self.catalog.getCatalogModel(), schema_name, table_name)
 
     def make_speclist(self, name):
-        d = self.config.get(unicode(name))
+        d = self.config.get(name)
         if d is None:
             d = [dict()]
         return AttrSpecList(self.known_attrs, d)
