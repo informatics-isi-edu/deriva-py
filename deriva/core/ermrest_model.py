@@ -1,5 +1,7 @@
 
 from collections import OrderedDict
+from collections.abc import Iterable
+from enum import Enum
 import json
 import re
 
@@ -684,6 +686,15 @@ class KeyedList (list):
         list.append(self, e)
         self.elements[e.name] = e
 
+class FindAssociationResult (object):
+    """Wrapper for results of Table.find_associations()"""
+    def __init__(self, table):
+        self.table = table
+        self.name = table.name
+        self.schema = table.schema
+
+
+    
 class Table (object):
     """Named table.
     """
@@ -1447,6 +1458,29 @@ class Table (object):
         # return (truthy) arity
         return len(covered_fkeys)
 
+    def find_associations(self, min_arity=2, max_arity=2, unqualified=True, pure=True, no_overlap=True) -> Iterable[FindAssociationResult]:
+        """Yield (iterable) Association objects linking to this table and meeting all criteria.
+
+        min_arity: minimum number of associated fkeys (default 2)
+        max_arity: maximum number of associated fkeys (default 2) or None
+        unqualified: reject qualified associations when True (default True)
+        pure: reject impure assocations when True (default True)
+        no_overlap: reject overlapping associations when True (default True)
+
+        See documentation for sibling method Table.is_association(...)
+        for more explanation of these association detection criteria.
+
+        """
+        peer_tables = set()
+        for fkey in self.referenced_by:
+            peer = fkey.table
+            if peer in peer_tables:
+                # check each peer only once
+                continue
+            peer_tables.add(peer)
+            if peer.is_association(min_arity=min_arity, max_arity=max_arity, unqualified=unqualified, pure=pure, no_overlap=no_overlap):
+                yield FindAssociationResult(peer)
+    
     @presence_annotation(tag.immutable)
     def immutable(self): pass
 
@@ -1495,6 +1529,40 @@ class Table (object):
     @object_annotation(tag.viz_3d_display)
     def viz_3d_display(self): pass
     
+class Quantifier (str, Enum):
+    """Logic quantifiers"""
+    any = 'any'
+    all = 'all'
+
+def find_tables_with_foreign_keys(target_tables: Iterable[Table], quantifier: Quantifier=Quantifier.all) -> set[Table]:
+    """Return set of tables with foreign key references to target tables.
+
+    :param target_tables: an iterable of ermrest_model.Table instances
+    :param quantifier: one of the Quantifiers 'any' or 'all' (default 'all')
+
+    Each returned Table instance will be a table that references the
+    targets according to the selected quantifier. A reference is a
+    direct foreign key in the returned table that refers to a primary
+    key of the target table.
+
+    - quantifier==all: a returned table references ALL targets
+    - quantifier==any: a returned table references AT LEAST ONE target
+
+    For proper function, all target_tables instances MUST come from
+    the same root Model instance hierarchy.
+
+    """
+    candidates = None
+    for table in target_tables:
+        referring = { fkey.table for fkey in table.referenced_by }
+        if candidates is None:
+            candidates = referring
+        elif quantifier == Quantifier.all:
+            candidates.intersection_update(referring)
+        else:
+            candidates.update(referring)
+    return candidates
+
 class Column (object):
     """Named column.
     """
