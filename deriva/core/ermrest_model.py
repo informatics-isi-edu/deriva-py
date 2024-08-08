@@ -688,12 +688,12 @@ class KeyedList (list):
 
 class FindAssociationResult (object):
     """Wrapper for results of Table.find_associations()"""
-    def __init__(self, table):
+    def __init__(self, table, self_fkey, other_fkeys):
         self.table = table
         self.name = table.name
         self.schema = table.schema
-
-
+        self.self_fkey = self_fkey
+        self.other_fkeys = other_fkeys
     
 class Table (object):
     """Named table.
@@ -1359,7 +1359,7 @@ class Table (object):
         if raise_nomatch:
             raise KeyError(from_to_map)
 
-    def is_association(self, min_arity=2, max_arity=2, unqualified=True, pure=True, no_overlap=True):
+    def is_association(self, min_arity=2, max_arity=2, unqualified=True, pure=True, no_overlap=True, return_fkeys=False):
         """Return (truthy) integer arity if self is a matching association, else False.
 
         min_arity: minimum number of associated fkeys (default 2)
@@ -1367,6 +1367,7 @@ class Table (object):
         unqualified: reject qualified associations when True (default True)
         pure: reject impure assocations when True (default True)
         no_overlap: reject overlapping associations when True (default True)
+        return_fkeys: return the set of N associated ForeignKeys if True
 
         The default behavior with no arguments is to test for pure,
         unqualified, non-overlapping, binary assocations.
@@ -1455,8 +1456,11 @@ class Table (object):
             # reject: impure association
             return False
 
-        # return (truthy) arity
-        return len(covered_fkeys)
+        # return (truthy) arity or fkeys
+        if return_fkeys:
+            return covered_fkeys
+        else:
+            return len(covered_fkeys)
 
     def find_associations(self, min_arity=2, max_arity=2, unqualified=True, pure=True, no_overlap=True) -> Iterable[FindAssociationResult]:
         """Yield (iterable) Association objects linking to this table and meeting all criteria.
@@ -1478,8 +1482,16 @@ class Table (object):
                 # check each peer only once
                 continue
             peer_tables.add(peer)
-            if peer.is_association(min_arity=min_arity, max_arity=max_arity, unqualified=unqualified, pure=pure, no_overlap=no_overlap):
-                yield FindAssociationResult(peer)
+            answer = peer.is_association(min_arity=min_arity, max_arity=max_arity, unqualified=unqualified, pure=pure, no_overlap=no_overlap, return_fkeys=True)
+            if answer:
+                answer = set(answer)
+                for fkey in answer:
+                    if fkey.pk_table == self:
+                        answer.remove(fkey)
+                        yield FindAssociationResult(peer, fkey, answer)
+                        # arbitrarily choose first fkey to self
+                        # in case association is back to same table
+                        break
     
     @presence_annotation(tag.immutable)
     def immutable(self): pass
