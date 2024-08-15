@@ -1,9 +1,13 @@
 
+from __future__ import annotations
+
 from collections import OrderedDict
 from collections.abc import Iterable
 from enum import Enum
 import json
 import re
+import base64
+import hashlib
 
 from . import AttrDict, tag, urlquote, stob
 
@@ -18,6 +22,74 @@ class NoChange (object):
 
 # singletone to use in APIs below
 nochange = NoChange()
+
+def make_id(*components):
+    """Build an identifier that will be OK for ERMrest and Postgres.
+
+    Naively, append as '_'.join(components).
+
+    Fallback to heuristics mixing truncation with short hashes.
+    """
+    # accept lists at top-level for convenience (compound keys, etc.)
+    expanded = []
+    for e in components:
+        if isinstance(e, list):
+            expanded.extend(e)
+        else:
+            expanded.append(e)
+
+    # prefer to use naive name as requested
+    naive_result = '_'.join(expanded)
+    naive_len = len(naive_result.encode('utf8'))
+    if naive_len <= 63:
+        return naive_result
+
+    # we'll need to truncate and hash in some way...
+    def hash(s, nbytes):
+        return base64.urlsafe_b64encode(hashlib.md5(s.encode('utf8')).digest()).decode()[0:nbytes]
+
+    def truncate(s, maxlen):
+        encoded_len = len(s.encode('utf8'))
+        # we need to chop whole (unicode) chars but test encoded byte lengths!
+        for i in range(max(1, len(s) - maxlen), len(s) - 1):
+            result = s[0:-1 * i].rstrip()
+            if len(result.encode('utf8')) <= (maxlen - 2):
+                return result + '..'
+        return s
+
+    naive_hash = hash(naive_result, 5)
+    parts = [
+        (i, expanded[i])
+        for i in range(len(expanded))
+    ]
+
+    # try to find a solution truncating individual fields
+    for maxlen in [15, 12, 9]:
+        parts.sort(key=lambda p: (len(p[1].encode('utf8')), p[0]), reverse=True)
+        for i in range(len(parts)):
+            idx, part = parts[i]
+            if len(part.encode('utf8')) > maxlen:
+                parts[i] = (idx, truncate(part, maxlen))
+            candidate_result = '_'.join([
+                p[1]
+                for p in sorted(parts, key=lambda p: p[0])
+            ] + [naive_hash])
+            if len(candidate_result.encode('utf8')) < 63:
+                return candidate_result
+
+    # fallback to truncating original naive name
+    # try to preserve suffix and trim in middle
+    result = ''.join([
+        truncate(naive_result, len(naive_result)//3),
+        naive_result[-len(naive_result)//3:],
+        '_',
+        naive_hash
+    ])
+    if len(result.encode('utf8')) <= 63:
+        return result
+
+    # last-ditch (e.g. multibyte unicode suffix worst case)
+    return truncate(naive_result, 55) + naive_hash
 
 def presence_annotation(tag_uri):
     """Decorator to establish property getter/setter/deleter for presence annotations.
@@ -1085,6 +1157,186 @@ class Table (object):
             add_page_annotations(annotations),
             provide_system
         )
+
+    @classmethod
+    def define_association(
+        cls,
+        schema: Schema,
+        associates: Iterable[Key | Table | tuple[str, Key | Table]],
+        metadata: Iterable[Key | Table | dict | tuple[str, bool, Key | Table]] = [],
+        table_name: str | None = None,
+        comment: str | None = None,
+        provide_system: bool = True) -> dict:
+        """Build an association table definition.
+
+        :param schema: the existing Schema instance which will contain the association table
+        :param associates: the existing Key instances being associated
+        :param metadata: additional metadata fields for impure associations
+        :param table_name: name for the association table or None for default naming
+        :param comment: comment for the association table or None for default comment
+        :param provide_system: add ERMrest system columns when True
+
+        This is a utility function to help build an association table
+        definition. It simplifies the task, but removes some
+        control. For full customization, consider using Table.define()
+        directly instead.
+
+        A normal ("pure") N-ary association is a table with N foreign
+        keys referencing N primary keys in referenced tables, with a
+        composite primary key covering the N foreign keys. These pure
+        association tables manage a set of distinct combinations of
+        the associated foreign key values.
+
+        An "impure" association table adds additional metadata
+        alongside the N foreign keys.
+
+        The "associates" parameter takes an iterable of Key instances
+        from other tables.  The association will be comprised of
+        foreign keys referencing these associates. Optionally, a tuple
+        of (str, Key) can supply a string _base name_ to influence how
+        the foreign key columns and constraint will be named in the
+        new association table. A bare Key instance will get a base
+        name derived from the referenced table name.
+
+        The "metadata" parameter takes an iterable of plain dict
+        column definitions or Key instances. Each dict must be a
+        scalar column definition, such as produced by the
+        Column.define() class method. Key instance will cause
+        corresponding columns and foreign keys to be added to the
+        association table to act as metadata. Optionally, a tuple of
+        (str, bool, Key) can supply a string _base name_ and a boolean
+        _nullok_ property to influence how the foreign key columns and
+        constraint will be constructed and named. A bare Key instance
+        will get a base name derived from the referened table name,
+        and presumed as nullok=False.
+
+        If a Table instance is supplied instead of a Key instance for
+        associates or metadata inputs, an attempt will be made to
+        locate a key based on the RID system column. If this key
+        cannot be found, a KeyError will be raised.
+
+        """
+        associates = list(associates)
+        metadata = list(metadata)
+
+        if len(associates) < 2:
+            raise ValueError('An association table requires at least 2 associates')
+
+        cdefs = []
+        kdefs = []
+        fkdefs = []
+
+        used_names = set()
+
+        def check_basename(basename):
+            if not isinstance(base_name, str):
+                raise TypeError('Base name %r is not of required type str' % (base_name,))
+            if base_name in used_names:
+                raise ValueError('Base name %r is not unique among associates and metadata' % (base_name,))
+            used_names.add(base_name)
+
+        def choose_basename(key):
+            base_name = key.table.name
+            n = 2
+            while base_name in used_names:
+                base_name = '%s%d' % (key.table.name, n)
+                n += 1
+            used_names.add(base_name)
+            return base_name
+
+        def check_key(key):
+            if isinstance(key, Table):
+                return key.key_by_columns(["RID"])
+            return key
+
+        # check and normalize associates into list[(str, Key)] with distinct base names
+        for i in range(len(associates)):
+            if isinstance(associates[i], tuple):
+                base_name, key = associates[i]
+                check_basename(base_name)
+                key = check_key(key)
+                associates[i] = (base_name, key)
+            else:
+                key = check_key(associates[i])
+                base_name = choose_basename(key)
+                associates[i] = (base_name, key)
+
+        # build assoc table name if not provided
+        if table_name is None:
+            table_name = make_id(*[ assoc[1].table.name for assoc in associates ])
+
+        def simplify_type(ctype):
+            if ctype.is_domain and ctype.typename.startswith('ermrest_'):
+                return ctype.base_type
+
+            return ctype
+
+        def cdefs_for_key(base_name, key, nullok=False):
+            return [
+                Column.define(
+                    '%s_%s' % (base_name, col.name) if len(key.unique_columns) > 1 else base_name,
+                    simplify_type(col.type),
+                    nullok=nullok,
+                )
+                for col in key.unique_columns
+            ]
+
+        def fkdef_for_key(base_name, key):
+            return ForeignKey.define(
+                [
+                    '%s_%s' % (base_name, col.name) if len(key.unique_columns) > 1 else base_name
+                    for col in key.unique_columns
+                ],
+                key.table.schema.name,
+                key.table.name,
+                [ col.name for col in key.unique_columns ],
+                on_update='CASCADE',
+                on_delete='CASCADE',
+                constraint_names=[ [ schema.name, make_id(table_name, base_name, 'fkey') ], ]
+            )
+
+        # build core association definition (i.e. the "pure" parts)
+        k_cnames = []
+        for base_name, key in associates:
+            cdefs.extend(cdefs_for_key(base_name, key))
+            fkdefs.append(fkdef_for_key(base_name, key))
+
+            k_cnames.extend([
+                '%s_%s' % (base_name, col.name) if len(key.unique_columns) > 1 else base_name
+                for col in key.unique_columns
+            ])
+
+        kdefs.append(
+            Key.define(
+                k_cnames,
+                make_id(table_name, 'assoc', 'key'),
+            )
+        )
+
+        # check and normalize metadata into list[dict | (str, bool, Key)]
+        for i in range(len(metadata)):
+            if isinstance(metadata[i], tuple):
+                base_name, nullok, key = metadata[i]
+                check_basename(base_name)
+                key = check_key(key)
+                metadata[i] = (base_name, nullok, key)
+            elif isinstance(metadata[i], dict):
+                pass
+            else:
+                key = check_key(metadata[i])
+                base_name = choose_basename(key)
+                metadata[i] = (base_name, False, key)
+
+        # add metadata to definition
+        for md in metadata:
+            if isinstance(md, dict):
+                cdefs.append(md)
+            else:
+                base_name, nullok, key = md
+                cdefs.extend(cdefs_for_key(base_name, key, nullok))
+                fkdefs.append(fkdef_for_key(base_name, key))
+
+        return Table.define(table_name, cdefs, kdefs, fkdefs, comment=comment, provide_system=provide_system)
 
     def prejson(self, prune=True):
         return {
