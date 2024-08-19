@@ -1309,7 +1309,7 @@ class Table (object):
         kdefs.append(
             Key.define(
                 k_cnames,
-                make_id(table_name, 'assoc', 'key'),
+                constraint_names=[ [ schema.name, make_id(table_name, 'assoc', 'key') ], ]
             )
         )
 
