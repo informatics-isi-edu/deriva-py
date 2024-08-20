@@ -1161,7 +1161,6 @@ class Table (object):
     @classmethod
     def define_association(
         cls,
-        schema: Schema,
         associates: Iterable[Key | Table | tuple[str, Key | Table]],
         metadata: Iterable[Key | Table | dict | tuple[str, bool, Key | Table]] = [],
         table_name: str | None = None,
@@ -1169,7 +1168,6 @@ class Table (object):
         provide_system: bool = True) -> dict:
         """Build an association table definition.
 
-        :param schema: the existing Schema instance which will contain the association table
         :param associates: the existing Key instances being associated
         :param metadata: additional metadata fields for impure associations
         :param table_name: name for the association table or None for default naming
@@ -1292,7 +1290,7 @@ class Table (object):
                 [ col.name for col in key.unique_columns ],
                 on_update='CASCADE',
                 on_delete='CASCADE',
-                constraint_names=[ [ schema.name, make_id(table_name, base_name, 'fkey') ], ]
+                constraint_name=make_id(table_name, base_name, 'fkey'),
             )
 
         # build core association definition (i.e. the "pure" parts)
@@ -1309,7 +1307,7 @@ class Table (object):
         kdefs.append(
             Key.define(
                 k_cnames,
-                constraint_names=[ [ schema.name, make_id(table_name, 'assoc', 'key') ], ]
+                constraint_name=make_id(table_name, 'assoc', 'key'),
             )
         )
 
@@ -2028,7 +2026,6 @@ class Column (object):
 
     @object_annotation(tag.column_display)
     def column_display(self): pass
-    
 
 def _constraint_name_parts(constraint, doc):
     # modern systems should have 0 or 1 names here
@@ -2113,10 +2110,29 @@ class Key (object):
         }
 
     @classmethod
-    def define(cls, colnames, constraint_names=[], comment=None, annotations={}):
-        """Build a key definition."""
+    def define(cls, colnames, constraint_names=[], comment=None, annotations={}, constraint_name=None):
+        """Build a key definition.
+
+        :param colnames: List of names of columns participating in the key
+        :param constraint_names: Legacy input [ [ schema_name, constraint_name ] ] (for API backwards-compatibility)
+        :param comment: Comment string
+        :param annotations: Dictionary of { annotation_uri: annotation_value, ... }
+        :param constraint_name: Constraint name string
+
+        The constraint_name kwarg takes a bare constraint name string
+        and acts the same as setting the legacy constraint_names kwarg
+        to: [ [ "placeholder", constraint_name ] ].  This odd syntax
+        is for backwards-compatibility with earlier API versions, and
+        mirrors the structure of constraint names in ERMrest model
+        description outputs. In those outputs, the "placeholder" field
+        contains the schema name of the table containing the
+        constraint.
+
+        """
         if not isinstance(colnames, list):
             raise TypeError('Colnames should be a list.')
+        if constraint_name is not None:
+            constraint_names = [ [ "placeholder", constraint_name ] ]
         return {
             'unique_columns': list(colnames),
             'names': constraint_names,
@@ -2315,9 +2331,41 @@ class ForeignKey (object):
         }
 
     @classmethod
-    def define(cls, fk_colnames, pk_sname, pk_tname, pk_colnames, on_update='NO ACTION', on_delete='NO ACTION', constraint_names=[], comment=None, acls={}, acl_bindings={}, annotations={}):
+    def define(cls, fk_colnames, pk_sname, pk_tname, pk_colnames, on_update='NO ACTION', on_delete='NO ACTION', constraint_names=[], comment=None, acls={}, acl_bindings={}, annotations={}, constraint_name=None):
+        """Define a foreign key.
+
+        :param fk_colnames: List of column names participating in the foreign key
+        :param pk_sname: Schema name string of the referenced primary key
+        :param pk_tname: Table name string of the referenced primary key
+        :param pk_colnames: List of column names participating in the referenced primary key
+        :param on_update: Constraint behavior when referenced primary keys are updated
+        :param on_update: Constraint behavior when referenced primary keys are deleted
+        :param constraint_names: Legacy input [ [ schema_name, constraint_name ] ] (for API backwards-compatibility)
+        :param comment: Comment string
+        :param acls: Dictionary of { acl_name: acl, ... }
+        :param acl_bindings: Dictionary of { binding_name: acl_binding, ... }
+        :param annotations: Dictionary of { annotation_uri: annotation_value, ... }
+        :param constraint_name: Constraint name string
+
+        The contraint behavior values for on_update and on_delete must
+        be one of the following literal strings:
+
+        'NO ACTION', 'RESTRICT', 'CASCADE', 'SET NULL', 'SET DEFAULT'
+
+        The constraint_name kwarg takes a bare constraint name string
+        and acts the same as setting the legacy constraint_names kwarg
+        to: [ [ "placeholder", constraint_name ] ].  This odd syntax
+        is for backwards-compatibility with earlier API versions, and
+        mirrors the structure of constraint names in ERMrest model
+        description outputs. In those outputs, the "placeholder" field
+        contains the schema name of the table containing the
+        constraint.
+
+        """
         if len(fk_colnames) != len(pk_colnames):
             raise ValueError('The fk_colnames and pk_colnames lists must have the same length.')
+        if constraint_name is not None:
+            constraint_names = [ [ "placeholder", constraint_name ], ]
         return {
             'foreign_key_columns': [
                 {
