@@ -1050,11 +1050,6 @@ class _TableWrapper (object):
         :param max_batch_bytes: approximate maximum number of bytes for one request.
         :return a collection of newly created entities.
 
-        Retry will only be attempted for idempotent insertion
-        requests, which are when a user-controlled, non-nullable key
-        is present in the table and the key's constituent column(s)
-        are not listed as defaults, and on_conflict_skip=True.
-
         When performing retries, an exponential backoff delay is
         introduced after each failed attempt. The delay is
         backoff_factor**attempt_number seconds for attempts 0 through
