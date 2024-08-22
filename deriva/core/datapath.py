@@ -993,7 +993,7 @@ class _TableWrapper (object):
             raise TypeError('entities[0] does not look like a dictionary -- does not have a "keys()" method')
 
         # perform one batch request in a helper we can hand to retry helper
-        def request_func(batch, results):
+        def request_func(batch):
             return self._schema._catalog._wrapped_catalog.post(path, json=batch, headers={'Content-Type': 'application/json'})
 
         def _has_user_pkey(table):
@@ -1018,13 +1018,13 @@ class _TableWrapper (object):
             ):
                 if retry_safe:
                     resp = _request_with_retry(
-                        lambda: request_func(batch, results),
+                        lambda: request_func(batch),
                         retry_codes=retry_codes,
                         backoff_factor=backoff_factor,
                         max_attempts=max_attempts
                     )
                 else:
-                    resp = request_func(batch, results)
+                    resp = request_func(batch)
                 results.extend(resp.json())
             return results
 
@@ -1089,7 +1089,7 @@ class _TableWrapper (object):
         )
 
         # perform one batch request in a helper we can hand to retry helper
-        def request_func(batch, results):
+        def request_func(batch):
             return self._schema._catalog._wrapped_catalog.put(path, json=batch, headers={'Content-Type': 'application/json'})
 
         # perform all requests in a helper we can hand to _ResultSet
@@ -1101,7 +1101,7 @@ class _TableWrapper (object):
                 max_batch_bytes=max_batch_bytes
             ):
                 resp = _request_with_retry(
-                    lambda: request_func(batch, results),
+                    lambda: request_func(batch),
                     retry_codes=retry_codes,
                     backoff_factor=backoff_factor,
                     max_attempts=max_attempts
