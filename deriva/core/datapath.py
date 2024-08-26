@@ -1016,16 +1016,23 @@ class _TableWrapper (object):
                 max_batch_rows=max_batch_rows,
                 max_batch_bytes=max_batch_bytes
             ):
-                if retry_safe:
-                    resp = _request_with_retry(
-                        lambda: request_func(batch),
-                        retry_codes=retry_codes,
-                        backoff_factor=backoff_factor,
-                        max_attempts=max_attempts
-                    )
-                else:
-                    resp = request_func(batch)
-                results.extend(resp.json())
+                try:
+                    if retry_safe:
+                        resp = _request_with_retry(
+                            lambda: request_func(batch),
+                            retry_codes=retry_codes,
+                            backoff_factor=backoff_factor,
+                            max_attempts=max_attempts
+                        )
+                    else:
+                        resp = request_func(batch)
+                    results.extend(resp.json())
+                except HTTPError as e:
+                    logger.debug(e.response.text)
+                    if 400 <= e.response.status_code < 500:
+                        raise DataPathException(_http_error_message(e), e)
+                    else:
+                        raise e
             return results
 
         result = _ResultSet(self.path.uri, results_func)
@@ -1102,13 +1109,20 @@ class _TableWrapper (object):
                 max_batch_rows=max_batch_rows,
                 max_batch_bytes=max_batch_bytes
             ):
-                resp = _request_with_retry(
-                    lambda: request_func(batch),
-                    retry_codes=retry_codes,
-                    backoff_factor=backoff_factor,
-                    max_attempts=max_attempts
-                )
-                results.extend(resp.json())
+                try:
+                    resp = _request_with_retry(
+                        lambda: request_func(batch),
+                        retry_codes=retry_codes,
+                        backoff_factor=backoff_factor,
+                        max_attempts=max_attempts
+                    )
+                    results.extend(resp.json())
+                except HTTPError as e:
+                    logger.debug(e.response.text)
+                    if 400 <= e.response.status_code < 500:
+                        raise DataPathException(_http_error_message(e), e)
+                    else:
+                        raise e
             return results
 
         result = _ResultSet(self.path.uri, results_func)
