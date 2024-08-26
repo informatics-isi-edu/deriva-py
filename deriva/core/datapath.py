@@ -747,7 +747,7 @@ def _generate_batches(entities, max_batch_rows=1000, max_batch_bytes=250*1024):
             upper += 1
 
         # generate one batch and advance for next batch
-        logger.debug("generating batch of %d/%d entities (%d:%d)" % (upper-lower, top, lower, upper))
+        logger.debug("yielding batch of %d/%d entities (%d:%d)" % (upper-lower, top, lower, upper))
         yield entities[lower:upper]
         lower = upper
 
@@ -1028,7 +1028,9 @@ class _TableWrapper (object):
                 results.extend(resp.json())
             return results
 
-        return _ResultSet(self.path.uri, results_func)
+        result = _ResultSet(self.path.uri, results_func)
+        result.fetch()
+        return result
 
 
     def update(self, entities, correlation={'RID'}, targets=None, retry_codes={408, 429, 500, 502, 503, 504}, backoff_factor=4, max_attempts=5, max_batch_rows=1000, max_batch_bytes=250*1024):
@@ -1109,7 +1111,9 @@ class _TableWrapper (object):
                 results.extend(resp.json())
             return results
 
-        return _ResultSet(self.path.uri, results_func)
+        result = _ResultSet(self.path.uri, results_func)
+        result.fetch()
+        return result
 
 class _TableAlias (_TableWrapper):
     """Represents a table alias in datapath expressions.
