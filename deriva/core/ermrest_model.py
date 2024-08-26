@@ -1,7 +1,13 @@
 
+from __future__ import annotations
+
 from collections import OrderedDict
+from collections.abc import Iterable
+from enum import Enum
 import json
 import re
+import base64
+import hashlib
 
 from . import AttrDict, tag, urlquote, stob
 
@@ -16,6 +22,74 @@ class NoChange (object):
 
 # singletone to use in APIs below
 nochange = NoChange()
+
+def make_id(*components):
+    """Build an identifier that will be OK for ERMrest and Postgres.
+
+    Naively, append as '_'.join(components).
+
+    Fallback to heuristics mixing truncation with short hashes.
+    """
+    # accept lists at top-level for convenience (compound keys, etc.)
+    expanded = []
+    for e in components:
+        if isinstance(e, list):
+            expanded.extend(e)
+        else:
+            expanded.append(e)
+
+    # prefer to use naive name as requested
+    naive_result = '_'.join(expanded)
+    naive_len = len(naive_result.encode('utf8'))
+    if naive_len <= 63:
+        return naive_result
+
+    # we'll need to truncate and hash in some way...
+    def hash(s, nbytes):
+        return base64.urlsafe_b64encode(hashlib.md5(s.encode('utf8')).digest()).decode()[0:nbytes]
+
+    def truncate(s, maxlen):
+        encoded_len = len(s.encode('utf8'))
+        # we need to chop whole (unicode) chars but test encoded byte lengths!
+        for i in range(max(1, len(s) - maxlen), len(s) - 1):
+            result = s[0:-1 * i].rstrip()
+            if len(result.encode('utf8')) <= (maxlen - 2):
+                return result + '..'
+        return s
+
+    naive_hash = hash(naive_result, 5)
+    parts = [
+        (i, expanded[i])
+        for i in range(len(expanded))
+    ]
+
+    # try to find a solution truncating individual fields
+    for maxlen in [15, 12, 9]:
+        parts.sort(key=lambda p: (len(p[1].encode('utf8')), p[0]), reverse=True)
+        for i in range(len(parts)):
+            idx, part = parts[i]
+            if len(part.encode('utf8')) > maxlen:
+                parts[i] = (idx, truncate(part, maxlen))
+            candidate_result = '_'.join([
+                p[1]
+                for p in sorted(parts, key=lambda p: p[0])
+            ] + [naive_hash])
+            if len(candidate_result.encode('utf8')) < 63:
+                return candidate_result
+
+    # fallback to truncating original naive name
+    # try to preserve suffix and trim in middle
+    result = ''.join([
+        truncate(naive_result, len(naive_result)//3),
+        naive_result[-len(naive_result)//3:],
+        '_',
+        naive_hash
+    ])
+    if len(result.encode('utf8')) <= 63:
+        return result
+
+    # last-ditch (e.g. multibyte unicode suffix worst case)
+    return truncate(naive_result, 55) + naive_hash
 
 def presence_annotation(tag_uri):
     """Decorator to establish property getter/setter/deleter for presence annotations.
@@ -684,6 +758,15 @@ class KeyedList (list):
         list.append(self, e)
         self.elements[e.name] = e
 
+class FindAssociationResult (object):
+    """Wrapper for results of Table.find_associations()"""
+    def __init__(self, table, self_fkey, other_fkeys):
+        self.table = table
+        self.name = table.name
+        self.schema = table.schema
+        self.self_fkey = self_fkey
+        self.other_fkeys = other_fkeys
+    
 class Table (object):
     """Named table.
     """
@@ -1075,6 +1158,184 @@ class Table (object):
             provide_system
         )
 
+    @classmethod
+    def define_association(
+        cls,
+        associates: Iterable[Key | Table | tuple[str, Key | Table]],
+        metadata: Iterable[Key | Table | dict | tuple[str, bool, Key | Table]] = [],
+        table_name: str | None = None,
+        comment: str | None = None,
+        provide_system: bool = True) -> dict:
+        """Build an association table definition.
+
+        :param associates: the existing Key instances being associated
+        :param metadata: additional metadata fields for impure associations
+        :param table_name: name for the association table or None for default naming
+        :param comment: comment for the association table or None for default comment
+        :param provide_system: add ERMrest system columns when True
+
+        This is a utility function to help build an association table
+        definition. It simplifies the task, but removes some
+        control. For full customization, consider using Table.define()
+        directly instead.
+
+        A normal ("pure") N-ary association is a table with N foreign
+        keys referencing N primary keys in referenced tables, with a
+        composite primary key covering the N foreign keys. These pure
+        association tables manage a set of distinct combinations of
+        the associated foreign key values.
+
+        An "impure" association table adds additional metadata
+        alongside the N foreign keys.
+
+        The "associates" parameter takes an iterable of Key instances
+        from other tables.  The association will be comprised of
+        foreign keys referencing these associates. Optionally, a tuple
+        of (str, Key) can supply a string _base name_ to influence how
+        the foreign key columns and constraint will be named in the
+        new association table. A bare Key instance will get a base
+        name derived from the referenced table name.
+
+        The "metadata" parameter takes an iterable of plain dict
+        column definitions or Key instances. Each dict must be a
+        scalar column definition, such as produced by the
+        Column.define() class method. Key instance will cause
+        corresponding columns and foreign keys to be added to the
+        association table to act as metadata. Optionally, a tuple of
+        (str, bool, Key) can supply a string _base name_ and a boolean
+        _nullok_ property to influence how the foreign key columns and
+        constraint will be constructed and named. A bare Key instance
+        will get a base name derived from the referened table name,
+        and presumed as nullok=False.
+
+        If a Table instance is supplied instead of a Key instance for
+        associates or metadata inputs, an attempt will be made to
+        locate a key based on the RID system column. If this key
+        cannot be found, a KeyError will be raised.
+
+        """
+        associates = list(associates)
+        metadata = list(metadata)
+
+        if len(associates) < 2:
+            raise ValueError('An association table requires at least 2 associates')
+
+        cdefs = []
+        kdefs = []
+        fkdefs = []
+
+        used_names = set()
+
+        def check_basename(basename):
+            if not isinstance(base_name, str):
+                raise TypeError('Base name %r is not of required type str' % (base_name,))
+            if base_name in used_names:
+                raise ValueError('Base name %r is not unique among associates and metadata' % (base_name,))
+            used_names.add(base_name)
+
+        def choose_basename(key):
+            base_name = key.table.name
+            n = 2
+            while base_name in used_names:
+                base_name = '%s%d' % (key.table.name, n)
+                n += 1
+            used_names.add(base_name)
+            return base_name
+
+        def check_key(key):
+            if isinstance(key, Table):
+                return key.key_by_columns(["RID"])
+            return key
+
+        # check and normalize associates into list[(str, Key)] with distinct base names
+        for i in range(len(associates)):
+            if isinstance(associates[i], tuple):
+                base_name, key = associates[i]
+                check_basename(base_name)
+                key = check_key(key)
+                associates[i] = (base_name, key)
+            else:
+                key = check_key(associates[i])
+                base_name = choose_basename(key)
+                associates[i] = (base_name, key)
+
+        # build assoc table name if not provided
+        if table_name is None:
+            table_name = make_id(*[ assoc[1].table.name for assoc in associates ])
+
+        def simplify_type(ctype):
+            if ctype.is_domain and ctype.typename.startswith('ermrest_'):
+                return ctype.base_type
+
+            return ctype
+
+        def cdefs_for_key(base_name, key, nullok=False):
+            return [
+                Column.define(
+                    '%s_%s' % (base_name, col.name) if len(key.unique_columns) > 1 else base_name,
+                    simplify_type(col.type),
+                    nullok=nullok,
+                )
+                for col in key.unique_columns
+            ]
+
+        def fkdef_for_key(base_name, key):
+            return ForeignKey.define(
+                [
+                    '%s_%s' % (base_name, col.name) if len(key.unique_columns) > 1 else base_name
+                    for col in key.unique_columns
+                ],
+                key.table.schema.name,
+                key.table.name,
+                [ col.name for col in key.unique_columns ],
+                on_update='CASCADE',
+                on_delete='CASCADE',
+                constraint_name=make_id(table_name, base_name, 'fkey'),
+            )
+
+        # build core association definition (i.e. the "pure" parts)
+        k_cnames = []
+        for base_name, key in associates:
+            cdefs.extend(cdefs_for_key(base_name, key))
+            fkdefs.append(fkdef_for_key(base_name, key))
+
+            k_cnames.extend([
+                '%s_%s' % (base_name, col.name) if len(key.unique_columns) > 1 else base_name
+                for col in key.unique_columns
+            ])
+
+        kdefs.append(
+            Key.define(
+                k_cnames,
+                constraint_name=make_id(table_name, 'assoc', 'key'),
+            )
+        )
+
+        # check and normalize metadata into list[dict | (str, bool, Key)]
+        for i in range(len(metadata)):
+            if isinstance(metadata[i], tuple):
+                base_name, nullok, key = metadata[i]
+                check_basename(base_name)
+                key = check_key(key)
+                metadata[i] = (base_name, nullok, key)
+            elif isinstance(metadata[i], dict):
+                pass
+            else:
+                key = check_key(metadata[i])
+                base_name = choose_basename(key)
+                metadata[i] = (base_name, False, key)
+
+        # add metadata to definition
+        for md in metadata:
+            if isinstance(md, dict):
+                cdefs.append(md)
+            else:
+                base_name, nullok, key = md
+                cdefs.extend(cdefs_for_key(base_name, key, nullok))
+                fkdefs.append(fkdef_for_key(base_name, key))
+
+        return Table.define(table_name, cdefs, kdefs, fkdefs, comment=comment, provide_system=provide_system)
+
     def prejson(self, prune=True):
         return {
             "schema_name": self.schema.name,
@@ -1348,7 +1609,7 @@ class Table (object):
         if raise_nomatch:
             raise KeyError(from_to_map)
 
-    def is_association(self, min_arity=2, max_arity=2, unqualified=True, pure=True, no_overlap=True):
+    def is_association(self, min_arity=2, max_arity=2, unqualified=True, pure=True, no_overlap=True, return_fkeys=False):
         """Return (truthy) integer arity if self is a matching association, else False.
 
         min_arity: minimum number of associated fkeys (default 2)
@@ -1356,6 +1617,7 @@ class Table (object):
         unqualified: reject qualified associations when True (default True)
         pure: reject impure assocations when True (default True)
         no_overlap: reject overlapping associations when True (default True)
+        return_fkeys: return the set of N associated ForeignKeys if True
 
         The default behavior with no arguments is to test for pure,
         unqualified, non-overlapping, binary assocations.
@@ -1444,9 +1706,43 @@ class Table (object):
             # reject: impure association
             return False
 
-        # return (truthy) arity
-        return len(covered_fkeys)
+        # return (truthy) arity or fkeys
+        if return_fkeys:
+            return covered_fkeys
+        else:
+            return len(covered_fkeys)
 
+    def find_associations(self, min_arity=2, max_arity=2, unqualified=True, pure=True, no_overlap=True) -> Iterable[FindAssociationResult]:
+        """Yield (iterable) Association objects linking to this table and meeting all criteria.
+
+        min_arity: minimum number of associated fkeys (default 2)
+        max_arity: maximum number of associated fkeys (default 2) or None
+        unqualified: reject qualified associations when True (default True)
+        pure: reject impure assocations when True (default True)
+        no_overlap: reject overlapping associations when True (default True)
+
+        See documentation for sibling method Table.is_association(...)
+        for more explanation of these association detection criteria.
+
+        """
+        peer_tables = set()
+        for fkey in self.referenced_by:
+            peer = fkey.table
+            if peer in peer_tables:
+                # check each peer only once
+                continue
+            peer_tables.add(peer)
+            answer = peer.is_association(min_arity=min_arity, max_arity=max_arity, unqualified=unqualified, pure=pure, no_overlap=no_overlap, return_fkeys=True)
+            if answer:
+                answer = set(answer)
+                for fkey in answer:
+                    if fkey.pk_table == self:
+                        answer.remove(fkey)
+                        yield FindAssociationResult(peer, fkey, answer)
+                        # arbitrarily choose first fkey to self
+                        # in case association is back to same table
+                        break
+    
     @presence_annotation(tag.immutable)
     def immutable(self): pass
 
@@ -1495,6 +1791,40 @@ class Table (object):
     @object_annotation(tag.viz_3d_display)
     def viz_3d_display(self): pass
     
+class Quantifier (str, Enum):
+    """Logic quantifiers"""
+    any = 'any'
+    all = 'all'
+
+def find_tables_with_foreign_keys(target_tables: Iterable[Table], quantifier: Quantifier=Quantifier.all) -> set[Table]:
+    """Return set of tables with foreign key references to target tables.
+
+    :param target_tables: an iterable of ermrest_model.Table instances
+    :param quantifier: one of the Quantifiers 'any' or 'all' (default 'all')
+
+    Each returned Table instance will be a table that references the
+    targets according to the selected quantifier. A reference is a
+    direct foreign key in the returned table that refers to a primary
+    key of the target table.
+
+    - quantifier==all: a returned table references ALL targets
+    - quantifier==any: a returned table references AT LEAST ONE target
+
+    For proper function, all target_tables instances MUST come from
+    the same root Model instance hierarchy.
+
+    """
+    candidates = None
+    for table in target_tables:
+        referring = { fkey.table for fkey in table.referenced_by }
+        if candidates is None:
+            candidates = referring
+        elif quantifier == Quantifier.all:
+            candidates.intersection_update(referring)
+        else:
+            candidates.update(referring)
+    return candidates
+
 class Column (object):
     """Named column.
     """
@@ -1696,7 +2026,6 @@ class Column (object):
 
     @object_annotation(tag.column_display)
     def column_display(self): pass
-    
 
 def _constraint_name_parts(constraint, doc):
     # modern systems should have 0 or 1 names here
@@ -1781,10 +2110,29 @@ class Key (object):
         }
 
     @classmethod
-    def define(cls, colnames, constraint_names=[], comment=None, annotations={}):
-        """Build a key definition."""
+    def define(cls, colnames, constraint_names=[], comment=None, annotations={}, constraint_name=None):
+        """Build a key definition.
+
+        :param colnames: List of names of columns participating in the key
+        :param constraint_names: Legacy input [ [ schema_name, constraint_name ] ] (for API backwards-compatibility)
+        :param comment: Comment string
+        :param annotations: Dictionary of { annotation_uri: annotation_value, ... }
+        :param constraint_name: Constraint name string
+
+        The constraint_name kwarg takes a bare constraint name string
+        and acts the same as setting the legacy constraint_names kwarg
+        to: [ [ "placeholder", constraint_name ] ].  This odd syntax
+        is for backwards-compatibility with earlier API versions, and
+        mirrors the structure of constraint names in ERMrest model
+        description outputs. In those outputs, the "placeholder" field
+        contains the schema name of the table containing the
+        constraint.
+
+        """
         if not isinstance(colnames, list):
             raise TypeError('Colnames should be a list.')
+        if constraint_name is not None:
+            constraint_names = [ [ "placeholder", constraint_name ] ]
         return {
             'unique_columns': list(colnames),
             'names': constraint_names,
@@ -1983,9 +2331,41 @@ class ForeignKey (object):
         }
 
     @classmethod
-    def define(cls, fk_colnames, pk_sname, pk_tname, pk_colnames, on_update='NO ACTION', on_delete='NO ACTION', constraint_names=[], comment=None, acls={}, acl_bindings={}, annotations={}):
+    def define(cls, fk_colnames, pk_sname, pk_tname, pk_colnames, on_update='NO ACTION', on_delete='NO ACTION', constraint_names=[], comment=None, acls={}, acl_bindings={}, annotations={}, constraint_name=None):
+        """Define a foreign key.
+
+        :param fk_colnames: List of column names participating in the foreign key
+        :param pk_sname: Schema name string of the referenced primary key
+        :param pk_tname: Table name string of the referenced primary key
+        :param pk_colnames: List of column names participating in the referenced primary key
+        :param on_update: Constraint behavior when referenced primary keys are updated
+        :param on_update: Constraint behavior when referenced primary keys are deleted
+        :param constraint_names: Legacy input [ [ schema_name, constraint_name ] ] (for API backwards-compatibility)
+        :param comment: Comment string
+        :param acls: Dictionary of { acl_name: acl, ... }
+        :param acl_bindings: Dictionary of { binding_name: acl_binding, ... }
+        :param annotations: Dictionary of { annotation_uri: annotation_value, ... }
+        :param constraint_name: Constraint name string
+
+        The contraint behavior values for on_update and on_delete must
+        be one of the following literal strings:
+
+        'NO ACTION', 'RESTRICT', 'CASCADE', 'SET NULL', 'SET DEFAULT'
+
+        The constraint_name kwarg takes a bare constraint name string
+        and acts the same as setting the legacy constraint_names kwarg
+        to: [ [ "placeholder", constraint_name ] ].  This odd syntax
+        is for backwards-compatibility with earlier API versions, and
+        mirrors the structure of constraint names in ERMrest model
+        description outputs. In those outputs, the "placeholder" field
+        contains the schema name of the table containing the
+        constraint.
+
+        """
         if len(fk_colnames) != len(pk_colnames):
             raise ValueError('The fk_colnames and pk_colnames lists must have the same length.')
+        if constraint_name is not None:
+            constraint_names = [ [ "placeholder", constraint_name ], ]
         return {
             'foreign_key_columns': [
                 {
