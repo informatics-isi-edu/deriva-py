@@ -128,12 +128,12 @@ class Boto3UploadPostProcessor(UploadPostProcessor):
         object_qualifier = compute_hashes(
             identity.encode() if identity else
             "anon-" + self.envars.get("request_ip", "unknown").encode(), hashes=['md5'])['md5'][0]
-        if not stob(self.parameters.get("overwrite", "False")):
+        if not stob(self.parameters.get("overwrite", False)):
             now = datetime.datetime.now()
             object_qualifier = "/".join([object_qualifier, now.strftime("%Y-%m-%d_%H.%M.%S")])
 
         for k, v in self.outputs.items():
-            object_name = "/".join([self.path, object_qualifier, k])
+            object_name = "/".join([self.path, object_qualifier, k]).lstrip("/")
             file_path = v[LOCAL_PATH_KEY]
             acl = self.parameters.get("acl", "private")
             signed_url = stob(self.parameters.get("signed_url", acl == "public-read"))
