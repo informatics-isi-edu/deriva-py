@@ -864,7 +864,7 @@ class Table (object):
         }
 
     @classmethod
-    def define_vocabulary(cls, tname, curie_template, uri_template='/id/{RID}', column_defs=[], key_defs=[], fkey_defs=[], comment=None, acls={}, acl_bindings={}, annotations={}, provide_system=True):
+    def define_vocabulary(cls, tname, curie_template, uri_template='/id/{RID}', column_defs=[], key_defs=[], fkey_defs=[], comment=None, acls={}, acl_bindings={}, annotations={}, provide_system=True, provide_name_key=True):
         """Build a vocabulary table definition.
 
         :param tname: the name of the newly defined table
@@ -878,6 +878,7 @@ class Table (object):
         :param acl_bindings: a dictionary of dynamic ACL bindings
         :param annotations: a dictionary of annotations
         :param provide_system: whether to inject standard system column definitions when missing from column_defs
+        :param provide_name_key: whether to inject a key definition for the Name column
 
         These core vocabulary columns are generated automatically if
         absent from the input column_defs.
@@ -944,7 +945,7 @@ class Table (object):
                 for key_def in [
                         Key.define(['ID']),
                         Key.define(['URI']),
-                ]
+                ] + ([ Key.define(['Name']) ] if provide_name_key else [])
                 if ktup(key_def) not in { ktup(kdef): kdef for kdef in custom }
             ] + custom
 
@@ -1158,6 +1159,8 @@ class Table (object):
             provide_system
         )
 
+    default_key_column_search_order = ["Name", "name", "ID", "id"]
+
     @classmethod
     def define_association(
         cls,
@@ -1165,7 +1168,9 @@ class Table (object):
         metadata: Iterable[Key | Table | dict | tuple[str, bool, Key | Table]] = [],
         table_name: str | None = None,
         comment: str | None = None,
-        provide_system: bool = True) -> dict:
+        provide_system: bool = True,
+        key_column_search_order: Iterable[str] | None = None,
+    ) -> dict:
         """Build an association table definition.
 
         :param associates: the existing Key instances being associated
@@ -1173,6 +1178,7 @@ class Table (object):
         :param table_name: name for the association table or None for default naming
         :param comment: comment for the association table or None for default comment
         :param provide_system: add ERMrest system columns when True
+        :param key_column_search_order: override heuristic for choosing a Key from a Table input
 
         This is a utility function to help build an association table
         definition. It simplifies the task, but removes some
@@ -1210,13 +1216,20 @@ class Table (object):
 
         If a Table instance is supplied instead of a Key instance for
         associates or metadata inputs, an attempt will be made to
-        locate a key based on the RID system column. If this key
-        cannot be found, a KeyError will be raised.
+        locate a key based search heuristics. The
+        "key_column_search_order" parameter can provide a preferred
+        search order for this invocation, or by default the built-in
+        class attribute "default_key_column_search_order" will be
+        used. The first non-nullable, single-column key found in the
+        table will be used.
 
         """
         associates = list(associates)
         metadata = list(metadata)
 
+        if not key_column_search_order:
+            key_column_search_order = cls.default_key_column_search_order
+                
         if len(associates) < 2:
             raise ValueError('An association table requires at least 2 associates')
 
@@ -1244,7 +1257,20 @@ class Table (object):
 
         def check_key(key):
             if isinstance(key, Table):
-                return key.key_by_columns(["RID"])
+                # opportunistic case: prefer (non-nullable) "name" or "id" keys, if found
+                for cname in key_column_search_order:
+                    try:
+                        candidate = key.key_by_columns([cname])
+                        if not candidate.unique_columns[0].nullok:
+                            return candidate
+                    except (KeyError, ValueError) as e:
+                        continue
+
+                # general case: try to use RID key
+                try:
+                    return key.key_by_columns(["RID"])
+                except (KeyError, ValueError) as e:
+                    raise ValueError('Could not determine default key for table %s' % (key,))
             return key
 
         # check and normalize associates into list[(str, Key)] with distinct base names
