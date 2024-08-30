@@ -1227,7 +1227,10 @@ class Table (object):
         associates = list(associates)
         metadata = list(metadata)
 
-        if not key_column_search_order:
+        if key_column_search_order is not None:
+            # materialize iterable for reuse
+            key_column_search_order = list(key_column_search_order)
+        else:
             key_column_search_order = cls.default_key_column_search_order
                 
         if len(associates) < 2:
