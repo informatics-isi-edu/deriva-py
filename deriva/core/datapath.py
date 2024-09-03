@@ -1129,6 +1129,12 @@ class _TableWrapper (object):
         result.fetch()
         return result
 
+    def delete(self):
+        """Deletes the entity set referenced by the Table.
+        """
+        self.path.delete()
+
+
 class _TableAlias (_TableWrapper):
     """Represents a table alias in datapath expressions.
     """
