@@ -880,6 +880,10 @@ class Table (object):
         out_column_defs = []
         out_fkey_defs = list(fkey_defs)
 
+        if not isinstance(column_defs, list):
+            # materialize other iterables for mutation and replay
+            column_defs = list(column_defs)
+
         if key_column_search_order is not None:
             # materialize iterable for reuse
             key_column_search_order = list(key_column_search_order)
