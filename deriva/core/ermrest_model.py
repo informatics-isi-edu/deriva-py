@@ -686,11 +686,18 @@ class Schema (object):
         self.model.digest_fkeys()
         return newtable
 
-    def drop(self):
+    def drop(self, cascade=False):
         """Remove this schema from the remote database.
+
+        :param cascade: drop dependent objects.
         """
         if self.name not in self.model.schemas:
             raise ValueError('Schema %s does not appear to belong to model.' % (self,))
+
+        if cascade:
+            for table in list(self.tables.values()):
+                table.drop(cascade=True)
+
         self.catalog.delete(self.uri_path).raise_for_status()
         del self.model.schemas[self.name]
         for table in self.tables.values():
@@ -1572,11 +1579,18 @@ class Table (object):
             return fkey
         return self._create_table_part('foreignkey', add_fkey, ForeignKey, fkey_def)
 
-    def drop(self):
+    def drop(self, cascade=False):
         """Remove this table from the remote database.
+
+        :param cascade: drop dependent objects.
         """
         if self.name not in self.schema.tables:
             raise ValueError('Table %s does not appear to belong to schema %s.' % (self, self.schema))
+
+        if cascade:
+            for fkey in list(self.referenced_by):
+                fkey.drop()
+
         self.catalog.delete(self.uri_path).raise_for_status()
         del self.schema.tables[self.name]
         for fkey in self.foreign_keys:
@@ -2030,11 +2044,19 @@ class Column (object):
 
         return self
 
-    def drop(self):
+    def drop(self, cascade=False):
         """Remove this column from the remote database.
+
+        :param cascade: drop dependent objects.
         """
         if self.name not in self.table.column_definitions.elements:
             raise ValueError('Column %s does not appear to belong to table %s.' % (self, self.table))
+
+        if cascade:
+            for key in list(self.table.keys):
+                if self in key.unique_columns:
+                    key.drop(cascade=True)
+
         self.catalog.delete(self.uri_path).raise_for_status()
         del self.table.column_definitions[self.name]
 
@@ -2240,11 +2262,20 @@ class Key (object):
 
         return self
 
-    def drop(self):
+    def drop(self, cascade=False):
         """Remove this key from the remote database.
+
+        :param cascade: drop dependent objects.
         """
         if self.name not in self.table.keys.elements:
             raise ValueError('Key %s does not appear to belong to table %s.' % (self, self.table))
+
+        if cascade:
+            for fkey in list(self.table.referenced_by):
+                assert self.table == fkey.pk_table, "Expected key.table and foreign_key.pk_table to match"
+                if self.unique_columns == fkey.referenced_columns:
+                    fkey.drop()
+
         self.catalog.delete(self.uri_path).raise_for_status()
         del self.table.keys[self.name]
 
