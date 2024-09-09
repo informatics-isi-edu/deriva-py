@@ -102,9 +102,18 @@ class ErmrestModelTests (unittest.TestCase):
         schema = self.model.schemas['schema_with_fkeys']
         self.model.schemas['schema_with_fkeys'].tables['parent'].keys[(schema, 'parent_id_key')].drop(cascade=True)
 
-    def test_column_drop_cascading(self):
+    def test_key_reordered_drop_cascading(self):
+        self._create_schema_with_fkeys()
+        schema = self.model.schemas['schema_with_fkeys']
+        self.model.schemas['schema_with_fkeys'].tables['parent'].keys[(schema, 'parent_compound_key')].drop(cascade=True)
+
+    def test_key_column_drop_cascading(self):
         self._create_schema_with_fkeys()
         self.model.schemas['schema_with_fkeys'].tables['parent'].columns['id'].drop(cascade=True)
+
+    def test_fkey_column_drop_cascading(self):
+        self._create_schema_with_fkeys()
+        self.model.schemas['schema_with_fkeys'].tables['child'].columns['parent_id_extra'].drop(cascade=True)
 
     def test_table_drop_cascading(self):
         self._create_schema_with_fkeys()
