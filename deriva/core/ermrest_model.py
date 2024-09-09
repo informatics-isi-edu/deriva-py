@@ -2053,6 +2053,9 @@ class Column (object):
             raise ValueError('Column %s does not appear to belong to table %s.' % (self, self.table))
 
         if cascade:
+            for fkey in list(self.table.foreign_keys):
+                if self in fkey.foreign_key_columns:
+                    fkey.drop()
             for key in list(self.table.keys):
                 if self in key.unique_columns:
                     key.drop(cascade=True)
@@ -2273,7 +2276,7 @@ class Key (object):
         if cascade:
             for fkey in list(self.table.referenced_by):
                 assert self.table == fkey.pk_table, "Expected key.table and foreign_key.pk_table to match"
-                if self.unique_columns == fkey.referenced_columns:
+                if set(self.unique_columns) == set(fkey.referenced_columns):
                     fkey.drop()
 
         self.catalog.delete(self.uri_path).raise_for_status()
