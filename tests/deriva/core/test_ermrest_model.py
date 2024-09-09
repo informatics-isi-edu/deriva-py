@@ -72,28 +72,39 @@ class ErmrestModelTests (unittest.TestCase):
 
     def _create_schema_with_fkeys(self):
         """Creates a simple schema of two tables with a fkey relationship from child to parent."""
-        schema = self.model.create_schema(ermrest_model.Schema.define('schema_with_fkeys'))
-        schema.create_table(ermrest_model.Table.define(
-            'parent',
-            column_defs=[
-                ermrest_model.Column.define('id', ermrest_model.builtin_types.text)
-            ],
-            key_defs=[
-                ermrest_model.Key.define(['id'], constraint_name='parent_id_key')
-                # ermrest_model.Key.define(['id'], constraint_names=[[schema.name, 'parent_id_key']])
-            ]
-        ))
-        schema.create_table(ermrest_model.Table.define(
-            'child',
-            column_defs=[
-                ermrest_model.Column.define('parent_id', ermrest_model.builtin_types.text)
-            ],
-            fkey_defs=[
-                ermrest_model.ForeignKey.define(
-                    ['parent_id'], 'schema_with_fkeys', 'parent', ['id']
-                )
-            ]
-        ))
+
+        # build a single, low-level catalog /schema POST operation
+        # should be (slightly) faster and avoids using the client APIs under test in this module
+        schema_def = ermrest_model.Schema.define('schema_with_fkeys')
+        schema_def["tables"] = {
+            "parent": ermrest_model.Table.define(
+                'parent',
+                column_defs=[
+                    ermrest_model.Column.define('id', ermrest_model.builtin_types.text),
+                    ermrest_model.Column.define('id_extra', ermrest_model.builtin_types.text),
+                ],
+                key_defs=[
+                    ermrest_model.Key.define(['id'], constraint_name='parent_id_key'),
+                    ermrest_model.Key.define(['id', 'id_extra'], constraint_name='parent_compound_key'),
+                ]
+            ),
+            "child": ermrest_model.Table.define(
+                'child',
+                column_defs=[
+                    ermrest_model.Column.define('parent_id', ermrest_model.builtin_types.text),
+                    ermrest_model.Column.define('parent_id_extra', ermrest_model.builtin_types.text),
+                ],
+                fkey_defs=[
+                    ermrest_model.ForeignKey.define(
+                        ['parent_id'], 'schema_with_fkeys', 'parent', ['id']
+                    ),
+                    ermrest_model.ForeignKey.define(
+                        ['parent_id_extra', 'parent_id'], 'schema_with_fkeys', 'parent', ['id_extra', 'id']
+                    )
+                ]
+            ),
+        }
+        self.catalog.post('/schema', json=[schema_def])
         # refresh the local state of the model
         self.model = self.catalog.getCatalogModel()
 
