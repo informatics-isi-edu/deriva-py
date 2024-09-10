@@ -1008,35 +1008,32 @@ class _TableWrapper (object):
         # determine whether insert is idempotent and therefore retry safe
         retry_safe = on_conflict_skip and _has_user_pkey(self._wrapped_table)
 
-        # perform all requests in a helper we can hand to _ResultSet
-        def results_func(ignore1, ignore2, ignore3):
-            results = []
-            for batch in _generate_batches(
-                entities,
-                max_batch_rows=max_batch_rows,
-                max_batch_bytes=max_batch_bytes
-            ):
-                try:
-                    if retry_safe:
-                        resp = _request_with_retry(
-                            lambda: request_func(batch),
-                            retry_codes=retry_codes,
-                            backoff_factor=backoff_factor,
-                            max_attempts=max_attempts
-                        )
-                    else:
-                        resp = request_func(batch)
-                    results.extend(resp.json())
-                except HTTPError as e:
-                    logger.debug(e.response.text)
-                    if 400 <= e.response.status_code < 500:
-                        raise DataPathException(_http_error_message(e), e)
-                    else:
-                        raise e
-            return results
+        # perform all requests synchronously so the caller can get exceptions
+        results = []
+        for batch in _generate_batches(
+            entities,
+            max_batch_rows=max_batch_rows,
+            max_batch_bytes=max_batch_bytes
+        ):
+            try:
+                if retry_safe:
+                    resp = _request_with_retry(
+                        lambda: request_func(batch),
+                        retry_codes=retry_codes,
+                        backoff_factor=backoff_factor,
+                        max_attempts=max_attempts
+                    )
+                else:
+                    resp = request_func(batch)
+                results.extend(resp.json())
+            except HTTPError as e:
+                logger.debug(e.response.text)
+                if 400 <= e.response.status_code < 500:
+                    raise DataPathException(_http_error_message(e), e)
+                else:
+                    raise e
 
-        result = _ResultSet(self.path.uri, results_func)
-        result.fetch()
+        result = _ResultSet(self.path.uri, lambda ignore1, ignore2, ignore3: results)
         return result
 
 
@@ -1101,32 +1098,29 @@ class _TableWrapper (object):
         def request_func(batch):
             return self._schema._catalog._wrapped_catalog.put(path, json=batch, headers={'Content-Type': 'application/json'})
 
-        # perform all requests in a helper we can hand to _ResultSet
-        def results_func(ignore1, ignore2, ignore3):
-            results = []
-            for batch in _generate_batches(
-                entities,
-                max_batch_rows=max_batch_rows,
-                max_batch_bytes=max_batch_bytes
-            ):
-                try:
-                    resp = _request_with_retry(
-                        lambda: request_func(batch),
-                        retry_codes=retry_codes,
-                        backoff_factor=backoff_factor,
-                        max_attempts=max_attempts
-                    )
-                    results.extend(resp.json())
-                except HTTPError as e:
-                    logger.debug(e.response.text)
-                    if 400 <= e.response.status_code < 500:
-                        raise DataPathException(_http_error_message(e), e)
-                    else:
-                        raise e
-            return results
+        # perform all requests synchronously so the caller can get exceptions
+        results = []
+        for batch in _generate_batches(
+            entities,
+            max_batch_rows=max_batch_rows,
+            max_batch_bytes=max_batch_bytes
+        ):
+            try:
+                resp = _request_with_retry(
+                    lambda: request_func(batch),
+                    retry_codes=retry_codes,
+                    backoff_factor=backoff_factor,
+                    max_attempts=max_attempts
+                )
+                results.extend(resp.json())
+            except HTTPError as e:
+                logger.debug(e.response.text)
+                if 400 <= e.response.status_code < 500:
+                    raise DataPathException(_http_error_message(e), e)
+                else:
+                    raise e
 
-        result = _ResultSet(self.path.uri, results_func)
-        result.fetch()
+        result = _ResultSet(self.path.uri, lambda ignore1, ignore2, ignore3: results)
         return result
 
     def delete(self):

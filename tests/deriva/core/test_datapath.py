@@ -665,6 +665,13 @@ class DatapathTests (unittest.TestCase):
         df = DataFrame(results)
         self.assertEqual(len(df), TEST_EXP_MAX)
 
+    def test_insert_double_fetch(self):
+        entities = _generate_experiment_entities(self.types, 2)
+        results = self.experiment_copy.insert(entities)
+        rows1 = results.fetch()
+        rows2 = results.fetch()
+        self.assertEqual(rows1, rows2)
+        
     def test_insert_empty_entities(self):
         results = self.experiment_copy.insert(None)
         self.assertEqual(len(results), 0)
