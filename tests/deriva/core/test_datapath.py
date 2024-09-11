@@ -665,6 +665,13 @@ class DatapathTests (unittest.TestCase):
         df = DataFrame(results)
         self.assertEqual(len(df), TEST_EXP_MAX)
 
+    def test_insert_double_fetch(self):
+        entities = _generate_experiment_entities(self.types, 2)
+        results = self.experiment_copy.insert(entities)
+        rows1 = results.fetch()
+        rows2 = results.fetch()
+        self.assertEqual(rows1, rows2)
+        
     def test_insert_empty_entities(self):
         results = self.experiment_copy.insert(None)
         self.assertEqual(len(results), 0)
@@ -727,6 +734,25 @@ class DatapathTests (unittest.TestCase):
             self.experiment_type.update([1])
         with self.assertRaises(TypeError):
             self.experiment_type.update('this is not a dict')
+
+    def test_delete_whole_path(self):
+        self.experiment_copy.insert(_generate_experiment_entities(self.types, 10))
+        self.assertEqual(len(self.experiment_copy.entities()), 10)
+        self.experiment_copy.path.delete()
+        self.assertEqual(len(self.experiment_copy.entities()), 0)
+
+    def test_delete_filtered_path(self):
+        self.experiment_copy.insert(_generate_experiment_entities(self.types, 10))
+        expression = self.experiment_copy.column_definitions['Name'] == TEST_EXP_NAME_FORMAT.format(1)
+        self.assertEqual(len(self.experiment_copy.filter(expression).entities()), 1)
+        self.experiment_copy.filter(expression).delete()
+        self.assertEqual(len(self.experiment_copy.filter(expression).entities()), 0)
+
+    def test_delete_whole_table(self):
+        self.experiment_copy.insert(_generate_experiment_entities(self.types, 10))
+        self.assertEqual(len(self.experiment_copy.entities()), 10)
+        self.experiment_copy.delete()
+        self.assertEqual(len(self.experiment_copy.entities()), 0)
 
     def test_nondefaults(self):
         nondefaults = {'RID', 'RCB', 'RCT'}
@@ -830,4 +856,4 @@ class DatapathTests (unittest.TestCase):
 
 
 if __name__ == '__main__':
-    sys.exit(unittest.main())
+    unittest.main()
