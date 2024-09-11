@@ -848,7 +848,7 @@ class Table (object):
         table_name: str,
         column_defs: list[Key | Table | dict | tuple[str, bool, Key | Table] | tuple[str, Key | Table]],
         fkey_defs: Iterable[dict],
-        used_names: set =set(),
+        used_names: set[str] =set(),
         key_column_search_order: Iterable[str] | None = None,
     ):
         """Expand implicit references in column_defs into actual column and fkey definitions.
@@ -887,9 +887,8 @@ class Table (object):
         out_column_defs = []
         out_fkey_defs = list(fkey_defs)
 
-        if not isinstance(column_defs, list):
-            # materialize other iterables for mutation and replay
-            column_defs = list(column_defs)
+        # materialize for mutation and replay
+        column_defs = list(column_defs)
 
         if key_column_search_order is not None:
             # materialize iterable for reuse
@@ -931,19 +930,25 @@ class Table (object):
                     raise ValueError('Could not determine default key for table %s' % (key,))
             elif isinstance(key, Key):
                 return key
-            raise TypeError('Expected Key or Table instance as target reference, not %s' (key,))
+            raise TypeError('Expected Key or Table instance as target reference, not %s' % (key,))
 
         # check and normalize cdefs into list[(str, Key)] with distinct base names
         for i in range(len(column_defs)):
             if isinstance(column_defs[i], tuple):
-                base_name, key = column_defs[i]
+                if len(column_defs[i]) == 2:
+                    base_name, key = column_defs[i]
+                    nullok = False
+                elif len(column_defs[i]) == 3:
+                    base_name, nullok, key = column_defs[i]
+                else:
+                    raise ValueError('Expected column definition tuple (str, Key|Table) or (str, bool, Key|Table), not %s' % (len(column_defs[i]),))
                 check_basename(base_name)
                 key = check_key(key)
-                column_defs[i] = (base_name, key)
+                column_defs[i] = (base_name, nullok, key)
             elif isinstance(column_defs[i], (Key, Table)):
                 key = check_key(column_defs[i])
                 base_name = choose_basename(key)
-                column_defs[i] = (base_name, key)
+                column_defs[i] = (base_name, False, key)
             elif isinstance(column_defs[i], dict):
                 pass
             else:
@@ -954,17 +959,7 @@ class Table (object):
                 return ctype.base_type
             return ctype
 
-        def cdefs_for_key(*args):
-            if len(args) == 2:
-                base_name = args[0]
-                nullok = False
-                key = args[1]
-            elif len(args) == 3:
-                base_name = args[0]
-                nullok = args[1]
-                key = args[2]
-            else:
-                raise TypeError("expected tuple (base_name, target) or (base_name, nullok, target) not %s" % (args,))
+        def cdefs_for_key(base_name, nullok, key):
             return [
                 Column.define(
                     '%s_%s' % (base_name, col.name) if len(key.unique_columns) > 1 else base_name,
@@ -974,7 +969,7 @@ class Table (object):
                 for col in key.unique_columns
             ]
 
-        def fkdef_for_key(base_name, key):
+        def fkdef_for_key(base_name, nullok, key):
             return ForeignKey.define(
                 [
                     '%s_%s' % (base_name, col.name) if len(key.unique_columns) > 1 else base_name
@@ -1043,12 +1038,14 @@ class Table (object):
 
         """
         column_defs = list(column_defs) # materialize to allow replay
-        used_names = { cdef["name"] for cdef in column_defs if 'name' in cdef }
+        used_names = { cdef["name"] for cdef in column_defs if isinstance(cdef, dict) and 'name' in cdef }
         column_defs, fkey_defs = cls._expand_references(tname, column_defs, fkey_defs, used_names, key_column_search_order)
 
         if provide_system:
             column_defs = cls.system_column_defs(column_defs)
             key_defs = cls.system_key_defs(key_defs)
+        else:
+            key_defs = list(key_defs)
 
         return {
             'table_name': tname,
@@ -1168,17 +1165,19 @@ class Table (object):
 
         used_names = {'ID', 'URI', 'Name', 'Description', 'Synonyms'}
         column_defs, fkey_defs = cls._expand_references(tname, column_defs, fkey_defs, used_names, key_column_search_order)
+        column_defs = add_vocab_columns(column_defs)
+        key_defs = add_vocab_keys(key_defs)
 
         return cls.define(
             tname,
-            add_vocab_columns(column_defs),
-            add_vocab_keys(key_defs),
+            column_defs,
+            key_defs,
             fkey_defs,
             comment,
             acls,
             acl_bindings,
             annotations,
-            provide_system
+            provide_system,
         )
 
     @classmethod
@@ -1221,7 +1220,7 @@ class Table (object):
 
           - Filename: ermrest_curie, unique not null, default curie template "%s:{RID}" % curie_prefix
           - URL: Location of the asset, unique not null.  Default template is:
-                    /hatrac/sname/tname/{{{MD5}}}.{{{Filename}}} where tname is the name of the asset table.
+                    /hatrac/cat_id/sname/tname/{{{MD5}}}.{{{Filename}}} where tname is the name of the asset table.
           - Length: Length of the asset.
           - MD5: text
           - Description: markdown, not null
@@ -1486,7 +1485,17 @@ class Table (object):
 
         if table_name is None:
             # use first pass results to build table_name
-            table_name = make_id(*[ assoc[1].table.name for assoc in associates ])
+            def get_assoc_name(assoc):
+                if isinstance(assoc, tuple):
+                    table = assoc[1]
+                elif isinstance(assoc, Key):
+                    table = key.table
+                elif isinstance(assoc, Table):
+                    table = assoc
+                else:
+                    raise ValueError("expected (str, Key|Table) | Key | Table, not %s" % (assoc,))
+                return table.name
+            table_name = make_id(*[ get_assoc_name(assoc) for assoc in associates ])
             # HACK: repeat first pass to make proper fkey def constraint names
             used_names = set()
             cdefs, fkdefs = cls._expand_references(table_name, associates, [], used_names)
