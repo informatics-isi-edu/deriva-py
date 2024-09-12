@@ -261,7 +261,7 @@ class ErmrestModelTests (unittest.TestCase):
         self.assertEqual(len(kdefs), 1)
         fkdefs = tdef.get("foreign_keys")
         self.assertIsInstance(fkdefs, list)
-        self.assertEqual(len(fkdefs), 0)
+        self.assertEqual(len(fkdefs), 2)
         self.assertEqual(tdef.get("comment"), None)
         self.assertEqual(tdef.get("acls"), dict())
         self.assertEqual(tdef.get("acl_bindings"), dict())
@@ -288,6 +288,7 @@ class ErmrestModelTests (unittest.TestCase):
             self._test_acls,
             self._test_acl_bindings,
             self._test_annotations,
+            provide_system_fkeys=False,
         )
         self.assertEqual(tdef.get("table_name"), tname)
         cdefs = tdef.get("column_definitions")
@@ -331,12 +332,25 @@ class ErmrestModelTests (unittest.TestCase):
         self.assertEqual(len(kdefs), 1)
         fkdefs = tdef.get("foreign_keys")
         self.assertIsInstance(fkdefs, list)
-        self.assertEqual(len(fkdefs), 1)
-        fkdef = fkdefs[0]
-        self.assertEqual([ c["column_name"] for c in fkdef["foreign_key_columns"]], ["ERMrest_Client"])
-        self.assertEqual([ c["column_name"] for c in fkdef["referenced_columns"]], ["ID"])
-        self.assertEqual(fkdef["referenced_columns"][0]["schema_name"], "public")
-        self.assertEqual(fkdef["referenced_columns"][0]["table_name"], "ERMrest_Client")
+        self.assertEqual(len(fkdefs), 2 + 1)
+        self.assertEqual(
+            {
+                (
+                    fkdef["referenced_columns"][0]["schema_name"],
+                    fkdef["referenced_columns"][0]["table_name"],
+                    frozenset(zip(
+                        ( c["column_name"] for c in fkdef["foreign_key_columns"] ),
+                        ( c["column_name"] for c in fkdef["referenced_columns"] ),
+                    ))
+                )
+                for fkdef in fkdefs
+             },
+            {
+                ("public", "ERMrest_Client", frozenset([ ("ERMrest_Client", "ID",) ])),
+                ("public", "ERMrest_Client", frozenset([ ("RCB", "ID",) ])),
+                ("public", "ERMrest_Client", frozenset([ ("RMB", "ID",) ])),
+            }
+        )
         self.assertEqual(tdef.get("comment"), self._test_comment)
         self.assertEqual(tdef.get("acls"), self._test_acls)
         self.assertEqual(tdef.get("acl_bindings"), self._test_acl_bindings)
@@ -365,7 +379,7 @@ class ErmrestModelTests (unittest.TestCase):
         self.assertEqual(len(kdefs), 1 + 3)
         fkdefs = tdef.get("foreign_keys")
         self.assertIsInstance(fkdefs, list)
-        self.assertEqual(len(fkdefs), 0)
+        self.assertEqual(len(fkdefs), 2)
         self.assertEqual(tdef.get("comment"), None)
         self.assertEqual(tdef.get("acls"), dict())
         self.assertEqual(tdef.get("acl_bindings"), dict())
@@ -394,6 +408,7 @@ class ErmrestModelTests (unittest.TestCase):
             self._test_acl_bindings,
             self._test_annotations,
             provide_name_key=False,
+            provide_system_fkeys=False,
         )
         self.assertEqual(tdef.get("table_name"), tname)
         cdefs = tdef.get("column_definitions")
@@ -445,12 +460,25 @@ class ErmrestModelTests (unittest.TestCase):
         self.assertEqual(len(kdefs), 1 + 3)
         fkdefs = tdef.get("foreign_keys")
         self.assertIsInstance(fkdefs, list)
-        self.assertEqual(len(fkdefs), 1)
-        fkdef = fkdefs[0]
-        self.assertEqual([ c["column_name"] for c in fkdef["foreign_key_columns"]], ["ERMrest_Client"])
-        self.assertEqual([ c["column_name"] for c in fkdef["referenced_columns"]], ["ID"])
-        self.assertEqual(fkdef["referenced_columns"][0]["schema_name"], "public")
-        self.assertEqual(fkdef["referenced_columns"][0]["table_name"], "ERMrest_Client")
+        self.assertEqual(len(fkdefs), 2 + 1)
+        self.assertEqual(
+            {
+                (
+                    fkdef["referenced_columns"][0]["schema_name"],
+                    fkdef["referenced_columns"][0]["table_name"],
+                    frozenset(zip(
+                        ( c["column_name"] for c in fkdef["foreign_key_columns"] ),
+                        ( c["column_name"] for c in fkdef["referenced_columns"] ),
+                    ))
+                )
+                for fkdef in fkdefs
+             },
+            {
+                ("public", "ERMrest_Client", frozenset([ ("ERMrest_Client", "ID",) ])),
+                ("public", "ERMrest_Client", frozenset([ ("RCB", "ID",) ])),
+                ("public", "ERMrest_Client", frozenset([ ("RMB", "ID",) ])),
+            }
+        )
         self.assertEqual(tdef.get("comment"), self._test_comment)
         self.assertEqual(tdef.get("acls"), self._test_acls)
         self.assertEqual(tdef.get("acl_bindings"), self._test_acl_bindings)
@@ -476,7 +504,7 @@ class ErmrestModelTests (unittest.TestCase):
         self.assertEqual(len(kdefs), 1 + 1)
         fkdefs = tdef.get("foreign_keys")
         self.assertIsInstance(fkdefs, list)
-        self.assertEqual(len(fkdefs), 0)
+        self.assertEqual(len(fkdefs), 2)
         self.assertEqual(tdef.get("acls"), dict())
         self.assertEqual(tdef.get("acl_bindings"), dict())
         self.assertEqual(set(tdef.get("annotations").keys()), {tag.table_display})
@@ -502,6 +530,7 @@ class ErmrestModelTests (unittest.TestCase):
             self._test_acls,
             self._test_acl_bindings,
             self._test_annotations,
+            provide_system_fkeys=False,
         )
         self.assertEqual(tdef.get("table_name"), tname)
         cdefs = tdef.get("column_definitions")
@@ -554,12 +583,25 @@ class ErmrestModelTests (unittest.TestCase):
         self.assertEqual(len(kdefs), 1 + 1)
         fkdefs = tdef.get("foreign_keys")
         self.assertIsInstance(fkdefs, list)
-        self.assertEqual(len(fkdefs), 1)
-        fkdef = fkdefs[0]
-        self.assertEqual([ c["column_name"] for c in fkdef["foreign_key_columns"]], ["ERMrest_Client"])
-        self.assertEqual([ c["column_name"] for c in fkdef["referenced_columns"]], ["ID"])
-        self.assertEqual(fkdef["referenced_columns"][0]["schema_name"], "public")
-        self.assertEqual(fkdef["referenced_columns"][0]["table_name"], "ERMrest_Client")
+        self.assertEqual(len(fkdefs), 2 + 1)
+        self.assertEqual(
+            {
+                (
+                    fkdef["referenced_columns"][0]["schema_name"],
+                    fkdef["referenced_columns"][0]["table_name"],
+                    frozenset(zip(
+                        ( c["column_name"] for c in fkdef["foreign_key_columns"] ),
+                        ( c["column_name"] for c in fkdef["referenced_columns"] ),
+                    ))
+                )
+                for fkdef in fkdefs
+             },
+            {
+                ("public", "ERMrest_Client", frozenset([ ("ERMrest_Client", "ID",) ])),
+                ("public", "ERMrest_Client", frozenset([ ("RCB", "ID",) ])),
+                ("public", "ERMrest_Client", frozenset([ ("RMB", "ID",) ])),
+            }
+        )
         self.assertEqual(tdef.get("comment"), self._test_comment)
         self.assertEqual(tdef.get("acls"), self._test_acls)
         self.assertEqual(tdef.get("acl_bindings"), self._test_acl_bindings)
@@ -594,16 +636,20 @@ class ErmrestModelTests (unittest.TestCase):
         self.assertEqual(
             {
                 (
-                    tuple( c["column_name"] for c in fkdef["foreign_key_columns"] ),
                     fkdef["referenced_columns"][0]["schema_name"],
                     fkdef["referenced_columns"][0]["table_name"],
-                    tuple( c["column_name"] for c in fkdef["referenced_columns"] ),
+                    frozenset(zip(
+                        tuple( c["column_name"] for c in fkdef["foreign_key_columns"] ),
+                        tuple( c["column_name"] for c in fkdef["referenced_columns"] ),
+                    ))
                 )
                 for fkdef in fkdefs
              },
             {
-                (("ERMrest_Client",), "public", "ERMrest_Client", ("ID",)),
-                (("ERMrest_Group",), "public", "ERMrest_Group", ("ID",)),
+                ("public", "ERMrest_Client", frozenset([ ("ERMrest_Client", "ID",) ])),
+                ("public", "ERMrest_Group", frozenset([ ("ERMrest_Group", "ID",) ])),
+                ("public", "ERMrest_Client", frozenset([ ("RCB", "ID",) ])),
+                ("public", "ERMrest_Client", frozenset([ ("RMB", "ID",) ])),
             }
         )
         schema = self.model.create_schema(ermrest_model.Schema.define("model_define_schema"))
@@ -620,6 +666,7 @@ class ErmrestModelTests (unittest.TestCase):
             [],
             tname,
             self._test_comment,
+            provide_system_fkeys=False,
         )
         self.assertEqual(tdef.get("table_name"), tname)
         self.assertEqual(tdef.get("comment"), self._test_comment)
@@ -637,16 +684,18 @@ class ErmrestModelTests (unittest.TestCase):
         self.assertEqual(
             {
                 (
-                    tuple( c["column_name"] for c in fkdef["foreign_key_columns"] ),
                     fkdef["referenced_columns"][0]["schema_name"],
                     fkdef["referenced_columns"][0]["table_name"],
-                    tuple( c["column_name"] for c in fkdef["referenced_columns"] ),
+                    frozenset(zip(
+                        tuple( c["column_name"] for c in fkdef["foreign_key_columns"] ),
+                        tuple( c["column_name"] for c in fkdef["referenced_columns"] ),
+                    ))
                 )
                 for fkdef in fkdefs
              },
             {
-                (("c_id",), "public", "ERMrest_Client", ("ID",)),
-                (("g_id",), "public", "ERMrest_Group", ("ID",)),
+                ("public", "ERMrest_Client", frozenset([ ("c_id", "ID",) ])),
+                ("public", "ERMrest_Group", frozenset([ ("g_id", "ID",) ])),
             }
         )
         schema = self.model.create_schema(ermrest_model.Schema.define("model_define_schema"))
@@ -682,16 +731,20 @@ class ErmrestModelTests (unittest.TestCase):
         self.assertEqual(
             {
                 (
-                    tuple( c["column_name"] for c in fkdef["foreign_key_columns"] ),
                     fkdef["referenced_columns"][0]["schema_name"],
                     fkdef["referenced_columns"][0]["table_name"],
-                    tuple( c["column_name"] for c in fkdef["referenced_columns"] ),
+                    frozenset(zip(
+                        tuple( c["column_name"] for c in fkdef["foreign_key_columns"] ),
+                        tuple( c["column_name"] for c in fkdef["referenced_columns"] ),
+                    ))
                 )
                 for fkdef in fkdefs
              },
             {
-                (("c_id",), "public", "ERMrest_Client", ("ID",)),
-                (("g_id",), "public", "ERMrest_Group", ("ID",)),
+                ("public", "ERMrest_Client", frozenset([ ("c_id", "ID",) ])),
+                ("public", "ERMrest_Group", frozenset([ ("g_id", "ID",) ])),
+                ("public", "ERMrest_Client", frozenset([ ("RCB", "ID",) ])),
+                ("public", "ERMrest_Client", frozenset([ ("RMB", "ID",) ])),
             }
         )
         schema = self.model.create_schema(ermrest_model.Schema.define("model_define_schema"))

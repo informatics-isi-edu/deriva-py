@@ -834,14 +834,42 @@ class Table (object):
     def system_key_defs(cls, custom=[]):
         """Build standard system key definitions, merging optional custom definitions."""
         def ktup(k):
-            return tuple(k['unique_columns'])
+            return frozenset(k['unique_columns'])
+        customized = { ktup(kdef): kdef for kdef in custom }
         return [
             kdef for kdef in [
                 Key.define(['RID'])
             ]
-            if ktup(kdef) not in { ktup(kdef): kdef for kdef in custom }
+            if ktup(kdef) not in customized
         ] + custom
 
+    @classmethod
+    def system_fkey_defs(cls, tname, custom=[]):
+        """Build standard system fkey definitions, merging optional custom definitions."""
+        def fktup(fk):
+            return (
+                fk["referenced_columns"][0]["schema_name"],
+                fk["referenced_columns"][0]["table_name"],
+                frozenset(zip(
+                    tuple( c["column_name"] for c in fk["foreign_key_columns"] ),
+                    tuple( c["column_name"] for c in fk["referenced_columns"] ),
+                ))
+            )
+        customized = { fktup(fkdef) for fkdef in custom }
+        return [
+            fkdef for fkdef in [
+                ForeignKey.define(
+                    ["RCB"], "public", "ERMrest_Client", ["ID"],
+                    constraint_name=make_id(tname, "RCB", "fkey"),
+                ),
+                ForeignKey.define(
+                    ["RMB"], "public", "ERMrest_Client", ["ID"],
+                    constraint_name=make_id(tname, "RMB", "fkey"),
+                ),
+            ]
+            if fktup(fkdef) not in customized
+        ] + custom
+    
     @classmethod
     def _expand_references(
         cls,
@@ -1004,6 +1032,7 @@ class Table (object):
         acl_bindings: dict = {},
         annotations: dict = {},
         provide_system: bool = True,
+        provide_system_fkeys: book = True,
         key_column_search_order: Iterable[str] | None = None,
     ):
         """Build a table definition.
@@ -1017,6 +1046,7 @@ class Table (object):
         :param acl_bindings: a dictionary of dynamic ACL bindings
         :param annotations: a dictionary of annotations
         :param provide_system: whether to inject standard system column definitions when missing from column_defs
+        :param provide_system_fkeys: whether to also inject foreign key definitions for RCB/RMB
         :param key_column_search_order: override heuristic for choosing a Key from a Table input
 
         Each reference target may be one of:
@@ -1044,6 +1074,8 @@ class Table (object):
         if provide_system:
             column_defs = cls.system_column_defs(column_defs)
             key_defs = cls.system_key_defs(key_defs)
+            if provide_system_fkeys:
+                fkey_defs = cls.system_fkey_defs(tname, fkey_defs)
         else:
             key_defs = list(key_defs)
 
@@ -1072,6 +1104,7 @@ class Table (object):
         acl_bindings: dict = {},
         annotations: dict = {},
         provide_system: bool = True,
+        provide_system_fkeys: bool = True,
         provide_name_key: bool = True,
         key_column_search_order: Iterable[str] | None = None,
     ):
@@ -1088,6 +1121,7 @@ class Table (object):
         :param acl_bindings: a dictionary of dynamic ACL bindings
         :param annotations: a dictionary of annotations
         :param provide_system: whether to inject standard system column definitions when missing from column_defs
+        :param provide_system_fkeys: whether to also inject foreign key definitions for RCB/RMB
         :param provide_name_key: whether to inject a key definition for the Name column
         :param key_column_search_order: override heuristic for choosing a Key from a Table input
 
@@ -1153,7 +1187,7 @@ class Table (object):
 
         def add_vocab_keys(custom):
             def ktup(k):
-                return tuple(k['unique_columns'])
+                return frozenset(k['unique_columns'])
             return [
                 key_def
                 for key_def in [
@@ -1177,7 +1211,9 @@ class Table (object):
             acls,
             acl_bindings,
             annotations,
-            provide_system,
+            provide_system=provide_system,
+            provide_system_fkeys=provide_system_fkeys,
+            key_column_search_order=key_column_search_order,
         )
 
     @classmethod
@@ -1194,6 +1230,7 @@ class Table (object):
         acl_bindings: dict = {},
         annotations: dict = {},
         provide_system: bool = True,
+        provide_system_fkeys: bool = True,
         key_column_search_order: Iterable[str] | None = None,
     ):
         """Build an asset  table definition.
@@ -1213,6 +1250,7 @@ class Table (object):
           :param acl_bindings: a dictionary of dynamic ACL bindings
           :param annotations: a dictionary of annotations
           :param provide_system: whether to inject standard system column definitions when missing from column_defs
+          :param provide_system_fkeys: whether to also inject foreign key definitions for RCB/RMB
           :param key_column_search_order: override heuristic for choosing a Key from a Table input
 
           These core asset table columns are generated automatically if
@@ -1267,7 +1305,7 @@ class Table (object):
 
         def add_asset_keys(custom):
             def ktup(k):
-                return tuple(k['unique_columns'])
+                return frozenset(k['unique_columns'])
 
             return [
                 key_def
@@ -1300,7 +1338,9 @@ class Table (object):
             acls,
             acl_bindings,
             add_asset_annotations(annotations),
-            provide_system
+            provide_system=provide_system,
+            provide_system_fkeys=provide_system_fkeys,
+            key_column_search_order=key_column_search_order,
         )
 
     @classmethod
@@ -1315,6 +1355,7 @@ class Table (object):
         acl_bindings: dict = {},
         annotations: dict = {},
         provide_system: bool = True,
+        provide_system_fkeys: bool = True,
         key_column_search_order: Iterable[str] | None = None,
     ):
         """Build a wiki-like "page" table definition.
@@ -1328,6 +1369,7 @@ class Table (object):
         :param acl_bindings: a dictionary of dynamic ACL bindings
         :param annotations: a dictionary of annotations
         :param provide_system: whether to inject standard system column definitions when missing from column_defs
+        :param provide_system_fkeys: whether to also inject foreign key definitions for RCB/RMB
         :param key_column_search_order: override heuristic for choosing a Key from a Table input
 
         These core page columns are generated automatically if absent from the input column_defs.
@@ -1363,7 +1405,7 @@ class Table (object):
 
         def add_page_keys(custom):
             def ktup(k):
-                return tuple(k['unique_columns'])
+                return frozenset(k['unique_columns'])
             return [
                 key_def
                 for key_def in [
@@ -1405,7 +1447,9 @@ class Table (object):
             acls,
             acl_bindings,
             add_page_annotations(annotations),
-            provide_system
+            provide_system=provide_system,
+            provide_system_fkeys=provide_system_fkeys,
+            key_column_search_order=key_column_search_order,
         )
 
     @classmethod
@@ -1416,6 +1460,7 @@ class Table (object):
         table_name: str | None = None,
         comment: str | None = None,
         provide_system: bool = True,
+        provide_system_fkeys: bool = True,
         key_column_search_order: Iterable[str] | None = None,
     ) -> dict:
         """Build an association table definition.
@@ -1425,6 +1470,7 @@ class Table (object):
         :param table_name: name for the association table or None for default naming
         :param comment: comment for the association table or None for default comment
         :param provide_system: add ERMrest system columns when True
+        :param provide_system_fkeys: whether to also inject foreign key definitions for RCB/RMB
         :param key_column_search_order: override heuristic for choosing a Key from a Table input
 
         This is a utility function to help build an association table
@@ -1515,7 +1561,16 @@ class Table (object):
         # run second pass to expand out metadata targets
         cdefs, fkdefs = cls._expand_references(table_name, cdefs + metadata, fkdefs, used_names)
 
-        return Table.define(table_name, cdefs, kdefs, fkdefs, comment=comment, provide_system=provide_system)
+        return Table.define(
+            table_name,
+            cdefs,
+            kdefs,
+            fkdefs,
+            comment=comment,
+            provide_system=provide_system,
+            provide_system_fkeys=provide_system_fkeys,
+            key_column_search_order=key_column_search_order,
+        )
 
     def prejson(self, prune=True):
         return {
