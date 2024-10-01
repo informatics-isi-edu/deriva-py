@@ -1,0 +1,73 @@
+{
+  "catalog": {
+    "host": "https://pbcconsortium.isrd.isi.edu",
+    "catalog_id": "17",
+    "query_processors": [
+      {
+        "processor": "csv",
+        "processor_params": {
+          "query_path": "/attribute/Dataset:=Beta_Cell:Dataset/Mass_Spec_Data:=Beta_Cell:Mass_Spec_Data/Dataset=1-AHQG/Pride_Project_Mass_Spec_Data:=Beta_Cell:Pride_Project_Mass_Spec_Data/Pride_Project:=Beta_Cell:Pride_Project/person:=isa:person/$Dataset/project:=isa:project/$Dataset/Biosample:=Beta_Cell:Biosample/$Pride_Project/Submission_Type_Term:=Vocab:Submission_Type_Term/Pride_Project:Project_Title,Pride_Project:Project_Description,Pride_Project:Reason_For_Partial,Submission_Type_Term:Name,project:Other_Omics_Link,project:Pubmed_Id,Biosample:Sample_Processing_Protocol,Biosample:Data_Processing_Protocol,project_tag:=project:Tag,submitter_name:=person:name,submitter_email:=person:email,submitter_affiliation:=person:affiliation",
+          "output_path": "mtd"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "query_path": "/attribute/Mass_Spec_Data:=Beta_Cell:Mass_Spec_Data/RID=1-AHQT/Biosample:=Beta_Cell:Biosample/Experiment:=Beta_Cell:Experiment/Experiment_Type_Term:=Vocab:Experiment_Type_Term/$Experiment/Modification_Term:=Vocab:Modification_Term/$Experiment/Quantification_Term:=Vocab:Quantification_Term/experiment_type:=Experiment_Type_Term:ID,ename:=Experiment_Type_Term:name,modification:=Modification_Term:ID,mname:=Modification_Term:Name,quantification:=Quantification_Term:ID,qname:=Quantification_Term:Name",
+          "output_path": "cv"
+        }
+      },
+     {
+        "processor": "csv",
+        "processor_params": {
+          "query_path":"/attribute/Mass_Spec_Data:=Beta_Cell:Mass_Spec_Data/RID=1-AHQT/File_Type_Term:=Vocab:File_Type_Term/file_RID:=Mass_Spec_Data:RID,file_type:=File_Type_Term:Name,file_url:=Mass_Spec_Data:url,file_mapping:=Mass_Spec_Data:File_Mapping",
+          "output_path": "fm"
+        }
+      },
+      {
+        "processor": "csv",
+        "processor_params": {
+          "query_path":"/attribute/Mass_Spec_Data:=Beta_Cell:Mass_Spec_Data/File_Type_Term:=Vocab:File_Type_Term/$Mass_Spec_Data/RID=1-AHQT/Biosample:=Beta_Cell:Biosample/Experiment:=Beta_Cell:Experiment/Modification_Term:=Vocab:Modification_Term/$Experiment/Quantification_Term:=Vocab:Quantification_Term/file_RID:=Mass_Spec_Data:RID,modification:=Modification_Term:ID,mname:=Modification_Term:Name,quantification:=Quantification_Term:ID,qname:=Quantification_Term:Name,experimental_factor:=Experiment:Experimental_Factor",
+          "output_path": "sm"
+        }
+      }
+    ]
+  },
+  "transform_processors": [
+    {
+      "processor": "prideMTD",
+      "processor_params": {
+        "input_path": "mtd.csv",
+        "output_path": "mtd.txt"
+      }
+    },
+    {
+      "processor": "prideCV",
+      "processor_params": {
+        "input_path": "cv.csv",
+        "output_path": "cv.txt"
+      }
+    },
+    {
+      "processor": "prideFM",
+      "processor_params": {
+        "input_path": "fm.csv",
+        "output_path": "fm.txt"
+      }
+    },
+    {
+      "processor": "prideSM",
+      "processor_params": {
+        "input_path": "sm.csv",
+        "output_path": "sm.txt"
+      }
+    },
+    {
+      "processor":"cat",
+      "processor_params": {
+        "input_paths": ["mtd.txt", "cv.txt","fm.txt","sm.txt"],
+        "output_path": "result.txt"
+        }
+    }
+  ]
+}
