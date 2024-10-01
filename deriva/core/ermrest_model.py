@@ -521,6 +521,15 @@ class Schema (object):
             for tname, tdoc in schema_doc.get('tables', {}).items()
         }
 
+    def __repr__(self):
+        cls = type(self)
+        return "<%s.%s object %r at 0x%x>" % (
+            cls.__module__,
+            cls.__name__,
+            self.name,
+            id(self),
+        )
+
     @property
     def catalog(self):
         return self.model.catalog
@@ -800,6 +809,16 @@ class Table (object):
             for fkdoc in table_doc.get('foreign_keys', [])
         ])
         self.referenced_by = KeyedList([])
+
+    def __repr__(self):
+        cls = type(self)
+        return "<%s.%s object %r.%r at 0x%x>" % (
+            cls.__module__,
+            cls.__name__,
+            self.schema.name if self.schema is not None else None,
+            self.name,
+            id(self),
+        )
 
     @property
     def columns(self):
@@ -2106,6 +2125,17 @@ class Column (object):
         self.default = column_doc.get('default')
         self.comment = column_doc.get('comment')
 
+    def __repr__(self):
+        cls = type(self)
+        return "<%s.%s object %r.%r.%r at 0x%x>" % (
+            cls.__module__,
+            cls.__name__,
+            self.table.schema.name if self.table is not None and self.table.schema is not None else None,
+            self.table.name if self.table is not None else None,
+            self.name,
+            id(self),
+        )
+
     @property
     def catalog(self):
         return self.table.schema.model.catalog
@@ -2347,6 +2377,16 @@ class Key (object):
             for cname in key_doc['unique_columns']
         ])
 
+    def __repr__(self):
+        cls = type(self)
+        return "<%s.%s object %r.%r at 0x%x>" % (
+            cls.__module__,
+            cls.__name__,
+            self.constraint_schema.name if self.constraint_schema is not None else None,
+            self.constraint_name,
+            id(self),
+        )
+
     @property
     def columns(self):
         """Sugared access to self.unique_columns"""
@@ -2544,6 +2584,16 @@ class ForeignKey (object):
         ])
         self._referenced_columns_doc = fkey_doc['referenced_columns']
         self.referenced_columns = None
+
+    def __repr__(self):
+        cls = type(self)
+        return "<%s.%s object %r.%r at 0x%x>" % (
+            cls.__module__,
+            cls.__name__,
+            self.constraint_schema.name if self.constraint_schema is not None else None,
+            self.constraint_name,
+            id(self),
+        )
 
     def digest_referenced_columns(self, model):
         """Finish construction deferred until model is known with all tables."""
