@@ -2313,6 +2313,19 @@ def _constraint_name_parts(constraint, doc):
         constraint_schema = None
     elif names[0][0] == constraint.table.schema.name:
         constraint_schema = constraint.table.schema
+    elif names[0][0] == 'placeholder':
+        # mitigate ermrest API response bug reflecting our 'placeholder' value
+        if constraint.table.kind == 'table':
+            if isinstance(constraint, Key):
+                constraint_schema = constraint.table.schema
+            elif isinstance(constraint, ForeignKey):
+                # HACK: mostly correct for regular ermrest users
+                # may be revised later during fkey digest for irregular cases with SQL views!
+                constraint_schema = constraint.table.schema
+            else:
+                raise TypeError('_constraint_name_parts requires a Key or ForeignKey constraint argument, not %s' % (constraint,))
+        else:
+            constraint_schema = None
     else:
         raise ValueError('Unexpected schema name in constraint %s' % (names[0],))
     constraint_name = names[0][1]
@@ -2544,6 +2557,13 @@ class ForeignKey (object):
             ])
             self._referenced_columns_doc = None
             self.pk_table.referenced_by.append(self)
+            # HACK: clean up schema qualification for psuedo constraint
+            # this may happen only with SQL views in the ermrest catalog
+            if self.pk_table.kind != 'table' and self.constraint_name in self.table.schema._fkeys:
+                del self.table.schema._fkeys[self.constraint_name]
+                self.table.schema.model._fkeys[self.constraint_name] = self
+                del self.table.foreign_keys.elements[(self.table.schema, self.constraint_name)]
+                self.table.foreign_keys.elements[(None, self.constraint_name)] = self
 
     @property
     def column_map(self):
