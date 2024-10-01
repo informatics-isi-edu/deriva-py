@@ -777,6 +777,8 @@ class FindAssociationResult (object):
 class Table (object):
     """Named table.
     """
+    default_key_column_search_order = ["Name", "name", "ID", "id"]
+
     def __init__(self, schema, tname, table_doc):
         self.schema = schema
         self.name = tname
@@ -832,20 +834,211 @@ class Table (object):
     def system_key_defs(cls, custom=[]):
         """Build standard system key definitions, merging optional custom definitions."""
         def ktup(k):
-            return tuple(k['unique_columns'])
+            return frozenset(k['unique_columns'])
+        customized = { ktup(kdef): kdef for kdef in custom }
         return [
             kdef for kdef in [
                 Key.define(['RID'])
             ]
-            if ktup(kdef) not in { ktup(kdef): kdef for kdef in custom }
+            if ktup(kdef) not in customized
         ] + custom
 
     @classmethod
-    def define(cls, tname, column_defs=[], key_defs=[], fkey_defs=[], comment=None, acls={}, acl_bindings={}, annotations={}, provide_system=True):
+    def system_fkey_defs(cls, tname, custom=[]):
+        """Build standard system fkey definitions, merging optional custom definitions."""
+        def fktup(fk):
+            return (
+                fk["referenced_columns"][0]["schema_name"],
+                fk["referenced_columns"][0]["table_name"],
+                frozenset(zip(
+                    tuple( c["column_name"] for c in fk["foreign_key_columns"] ),
+                    tuple( c["column_name"] for c in fk["referenced_columns"] ),
+                ))
+            )
+        customized = { fktup(fkdef) for fkdef in custom }
+        return [
+            fkdef for fkdef in [
+                ForeignKey.define(
+                    ["RCB"], "public", "ERMrest_Client", ["ID"],
+                    constraint_name=make_id(tname, "RCB", "fkey"),
+                ),
+                ForeignKey.define(
+                    ["RMB"], "public", "ERMrest_Client", ["ID"],
+                    constraint_name=make_id(tname, "RMB", "fkey"),
+                ),
+            ]
+            if fktup(fkdef) not in customized
+        ] + custom
+    
+    @classmethod
+    def _expand_references(
+        cls,
+        table_name: str,
+        column_defs: list[Key | Table | dict | tuple[str, bool, Key | Table] | tuple[str, Key | Table]],
+        fkey_defs: Iterable[dict],
+        used_names: set[str] =set(),
+        key_column_search_order: Iterable[str] | None = None,
+    ):
+        """Expand implicit references in column_defs into actual column and fkey definitions.
+
+        :param table_name: Name of table, needed to build fkey constraint names
+        :param column_defs: List of column definitions and/or reference targets (see below)
+        :param fkey_defs: List of foreign key definitions
+        :param used_names: Set of reference base names to consider already in use
+
+        Each reference target may be one of:
+           - Key
+           - Table
+           - tuple (str, Key|Table)
+           - tuple (str, bool, Key|Table)
+
+        A target Key specifies the columns of the remote table to
+        reference. A target Table instance specifies the remote table
+        and relies on heuristics to choose the target Key. A target
+        tuple specifies a string "base name" and optionally a boolean
+        "nullok" for the implied referencing columns. When omitted, a
+        default base name is constructed from target table
+        information, and a default nullok=False is specified for
+        referencing columns. The key_column_search_order parameter
+        influences the heuristic for selecting a target Key for an
+        input target Table.
+
+        This method mutates the input column_defs and used_names
+        containers. This can be abused to chain state through a
+        sequence of calls.
+
+        Returns the column_defs and fkey_defs which includes input
+        definitions and implied definitions while removing the corresponding input
+        reference targets.
+
+        """
+        out_column_defs = []
+        out_fkey_defs = list(fkey_defs)
+
+        # materialize for mutation and replay
+        column_defs = list(column_defs)
+
+        if key_column_search_order is not None:
+            # materialize iterable for reuse
+            key_column_search_order = list(key_column_search_order)
+        else:
+            key_column_search_order = cls.default_key_column_search_order
+
+        def check_basename(basename):
+            if not isinstance(base_name, str):
+                raise TypeError('Base name %r is not of required type str' % (base_name,))
+            if base_name in used_names:
+                raise ValueError('Base name %r is not unique among inputs' % (base_name,))
+            used_names.add(base_name)
+
+        def choose_basename(key):
+            base_name = key.table.name
+            n = 2
+            while base_name in used_names or any(used.startswith(base_name) for used in used_names):
+                base_name = '%s%d' % (key.table.name, n)
+                n += 1
+            used_names.add(base_name)
+            return base_name
+
+        def check_key(key):
+            if isinstance(key, Table):
+                # opportunistic case: prefer (non-nullable) "name" or "id" keys, if found
+                for cname in key_column_search_order:
+                    try:
+                        candidate = key.key_by_columns([cname])
+                        if not candidate.unique_columns[0].nullok:
+                            return candidate
+                    except (KeyError, ValueError) as e:
+                        continue
+
+                # general case: try to use RID key
+                try:
+                    return key.key_by_columns(["RID"])
+                except (KeyError, ValueError) as e:
+                    raise ValueError('Could not determine default key for table %s' % (key,))
+            elif isinstance(key, Key):
+                return key
+            raise TypeError('Expected Key or Table instance as target reference, not %s' % (key,))
+
+        # check and normalize cdefs into list[(str, Key)] with distinct base names
+        for i in range(len(column_defs)):
+            if isinstance(column_defs[i], tuple):
+                if len(column_defs[i]) == 2:
+                    base_name, key = column_defs[i]
+                    nullok = False
+                elif len(column_defs[i]) == 3:
+                    base_name, nullok, key = column_defs[i]
+                else:
+                    raise ValueError('Expected column definition tuple (str, Key|Table) or (str, bool, Key|Table), not %s' % (len(column_defs[i]),))
+                check_basename(base_name)
+                key = check_key(key)
+                column_defs[i] = (base_name, nullok, key)
+            elif isinstance(column_defs[i], (Key, Table)):
+                key = check_key(column_defs[i])
+                base_name = choose_basename(key)
+                column_defs[i] = (base_name, False, key)
+            elif isinstance(column_defs[i], dict):
+                pass
+            else:
+                raise TypeError('Expected column definition dict, Key, or Table input, not %s' % (column_defs[i],))
+
+        def simplify_type(ctype):
+            if ctype.is_domain and ctype.typename.startswith('ermrest_'):
+                return ctype.base_type
+            return ctype
+
+        def cdefs_for_key(base_name, nullok, key):
+            return [
+                Column.define(
+                    '%s_%s' % (base_name, col.name) if len(key.unique_columns) > 1 else base_name,
+                    simplify_type(col.type),
+                    nullok=nullok,
+                )
+                for col in key.unique_columns
+            ]
+
+        def fkdef_for_key(base_name, nullok, key):
+            return ForeignKey.define(
+                [
+                    '%s_%s' % (base_name, col.name) if len(key.unique_columns) > 1 else base_name
+                    for col in key.unique_columns
+                ],
+                key.table.schema.name,
+                key.table.name,
+                [ col.name for col in key.unique_columns ],
+                on_update='CASCADE',
+                on_delete='CASCADE',
+                constraint_name=make_id(table_name, base_name, 'fkey'),
+            )
+
+        for cdef in column_defs:
+            if isinstance(cdef, tuple):
+                out_column_defs.extend(cdefs_for_key(*cdef))
+                out_fkey_defs.append(fkdef_for_key(*cdef))
+            else:
+                out_column_defs.append(cdef)
+
+        return out_column_defs, out_fkey_defs
+
+    @classmethod
+    def define(
+        cls,
+        tname: str,
+        column_defs: Iterable[dict | Key | Table | tuple[str, bool, Key | Table] | tuple[str, Key | Table]] = [],
+        key_defs: Iterable[dict] = [],
+        fkey_defs: Iterable[dict] = [],
+        comment: str | None = None,
+        acls: dict = {},
+        acl_bindings: dict = {},
+        annotations: dict = {},
+        provide_system: bool = True,
+        provide_system_fkeys: book = True,
+        key_column_search_order: Iterable[str] | None = None,
+    ):
         """Build a table definition.
 
         :param tname: the name of the newly defined table
-        :param column_defs: a list of Column.define() results for extra or overridden column definitions
+        :param column_defs: a list of custom Column.define() results and/or reference targets (see below)
         :param key_defs: a list of Key.define() results for extra or overridden key constraint definitions
         :param fkey_defs: a list of ForeignKey.define() results for foreign key definitions
         :param comment: a comment string for the table
@@ -853,11 +1046,38 @@ class Table (object):
         :param acl_bindings: a dictionary of dynamic ACL bindings
         :param annotations: a dictionary of annotations
         :param provide_system: whether to inject standard system column definitions when missing from column_defs
+        :param provide_system_fkeys: whether to also inject foreign key definitions for RCB/RMB
+        :param key_column_search_order: override heuristic for choosing a Key from a Table input
+
+        Each reference target may be one of:
+           - Key
+           - Table
+           - tuple (str, Key|Table)
+           - tuple (str, bool, Key|Table)
+
+        A target Key specifies the columns of the remote table to
+        reference. A target Table instance specifies the remote table
+        and relies on heuristics to choose the target Key. A target
+        tuple specifies a string "base name" and optionally a boolean
+        "nullok" for the implied referencing columns. When omitted, a
+        default base name is constructed from target table
+        information, and a default nullok=False is specified for
+        referencing columns. The key_column_search_order parameter
+        influences the heuristic for selecting a target Key for an
+        input target Table.
 
         """
+        column_defs = list(column_defs) # materialize to allow replay
+        used_names = { cdef["name"] for cdef in column_defs if isinstance(cdef, dict) and 'name' in cdef }
+        column_defs, fkey_defs = cls._expand_references(tname, column_defs, fkey_defs, used_names, key_column_search_order)
+
         if provide_system:
             column_defs = cls.system_column_defs(column_defs)
             key_defs = cls.system_key_defs(key_defs)
+            if provide_system_fkeys:
+                fkey_defs = cls.system_fkey_defs(tname, fkey_defs)
+        else:
+            key_defs = list(key_defs)
 
         return {
             'table_name': tname,
@@ -871,13 +1091,29 @@ class Table (object):
         }
 
     @classmethod
-    def define_vocabulary(cls, tname, curie_template, uri_template='/id/{RID}', column_defs=[], key_defs=[], fkey_defs=[], comment=None, acls={}, acl_bindings={}, annotations={}, provide_system=True, provide_name_key=True):
+    def define_vocabulary(
+        cls,
+        tname: str,
+        curie_template: str,
+        uri_template: str = '/id/{RID}',
+        column_defs: Iterable[dict | Key | Table | tuple[str, bool, Key | Table] | tuple[str, Key | Table]] = [],
+        key_defs=[],
+        fkey_defs=[],
+        comment: str | None = None,
+        acls: dict = {},
+        acl_bindings: dict = {},
+        annotations: dict = {},
+        provide_system: bool = True,
+        provide_system_fkeys: bool = True,
+        provide_name_key: bool = True,
+        key_column_search_order: Iterable[str] | None = None,
+    ):
         """Build a vocabulary table definition.
 
         :param tname: the name of the newly defined table
         :param curie_template: the RID-based template for the CURIE of locally-defined terms, e.g. 'MYPROJECT:{RID}'
         :param uri_template: the RID-based template for the URI of locally-defined terms, e.g. 'https://server.example.org/id/{RID}'
-        :param column_defs: a list of Column.define() results for extra or overridden column definitions
+        :param column_defs: a list of Column.define() results and/or reference targets (see below)
         :param key_defs: a list of Key.define() results for extra or overridden key constraint definitions
         :param fkey_defs: a list of ForeignKey.define() results for foreign key definitions
         :param comment: a comment string for the table
@@ -885,7 +1121,9 @@ class Table (object):
         :param acl_bindings: a dictionary of dynamic ACL bindings
         :param annotations: a dictionary of annotations
         :param provide_system: whether to inject standard system column definitions when missing from column_defs
+        :param provide_system_fkeys: whether to also inject foreign key definitions for RCB/RMB
         :param provide_name_key: whether to inject a key definition for the Name column
+        :param key_column_search_order: override heuristic for choosing a Key from a Table input
 
         These core vocabulary columns are generated automatically if
         absent from the input column_defs.
@@ -896,7 +1134,10 @@ class Table (object):
         - Description: markdown, not null
         - Synonyms: text[]
 
-        However, caller-supplied definitions override the default.
+        However, caller-supplied definitions override the default. See
+        Table.define() documentation for an explanation reference
+        targets in the column_defs list and the related
+        key_column_search_order parameter.
 
         """
         if not re.match("^[A-Za-z][-_A-Za-z0-9]*:[{]RID[}]$", curie_template):
@@ -946,7 +1187,7 @@ class Table (object):
 
         def add_vocab_keys(custom):
             def ktup(k):
-                return tuple(k['unique_columns'])
+                return frozenset(k['unique_columns'])
             return [
                 key_def
                 for key_def in [
@@ -956,31 +1197,42 @@ class Table (object):
                 if ktup(key_def) not in { ktup(kdef): kdef for kdef in custom }
             ] + custom
 
+        used_names = {'ID', 'URI', 'Name', 'Description', 'Synonyms'}
+        column_defs, fkey_defs = cls._expand_references(tname, column_defs, fkey_defs, used_names, key_column_search_order)
+        column_defs = add_vocab_columns(column_defs)
+        key_defs = add_vocab_keys(key_defs)
+
         return cls.define(
             tname,
-            add_vocab_columns(column_defs),
-            add_vocab_keys(key_defs),
+            column_defs,
+            key_defs,
             fkey_defs,
             comment,
             acls,
             acl_bindings,
             annotations,
-            provide_system
+            provide_system=provide_system,
+            provide_system_fkeys=provide_system_fkeys,
+            key_column_search_order=key_column_search_order,
         )
 
     @classmethod
-    def define_asset(cls,
-                     sname,
-                     tname,
-                     hatrac_template=None,
-                     column_defs=[],
-                     key_defs=[],
-                     fkey_defs=[],
-                     comment=None,
-                     acls={},
-                     acl_bindings={},
-                     annotations={},
-                     provide_system=True):
+    def define_asset(
+        cls,
+        sname: str,
+        tname: str,
+        hatrac_template=None,
+        column_defs: Iterable[dict | Key | Table | tuple[str, bool, Key | Table] | tuple[str, Key | Table]] = [],
+        key_defs=[],
+        fkey_defs=[],
+        comment: str | None = None,
+        acls: dict = {},
+        acl_bindings: dict = {},
+        annotations: dict = {},
+        provide_system: bool = True,
+        provide_system_fkeys: bool = True,
+        key_column_search_order: Iterable[str] | None = None,
+    ):
         """Build an asset  table definition.
 
           :param sname: the name of the schema for the asset table
@@ -990,7 +1242,7 @@ class Table (object):
                      /hatrac/schema_name/table_name/md5.filename
                  where the filename and md5 value is computed on upload and the schema_name and table_name are the
                  values of the provided arguments.  If value is set to False, no hatrac_template is used.
-          :param column_defs: a list of Column.define() results for extra or overridden column definitions
+          :param column_defs: a list of Column.define() results and/or reference targets (see below)
           :param key_defs: a list of Key.define() results for extra or overridden key constraint definitions
           :param fkey_defs: a list of ForeignKey.define() results for foreign key definitions
           :param comment: a comment string for the table
@@ -998,22 +1250,28 @@ class Table (object):
           :param acl_bindings: a dictionary of dynamic ACL bindings
           :param annotations: a dictionary of annotations
           :param provide_system: whether to inject standard system column definitions when missing from column_defs
+          :param provide_system_fkeys: whether to also inject foreign key definitions for RCB/RMB
+          :param key_column_search_order: override heuristic for choosing a Key from a Table input
 
           These core asset table columns are generated automatically if
           absent from the input column_defs.
 
           - Filename: ermrest_curie, unique not null, default curie template "%s:{RID}" % curie_prefix
           - URL: Location of the asset, unique not null.  Default template is:
-                    /hatrac/sname/tname/{{{MD5}}}.{{{Filename}}} where tname is the name of the asset table.
+                    /hatrac/cat_id/sname/tname/{{{MD5}}}.{{{Filename}}} where tname is the name of the asset table.
           - Length: Length of the asset.
           - MD5: text
           - Description: markdown, not null
 
-          However, caller-supplied definitions override the default.
+          However, caller-supplied definitions override the
+          default. See Table.define() documentation for an explanation
+          reference targets in the column_defs list and the related
+          key_column_search_order parameter.
 
           In addition to creating the columns, this function also creates an asset annotation on the URL column to
           facilitate use of the table by Chaise.
-          """
+
+        """
 
         if hatrac_template is None:
             hatrac_template = '/hatrac/{{$catalog.id}}/%s/%s/{{{MD5}}}.{{#encode}}{{{Filename}}}{{/encode}}' % (sname, tname)
@@ -1047,7 +1305,7 @@ class Table (object):
 
         def add_asset_keys(custom):
             def ktup(k):
-                return tuple(k['unique_columns'])
+                return frozenset(k['unique_columns'])
 
             return [
                 key_def
@@ -1068,6 +1326,9 @@ class Table (object):
             asset_annotations.update(custom)
             return asset_annotations
 
+        used_names = {'URL', 'Filename', 'Description', 'Length', 'MD5'}
+        column_defs, fkey_defs = cls._expand_references(tname, column_defs, fkey_defs, used_names, key_column_search_order)
+
         return cls.define(
             tname,
             add_asset_columns(column_defs),
@@ -1077,29 +1338,49 @@ class Table (object):
             acls,
             acl_bindings,
             add_asset_annotations(annotations),
-            provide_system
+            provide_system=provide_system,
+            provide_system_fkeys=provide_system_fkeys,
+            key_column_search_order=key_column_search_order,
         )
 
     @classmethod
-    def define_page(cls, tname, column_defs=[], key_defs=[], fkey_defs=[], comment=None, acls={}, acl_bindings={}, annotations={}, provide_system=True):
+    def define_page(
+        cls,
+        tname,
+        column_defs: Iterable[dict | Key | Table | tuple[str, bool, Key | Table] | tuple[str, Key | Table]] = [],
+        key_defs=[],
+        fkey_defs=[],
+        comment: str | None = None,
+        acls: dict = {},
+        acl_bindings: dict = {},
+        annotations: dict = {},
+        provide_system: bool = True,
+        provide_system_fkeys: bool = True,
+        key_column_search_order: Iterable[str] | None = None,
+    ):
         """Build a wiki-like "page" table definition.
 
         :param tname: the name of the newly defined table
         :param column_defs: a list of Column.define() results for extra or overridden column definitions
-        :param key_defs: a list of Key.define() results for extra or overridden key constraint definitions
+        :param key_defs: a list of Key.define() results and/or reference targets (see below)
         :param fkey_defs: a list of ForeignKey.define() results for foreign key definitions
         :param comment: a comment string for the table
         :param acls: a dictionary of ACLs for specific access modes
         :param acl_bindings: a dictionary of dynamic ACL bindings
         :param annotations: a dictionary of annotations
         :param provide_system: whether to inject standard system column definitions when missing from column_defs
+        :param provide_system_fkeys: whether to also inject foreign key definitions for RCB/RMB
+        :param key_column_search_order: override heuristic for choosing a Key from a Table input
 
         These core page columns are generated automatically if absent from the input column_defs.
 
         - Title: text, unique not null
         - Content: markdown
 
-        However, caller-supplied definitions override the default.
+        However, caller-supplied definitions override the default. See
+        Table.define() documentation for an explanation reference
+        targets in the column_defs list and the related
+        key_column_search_order parameter.
         """
 
         def add_page_columns(custom):
@@ -1124,7 +1405,7 @@ class Table (object):
 
         def add_page_keys(custom):
             def ktup(k):
-                return tuple(k['unique_columns'])
+                return frozenset(k['unique_columns'])
             return [
                 key_def
                 for key_def in [
@@ -1154,6 +1435,9 @@ class Table (object):
             page_annotations.update(annotations)
             return page_annotations
 
+        used_names = {'Title', 'Content'}
+        column_defs, fkey_defs = cls._expand_references(tname, column_defs, fkey_defs, used_names, key_column_search_order)
+
         return cls.define(
             tname,
             add_page_columns(column_defs),
@@ -1163,10 +1447,10 @@ class Table (object):
             acls,
             acl_bindings,
             add_page_annotations(annotations),
-            provide_system
+            provide_system=provide_system,
+            provide_system_fkeys=provide_system_fkeys,
+            key_column_search_order=key_column_search_order,
         )
-
-    default_key_column_search_order = ["Name", "name", "ID", "id"]
 
     @classmethod
     def define_association(
@@ -1176,15 +1460,17 @@ class Table (object):
         table_name: str | None = None,
         comment: str | None = None,
         provide_system: bool = True,
+        provide_system_fkeys: bool = True,
         key_column_search_order: Iterable[str] | None = None,
     ) -> dict:
         """Build an association table definition.
 
-        :param associates: the existing Key instances being associated
-        :param metadata: additional metadata fields for impure associations
+        :param associates: reference targets being associated (see below)
+        :param metadata: additional metadata fields and/or reference targets for impure associations
         :param table_name: name for the association table or None for default naming
         :param comment: comment for the association table or None for default comment
         :param provide_system: add ERMrest system columns when True
+        :param provide_system_fkeys: whether to also inject foreign key definitions for RCB/RMB
         :param key_column_search_order: override heuristic for choosing a Key from a Table input
 
         This is a utility function to help build an association table
@@ -1201,34 +1487,23 @@ class Table (object):
         An "impure" association table adds additional metadata
         alongside the N foreign keys.
 
-        The "associates" parameter takes an iterable of Key instances
-        from other tables.  The association will be comprised of
-        foreign keys referencing these associates. Optionally, a tuple
-        of (str, Key) can supply a string _base name_ to influence how
-        the foreign key columns and constraint will be named in the
-        new association table. A bare Key instance will get a base
-        name derived from the referenced table name.
+        The "associates" parameter takes an iterable of reference
+        targets.  The association will be comprised of foreign keys
+        referencing these associates. This includes columns to store
+        the associated foreign key values, foreign key constraints to
+        the associated tables, and a composite key constraint
+        covering all the associated foreign key values.
 
-        The "metadata" parameter takes an iterable of plain dict
-        column definitions or Key instances. Each dict must be a
-        scalar column definition, such as produced by the
-        Column.define() class method. Key instance will cause
-        corresponding columns and foreign keys to be added to the
-        association table to act as metadata. Optionally, a tuple of
-        (str, bool, Key) can supply a string _base name_ and a boolean
-        _nullok_ property to influence how the foreign key columns and
-        constraint will be constructed and named. A bare Key instance
-        will get a base name derived from the referened table name,
-        and presumed as nullok=False.
+        The "metadata" parameter takes an iterable Column.define()
+        results and/or reference targets. The association table will
+        be augmented with extra metadata columns and foreign keys as
+        directed by these inputs.
 
-        If a Table instance is supplied instead of a Key instance for
-        associates or metadata inputs, an attempt will be made to
-        locate a key based search heuristics. The
-        "key_column_search_order" parameter can provide a preferred
-        search order for this invocation, or by default the built-in
-        class attribute "default_key_column_search_order" will be
-        used. The first non-nullable, single-column key found in the
-        table will be used.
+        See the Table.define() method documentation for more on
+        reference targets. Association columns must be defined with
+        nullok=False, so the associates parameter is restricted to a
+        more limited form of reference target input without
+        caller-controlled nullok boolean values.
 
         """
         associates = list(associates)
@@ -1243,134 +1518,59 @@ class Table (object):
         if len(associates) < 2:
             raise ValueError('An association table requires at least 2 associates')
 
-        cdefs = []
-        kdefs = []
-        fkdefs = []
-
         used_names = set()
 
-        def check_basename(basename):
-            if not isinstance(base_name, str):
-                raise TypeError('Base name %r is not of required type str' % (base_name,))
-            if base_name in used_names:
-                raise ValueError('Base name %r is not unique among associates and metadata' % (base_name,))
-            used_names.add(base_name)
+        for assoc in associates:
+            if not isinstance(assoc, (tuple, Table, Key)):
+                raise TypeError("Associates must be Table or Key instances, not %s" % (assoc,))
 
-        def choose_basename(key):
-            base_name = key.table.name
-            n = 2
-            while base_name in used_names:
-                base_name = '%s%d' % (key.table.name, n)
-                n += 1
-            used_names.add(base_name)
-            return base_name
+        # first pass: build "pure" association table parts
+        # HACK: use dummy table name if we don't have one yet
+        tname = table_name if table_name is not None else "dummy"
+        cdefs, fkdefs = cls._expand_references(tname, associates, [], used_names)
 
-        def check_key(key):
-            if isinstance(key, Table):
-                # opportunistic case: prefer (non-nullable) "name" or "id" keys, if found
-                for cname in key_column_search_order:
-                    try:
-                        candidate = key.key_by_columns([cname])
-                        if not candidate.unique_columns[0].nullok:
-                            return candidate
-                    except (KeyError, ValueError) as e:
-                        continue
-
-                # general case: try to use RID key
-                try:
-                    return key.key_by_columns(["RID"])
-                except (KeyError, ValueError) as e:
-                    raise ValueError('Could not determine default key for table %s' % (key,))
-            return key
-
-        # check and normalize associates into list[(str, Key)] with distinct base names
-        for i in range(len(associates)):
-            if isinstance(associates[i], tuple):
-                base_name, key = associates[i]
-                check_basename(base_name)
-                key = check_key(key)
-                associates[i] = (base_name, key)
-            else:
-                key = check_key(associates[i])
-                base_name = choose_basename(key)
-                associates[i] = (base_name, key)
-
-        # build assoc table name if not provided
         if table_name is None:
-            table_name = make_id(*[ assoc[1].table.name for assoc in associates ])
+            # use first pass results to build table_name
+            def get_assoc_name(assoc):
+                if isinstance(assoc, tuple):
+                    table = assoc[1]
+                elif isinstance(assoc, Key):
+                    table = key.table
+                elif isinstance(assoc, Table):
+                    table = assoc
+                else:
+                    raise ValueError("expected (str, Key|Table) | Key | Table, not %s" % (assoc,))
+                return table.name
+            table_name = make_id(*[ get_assoc_name(assoc) for assoc in associates ])
+            # HACK: repeat first pass to make proper fkey def constraint names
+            used_names = set()
+            cdefs, fkdefs = cls._expand_references(table_name, associates, [], used_names)
 
-        def simplify_type(ctype):
-            if ctype.is_domain and ctype.typename.startswith('ermrest_'):
-                return ctype.base_type
-
-            return ctype
-
-        def cdefs_for_key(base_name, key, nullok=False):
-            return [
-                Column.define(
-                    '%s_%s' % (base_name, col.name) if len(key.unique_columns) > 1 else base_name,
-                    simplify_type(col.type),
-                    nullok=nullok,
-                )
-                for col in key.unique_columns
-            ]
-
-        def fkdef_for_key(base_name, key):
-            return ForeignKey.define(
-                [
-                    '%s_%s' % (base_name, col.name) if len(key.unique_columns) > 1 else base_name
-                    for col in key.unique_columns
-                ],
-                key.table.schema.name,
-                key.table.name,
-                [ col.name for col in key.unique_columns ],
-                on_update='CASCADE',
-                on_delete='CASCADE',
-                constraint_name=make_id(table_name, base_name, 'fkey'),
-            )
-
-        # build core association definition (i.e. the "pure" parts)
+        # build assoc key from union of associates' foreign key columns
         k_cnames = []
-        for base_name, key in associates:
-            cdefs.extend(cdefs_for_key(base_name, key))
-            fkdefs.append(fkdef_for_key(base_name, key))
+        for fkdef in fkdefs:
+            k_cnames.extend([ colref["column_name"] for colref in fkdef["foreign_key_columns"] ])
 
-            k_cnames.extend([
-                '%s_%s' % (base_name, col.name) if len(key.unique_columns) > 1 else base_name
-                for col in key.unique_columns
-            ])
-
-        kdefs.append(
+        kdefs = [
             Key.define(
                 k_cnames,
                 constraint_name=make_id(table_name, 'assoc', 'key'),
             )
+        ]
+
+        # run second pass to expand out metadata targets
+        cdefs, fkdefs = cls._expand_references(table_name, cdefs + metadata, fkdefs, used_names)
+
+        return Table.define(
+            table_name,
+            cdefs,
+            kdefs,
+            fkdefs,
+            comment=comment,
+            provide_system=provide_system,
+            provide_system_fkeys=provide_system_fkeys,
+            key_column_search_order=key_column_search_order,
         )
-
-        # check and normalize metadata into list[dict | (str, bool, Key)]
-        for i in range(len(metadata)):
-            if isinstance(metadata[i], tuple):
-                base_name, nullok, key = metadata[i]
-                check_basename(base_name)
-                key = check_key(key)
-                metadata[i] = (base_name, nullok, key)
-            elif isinstance(metadata[i], dict):
-                pass
-            else:
-                key = check_key(metadata[i])
-                base_name = choose_basename(key)
-                metadata[i] = (base_name, False, key)
-
-        # add metadata to definition
-        for md in metadata:
-            if isinstance(md, dict):
-                cdefs.append(md)
-            else:
-                base_name, nullok, key = md
-                cdefs.extend(cdefs_for_key(base_name, key, nullok))
-                fkdefs.append(fkdef_for_key(base_name, key))
-
-        return Table.define(table_name, cdefs, kdefs, fkdefs, comment=comment, provide_system=provide_system)
 
     def prejson(self, prune=True):
         return {
@@ -1537,7 +1737,7 @@ class Table (object):
             created = created[0]
         return registerfunc(constructor(self, created))
 
-    def create_column(self, column_def):
+    def create_column(self, column_def: dict) -> Column:
         """Add a new column to this table in the remote database based on column_def.
 
            Returns a new Column instance based on the server-supplied
@@ -1552,7 +1752,7 @@ class Table (object):
             return col
         return self._create_table_part('column', add_column, Column, column_def)
 
-    def create_key(self, key_def):
+    def create_key(self, key_def: dict) -> Key:
         """Add a new key to this table in the remote database based on key_def.
 
            Returns a new Key instance based on the server-supplied
@@ -1565,12 +1765,12 @@ class Table (object):
             return key
         return self._create_table_part('key', add_key, Key, key_def)
 
-    def create_fkey(self, fkey_def):
+    def create_fkey(self, fkey_def: dict) -> ForeignKey:
         """Add a new foreign key to this table in the remote database based on fkey_def.
 
            Returns a new ForeignKey instance based on the
            server-supplied representation of the new foreign key, and
-           adds it to self.fkeys too.
+           adds it to self.foreign_keys too.
 
         """
         def add_fkey(fkey):
@@ -1578,6 +1778,29 @@ class Table (object):
             fkey.digest_referenced_columns(self.schema.model)
             return fkey
         return self._create_table_part('foreignkey', add_fkey, ForeignKey, fkey_def)
+
+    def create_reference(
+        self,
+        target: Key | Table | tuple[str, bool, Key | Table] | tuple[str, Key | Table],
+        key_column_search_order: Iterable[str] | None = None,
+    ) -> tuple[ list[Column], ForeignKey ]:
+        """Add column(s) and a foreign key to this table in the remote database for a reference target.
+
+        See Table.define() documentation for more about reference
+        targets.
+
+        Returns a list of new Column instances and a ForeignKey instance based on
+        the server-supplied representation of the new model elements, and
+        adds them to the self.columns and self.foreign_keys too.
+
+        """
+        used_names = { col.name for col in self.columns }
+        cdefs, fkdefs = self._expand_references(self.name, [ target ], [], used_names, key_column_search_order)
+        if not cdefs or len(fkdefs) != 1:
+            raise NotImplementedError("BUG? got unexpected results from self._expand_reference()")
+        cols = [ self.create_column(cdef) for cdef in cdefs ]
+        fkeys = [ self.create_fkey(fkdef) for fkdef in fkdefs ]
+        return cols, fkeys[0]
 
     def drop(self, cascade=False):
         """Remove this table from the remote database.
