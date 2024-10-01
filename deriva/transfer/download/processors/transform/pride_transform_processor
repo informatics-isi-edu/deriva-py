@@ -1,0 +1,90 @@
+import csv
+import collections
+from deriva.transfer.download.processors.transform.base_transform_processor import BaseTransformProcessor
+
+class PrideMTDExportTransformProcessor(BaseTransformProcessor):
+    def __init__(self, envars=None, **kwargs):
+        super(PrideMTDExportTransformProcessor, self).__init__(envars, **kwargs)
+        self._create_input_output_paths()
+
+    def process(self):
+        with open(self.input_abspath, newline='') as inputfile:
+            reader = csv.DictReader(inputfile)
+            for row in reader:
+                d = collections.OrderedDict(row)
+        with open(self.output_abspath, mode='w', encoding="utf-8") as outputfile:
+            for k, v in d.items():
+                print('MTD\t', k, '\t', v, file=outputfile)
+        return super(PrideMTDExportTransformProcessor, self).process()
+
+class PrideCVExportTransformProcessor(BaseTransformProcessor):
+    def __init__(self, envars=None, **kwargs):
+        super(PrideCVExportTransformProcessor, self).__init__(envars, **kwargs)
+        self._create_input_output_paths()
+
+    def process(self):
+        with open(self.input_abspath, newline='') as inputfile:
+            reader = csv.DictReader(inputfile)
+            for row in reader:
+                d = collections.OrderedDict(row)
+                values_list = list(d.values())
+                keys_list = list(d.keys())
+        with open(self.output_abspath, mode='w', encoding="utf-8") as outputfile:
+            i = 0
+            index = 0
+            while index < len(values_list):
+                print('MTD\t', keys_list[i], '\t', values_list[i:i + 2], file=outputfile)
+                index = index + 2
+                i = i + 2
+        return super(PrideCVExportTransformProcessor, self).process()
+
+class PrideFMExportTransformProcessor(BaseTransformProcessor):
+    def __init__(self, envars=None, **kwargs):
+        super(PrideFMExportTransformProcessor, self).__init__(envars, **kwargs)
+        self._create_input_output_paths()
+
+    def process(self):
+        with open(self.input_abspath, newline='') as inputfile:
+            reader = csv.DictReader(inputfile)
+            for row in reader:
+                d = collections.OrderedDict(row)
+                values_list = list(d.values())
+                keys_list = list(d.keys())
+                i = 0
+        with open(self.output_abspath, mode='w', encoding="utf-8") as outputfile:
+            print('FHM', end='\t', file=outputfile)
+            while i < len(keys_list):
+                print(keys_list[i], end='\t', file=outputfile)
+                i = i + 1
+            print('\nFME', end='\t', file=outputfile)
+            l = 0
+            while l < len(values_list):
+                print(values_list[l], end='\t', file=outputfile)
+                l = l + 1
+        return super(PrideFMExportTransformProcessor, self).process()
+
+class PrideSMExportTransformProcessor(BaseTransformProcessor):
+    def __init__(self, envars=None, **kwargs):
+        super(PrideSMExportTransformProcessor, self).__init__(envars, **kwargs)
+        self._create_input_output_paths()
+
+    def process(self):
+        with open(self.input_abspath, newline='') as inputfile:
+            reader = csv.DictReader(inputfile)
+            for row in reader:
+                d = collections.OrderedDict(row)
+                values_list = list(d.values())
+                keys_list = list(d.keys())
+                i = 0
+        with open(self.output_abspath, mode='w', encoding="utf-8") as outputfile:
+            print('\nSMH', end='\t', file=outputfile)
+            while i < len(keys_list):
+                print(keys_list[i], end='\t', file=outputfile)
+                i = i + 1
+            print('\nSME', values_list[0], end='\t', file=outputfile)
+            l = 1
+            while l < len(values_list):
+                print(values_list[l:l + 2], end='\t', file=outputfile)
+                l = l + 2
+            print(values_list[len(values_list) - 1], file=outputfile)
+        return super(PrideSMExportTransformProcessor, self).process()
