@@ -138,7 +138,8 @@ class BaseQueryProcessor(BaseProcessor):
             if not (urlparts.scheme and urlparts.netloc):
                 urlparts = urlsplit(self.catalog.get_server_uri())
                 server_uri = urlparts.scheme + "://" + urlparts.netloc
-                url = ''.join([server_uri, url])
+                sep = "/" if not url.startswith("/") else ""
+                url = ''.join([server_uri, sep, url])
 
         return url
 
