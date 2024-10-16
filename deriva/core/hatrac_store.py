@@ -448,14 +448,8 @@ class HatracStore(DerivaBinding):
         """Retrieve a namespace.
         """
         headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
-        try:
-            resp = self.get(namespace_path, headers)
-            namespaces = resp.json()
-            return namespaces
-        except requests.HTTPError as e:
-            if e.response.status_code == requests.codes.not_found:
-                return None
-            raise
+        resp = self.get(namespace_path, headers)
+        return resp.json()
 
     def create_namespace(self, namespace_path, parents=True):
         """Create a namespace.
@@ -485,18 +479,13 @@ class HatracStore(DerivaBinding):
                 url += '/' + urlquote(role)
         elif role:
             raise ValueError('Do not specify "role" if "access" mode is not specified.')
-        try:
-            resp = self.get(url, headers)
-            if role:
-                return {access: [role]}
-            elif access:
-                return {access: resp.json()}
-            else:
-                return resp.json()
-        except requests.HTTPError as e:
-            if e.response.status_code == requests.codes.not_found:
-                return None
-            raise
+        resp = self.get(url, headers)
+        if role:
+            return {access: [role]}
+        elif access:
+            return {access: resp.json()}
+        else:
+            return resp.json()
 
     def set_acl(self, resource_name, access, roles, add_role=False):
         """Set the object or namespace ACL resource.
