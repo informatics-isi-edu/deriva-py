@@ -1,15 +1,16 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
+import re
 from collections import OrderedDict
 from collections.abc import Iterable
 from enum import Enum
-import json
-import re
-import base64
-import hashlib
 
-from . import AttrDict, tag, urlquote, stob
+from . import AttrDict, tag, urlquote, stob, mmo
+
 
 class NoChange (object):
     """Special class used to distinguish no-change default arguments to methods.
@@ -2230,7 +2231,8 @@ class Column (object):
             comment=nochange,
             acls=nochange,
             acl_bindings=nochange,
-            annotations=nochange
+            annotations=nochange,
+            update_mappings=False
     ):
         """Alter existing schema definition.
 
@@ -2242,6 +2244,7 @@ class Column (object):
         :param acls: Replacement ACL configuration (default nochange)
         :param acl_bindings: Replacement ACL bindings (default nochange)
         :param annotations: Replacement annotations (default nochange)
+        :param update_mappings: Update annotations to reflect changes (default False)
 
         Returns self (to allow for optional chained access).
 
@@ -2268,8 +2271,13 @@ class Column (object):
 
         if 'name' in changes:
             del self.table.column_definitions.elements[self.name]
+            oldname = self.name
             self.name = changed['name']
             self.table.column_definitions.elements[self.name] = self
+            if update_mappings:
+                basename = [self.table.schema.name, self.table.name]
+                mmo.replace(self.table.schema.model, basename + [oldname], basename + [self.name])
+                self.apply()
 
         if 'type' in changes:
             self.type = make_type(changed['type'])
@@ -2504,13 +2512,15 @@ class Key (object):
             self,
             constraint_name=nochange,
             comment=nochange,
-            annotations=nochange
+            annotations=nochange,
+            update_mappings=False
     ):
         """Alter existing schema definition.
 
         :param constraint_name: Unqualified constraint name string
         :param comment: Replacement comment (default nochange)
         :param annotations: Replacement annotations (default nochange)
+        :param update_mappings: Update annotations to reflect changes (default False)
 
         Returns self (to allow for optional chained access).
 
@@ -2530,7 +2540,12 @@ class Key (object):
         changed = r.json() # use changed vs changes to get server-digested values
 
         if 'names' in changes:
+            oldname = self.constraint_name
             self.constraint_name = changed['names'][0][1]
+            if update_mappings:
+                basename = [self.table.schema.name]
+                mmo.replace(self.table.schema.model, basename + [oldname], basename + [self.constraint_name])
+                self.apply()
 
         if 'comment' in changes:
             self.comment = changed['comment']
@@ -2793,7 +2808,8 @@ class ForeignKey (object):
             comment=nochange,
             acls=nochange,
             acl_bindings=nochange,
-            annotations=nochange
+            annotations=nochange,
+            update_mappings=False
     ):
         """Alter existing schema definition.
 
@@ -2804,6 +2820,7 @@ class ForeignKey (object):
         :param acls: Replacement ACL configuration (default nochange)
         :param acl_bindings: Replacement ACL bindings (default nochange)
         :param annotations: Replacement annotations (default nochange)
+        :param update_mappings: Update annotations to reflect changes (default False)
 
         Returns self (to allow for optional chained access).
 
@@ -2831,11 +2848,16 @@ class ForeignKey (object):
                 del self.constraint_schema._fkeys[self.constraint_name]
             else:
                 del self.table.schema.model._pseudo_fkeys[self.constraint_name]
+            oldname = self.constraint_name
             self.constraint_name = changed['names'][0][1]
             if self.constraint_schema:
                 self.constraint_schema._fkeys[self.constraint_name] = self
             else:
                 self.table.schema.model._pseudo_fkeys[self.constraint_name] = self
+            if update_mappings:
+                basename = [self.table.schema.name]
+                mmo.replace(self.table.schema.model, basename + [oldname], basename + [self.constraint_name])
+                self.apply()
 
         if 'on_update' in changes:
             self.on_update = changed['on_update']
