@@ -76,33 +76,33 @@ def define_test_schema(catalog):
     )
     isa.create_table(table_def)
 
-    # create TNAME_EXPERIMENT table
-    table_def = _em.Table.define(
-        TNAME_EXPERIMENT,
-        column_defs=[
-            _em.Column.define(cname, ctype) for (cname, ctype) in [
-                ('Name', _em.builtin_types.text),
-                ('Amount', _em.builtin_types.int4),
-                ('Time', _em.builtin_types.timestamptz),
-                ('Type', _em.builtin_types.text),
-                ('Project Investigator', _em.builtin_types.text),
-                ('Project_Num', _em.builtin_types.int4),
-                ('Empty', _em.builtin_types.int4)
+    # experiment table definition helper
+    def exp_table_def(exp_table_name):
+        return _em.Table.define(
+            exp_table_name,
+            column_defs=[
+                _em.Column.define(cname, ctype) for (cname, ctype) in [
+                    ('Name', _em.builtin_types.text),
+                    ('Amount', _em.builtin_types.int4),
+                    ('Time', _em.builtin_types.timestamptz),
+                    ('Type', _em.builtin_types.text),
+                    ('Project Investigator', _em.builtin_types.text),
+                    ('Project_Num', _em.builtin_types.int4),
+                    ('Empty', _em.builtin_types.int4)
+                ]
+            ],
+            key_defs=[
+                _em.Key.define(['Name'])
+            ],
+            fkey_defs=[
+                _em.ForeignKey.define(['Type'], SNAME_VOCAB, TNAME_EXPERIMENT_TYPE, ['ID']),
+                _em.ForeignKey.define(['Project Investigator', 'Project_Num'], SNAME_ISA, TNAME_PROJECT, ['Investigator', 'Num'])
             ]
-        ],
-        key_defs=[
-            _em.Key.define(['Name'])
-        ],
-        fkey_defs=[
-            _em.ForeignKey.define(['Type'], SNAME_VOCAB, TNAME_EXPERIMENT_TYPE, ['ID']),
-            _em.ForeignKey.define(['Project Investigator', 'Project_Num'], SNAME_ISA, TNAME_PROJECT, ['Investigator', 'Num'])
-        ]
-    )
-    isa.create_table(table_def)
+        )
 
-    # create copy of TNAME_EXPERIMENT table
-    table_def['table_name'] = TNAME_EXPERIMENT_COPY
-    isa.create_table(table_def)
+    # create experiment tables
+    isa.create_table(exp_table_def(TNAME_EXPERIMENT))
+    isa.create_table(exp_table_def(TNAME_EXPERIMENT_COPY))
 
 
 def _generate_experiment_entities(types, count):
