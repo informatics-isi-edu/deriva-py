@@ -1844,7 +1844,7 @@ class Table (object):
         if update_mappings:
             for fkey in self.foreign_keys:
                 mmo.prune(self.schema.model, [fkey.constraint_schema.name, fkey.constraint_name])
-            self.schema.apply()
+            self.schema.model.apply()
 
     def key_by_columns(self, unique_columns, raise_nomatch=True):
         """Return key from self.keys with matching unique columns.
@@ -2284,7 +2284,7 @@ class Column (object):
             if update_mappings:
                 basename = [self.table.schema.name, self.table.name]
                 mmo.replace(self.table.schema.model, basename + [oldname], basename + [self.name])
-                self.apply()
+                self.table.schema.model.apply()
 
         if 'type' in changes:
             self.type = make_type(changed['type'])
@@ -2334,7 +2334,7 @@ class Column (object):
 
         if update_mappings:
             mmo.prune(self.table.schema.model, [self.table.schema.name, self.table.name, self.name])
-            self.table.apply()
+            self.table.schema.model.apply()
 
     @presence_annotation(tag.immutable)
     def immutable(self): pass
@@ -2557,7 +2557,7 @@ class Key (object):
             if update_mappings:
                 basename = [self.table.schema.name]
                 mmo.replace(self.table.schema.model, basename + [oldname], basename + [self.constraint_name])
-                self.apply()
+                self.table.schema.model.apply()
 
         if 'comment' in changes:
             self.comment = changed['comment']
@@ -2588,7 +2588,7 @@ class Key (object):
 
         if update_mappings:
             mmo.prune(self.table.schema.model, [self.constraint_schema.name, self.constraint_name])
-            self.table.apply()
+            self.table.schema.model.apply()
 
 class ForeignKey (object):
     """Named foreign key.
@@ -2874,7 +2874,7 @@ class ForeignKey (object):
             if update_mappings:
                 basename = [self.table.schema.name]
                 mmo.replace(self.table.schema.model, basename + [oldname], basename + [self.constraint_name])
-                self.apply()
+                self.table.schema.model.apply()
 
         if 'on_update' in changes:
             self.on_update = changed['on_update']
@@ -2912,7 +2912,7 @@ class ForeignKey (object):
 
         if update_mappings:
             mmo.prune(self.table.schema.model, [self.constraint_schema.name, self.constraint_name])
-            self.table.apply()
+            self.table.schema.model.apply()
 
     def _cleanup(self):
         """Cleanup references in the local model following drop from remote database.
