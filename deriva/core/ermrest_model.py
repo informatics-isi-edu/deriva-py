@@ -2305,10 +2305,11 @@ class Column (object):
 
         return self
 
-    def drop(self, cascade=False):
+    def drop(self, cascade=False, update_mappings=False):
         """Remove this column from the remote database.
 
-        :param cascade: drop dependent objects.
+        :param cascade: drop dependent objects (default False)
+        :param update_mappings: Update annotations to reflect changes (default False)
         """
         if self.name not in self.table.column_definitions.elements:
             raise ValueError('Column %s does not appear to belong to table %s.' % (self, self.table))
@@ -2316,13 +2317,17 @@ class Column (object):
         if cascade:
             for fkey in list(self.table.foreign_keys):
                 if self in fkey.foreign_key_columns:
-                    fkey.drop()
+                    fkey.drop(update_mappings=update_mappings)
             for key in list(self.table.keys):
                 if self in key.unique_columns:
-                    key.drop(cascade=True)
+                    key.drop(cascade=True, update_mappings=update_mappings)
 
         self.catalog.delete(self.uri_path).raise_for_status()
         del self.table.column_definitions[self.name]
+
+        if update_mappings:
+            mmo.prune(self.table.schema.model, [self.table.schema.name, self.table.name, self.name])
+            self.table.apply()
 
     @presence_annotation(tag.immutable)
     def immutable(self): pass
@@ -2556,10 +2561,11 @@ class Key (object):
 
         return self
 
-    def drop(self, cascade=False):
+    def drop(self, cascade=False, update_mappings=False):
         """Remove this key from the remote database.
 
-        :param cascade: drop dependent objects.
+        :param cascade: drop dependent objects (default False)
+        :param update_mappings: Update annotations to reflect changes (default False)
         """
         if self.name not in self.table.keys.elements:
             raise ValueError('Key %s does not appear to belong to table %s.' % (self, self.table))
@@ -2568,10 +2574,14 @@ class Key (object):
             for fkey in list(self.table.referenced_by):
                 assert self.table == fkey.pk_table, "Expected key.table and foreign_key.pk_table to match"
                 if set(self.unique_columns) == set(fkey.referenced_columns):
-                    fkey.drop()
+                    fkey.drop(update_mappings=update_mappings)
 
         self.catalog.delete(self.uri_path).raise_for_status()
         del self.table.keys[self.name]
+
+        if update_mappings:
+            mmo.prune(self.table.schema.model, [self.constraint_schema.name, self.constraint_name])
+            self.table.apply()
 
 class ForeignKey (object):
     """Named foreign key.
@@ -2882,14 +2892,20 @@ class ForeignKey (object):
 
         return self
 
-    def drop(self):
+    def drop(self, update_mappings=False):
         """Remove this foreign key from the remote database.
+
+        :param update_mappings: Update annotations to reflect changes (default False)
         """
         if self.name not in self.table.foreign_keys.elements:
             raise ValueError('Foreign key %s does not appear to belong to table %s.' % (self, self.table))
         self.catalog.delete(self.uri_path).raise_for_status()
         del self.table.foreign_keys[self.name]
         self._cleanup()
+
+        if update_mappings:
+            mmo.prune(self.table.schema.model, [self.constraint_schema.name, self.constraint_name])
+            self.table.apply()
 
     def _cleanup(self):
         """Cleanup references in the local model following drop from remote database.
