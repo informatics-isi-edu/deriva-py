@@ -1841,6 +1841,11 @@ class Table (object):
         for fkey in self.foreign_keys:
             fkey._cleanup()
 
+        if update_mappings:
+            for fkey in self.foreign_keys:
+                mmo.prune(self.schema.model, [fkey.constraint_schema.name, fkey.constraint_name])
+            self.schema.apply()
+
     def key_by_columns(self, unique_columns, raise_nomatch=True):
         """Return key from self.keys with matching unique columns.
 
