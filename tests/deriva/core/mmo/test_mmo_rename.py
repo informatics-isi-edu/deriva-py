@@ -37,11 +37,11 @@ class TestMMOxDDLRename (BaseMMOTestCase):
         newname = "ZIP"
 
         def cond(before, after):
-            before(len(mmo.find(self.model, ["test", "dept", oldname])))
-            after(len(mmo.find(self.model, ["test", "dept", newname])))
+            before(len(mmo.find(self.model, ["dept_schema", "dept", oldname])))
+            after(len(mmo.find(self.model, ["dept_schema", "dept", newname])))
 
         self._pre(cond)
-        self.model.schemas["test"].tables["dept"].columns[oldname].alter(name=newname, update_mappings=True)
+        self.model.schemas["dept_schema"].tables["dept"].columns[oldname].alter(name=newname, update_mappings=True)
         self._post(cond)
 
     def test_rename_key(self):
@@ -49,11 +49,11 @@ class TestMMOxDDLRename (BaseMMOTestCase):
         newname = "dept_DEPT_NUM_key"
 
         def cond(before, after):
-            before(len(mmo.find(self.model, ["test", oldname])))
-            after(len(mmo.find(self.model, ["test", newname])))
+            before(len(mmo.find(self.model, ["dept_schema", oldname])))
+            after(len(mmo.find(self.model, ["dept_schema", newname])))
 
         self._pre(cond)
-        t = self.model.schemas["test"].tables["dept"]
+        t = self.model.schemas["dept_schema"].tables["dept"]
         k = t.keys[(t.schema, oldname)]
         k.alter(constraint_name=newname, update_mappings=True)
         self._post(cond)
@@ -63,11 +63,11 @@ class TestMMOxDDLRename (BaseMMOTestCase):
         newname = "person_department_FKey"
 
         def cond(before, after):
-            before(len(mmo.find(self.model, ["test", oldname])))
-            after(len(mmo.find(self.model, ["test", newname])))
+            before(len(mmo.find(self.model, ["person_schema", oldname])))
+            after(len(mmo.find(self.model, ["person_schema", newname])))
 
         self._pre(cond)
-        t = self.model.schemas["test"].tables["person"]
+        t = self.model.schemas["person_schema"].tables["person"]
         fk = t.foreign_keys[(t.schema, oldname)]
         fk.alter(constraint_name=newname, update_mappings=True)
         self._post(cond)

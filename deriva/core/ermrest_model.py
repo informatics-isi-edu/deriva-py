@@ -696,17 +696,18 @@ class Schema (object):
         self.model.digest_fkeys()
         return newtable
 
-    def drop(self, cascade=False):
+    def drop(self, cascade=False, update_mappings=False):
         """Remove this schema from the remote database.
 
         :param cascade: drop dependent objects.
+        :param update_mappings: Update annotations to reflect changes (default False)
         """
         if self.name not in self.model.schemas:
             raise ValueError('Schema %s does not appear to belong to model.' % (self,))
 
         if cascade:
             for table in list(self.tables.values()):
-                table.drop(cascade=True)
+                table.drop(cascade=True, update_mappings=update_mappings)
 
         self.catalog.delete(self.uri_path).raise_for_status()
         del self.model.schemas[self.name]

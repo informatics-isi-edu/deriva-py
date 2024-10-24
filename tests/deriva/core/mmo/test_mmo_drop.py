@@ -34,7 +34,7 @@ class TestMMOxDDLDrop (BaseMMOTestCase):
         fn(self.assertFalse)
 
     def test_drop_key(self):
-        kname = ["test", "dept_dept_no_key"]
+        kname = ["dept_schema", "dept_dept_no_key"]
 
         def cond(assertion):
             matches = mmo.find(self.model, kname)
@@ -47,8 +47,8 @@ class TestMMOxDDLDrop (BaseMMOTestCase):
         self._post(cond)
 
     def test_drop_key_cascade(self):
-        kname = ["test", "dept_dept_no_key"]
-        fkname = ["test", "person_dept_fkey"]
+        kname = ["dept_schema", "dept_dept_no_key"]
+        fkname = ["person_schema", "person_dept_fkey"]
 
         def condf(name):
             def cond(assertion):
@@ -65,7 +65,7 @@ class TestMMOxDDLDrop (BaseMMOTestCase):
         self._post(condf(fkname))
 
     def test_drop_fkey(self):
-        fkname = ["test", "person_dept_fkey"]
+        fkname = ["person_schema", "person_dept_fkey"]
 
         def cond(assertion):
             matches = mmo.find(self.model, fkname)
@@ -76,7 +76,7 @@ class TestMMOxDDLDrop (BaseMMOTestCase):
         self._post(cond)
 
     def test_drop_col(self):
-        cname = ["test", "person", "last_name"]
+        cname = ["person_schema", "person", "last_name"]
 
         def cond(assertion):
             matches = mmo.find(self.model, cname)
@@ -89,9 +89,9 @@ class TestMMOxDDLDrop (BaseMMOTestCase):
         self._post(cond)
 
     def test_drop_col_cascade_key(self):
-        cname = ["test", "dept", "dept_no"]
-        kname = ["test", "dept_dept_no_key"]
-        fkname = ["test", "person_dept_fkey"]
+        cname = ["dept_schema", "dept", "dept_no"]
+        kname = ["dept_schema", "dept_dept_no_key"]
+        fkname = ["person_schema", "person_dept_fkey"]
 
         def condf(name):
             def cond(assertion):
@@ -110,8 +110,8 @@ class TestMMOxDDLDrop (BaseMMOTestCase):
         self._post(condf(fkname))
 
     def test_drop_col_cascade_fkey(self):
-        cname = ["test", "person", "dept"]
-        fkname = ["test", "person_dept_fkey"]
+        cname = ["person_schema", "person", "dept"]
+        fkname = ["person_schema", "person_dept_fkey"]
 
         def condf(name):
             def cond(assertion):
@@ -128,9 +128,9 @@ class TestMMOxDDLDrop (BaseMMOTestCase):
         self._post(condf(fkname))
 
     def test_drop_table_cascade(self):
-        cname = ["test", "dept", "dept_no"]
-        kname = ["test", "dept_dept_no_key"]
-        fkname = ["test", "person_dept_fkey"]
+        cname = ["dept_schema", "dept", "dept_no"]
+        kname = ["dept_schema", "dept_dept_no_key"]
+        fkname = ["person_schema", "person_dept_fkey"]
 
         def condf(name):
             def cond(assertion):
@@ -143,6 +143,26 @@ class TestMMOxDDLDrop (BaseMMOTestCase):
         self._pre(condf(fkname))
         t = self.model.schemas[cname[0]].tables[cname[1]]
         t.drop(cascade=True, update_mappings=True)
+        self._post(condf(cname))
+        self._post(condf(kname))
+        self._post(condf(fkname))
+
+    def test_drop_schema_cascade(self):
+        cname = ["dept_schema", "dept", "dept_no"]
+        kname = ["dept_schema", "dept_dept_no_key"]
+        fkname = ["person_schema", "person_dept_fkey"]
+
+        def condf(name):
+            def cond(assertion):
+                matches = mmo.find(self.model, name)
+                assertion(len(matches))
+            return cond
+
+        self._pre(condf(cname))
+        self._pre(condf(kname))
+        self._pre(condf(fkname))
+        s = self.model.schemas[cname[0]]
+        s.drop(cascade=True, update_mappings=True)
         self._post(condf(cname))
         self._post(condf(kname))
         self._post(condf(fkname))
