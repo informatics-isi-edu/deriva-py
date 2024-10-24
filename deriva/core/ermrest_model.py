@@ -1822,17 +1822,18 @@ class Table (object):
         fkeys = [ self.create_fkey(fkdef) for fkdef in fkdefs ]
         return cols, fkeys[0]
 
-    def drop(self, cascade=False):
+    def drop(self, cascade=False, update_mappings=False):
         """Remove this table from the remote database.
 
         :param cascade: drop dependent objects.
+        :param update_mappings: update annotations to reflect changes (default False)
         """
         if self.name not in self.schema.tables:
             raise ValueError('Table %s does not appear to belong to schema %s.' % (self, self.schema))
 
         if cascade:
             for fkey in list(self.referenced_by):
-                fkey.drop()
+                fkey.drop(update_mappings=update_mappings)
 
         self.catalog.delete(self.uri_path).raise_for_status()
         del self.schema.tables[self.name]
