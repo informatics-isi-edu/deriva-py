@@ -5,7 +5,7 @@ import os
 
 from deriva.core import mmo
 from deriva.core.ermrest_model import tag
-from .base import BaseMMOTestCase
+from tests.deriva.core.mmo.base import BaseMMOTestCase
 
 logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv('DERIVA_PY_TEST_LOGLEVEL', default=logging.WARNING))
