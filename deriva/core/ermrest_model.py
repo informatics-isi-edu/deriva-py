@@ -24,6 +24,12 @@ class NoChange (object):
 # singletone to use in APIs below
 nochange = NoChange()
 
+class UpdateMappings (str, Enum):
+    """Update Mappings flag enum"""
+    no_update = ''
+    deferred = 'deferred'
+    immediate = 'immediate'
+
 def make_id(*components):
     """Build an identifier that will be OK for ERMrest and Postgres.
 
@@ -696,7 +702,7 @@ class Schema (object):
         self.model.digest_fkeys()
         return newtable
 
-    def drop(self, cascade=False, update_mappings=False):
+    def drop(self, cascade=False, update_mappings=UpdateMappings.no_update):
         """Remove this schema from the remote database.
 
         :param cascade: drop dependent objects.
@@ -1823,7 +1829,7 @@ class Table (object):
         fkeys = [ self.create_fkey(fkdef) for fkdef in fkdefs ]
         return cols, fkeys[0]
 
-    def drop(self, cascade=False, update_mappings=False):
+    def drop(self, cascade=False, update_mappings=UpdateMappings.no_update):
         """Remove this table from the remote database.
 
         :param cascade: drop dependent objects.
@@ -1844,7 +1850,8 @@ class Table (object):
         if update_mappings:
             for fkey in self.foreign_keys:
                 mmo.prune(self.schema.model, [fkey.constraint_schema.name, fkey.constraint_name])
-            self.schema.model.apply()
+            if update_mappings == UpdateMappings.immediate:
+                self.schema.model.apply()
 
     def key_by_columns(self, unique_columns, raise_nomatch=True):
         """Return key from self.keys with matching unique columns.
@@ -2239,7 +2246,7 @@ class Column (object):
             acls=nochange,
             acl_bindings=nochange,
             annotations=nochange,
-            update_mappings=False
+            update_mappings=UpdateMappings.no_update
     ):
         """Alter existing schema definition.
 
@@ -2284,7 +2291,8 @@ class Column (object):
             if update_mappings:
                 basename = [self.table.schema.name, self.table.name]
                 mmo.replace(self.table.schema.model, basename + [oldname], basename + [self.name])
-                self.table.schema.model.apply()
+                if update_mappings == UpdateMappings.immediate:
+                    self.table.schema.model.apply()
 
         if 'type' in changes:
             self.type = make_type(changed['type'])
@@ -2312,7 +2320,7 @@ class Column (object):
 
         return self
 
-    def drop(self, cascade=False, update_mappings=False):
+    def drop(self, cascade=False, update_mappings=UpdateMappings.no_update):
         """Remove this column from the remote database.
 
         :param cascade: drop dependent objects (default False)
@@ -2334,7 +2342,8 @@ class Column (object):
 
         if update_mappings:
             mmo.prune(self.table.schema.model, [self.table.schema.name, self.table.name, self.name])
-            self.table.schema.model.apply()
+            if update_mappings == UpdateMappings.immediate:
+                self.table.schema.model.apply()
 
     @presence_annotation(tag.immutable)
     def immutable(self): pass
@@ -2525,7 +2534,7 @@ class Key (object):
             constraint_name=nochange,
             comment=nochange,
             annotations=nochange,
-            update_mappings=False
+            update_mappings=UpdateMappings.no_update
     ):
         """Alter existing schema definition.
 
@@ -2557,7 +2566,8 @@ class Key (object):
             if update_mappings:
                 basename = [self.table.schema.name]
                 mmo.replace(self.table.schema.model, basename + [oldname], basename + [self.constraint_name])
-                self.table.schema.model.apply()
+                if update_mappings == UpdateMappings.immediate:
+                    self.table.schema.model.apply()
 
         if 'comment' in changes:
             self.comment = changed['comment']
@@ -2568,7 +2578,7 @@ class Key (object):
 
         return self
 
-    def drop(self, cascade=False, update_mappings=False):
+    def drop(self, cascade=False, update_mappings=UpdateMappings.no_update):
         """Remove this key from the remote database.
 
         :param cascade: drop dependent objects (default False)
@@ -2588,7 +2598,8 @@ class Key (object):
 
         if update_mappings:
             mmo.prune(self.table.schema.model, [self.constraint_schema.name, self.constraint_name])
-            self.table.schema.model.apply()
+            if update_mappings == UpdateMappings.immediate:
+                self.table.schema.model.apply()
 
 class ForeignKey (object):
     """Named foreign key.
@@ -2826,7 +2837,7 @@ class ForeignKey (object):
             acls=nochange,
             acl_bindings=nochange,
             annotations=nochange,
-            update_mappings=False
+            update_mappings=UpdateMappings.no_update
     ):
         """Alter existing schema definition.
 
@@ -2874,7 +2885,8 @@ class ForeignKey (object):
             if update_mappings:
                 basename = [self.table.schema.name]
                 mmo.replace(self.table.schema.model, basename + [oldname], basename + [self.constraint_name])
-                self.table.schema.model.apply()
+                if update_mappings == UpdateMappings.immediate:
+                    self.table.schema.model.apply()
 
         if 'on_update' in changes:
             self.on_update = changed['on_update']
@@ -2899,7 +2911,7 @@ class ForeignKey (object):
 
         return self
 
-    def drop(self, update_mappings=False):
+    def drop(self, update_mappings=UpdateMappings.no_update):
         """Remove this foreign key from the remote database.
 
         :param update_mappings: Update annotations to reflect changes (default False)
@@ -2912,7 +2924,8 @@ class ForeignKey (object):
 
         if update_mappings:
             mmo.prune(self.table.schema.model, [self.constraint_schema.name, self.constraint_name])
-            self.table.schema.model.apply()
+            if update_mappings == UpdateMappings.immediate:
+                self.table.schema.model.apply()
 
     def _cleanup(self):
         """Cleanup references in the local model following drop from remote database.
