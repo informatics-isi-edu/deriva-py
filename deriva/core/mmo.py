@@ -18,7 +18,7 @@ def replace(model, symbol, replacement):
     See the 'find' function for notes on what are 'symbols' and how symbols are found in the model.
 
     The `symbol` and its `replacement` must be of the same type (i.e., columns or constraints). For columns, only the
-    column name may differ.
+    column name may differ. For constraints, the whole name or just the schema part may be replaced.
     """
     logger.debug(f'Replacing symbol "{symbol}" with "{replacement}".')
     assert len(symbol) == len(replacement), "symbol and replacement must have same length"
@@ -55,8 +55,7 @@ def replace(model, symbol, replacement):
             assert mapping == symbol, "expected mapping to match the constraint name"
             for idx, val in enumerate(container):
                 if val == mapping:
-                    container[idx] = replacement
-
+                    container[idx] = _rewrite_constraint_name(val, replacement)
         else:
             logger.warning(f'Unhandled case for replace operation')
 
@@ -81,7 +80,7 @@ def prune(model, symbol):
         elif tag == tags.source_definitions:
             logger.debug(f'Removing "{tag}" mapping "{mapping}" from container "{container}".')
             if isinstance(container, list):
-                # step 2.a. match found in 'columns' or 'fkyes' lists, remove item and continue
+                # step 2.a. match found in 'columns' or 'fkeys' lists, remove item and continue
                 container.remove(mapping)
             else:
                 # step 2.b. match found in 'sources' dictionary, remove then search for dependencies
@@ -112,7 +111,8 @@ def find(model, symbol):
     - visible-foreign-keys
 
     Presently, there are two forms of symbols:
-    - constrain: `[schema_name, constraint_name]` may refer to a key or fkey
+    - constraint: `[schema_name, constraint_name]` may refer to a key or fkey. If `constraint_name` is None then the
+                  match is based only on `schema_name`
     - column: `[schema_name, table_name, column_name]`
 
     returns: list containing Match(anchor, tag, context, container, mapping) tuples
@@ -143,7 +143,7 @@ def find(model, symbol):
                         for vizsrc in vizsrcs:  # vizsrc is a vizcol or vizfkey entry
                             # case: constraint form of vizsrc
                             if isinstance(vizsrc, list) \
-                                    and vizsrc == symbol:
+                                    and _is_constraint_match(vizsrc, symbol):
                                 matches.append(Match(table, tag, context, vizsrcs, vizsrc))
                             # case: pseudo-column form of vizsrc
                             elif isinstance(vizsrc, dict) and 'source' in vizsrc \
@@ -168,7 +168,7 @@ def find(model, symbol):
                     fkeys = table.annotations[tag].get('fkeys')
                     if isinstance(fkeys, list):
                         for fkey in fkeys:
-                            if fkey == symbol:
+                            if _is_constraint_match(fkey, symbol):
                                 matches.append(Match(table, tag, 'fkeys', fkeys, fkey))
 
                     # search 'sources'
@@ -187,6 +187,26 @@ def find(model, symbol):
     return matches
 
 
+def _is_constraint_match(constraint_name, symbol):
+    """Tests if the constraint name matches the given symbol.
+
+    :param constraint_name: a constraint name pair
+    :param symbol: either a constraint name part or a schema name
+    """
+    if not (isinstance(constraint_name, list) and len(constraint_name) == 2):
+        # case: malformed constraint name
+        return False
+    if not isinstance(symbol, list) or len(symbol) != 2:
+        # case: symbol not a constraint name
+        return False
+    elif symbol[1]:
+        # case: symbol is a complete constraint name
+        return constraint_name == symbol
+    else:
+        # case: symbol is a schema name only
+        return constraint_name[0] == symbol[0]
+
+
 def _is_symbol_in_source(table, source, symbol):
     """Finds symbol in a source mapping.
     """
@@ -203,7 +223,7 @@ def _is_symbol_in_source(table, source, symbol):
             for pathelem in source:
                 if isinstance(pathelem, dict):
                     constraint_name = pathelem.get('inbound') or pathelem.get('outbound')
-                    if constraint_name == symbol:
+                    if _is_constraint_match(constraint_name, symbol):
                         return True
 
         # case: symbol is a column name
@@ -329,6 +349,15 @@ def _is_dependent_on_sourcekey(sourcekey, source_def):
     return False
 
 
+def _rewrite_constraint_name(constraint_name, replacement):
+    """Rewrites constraint name according to replacement symbol.
+    """
+    return [
+        replacement[0],
+        replacement[1] if replacement[1] else constraint_name[1]
+    ]
+
+
 def _replace_symbol_in_source_path(anchor, source, symbol, replacement):
     """Replaces `symbol` with `replacement` in `source`.
     """
@@ -345,6 +374,6 @@ def _replace_symbol_in_source_path(anchor, source, symbol, replacement):
             if not isinstance(pathelem, dict):
                 continue
             for direction in ('inbound', 'outbound'):
-                if pathelem.get(direction) == symbol:
-                    pathelem[direction] = replacement
+                if _is_constraint_match(pathelem.get(direction), symbol):
+                    pathelem[direction] = _rewrite_constraint_name(pathelem[direction], replacement)
                     break

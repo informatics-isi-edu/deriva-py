@@ -66,59 +66,89 @@ class TestMMOReplace (BaseMMOTestCase):
         mmo.replace(self.model, ["dept_schema", "dept", "city"], ["dept_schema", "dept", "township"])
         self._post(cond)
 
-    def test_replace_key_in_vizcols(self):
+    def _do_test_replace_key_in_vizcols(self, oldfk, newfk):
+        replacement = newfk
+        newfk = [replacement[0], replacement[1] if replacement[1] else oldfk[1]]
+
         def cond(before, after):
-            before(len(mmo.find(self.model, ["dept_schema", "dept_RID_key"])) == 1)
-            after(len(mmo.find(self.model, ["dept_schema", "dept_RID_key1"])) == 1)
+            before(len(mmo.find(self.model, oldfk)) == 1)
+            after(len(mmo.find(self.model, newfk)) == 1)
 
         self._pre(cond)
-        mmo.replace(self.model, ["dept_schema", "dept_RID_key"], ["dept_schema", "dept_RID_key1"])
+        mmo.replace(self.model, oldfk, replacement)
         self._post(cond)
 
-    def _do_test_replace_fkey_in_vizsrc(self, tagname):
-        oldfk = ["person_schema", "person_dept_fkey"]
-        newfk = ["person_schema", "person_dept_fkey1"]
+    def test_replace_key_in_vizcols(self):
+        self._do_test_replace_key_in_vizcols(["dept_schema", "dept_RID_key"], ["dept_schema", "dept_RID_key1"])
+
+    def test_replace_key_in_vizcols_by_schema_only(self):
+        self._do_test_replace_key_in_vizcols(["dept_schema", "dept_RID_key"], ["new_schema", None])
+
+    def _do_test_replace_fkey_in_vizsrc(self, tagname, oldfk, newfk):
+        replacement = newfk
+        newfk = [replacement[0], replacement[1] if replacement[1] else oldfk[1]]
 
         def cond(before, after):
             before(any([m.tag == tagname and m.mapping == oldfk for m in mmo.find(self.model, oldfk)]))
             after(any([m.tag == tagname and m.mapping == newfk for m in mmo.find(self.model, newfk)]))
 
         self._pre(cond)
-        mmo.replace(self.model, oldfk, newfk)
+        mmo.replace(self.model, oldfk, replacement)
         self._post(cond)
 
     def test_replace_fkey_in_vizfkeys(self):
-        self._do_test_replace_fkey_in_vizsrc(tag.visible_foreign_keys)
+        self._do_test_replace_fkey_in_vizsrc(tag.visible_foreign_keys, ["person_schema", "person_dept_fkey"], ["person_schema", "person_dept_fkey1"])
 
     def test_replace_fkey_in_vizcols(self):
-        self._do_test_replace_fkey_in_vizsrc(tag.visible_columns)
+        self._do_test_replace_fkey_in_vizsrc(tag.visible_columns, ["person_schema", "person_dept_fkey"], ["person_schema", "person_dept_fkey1"])
 
     def test_replace_fkey_in_sourcedefs_fkeys(self):
-        self._do_test_replace_fkey_in_vizsrc(tag.source_definitions)
+        self._do_test_replace_fkey_in_vizsrc(tag.source_definitions, ["person_schema", "person_dept_fkey"], ["person_schema", "person_dept_fkey1"])
 
-    def test_replace_fkey_in_pseudocolumn(self):
-        oldfk = ["person_schema", "person_dept_fkey"]
-        newfk = ["person_schema", "person_dept_fkey1"]
+    def test_replace_fkey_in_vizfkeys_by_schema_only(self):
+        self._do_test_replace_fkey_in_vizsrc(tag.visible_foreign_keys, ["person_schema", "person_dept_fkey"], ["new_schema", None])
+
+    def test_replace_fkey_in_vizcols_by_schema_only(self):
+        self._do_test_replace_fkey_in_vizsrc(tag.visible_columns, ["person_schema", "person_dept_fkey"], ["new_schema", None])
+
+    def test_replace_fkey_in_sourcedefs_fkeys_by_schema_only(self):
+        self._do_test_replace_fkey_in_vizsrc(tag.source_definitions, ["person_schema", "person_dept_fkey"], ["new_schema", None])
+
+    def _do_test_replace_fkey_in_pseudocolumn(self, oldfk, newfk):
+        replacement = newfk
+        newfk = [replacement[0], replacement[1] if replacement[1] else oldfk[1]]
 
         def cond(before, after):
             before(any([m.tag == tag.visible_columns and isinstance(m.mapping, dict) for m in mmo.find(self.model, oldfk)]))
             after(any([m.tag == tag.visible_columns and isinstance(m.mapping, dict) for m in mmo.find(self.model, newfk)]))
 
         self._pre(cond)
-        mmo.replace(self.model, oldfk, newfk)
+        mmo.replace(self.model, oldfk, replacement)
         self._post(cond)
 
-    def test_replace_fkey_in_sourcedefs_sources(self):
-        oldfk = ["person_schema", "person_dept_fkey"]
-        newfk = ["person_schema", "person_dept_fkey1"]
+    def test_replace_fkey_in_pseudocolumn(self):
+        self._do_test_replace_fkey_in_pseudocolumn(["person_schema", "person_dept_fkey"], ["person_schema", "person_dept_fkey1"])
+
+    def test_replace_fkey_in_pseudocolumn_by_schema_only(self):
+        self._do_test_replace_fkey_in_pseudocolumn(["person_schema", "person_dept_fkey"], ["new_schema", None])
+
+    def _do_test_replace_fkey_in_sourcedefs_sources(self, oldfk, newfk):
+        replacement = newfk
+        newfk = [replacement[0], replacement[1] if replacement[1] else oldfk[1]]
 
         def cond(before, after):
             before(any([m.tag == tag.source_definitions and m.mapping == 'personnel' for m in mmo.find(self.model, oldfk)]))
             after(any([m.tag == tag.source_definitions and m.mapping == 'personnel' for m in mmo.find(self.model, newfk)]))
 
         self._pre(cond)
-        mmo.replace(self.model, oldfk, newfk)
+        mmo.replace(self.model, oldfk, replacement)
         self._post(cond)
+
+    def test_replace_fkey_in_sourcedefs_sources(self):
+        self._do_test_replace_fkey_in_sourcedefs_sources(["person_schema", "person_dept_fkey"], ["person_schema", "person_dept_fkey1"])
+
+    def test_replace_fkey_in_sourcedefs_sources_by_schema_only(self):
+        self._do_test_replace_fkey_in_sourcedefs_sources(["person_schema", "person_dept_fkey"], ["new_schema", None])
 
     def test_replace_col_in_search_box(self):
         def cond(before, after):

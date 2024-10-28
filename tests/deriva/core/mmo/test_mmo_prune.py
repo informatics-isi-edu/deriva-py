@@ -22,12 +22,25 @@ class TestMMOPrune (BaseMMOTestCase):
         fn(self.assertFalse)
 
     def test_prune_key_in_vizcols(self):
+        fkname = ["dept_schema", "dept_RID_key"]
+
         def cond(assertion):
-            matches = mmo.find(self.model, ["dept_schema", "dept_RID_key"])
+            matches = mmo.find(self.model, fkname)
             assertion(len(matches) == 1)
 
         self._pre(cond)
-        mmo.prune(self.model, ["dept_schema", "dept_RID_key"])
+        mmo.prune(self.model, fkname)
+        self._post(cond)
+
+    def test_prune_key_in_vizcols_by_schema_only(self):
+        fkname = ["dept_schema", "dept_RID_key"]
+
+        def cond(assertion):
+            matches = mmo.find(self.model, fkname)
+            assertion(len(matches) == 1)
+
+        self._pre(cond)
+        mmo.prune(self.model, [fkname[0], None])
         self._post(cond)
 
     def test_prune_col_in_vizcols(self):
@@ -86,6 +99,17 @@ class TestMMOPrune (BaseMMOTestCase):
         mmo.prune(self.model, fkname)
         self._post(cond)
 
+    def test_prune_fkey_in_vizfkeys_by_schema_only(self):
+        fkname = ["person_schema", "person_dept_fkey"]
+
+        def cond(assertion):
+            matches = mmo.find(self.model, fkname)
+            assertion(any([m.tag == tag.visible_foreign_keys and m.mapping == fkname for m in matches]))
+
+        self._pre(cond)
+        mmo.prune(self.model, [fkname[0], None])
+        self._post(cond)
+
     def test_prune_fkey_in_vizcols(self):
         fkname = ["person_schema", "person_dept_fkey"]
 
@@ -95,6 +119,17 @@ class TestMMOPrune (BaseMMOTestCase):
 
         self._pre(cond)
         mmo.prune(self.model, fkname)
+        self._post(cond)
+
+    def test_prune_fkey_in_vizcols_by_schema_only(self):
+        fkname = ["person_schema", "person_dept_fkey"]
+
+        def cond(assertion):
+            matches = mmo.find(self.model, fkname)
+            assertion(any([m.tag == tag.visible_columns and m.mapping == fkname for m in matches]))
+
+        self._pre(cond)
+        mmo.prune(self.model, [fkname[0], None])
         self._post(cond)
 
     def test_prune_fkey_in_sourcedefs_sources(self):
@@ -108,6 +143,17 @@ class TestMMOPrune (BaseMMOTestCase):
         mmo.prune(self.model, fkname)
         self._post(cond)
 
+    def test_prune_fkey_in_sourcedefs_sources_by_schema_only(self):
+        fkname = ["person_schema", "person_dept_fkey"]
+
+        def cond(assertion):
+            matches = mmo.find(self.model, fkname)
+            assertion(any([m.tag == tag.source_definitions and m.mapping == 'personnel' for m in matches]))
+
+        self._pre(cond)
+        mmo.prune(self.model, [fkname[0], None])
+        self._post(cond)
+
     def test_prune_fkey_in_sourcedefs_fkeys(self):
         fkname = ["person_schema", "person_dept_fkey"]
 
@@ -117,6 +163,17 @@ class TestMMOPrune (BaseMMOTestCase):
 
         self._pre(cond)
         mmo.prune(self.model, fkname)
+        self._post(cond)
+
+    def test_prune_fkey_in_sourcedefs_fkeys_by_schema_only(self):
+        fkname = ["person_schema", "person_dept_fkey"]
+
+        def cond(assertion):
+            matches = mmo.find(self.model, fkname)
+            assertion(any([m.tag == tag.source_definitions and m.mapping == fkname for m in matches]))
+
+        self._pre(cond)
+        mmo.prune(self.model, [fkname[0], None])
         self._post(cond)
 
     def test_prune_fkey_in_sourcedefs_recurse(self):
