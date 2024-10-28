@@ -4,7 +4,7 @@ import logging
 import os
 
 from deriva.core import mmo
-from deriva.core.ermrest_model import UpdateMappings
+from deriva.core.ermrest_model import UpdateMappings, Schema
 from tests.deriva.core.mmo.base import BaseMMOTestCase
 
 logger = logging.getLogger(__name__)
@@ -124,3 +124,65 @@ class TestMMOxDDLRename (BaseMMOTestCase):
         self._pre(condf(self.model.catalog.getCatalogModel()))
         self.model.apply()
         self._post(condf(self.model.catalog.getCatalogModel()))
+
+    def _do_test_rename_key_on_table_move(self, deferred=False):
+        oldname = ["dept_schema", "dept_dept_no_key"]
+        newname = ["new_schema", "dept_dept_no_key"]
+
+        def condf(model):
+            def cond(before, after):
+                before(len(mmo.find(model, oldname)))
+                after(len(mmo.find(model, newname)))
+            return cond
+
+        self.model.create_schema(
+            Schema.define(newname[0])
+        )
+
+        self._pre(condf(self.model))
+        t = self.model.schemas[oldname[0]].tables["dept"]
+        t.alter(schema_name=newname[0],
+                update_mappings=UpdateMappings.deferred if deferred else UpdateMappings.immediate)
+        if deferred:
+            self._pre(condf(self.model.catalog.getCatalogModel()))
+            self.model.apply()
+            self._post(condf(self.model.catalog.getCatalogModel()))
+        else:
+            self._post(condf(self.model))
+
+    def test_rename_key_on_table_move(self):
+        self._do_test_rename_key_on_table_move()
+
+    def test_rename_key_on_table_move_deferred(self):
+        self._do_test_rename_key_on_table_move(deferred=True)
+
+    def _do_test_rename_fkey_on_table_move(self, deferred=False):
+        oldname = ["person_schema", "person_dept_fkey"]
+        newname = ["new_schema", "person_dept_fkey"]
+
+        def condf(model):
+            def cond(before, after):
+                before(len(mmo.find(model, oldname)))
+                after(len(mmo.find(model, newname)))
+            return cond
+
+        self.model.create_schema(
+            Schema.define(newname[0])
+        )
+
+        self._pre(condf(self.model))
+        t = self.model.schemas[oldname[0]].tables["person"]
+        t.alter(schema_name=newname[0],
+                update_mappings=UpdateMappings.deferred if deferred else UpdateMappings.immediate)
+        if deferred:
+            self._pre(condf(self.model.catalog.getCatalogModel()))
+            self.model.apply()
+            self._post(condf(self.model.catalog.getCatalogModel()))
+        else:
+            self._post(condf(self.model))
+
+    def test_rename_fkey_on_table_move(self):
+        self._do_test_rename_key_on_table_move()
+
+    def test_rename_fkey_on_table_move_deferred(self):
+        self._do_test_rename_key_on_table_move(deferred=True)

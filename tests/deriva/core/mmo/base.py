@@ -219,16 +219,13 @@ class BaseMMOTestCase (unittest.TestCase):
         # get the  model
         model = catalog.getCatalogModel()
 
+        # drop all schemas (except 'public')
+        for sname in [sname for sname in model.schemas if sname != 'public']:
+            model.schemas[sname].drop(cascade=True)
+
         # recreate schemas
         for sname in ["dept_schema", "person_schema"]:
-            try:
-                model.schemas[sname].drop(cascade=True)
-            except Exception as e:
-                logger.debug(e)
-
-            model.create_schema(
-                Schema.define(sname)
-            )
+            model.create_schema(Schema.define(sname))
 
         # create `dept` table
         model.schemas["dept_schema"].create_table(

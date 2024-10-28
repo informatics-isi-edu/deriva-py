@@ -706,7 +706,7 @@ class Schema (object):
         """Remove this schema from the remote database.
 
         :param cascade: drop dependent objects.
-        :param update_mappings: Update annotations to reflect changes (default False)
+        :param update_mappings: Update annotations to reflect changes (default UpdateMappings.no_updatese)
         """
         if self.name not in self.model.schemas:
             raise ValueError('Schema %s does not appear to belong to model.' % (self,))
@@ -1679,7 +1679,8 @@ class Table (object):
             comment=nochange,
             acls=nochange,
             acl_bindings=nochange,
-            annotations=nochange
+            annotations=nochange,
+            update_mappings=UpdateMappings.no_update
     ):
         """Alter existing schema definition.
 
@@ -1689,6 +1690,7 @@ class Table (object):
         :param acls: Replacement ACL configuration (default nochange)
         :param acl_bindings: Replacement ACL bindings (default nochange)
         :param annotations: Replacement annotations (default nochange)
+        :param update_mappings: Update annotations to reflect changes (default UpdateMappings.no_updatese)
 
         A change of schema name is a transfer of the existing table to
         an existing destination schema (not a rename of the current
@@ -1716,14 +1718,25 @@ class Table (object):
             self.schema.tables[self.name] = self
 
         if 'schema_name' in changes:
+            old_schema_name = self.schema.name
             del self.schema.tables[self.name]
             self.schema = self.schema.model.schemas[changed['schema_name']]
+            for key in self.keys:
+                if key.constraint_schema:
+                    key.constraint_schema = self.schema
             for fkey in self.foreign_keys:
                 if fkey.constraint_schema:
                     del fkey.constraint_schema._fkeys[fkey.constraint_name]
                     fkey.constraint_schema = self.schema
                     fkey.constraint_schema._fkeys[fkey.constraint_name] = fkey
             self.schema.tables[self.name] = self
+            if update_mappings:
+                for key in self.keys:
+                    mmo.replace(self.schema.model, [old_schema_name] + [key.constraint_name], [self.schema.name] + [key.constraint_name])
+                for fkey in self.foreign_keys:
+                    mmo.replace(self.schema.model, [old_schema_name] + [fkey.constraint_name], [self.schema.name] + [fkey.constraint_name])
+                if update_mappings == UpdateMappings.immediate:
+                    self.schema.model.apply()
 
         if 'comment' in changes:
             self.comment = changed['comment']
@@ -2258,7 +2271,7 @@ class Column (object):
         :param acls: Replacement ACL configuration (default nochange)
         :param acl_bindings: Replacement ACL bindings (default nochange)
         :param annotations: Replacement annotations (default nochange)
-        :param update_mappings: Update annotations to reflect changes (default False)
+        :param update_mappings: Update annotations to reflect changes (default UpdateMappings.no_updatese)
 
         Returns self (to allow for optional chained access).
 
@@ -2324,7 +2337,7 @@ class Column (object):
         """Remove this column from the remote database.
 
         :param cascade: drop dependent objects (default False)
-        :param update_mappings: Update annotations to reflect changes (default False)
+        :param update_mappings: Update annotations to reflect changes (default UpdateMappings.no_updatese)
         """
         if self.name not in self.table.column_definitions.elements:
             raise ValueError('Column %s does not appear to belong to table %s.' % (self, self.table))
@@ -2541,7 +2554,7 @@ class Key (object):
         :param constraint_name: Unqualified constraint name string
         :param comment: Replacement comment (default nochange)
         :param annotations: Replacement annotations (default nochange)
-        :param update_mappings: Update annotations to reflect changes (default False)
+        :param update_mappings: Update annotations to reflect changes (default UpdateMappings.no_updatese)
 
         Returns self (to allow for optional chained access).
 
@@ -2582,7 +2595,7 @@ class Key (object):
         """Remove this key from the remote database.
 
         :param cascade: drop dependent objects (default False)
-        :param update_mappings: Update annotations to reflect changes (default False)
+        :param update_mappings: Update annotations to reflect changes (default UpdateMappings.no_updatese)
         """
         if self.name not in self.table.keys.elements:
             raise ValueError('Key %s does not appear to belong to table %s.' % (self, self.table))
@@ -2848,7 +2861,7 @@ class ForeignKey (object):
         :param acls: Replacement ACL configuration (default nochange)
         :param acl_bindings: Replacement ACL bindings (default nochange)
         :param annotations: Replacement annotations (default nochange)
-        :param update_mappings: Update annotations to reflect changes (default False)
+        :param update_mappings: Update annotations to reflect changes (default UpdateMappings.no_updatese)
 
         Returns self (to allow for optional chained access).
 
@@ -2914,7 +2927,7 @@ class ForeignKey (object):
     def drop(self, update_mappings=UpdateMappings.no_update):
         """Remove this foreign key from the remote database.
 
-        :param update_mappings: Update annotations to reflect changes (default False)
+        :param update_mappings: Update annotations to reflect changes (default UpdateMappings.no_updatese)
         """
         if self.name not in self.table.foreign_keys.elements:
             raise ValueError('Foreign key %s does not appear to belong to table %s.' % (self, self.table))
