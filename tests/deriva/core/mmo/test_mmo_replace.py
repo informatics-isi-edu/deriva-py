@@ -158,3 +158,23 @@ class TestMMOReplace (BaseMMOTestCase):
         self._pre(cond)
         mmo.replace(self.model, ["person_schema", "person", "last_name"], ["person_schema", "person", "surname"])
         self._post(cond)
+
+    def test_replace_all_constraints_by_schema_only(self):
+        oldfk = ["person_schema", "person_dept_fkey"]
+        newfk = ["new_schema", "person_dept_fkey"]
+        oldk = ["person_schema", "person_RID_key"]
+        newk = ["new_schema", "person_RID_key"]
+
+        def cond(before, after):
+            for tag_name, mapping_before, mapping_after, old_constraint, new_constraint in [
+                (tag.visible_columns, oldk, newk, oldk, newk),
+                (tag.visible_foreign_keys, oldfk, newfk, oldfk, newfk),
+                (tag.source_definitions, 'personnel', 'personnel', oldfk, newfk)
+            ]:
+                before(any([m.tag == tag_name and m.mapping == mapping_before for m in mmo.find(self.model, old_constraint)]))
+                after(any([m.tag == tag_name and m.mapping == mapping_after for m in mmo.find(self.model, new_constraint)]))
+
+        self._pre(cond)
+        mmo.replace(self.model, ["person_schema", None], ["new_schema", None])
+        self._post(cond)
+

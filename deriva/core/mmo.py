@@ -52,7 +52,7 @@ def replace(model, symbol, replacement):
 
         # case: mapping is a `list` constraint name in a vizcol or vizfkey context _or_ a source-defs fkeys `list`
         elif isinstance(mapping, list) and isinstance(container, list):
-            assert mapping == symbol, "expected mapping to match the constraint name"
+            assert _is_constraint_match(mapping, symbol), "expected mapping to match the constraint name"
             for idx, val in enumerate(container):
                 if val == mapping:
                     container[idx] = _rewrite_constraint_name(val, replacement)
