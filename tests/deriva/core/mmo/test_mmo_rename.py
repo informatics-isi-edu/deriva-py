@@ -4,7 +4,7 @@ import logging
 import os
 
 from deriva.core import mmo
-from deriva.core.ermrest_model import UpdateMappings, Schema
+from deriva.core.ermrest_model import UpdateMappings, Schema, tag
 from tests.deriva.core.mmo.base import BaseMMOTestCase
 
 logger = logging.getLogger(__name__)
@@ -186,3 +186,37 @@ class TestMMOxDDLRename (BaseMMOTestCase):
 
     def test_rename_fkey_on_table_move_deferred(self):
         self._do_test_rename_key_on_table_move(deferred=True)
+
+    def _do_test_rename_constraints_on_schema_rename(self, deferred=False):
+        oldfk = ["person_schema", "person_dept_fkey"]
+        newfk = ["new_schema", "person_dept_fkey"]
+        oldk = ["person_schema", "person_RID_key"]
+        newk = ["new_schema", "person_RID_key"]
+
+        def condf(model):
+            def cond(before, after):
+                for tag_name, mapping_before, mapping_after, old_constraint, new_constraint in [
+                    (tag.visible_columns, oldk, newk, oldk, newk),
+                    (tag.visible_foreign_keys, oldfk, newfk, oldfk, newfk),
+                    (tag.source_definitions, 'personnel', 'personnel', oldfk, newfk)
+                ]:
+                    before(any([m.tag == tag_name and m.mapping == mapping_before for m in mmo.find(model, old_constraint)]))
+                    after(any([m.tag == tag_name and m.mapping == mapping_after for m in mmo.find(model, new_constraint)]))
+            return cond
+
+        self._pre(condf(self.model))
+        s = self.model.schemas[oldfk[0]]
+        s.alter(schema_name=newfk[0],
+                update_mappings=UpdateMappings.deferred if deferred else UpdateMappings.immediate)
+        if deferred:
+            self._pre(condf(self.model.catalog.getCatalogModel()))
+            self.model.apply()
+            self._post(condf(self.model.catalog.getCatalogModel()))
+        else:
+            self._post(condf(self.model))
+
+    def test_rename_constraints_on_schema_rename(self):
+        self._do_test_rename_constraints_on_schema_rename()
+
+    def test_rename_constraints_on_schema_rename_deferred(self):
+        self._do_test_rename_constraints_on_schema_rename(deferred=True)
