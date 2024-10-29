@@ -2054,7 +2054,7 @@ class Table (object):
         :param keys: If true, include unique constraints for each table key
 
         Caveat: this utility does not produce:
-        - columnd default expressions
+        - column default expressions
         - foreign key constraint DDL
 
         Both of these features are fragile in data export scenarios
