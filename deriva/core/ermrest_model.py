@@ -98,6 +98,19 @@ def make_id(*components):
     # last-ditch (e.g. multibyte unicode suffix worst case)
     return truncate(naive_result, 55) + naive_hash
 
+def sql_identifier(s):
+    # double " to protect from SQL
+    return '"%s"' % (s.replace('"', '""'))
+
+def sql_literal(v):
+    if v is None:
+        return 'NULL'
+    if type(v) is list:
+        s = json.dumps(v)
+    # double ' to protect from SQL
+    s = '%s' % v
+    return "'%s'" % (s.replace("'", "''"))
+
 def presence_annotation(tag_uri):
     """Decorator to establish property getter/setter/deleter for presence annotations.
 
@@ -2060,7 +2073,39 @@ class Table (object):
                         # arbitrarily choose first fkey to self
                         # in case association is back to same table
                         break
-    
+
+    def sqlite3_table_name(self) -> str:
+        """Return SQLite3 mapped table name for this table"""
+        return "%s:%s" % (
+            self.schema.name,
+            self.name,
+        )
+
+    def sqlite3_ddl(self, keys: bool=True) -> str:
+        """Return SQLite3 table definition DDL statement for this table.
+
+        :param keys: If true, include unique constraints for each table key
+
+        Caveat: this utility does not produce:
+        - column default expressions
+        - foreign key constraint DDL
+
+        Both of these features are fragile in data export scenarios
+        where we want to represent arbitrary ERMrest catalog dumps.
+
+        """
+        parts = [ col.sqlite3_ddl() for col in self.columns ]
+        if keys:
+            parts.extend([ key.sqlite3_ddl() for key in self.keys ])
+        return ("""
+CREATE TABLE IF NOT EXISTS %(tname)s
+  %(body)s
+);
+""" % {
+    'tname': sql_identifier(self.sqlite3_table_name()),
+    'body': ',\n  '.join(parts),
+})
+
     @presence_annotation(tag.immutable)
     def immutable(self): pass
 
@@ -2363,6 +2408,16 @@ class Column (object):
             if update_mappings == UpdateMappings.immediate:
                 self.table.schema.model.apply()
 
+    def sqlite3_ddl(self) -> str:
+        """Return SQLite3 column definition DDL fragment for this column."""
+        parts = [
+            sql_identifier(self.name),
+            self.type.sqlite3_ddl(),
+        ]
+        if not self.nullok:
+            parts.append('NOT NULL')
+        return ' '.join(parts)
+
     @presence_annotation(tag.immutable)
     def immutable(self): pass
 
@@ -2618,6 +2673,11 @@ class Key (object):
             mmo.prune(self.table.schema.model, [self.constraint_schema.name, self.constraint_name])
             if update_mappings == UpdateMappings.immediate:
                 self.table.schema.model.apply()
+
+    def sqlite3_ddl(self) -> str:
+        """Return SQLite3 unique constraint DDL fragment for this key."""
+        parts = [ sql_identifier(col.name) for col in self.unique_columns ]
+        return 'UNIQUE (%s)' % (', '.join(parts),)
 
 class ForeignKey (object):
     """Named foreign key.
@@ -2980,6 +3040,22 @@ class Type (object):
         }
         return d
 
+    def sqlite3_ddl(self) -> str:
+        """Return a SQLite3 column type DDL fragment for this type"""
+        return {
+            'boolean': 'boolean',
+            'date': 'date',
+            'float4': 'real',
+            'float8': 'real',
+            'int2': 'integer',
+            'int4': 'integer',
+            'int8': 'integer',
+            'json': 'json',
+            'jsonb': 'json',
+            'timestamptz': 'datetime',
+            'timestamp': 'datetime',
+        }.get(self.typename, 'text')
+
 class DomainType (Type):
     """Named domain type.
     """
@@ -2996,6 +3072,10 @@ class DomainType (Type):
         })
         return d
 
+    def sqlite3_ddl(self) -> str:
+        """Return a SQLite3 column type DDL fragment for this type"""
+        return self.base_type.sqlite3_ddl()
+
 class ArrayType (Type):
     """Named domain type.
     """
@@ -3011,6 +3091,10 @@ class ArrayType (Type):
             'base_type': self.base_type.prejson(prune)
         })
         return d
+
+    def sqlite3_ddl(self) -> str:
+        """Return a SQLite3 column type DDL fragment for this type"""
+        return 'json'
 
 builtin_types = AttrDict(
     # first define standard scalar types
