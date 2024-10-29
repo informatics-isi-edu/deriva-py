@@ -1,4 +1,4 @@
-import platform
+import sys
 from deriva.core import get_credential, BaseCLI, DerivaServer, __version__
 
 
