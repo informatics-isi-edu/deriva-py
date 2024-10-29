@@ -1,15 +1,16 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
+import re
 from collections import OrderedDict
 from collections.abc import Iterable
 from enum import Enum
-import json
-import re
-import base64
-import hashlib
 
-from . import AttrDict, tag, urlquote, stob
+from . import AttrDict, tag, urlquote, stob, mmo
+
 
 class NoChange (object):
     """Special class used to distinguish no-change default arguments to methods.
@@ -22,6 +23,12 @@ class NoChange (object):
 
 # singletone to use in APIs below
 nochange = NoChange()
+
+class UpdateMappings (str, Enum):
+    """Update Mappings flag enum"""
+    no_update = ''
+    deferred = 'deferred'
+    immediate = 'immediate'
 
 def make_id(*components):
     """Build an identifier that will be OK for ERMrest and Postgres.
@@ -647,16 +654,16 @@ class Schema (object):
         for tname, table in self.tables.items():
             table.apply(existing.tables[tname] if existing else None)
 
-    def alter(self, schema_name=nochange, comment=nochange, acls=nochange, annotations=nochange):
+    def alter(self, schema_name=nochange, comment=nochange, acls=nochange, annotations=nochange, update_mappings=UpdateMappings.no_update):
         """Alter existing schema definition.
 
         :param schema_name: Replacement schema name (default nochange)
         :param comment: Replacement comment (default nochange)
         :param acls: Replacement ACL configuration (default nochange)
         :param annotations: Replacement annotations (default nochange)
+        :param update_mappings: Update annotations to reflect changes (default UpdateMappings.no_updates)
 
         Returns self (to allow for optional chained access).
-
         """
         changes = strip_nochange({
             'schema_name': schema_name,
@@ -670,9 +677,14 @@ class Schema (object):
         changed = r.json() # use changed vs changes to get server-digested values
 
         if 'schema_name' in changes:
+            old_schema_name = self.name
             del self.model.schemas[self.name]
             self.name = changed['schema_name']
             self.model.schemas[self.name] = self
+            if update_mappings:
+                mmo.replace(self.model, [old_schema_name, None], [self.name, None])
+                if update_mappings == UpdateMappings.immediate:
+                    self.model.apply()
 
         if 'comment' in changes:
             self.comment = changed['comment']
@@ -708,17 +720,18 @@ class Schema (object):
         self.model.digest_fkeys()
         return newtable
 
-    def drop(self, cascade=False):
+    def drop(self, cascade=False, update_mappings=UpdateMappings.no_update):
         """Remove this schema from the remote database.
 
         :param cascade: drop dependent objects.
+        :param update_mappings: Update annotations to reflect changes (default UpdateMappings.no_updates)
         """
         if self.name not in self.model.schemas:
             raise ValueError('Schema %s does not appear to belong to model.' % (self,))
 
         if cascade:
             for table in list(self.tables.values()):
-                table.drop(cascade=True)
+                table.drop(cascade=True, update_mappings=update_mappings)
 
         self.catalog.delete(self.uri_path).raise_for_status()
         del self.model.schemas[self.name]
@@ -1684,7 +1697,8 @@ class Table (object):
             comment=nochange,
             acls=nochange,
             acl_bindings=nochange,
-            annotations=nochange
+            annotations=nochange,
+            update_mappings=UpdateMappings.no_update
     ):
         """Alter existing schema definition.
 
@@ -1694,6 +1708,7 @@ class Table (object):
         :param acls: Replacement ACL configuration (default nochange)
         :param acl_bindings: Replacement ACL bindings (default nochange)
         :param annotations: Replacement annotations (default nochange)
+        :param update_mappings: Update annotations to reflect changes (default UpdateMappings.no_updates)
 
         A change of schema name is a transfer of the existing table to
         an existing destination schema (not a rename of the current
@@ -1721,14 +1736,25 @@ class Table (object):
             self.schema.tables[self.name] = self
 
         if 'schema_name' in changes:
+            old_schema_name = self.schema.name
             del self.schema.tables[self.name]
             self.schema = self.schema.model.schemas[changed['schema_name']]
+            for key in self.keys:
+                if key.constraint_schema:
+                    key.constraint_schema = self.schema
             for fkey in self.foreign_keys:
                 if fkey.constraint_schema:
                     del fkey.constraint_schema._fkeys[fkey.constraint_name]
                     fkey.constraint_schema = self.schema
                     fkey.constraint_schema._fkeys[fkey.constraint_name] = fkey
             self.schema.tables[self.name] = self
+            if update_mappings:
+                for key in self.keys:
+                    mmo.replace(self.schema.model, [old_schema_name] + [key.constraint_name], [self.schema.name] + [key.constraint_name])
+                for fkey in self.foreign_keys:
+                    mmo.replace(self.schema.model, [old_schema_name] + [fkey.constraint_name], [self.schema.name] + [fkey.constraint_name])
+                if update_mappings == UpdateMappings.immediate:
+                    self.schema.model.apply()
 
         if 'comment' in changes:
             self.comment = changed['comment']
@@ -1834,22 +1860,29 @@ class Table (object):
         fkeys = [ self.create_fkey(fkdef) for fkdef in fkdefs ]
         return cols, fkeys[0]
 
-    def drop(self, cascade=False):
+    def drop(self, cascade=False, update_mappings=UpdateMappings.no_update):
         """Remove this table from the remote database.
 
         :param cascade: drop dependent objects.
+        :param update_mappings: update annotations to reflect changes (default False)
         """
         if self.name not in self.schema.tables:
             raise ValueError('Table %s does not appear to belong to schema %s.' % (self, self.schema))
 
         if cascade:
             for fkey in list(self.referenced_by):
-                fkey.drop()
+                fkey.drop(update_mappings=update_mappings)
 
         self.catalog.delete(self.uri_path).raise_for_status()
         del self.schema.tables[self.name]
         for fkey in self.foreign_keys:
             fkey._cleanup()
+
+        if update_mappings:
+            for fkey in self.foreign_keys:
+                mmo.prune(self.schema.model, [fkey.constraint_schema.name, fkey.constraint_name])
+            if update_mappings == UpdateMappings.immediate:
+                self.schema.model.apply()
 
     def key_by_columns(self, unique_columns, raise_nomatch=True):
         """Return key from self.keys with matching unique columns.
@@ -2275,7 +2308,8 @@ class Column (object):
             comment=nochange,
             acls=nochange,
             acl_bindings=nochange,
-            annotations=nochange
+            annotations=nochange,
+            update_mappings=UpdateMappings.no_update
     ):
         """Alter existing schema definition.
 
@@ -2287,6 +2321,7 @@ class Column (object):
         :param acls: Replacement ACL configuration (default nochange)
         :param acl_bindings: Replacement ACL bindings (default nochange)
         :param annotations: Replacement annotations (default nochange)
+        :param update_mappings: Update annotations to reflect changes (default UpdateMappings.no_updates)
 
         Returns self (to allow for optional chained access).
 
@@ -2313,8 +2348,14 @@ class Column (object):
 
         if 'name' in changes:
             del self.table.column_definitions.elements[self.name]
+            oldname = self.name
             self.name = changed['name']
             self.table.column_definitions.elements[self.name] = self
+            if update_mappings:
+                basename = [self.table.schema.name, self.table.name]
+                mmo.replace(self.table.schema.model, basename + [oldname], basename + [self.name])
+                if update_mappings == UpdateMappings.immediate:
+                    self.table.schema.model.apply()
 
         if 'type' in changes:
             self.type = make_type(changed['type'])
@@ -2342,10 +2383,11 @@ class Column (object):
 
         return self
 
-    def drop(self, cascade=False):
+    def drop(self, cascade=False, update_mappings=UpdateMappings.no_update):
         """Remove this column from the remote database.
 
-        :param cascade: drop dependent objects.
+        :param cascade: drop dependent objects (default False)
+        :param update_mappings: Update annotations to reflect changes (default UpdateMappings.no_updates)
         """
         if self.name not in self.table.column_definitions.elements:
             raise ValueError('Column %s does not appear to belong to table %s.' % (self, self.table))
@@ -2353,13 +2395,18 @@ class Column (object):
         if cascade:
             for fkey in list(self.table.foreign_keys):
                 if self in fkey.foreign_key_columns:
-                    fkey.drop()
+                    fkey.drop(update_mappings=update_mappings)
             for key in list(self.table.keys):
                 if self in key.unique_columns:
-                    key.drop(cascade=True)
+                    key.drop(cascade=True, update_mappings=update_mappings)
 
         self.catalog.delete(self.uri_path).raise_for_status()
         del self.table.column_definitions[self.name]
+
+        if update_mappings:
+            mmo.prune(self.table.schema.model, [self.table.schema.name, self.table.name, self.name])
+            if update_mappings == UpdateMappings.immediate:
+                self.table.schema.model.apply()
 
     def sqlite3_ddl(self) -> str:
         """Return SQLite3 column definition DDL fragment for this column."""
@@ -2559,13 +2606,15 @@ class Key (object):
             self,
             constraint_name=nochange,
             comment=nochange,
-            annotations=nochange
+            annotations=nochange,
+            update_mappings=UpdateMappings.no_update
     ):
         """Alter existing schema definition.
 
         :param constraint_name: Unqualified constraint name string
         :param comment: Replacement comment (default nochange)
         :param annotations: Replacement annotations (default nochange)
+        :param update_mappings: Update annotations to reflect changes (default UpdateMappings.no_updates)
 
         Returns self (to allow for optional chained access).
 
@@ -2585,7 +2634,13 @@ class Key (object):
         changed = r.json() # use changed vs changes to get server-digested values
 
         if 'names' in changes:
+            oldname = self.constraint_name
             self.constraint_name = changed['names'][0][1]
+            if update_mappings:
+                basename = [self.table.schema.name]
+                mmo.replace(self.table.schema.model, basename + [oldname], basename + [self.constraint_name])
+                if update_mappings == UpdateMappings.immediate:
+                    self.table.schema.model.apply()
 
         if 'comment' in changes:
             self.comment = changed['comment']
@@ -2596,10 +2651,11 @@ class Key (object):
 
         return self
 
-    def drop(self, cascade=False):
+    def drop(self, cascade=False, update_mappings=UpdateMappings.no_update):
         """Remove this key from the remote database.
 
-        :param cascade: drop dependent objects.
+        :param cascade: drop dependent objects (default False)
+        :param update_mappings: Update annotations to reflect changes (default UpdateMappings.no_updates)
         """
         if self.name not in self.table.keys.elements:
             raise ValueError('Key %s does not appear to belong to table %s.' % (self, self.table))
@@ -2608,10 +2664,15 @@ class Key (object):
             for fkey in list(self.table.referenced_by):
                 assert self.table == fkey.pk_table, "Expected key.table and foreign_key.pk_table to match"
                 if set(self.unique_columns) == set(fkey.referenced_columns):
-                    fkey.drop()
+                    fkey.drop(update_mappings=update_mappings)
 
         self.catalog.delete(self.uri_path).raise_for_status()
         del self.table.keys[self.name]
+
+        if update_mappings:
+            mmo.prune(self.table.schema.model, [self.constraint_schema.name, self.constraint_name])
+            if update_mappings == UpdateMappings.immediate:
+                self.table.schema.model.apply()
 
     def sqlite3_ddl(self) -> str:
         """Return SQLite3 unique constraint DDL fragment for this key."""
@@ -2853,7 +2914,8 @@ class ForeignKey (object):
             comment=nochange,
             acls=nochange,
             acl_bindings=nochange,
-            annotations=nochange
+            annotations=nochange,
+            update_mappings=UpdateMappings.no_update
     ):
         """Alter existing schema definition.
 
@@ -2864,6 +2926,7 @@ class ForeignKey (object):
         :param acls: Replacement ACL configuration (default nochange)
         :param acl_bindings: Replacement ACL bindings (default nochange)
         :param annotations: Replacement annotations (default nochange)
+        :param update_mappings: Update annotations to reflect changes (default UpdateMappings.no_updates)
 
         Returns self (to allow for optional chained access).
 
@@ -2891,11 +2954,17 @@ class ForeignKey (object):
                 del self.constraint_schema._fkeys[self.constraint_name]
             else:
                 del self.table.schema.model._pseudo_fkeys[self.constraint_name]
+            oldname = self.constraint_name
             self.constraint_name = changed['names'][0][1]
             if self.constraint_schema:
                 self.constraint_schema._fkeys[self.constraint_name] = self
             else:
                 self.table.schema.model._pseudo_fkeys[self.constraint_name] = self
+            if update_mappings:
+                basename = [self.table.schema.name]
+                mmo.replace(self.table.schema.model, basename + [oldname], basename + [self.constraint_name])
+                if update_mappings == UpdateMappings.immediate:
+                    self.table.schema.model.apply()
 
         if 'on_update' in changes:
             self.on_update = changed['on_update']
@@ -2920,14 +2989,21 @@ class ForeignKey (object):
 
         return self
 
-    def drop(self):
+    def drop(self, update_mappings=UpdateMappings.no_update):
         """Remove this foreign key from the remote database.
+
+        :param update_mappings: Update annotations to reflect changes (default UpdateMappings.no_updates)
         """
         if self.name not in self.table.foreign_keys.elements:
             raise ValueError('Foreign key %s does not appear to belong to table %s.' % (self, self.table))
         self.catalog.delete(self.uri_path).raise_for_status()
         del self.table.foreign_keys[self.name]
         self._cleanup()
+
+        if update_mappings:
+            mmo.prune(self.table.schema.model, [self.constraint_schema.name, self.constraint_name])
+            if update_mappings == UpdateMappings.immediate:
+                self.table.schema.model.apply()
 
     def _cleanup(self):
         """Cleanup references in the local model following drop from remote database.
