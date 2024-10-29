@@ -17,8 +17,8 @@ catalog = None
 dept_annotations = {
     tag.visible_columns: {
         "compact": [
-            ["test", "dept_RID_key"],
-            ["test", "dept_dept_no_key"],
+            ["dept_schema", "dept_RID_key"],
+            ["dept_schema", "dept_dept_no_key"],
             "name"
         ],
         "detailed": [
@@ -54,7 +54,7 @@ dept_annotations = {
     tag.visible_foreign_keys: {
         "*": [
             [
-                "test",
+                "person_schema",
                 "person_dept_fkey"
             ]
         ]
@@ -71,7 +71,7 @@ dept_annotations = {
                 "source": [
                     {
                         "inbound": [
-                            "test",
+                            "person_schema",
                             "person_dept_fkey"
                         ]
                     },
@@ -82,7 +82,7 @@ dept_annotations = {
                 "source": [
                     {
                         "inbound": [
-                            "test",
+                            "person_schema",
                             "person_dept_fkey"
                         ]
                     },
@@ -99,19 +99,19 @@ dept_annotations = {
 person_annotations = {
     tag.visible_columns: {
         "compact": [
-            ["test", "person_RID_key"],
+            ["person_schema", "person_RID_key"],
             "name"
         ],
         "detailed": [
             "RID",
             "name",
-            ["test", "person_dept_fkey"],
+            ["person_schema", "person_dept_fkey"],
             {
                 "markdown_name": "Department Name",
                 "source": [
                     {
                         "outbound": [
-                            "test",
+                            "person_schema",
                             "person_dept_fkey"
                         ]
                     },
@@ -132,7 +132,7 @@ person_annotations = {
                 "source": [
                     {
                         "outbound": [
-                            "test",
+                            "person_schema",
                             "person_dept_fkey"
                         ]
                     },
@@ -149,20 +149,20 @@ person_annotations = {
             "dept"
         ],
         "fkeys": [
-            ["test", "person_dept_fkey"]
+            ["person_schema", "person_dept_fkey"]
         ],
         "sources": {
             "dept_size": {
                 "source": [
                     {
                         "outbound": [
-                            "test",
+                            "person_schema",
                             "person_dept_fkey"
                         ]
                     },
                     {
                         "inbound": [
-                            "test",
+                            "person_schema",
                             "person_dept_fkey"
                         ]
                     },
@@ -176,7 +176,7 @@ person_annotations = {
                 "source": [
                     {
                         "outbound": [
-                            "test",
+                            "person_schema",
                             "person_dept_fkey"
                         ]
                     },
@@ -219,19 +219,16 @@ class BaseMMOTestCase (unittest.TestCase):
         # get the  model
         model = catalog.getCatalogModel()
 
-        # drop `test` schema, if exists
-        try:
-            model.schemas["test"].drop(cascade=True)
-        except Exception as e:
-            logger.debug(e)
+        # drop all schemas (except 'public')
+        for sname in [sname for sname in model.schemas if sname != 'public']:
+            model.schemas[sname].drop(cascade=True)
 
-        # create `test` schema
-        model.create_schema(
-            Schema.define("test")
-        )
+        # recreate schemas
+        for sname in ["dept_schema", "person_schema"]:
+            model.create_schema(Schema.define(sname))
 
         # create `dept` table
-        model.schemas["test"].create_table(
+        model.schemas["dept_schema"].create_table(
             Table.define(
                 'dept',
                 column_defs=[
@@ -251,7 +248,7 @@ class BaseMMOTestCase (unittest.TestCase):
         )
 
         # create `person` table
-        model.schemas["test"].create_table(
+        model.schemas["person_schema"].create_table(
             Table.define(
                 'person',
                 column_defs=[
@@ -260,7 +257,7 @@ class BaseMMOTestCase (unittest.TestCase):
                     Column.define('last_name', builtin_types.text)
                 ],
                 fkey_defs=[
-                    ForeignKey.define(['dept'], "test", 'dept', ['dept_no'])
+                    ForeignKey.define(['dept'], "dept_schema", 'dept', ['dept_no'])
                 ],
                 annotations=person_annotations
             )
@@ -269,12 +266,12 @@ class BaseMMOTestCase (unittest.TestCase):
         # populate for good measure (though not necessary for current set of tests)
         pbuilder = catalog.getPathBuilder()
 
-        pbuilder.test.dept.insert([
+        pbuilder.dept_schema.dept.insert([
             {'dept_no': 1, 'name': 'Dept A', 'street_address': '123 Main St', 'city': 'Anywhere', 'state': 'CA', 'country': 'US', 'postal_code': 98765},
             {'dept_no': 2, 'name': 'Dept B', 'street_address': '777 Oak Ave', 'city': 'Somewhere', 'state': 'NY', 'country': 'US', 'postal_code': 12345}
         ])
 
-        pbuilder.test.person.insert([
+        pbuilder.person_schema.person.insert([
             {'name': 'John', 'dept': 1},
             {'name': 'Helena', 'dept': 1},
             {'name': 'Ben', 'dept': 1},
