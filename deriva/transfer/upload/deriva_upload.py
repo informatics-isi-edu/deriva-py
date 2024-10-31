@@ -329,6 +329,10 @@ class DerivaUpload(object):
     @staticmethod
     def getCatalogTable(asset_mapping, metadata_dict=None):
         schema_name, table_name = asset_mapping.get('target_table', [None, None])
+        # allow for template substitution in the schema/table name tuple
+        if (schema_name and table_name) and metadata_dict is not None:
+            schema_name = schema_name.format(**metadata_dict)
+            table_name = table_name.format(**metadata_dict)
         if not (schema_name and table_name):
             metadata_dict_lower = {k.lower(): v for k, v in metadata_dict.items()}
             schema_name = metadata_dict_lower.get("schema")
