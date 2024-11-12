@@ -2098,7 +2098,7 @@ class Table (object):
         if keys:
             parts.extend([ key.sqlite3_ddl() for key in self.keys ])
         return ("""
-CREATE TABLE IF NOT EXISTS %(tname)s
+CREATE TABLE IF NOT EXISTS %(tname)s (
   %(body)s
 );
 """ % {
