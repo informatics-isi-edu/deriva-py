@@ -189,7 +189,7 @@ class DerivaExportCLI(BaseCLI):
                                  help="Total number of seconds elapsed before the download is aborted.")
         self.parser.add_argument("--export-type", choices=["bdbag", "file"], default="bdbag",
                                  help="Export type: {bdbag|file}. Default is bdbag.",)
-        self.parser.add_argument("--output_dir", metavar="<output dir>", default=".",
+        self.parser.add_argument("--output-dir", metavar="<output dir>", default=".",
                                  help="Path to an output directory. Default is current directory.")
         self.parser.add_argument("envars", metavar="[key=value key=value ...]",
                                  nargs=argparse.REMAINDER, action=KeyValuePairArgs, default={},
