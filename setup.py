@@ -47,6 +47,7 @@ setup(
         'console_scripts': [
             'deriva-upload-cli = deriva.transfer.upload.__main__:main',
             'deriva-download-cli = deriva.transfer.download.__main__:main',
+            'deriva-export-cli = deriva.transfer.download.deriva_export:main',
             'deriva-catalog-cli = deriva.core.catalog_cli:main',
             'deriva-hatrac-cli = deriva.core.hatrac_cli:main',
             'deriva-acl-config = deriva.config.acl_config:main',
