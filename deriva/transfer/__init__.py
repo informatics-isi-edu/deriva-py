@@ -2,6 +2,7 @@ from deriva.transfer.download.deriva_download import DerivaDownload, GenericDown
     DerivaDownloadConfigurationError, DerivaDownloadAuthenticationError, DerivaDownloadAuthorizationError, \
     DerivaDownloadBaggingError
 from deriva.transfer.download.deriva_download_cli import DerivaDownloadCLI
+from deriva.transfer.download.deriva_export import DerivaExport, DerivaExportCLI
 
 from deriva.transfer.upload.deriva_upload import DerivaUpload, GenericUploader, DerivaUploadError, DerivaUploadError, \
     DerivaUploadConfigurationError, DerivaUploadCatalogCreateError, DerivaUploadCatalogUpdateError, \
