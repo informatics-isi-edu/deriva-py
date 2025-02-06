@@ -62,6 +62,11 @@ class DerivaExport:
                 self.credential = format_credential(token=token, oauth2_token=oauth2_token)
             else:
                 self.credential = get_credential(self.host, credential_file)
+
+        if self.credential is None:
+            raise DerivaDownloadAuthenticationError(
+                "The requested service requires authentication and a valid login credential could "
+                "not be found (or was not provided) for the specified host.")
         if 'bearer-token' in self.credential:
             self.session.headers.update(
                 {'Authorization': 'Bearer {token}'.format(token=self.credential['bearer-token'])})
@@ -69,15 +74,13 @@ class DerivaExport:
             cname, cval = self.credential['cookie'].split('=', 1)
             self.session.cookies.set(cname, cval, domain=self.host, path='/')
 
-    def get_authn_session(self):
-        r = self.session.get(self.base_server_uri + "/authn/session")
+    def validate_authn_session(self):
+        url = self.base_server_uri + "/authn/session"
+        r = self.session.get(url)
+        if r.status_code == requests.codes.not_found or r.status_code == requests.codes.unauthorized:
+            logger.warning("Unable to authenticate. Check for missing or expired credentials.")
         r.raise_for_status()
-        return r
-
-    def post_authn_session(self):
-        r = self.session.post(self.base_server_uri + "/authn/session", data=self.credential)
-        r.raise_for_status()
-        return r
+        return r.json()
 
     def recursive_format(self, d, **kwargs):
         """
@@ -132,9 +135,8 @@ class DerivaExport:
 
     def export(self):
         try:
-            auth = self.get_authn_session()
-            if not auth:
-                auth = self.post_authn_session()
+            auth = self.validate_authn_session()
+            logger.debug("Authenticated session established. Session attributes: %s" % auth)
 
             try:
                 logger.info("Processing export config file: %s" % self.config_file)
