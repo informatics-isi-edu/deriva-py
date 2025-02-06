@@ -23,15 +23,16 @@ EXPORT_SERVICE_PATH = "/deriva/export/%s"
 """
 Client tool for interacting with DERIVA Export service.
 
-Args:
-    host (str): The host server for the export operation.
-    config_file (str): Path to an export configuration file.
-    credential (str): Authentication credential for the export process.
-    envars (dict): A dictionary of variables used for template substitution. Optional.
-    output_dir (str): The directory where exported data will be stored (default: "."). Optional.
-    defer_download (bool): Whether to defer the actual data download. Optional.
-    timeout (int): Timeout value for export operations. Optional.
-    export_type (str): The type of export to perform (default: "bdbag"). Optional.
+:param host (str): The host server for the export operation.
+:param config_file (str): Path to an export configuration file.
+:param credential (dict): Authentication credential (returned from get_credential()) for the export process. Optional.
+:param envars (dict): A dictionary of variables used for template substitution. Optional.
+:param output_dir (str): The directory where exported data will be stored (default: "."). Optional.
+:param defer_download (bool): Whether to defer the actual data download. Optional.
+:param timeout (int): Timeout value for export operations. Optional.
+:param export_type (str): The type of export to perform (default: "bdbag"). Optional.
+
+:return: The full path to the downloaded file. If "defer_download" is True, the URL(s) where the export can be downloaded.
 """
 class DerivaExport:
     def __init__(self, **kwargs):
@@ -53,17 +54,19 @@ class DerivaExport:
         self.session.headers.update({'deriva-client-context': self.dcctx.encoded()})
 
         # credential initialization
-        token = kwargs.get("token")
-        oauth2_token = kwargs.get("oauth2_token")
-        credential_file = kwargs.get("credential_file")
-        if token or oauth2_token:
-            self.credentials = format_credential(token=token, oauth2_token=oauth2_token)
-        else:
-            self.credentials = get_credential(self.host, credential_file)
-        if 'bearer-token' in self.credentials:
-            self.session.headers.update({'Authorization': 'Bearer {token}'.format(token=self.credentials['bearer-token'])})
-        elif 'cookie' in self.credentials:
-            cname, cval = self.credentials['cookie'].split('=', 1)
+        if self.credential is None:
+            token = kwargs.get("token")
+            oauth2_token = kwargs.get("oauth2_token")
+            credential_file = kwargs.get("credential_file")
+            if token or oauth2_token:
+                self.credential = format_credential(token=token, oauth2_token=oauth2_token)
+            else:
+                self.credential = get_credential(self.host, credential_file)
+        if 'bearer-token' in self.credential:
+            self.session.headers.update(
+                {'Authorization': 'Bearer {token}'.format(token=self.credential['bearer-token'])})
+        elif 'cookie' in self.credential:
+            cname, cval = self.credential['cookie'].split('=', 1)
             self.session.cookies.set(cname, cval, domain=self.host, path='/')
 
     def get_authn_session(self):
@@ -72,7 +75,7 @@ class DerivaExport:
         return r
 
     def post_authn_session(self):
-        r = self.session.post(self.base_server_uri + "/authn/session", data=self.credentials)
+        r = self.session.post(self.base_server_uri + "/authn/session", data=self.credential)
         r.raise_for_status()
         return r
 
