@@ -53,6 +53,11 @@ class BaseCLI(object):
 
         return args
 
+    # Function to convert comma-separated CLI input into a tuple
+    @staticmethod
+    def parse_tuple(value):
+        # Split the input by commas and convert to a tuple
+        return tuple(map(float, value.split(',')))
 
 class KeyValuePairArgs(argparse.Action):
     def __init__(self, option_strings, dest, nargs=None, **kwargs):

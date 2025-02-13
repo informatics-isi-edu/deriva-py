@@ -29,7 +29,8 @@ Client tool for interacting with DERIVA Export service.
 :param envars (dict): A dictionary of variables used for template substitution. Optional.
 :param output_dir (str): The directory where exported data will be stored (default: "."). Optional.
 :param defer_download (bool): Whether to defer the actual data download. Optional.
-:param timeout (int): Timeout value for export operations. Optional.
+:param timeout (tuple) OR (float): Timeout value as a tuple of floats in seconds for (connect,read) export operations. 
+        If a single float value is passed, it will apply to both connect and read operations. Optional.
 :param export_type (str): The type of export to perform (default: "bdbag"). Optional.
 
 :return: The full path to the downloaded file. If "defer_download" is True, the URL(s) where the export can be downloaded.
@@ -47,8 +48,17 @@ class DerivaExport:
         self.base_server_uri = "https://" + self.host
         self.service_url = self.base_server_uri + EXPORT_SERVICE_PATH % self.export_type
         self.session_config = DEFAULT_SESSION_CONFIG.copy()
-        if self.timeout is not None:
-            self.session_config["timeout"] = self.timeout
+        if isinstance(self.timeout, tuple):
+            if len(self.timeout) == 2:
+                self.session_config["timeout"] = self.timeout
+            else:
+                self.session_config["timeout"] = float(self.timeout[0])
+        elif self.timeout is not None:
+            try:
+                self.session_config["timeout"] = float(self.timeout)
+            except ValueError:
+                logger.warning("Unparseable timeout value: %r. Defaults will be used: %r." %
+                               (self.timeout, self.session_config["timeout"]))
         self.session = get_new_requests_session(self.service_url, self.session_config)
         self.dcctx = DerivaClientContext()
         self.session.headers.update({'deriva-client-context': self.dcctx.encoded()})
@@ -190,8 +200,10 @@ class DerivaExportCLI(BaseCLI):
         BaseCLI.__init__(self, description, epilog, **kwargs)
         self.parser.add_argument("--defer-download", action="store_true",
                                  help="Do not download exported file(s). Default: False")
-        self.parser.add_argument("--timeout", metavar="<seconds>",
-                                 help="Total number of seconds elapsed before the download is aborted.")
+        self.parser.add_argument("--timeout", metavar="<connect,read>", type=BaseCLI.parse_tuple,
+                                 help="Timeout value(s) in seconds (int or float) for connect and read operations. "
+                                      "Separate using commas. If a single value is provided it will be used for both "
+                                      "connect and read timeouts.")
         self.parser.add_argument("--export-type", choices=["bdbag", "file"], default="bdbag",
                                  help="Export type: {bdbag|file}. Default is bdbag.",)
         self.parser.add_argument("--output-dir", metavar="<output dir>", default=".",
