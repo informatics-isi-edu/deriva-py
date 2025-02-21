@@ -184,6 +184,7 @@ class HatracStore(DerivaBinding):
 
         headers = headers.copy()
 
+        file_opened = False
         if hasattr(data, 'read') and hasattr(data, 'seek'):
             data.seek(0, os.SEEK_END)
             file_size = data.tell()
@@ -192,6 +193,7 @@ class HatracStore(DerivaBinding):
         else:
             file_size = os.path.getsize(data)
             f = open(data, 'rb')
+            file_opened = True
 
         if not (md5 or sha256):
             md5 = hu.compute_hashes(f, hashes=['md5'])['md5'][1]
@@ -208,7 +210,8 @@ class HatracStore(DerivaBinding):
                 if (md5 and r.headers.get('Content-MD5') == md5 or
                         sha256 and r.headers.get('Content-SHA256') == sha256):
                     # object already has same content so skip upload
-                    f.close()
+                    if file_opened:
+                        f.close()
                     return r.headers.get('Content-Location')
                 elif not allow_versioning:
                     raise NotModified("The data cannot be uploaded because content already exists for this object "
@@ -232,6 +235,8 @@ class HatracStore(DerivaBinding):
         url = '%s%s' % (url.rstrip("/") if url.endswith("/") else url,
                         "" if not parents else "?parents=%s" % str(parents).lower())
         r = self._session.put(url, data=f, headers=headers)
+        if file_opened:
+            f.close()
         self._response_raise_for_status(r)
         loc = r.text.strip() or r.url
         if loc.startswith(self._server_uri):
