@@ -326,9 +326,14 @@ class ErmrestCatalog(DerivaBinding):
         super(ErmrestCatalog, self).__init__(scheme, server, credentials, caching, session_config)
         if isinstance(catalog_id, int):
             catalog_id = str(catalog_id)
+        if '@' in catalog_id:
+            catalog_id, snapshot = catalog_id.split('@')
+            catalog_id = "%s@%s" % (urlquote(catalog_id), snapshot)
+        else:
+            catalog_id = urlquote(catalog_id)
+
         self._server_uri = "%s/ermrest/catalog/%s" % (
-            self._server_uri,
-            urlquote(catalog_id),
+            self._server_uri, catalog_id,
         )
         self._scheme, self._server, self._catalog_id, self._credentials, self._caching, self._session_config = \
             scheme, server, catalog_id, credentials, caching, session_config
