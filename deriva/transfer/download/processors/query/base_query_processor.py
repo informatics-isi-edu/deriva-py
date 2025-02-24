@@ -2,7 +2,7 @@ import os
 import errno
 import certifi
 import requests
-from deriva.core import urlsplit, get_new_requests_session, stob, make_dirs, DEFAULT_SESSION_CONFIG
+from deriva.core import urlsplit, get_new_requests_session, stob, make_dirs, format_exception, DEFAULT_SESSION_CONFIG
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError, \
     DerivaDownloadAuthenticationError, DerivaDownloadAuthorizationError
 from deriva.transfer.download.processors.base_processor import BaseProcessor, \
@@ -83,12 +83,12 @@ class BaseQueryProcessor(BaseProcessor):
                 return self.catalog.get(self.query, headers=headers).json()
         except requests.HTTPError as e:
             if e.response.status_code == 401:
-                raise DerivaDownloadAuthenticationError(e)
+                raise DerivaDownloadAuthenticationError(format_exception(e))
             if e.response.status_code == 403:
-                raise DerivaDownloadAuthorizationError(e)
+                raise DerivaDownloadAuthorizationError(format_exception(e))
             if as_file:
                 os.remove(self.output_abspath)
-            raise DerivaDownloadError("Error executing catalog query: %s" % e)
+            raise DerivaDownloadError("Error executing catalog query: %s" % format_exception(e))
         except Exception:
             if as_file:
                 os.remove(self.output_abspath)

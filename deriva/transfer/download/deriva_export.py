@@ -61,6 +61,7 @@ class DerivaExport:
                                (self.timeout, self.session_config["timeout"]))
         self.session = get_new_requests_session(self.service_url, self.session_config)
         self.dcctx = DerivaClientContext()
+        self.dcctx['cid'] = kwargs.get("dcctx_cid", "api/" + self.__class__.__name__)
         self.session.headers.update({'deriva-client-context': self.dcctx.encoded()})
 
         # credential initialization
@@ -224,7 +225,7 @@ class DerivaExportCLI(BaseCLI):
             sys.stderr.write("\n")
 
         try:
-            exporter = DerivaExport(**vars(args))
+            exporter = DerivaExport(**vars(args), dcctx_cid="cli/" + self.__class__.__name__)
             exporter.export()
         except (DerivaDownloadError, DerivaDownloadConfigurationError, DerivaDownloadAuthenticationError,
                 DerivaDownloadAuthorizationError, DerivaDownloadTimeoutError) as e:

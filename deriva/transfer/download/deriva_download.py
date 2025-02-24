@@ -8,8 +8,8 @@ import requests
 from requests.exceptions import HTTPError
 from bdbag import bdbag_api as bdb, bdbag_ro as ro, BAG_PROFILE_TAG, BDBAG_RO_PROFILE_ID
 from bdbag.bdbagit import BagValidationError
-from deriva.core import ErmrestCatalog, HatracStore, format_exception, get_credential, format_credential, read_config, \
-    stob, Megabyte, __version__ as VERSION
+from deriva.core import DerivaServer, ErmrestCatalog, HatracStore, format_exception, get_credential, \
+                         format_credential, read_config, stob, Megabyte, __version__ as VERSION
 from deriva.core.utils.version_utils import get_installed_version
 from deriva.transfer.download.processors import find_query_processor, find_transform_processor, find_post_processor
 from deriva.transfer.download.processors.base_processor import LOCAL_PATH_KEY, REMOTE_PATHS_KEY, SERVICE_URL_KEY, \
@@ -76,14 +76,9 @@ class DerivaDownload(object):
                                                  password=password)
 
         # catalog and file store initialization
-        if self.catalog:
-            del self.catalog
-        self.catalog = ErmrestCatalog(
-            protocol, self.hostname, catalog_id, self.credentials, session_config=session_config)
-        if self.store:
-            del self.store
-        self.store = HatracStore(
-            protocol, self.hostname, self.credentials, session_config=session_config)
+        server = DerivaServer(protocol, self.hostname, credentials=self.credentials, session_config=session_config)
+        self.catalog = server.connect_ermrest(catalog_id)
+        self.store = HatracStore(protocol, self.hostname, self.credentials, session_config=session_config)
 
         # init dcctx cid
         self.set_dcctx_cid(kwargs.get("dcctx_cid", "api/" + self.__class__.__name__))
