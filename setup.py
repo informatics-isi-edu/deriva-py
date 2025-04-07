@@ -64,7 +64,6 @@ setup(
     install_requires=[
         'packaging',
         'requests',
-        'certifi',
         'pika',
         'urllib3>=1.26,<3',
         'portalocker>=1.2.1',
