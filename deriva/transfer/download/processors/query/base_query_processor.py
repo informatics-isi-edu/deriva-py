@@ -1,6 +1,5 @@
 import os
 import errno
-import certifi
 import requests
 from deriva.core import urlsplit, get_new_requests_session, stob, make_dirs, format_exception, DEFAULT_SESSION_CONFIG
 from deriva.transfer.download import DerivaDownloadError, DerivaDownloadConfigurationError, \
@@ -162,7 +161,7 @@ class BaseQueryProcessor(BaseProcessor):
         if cookies:
             session.cookies.update(cookies)
         if login_params and auth_url:
-            r = session.post(auth_url, data=login_params, verify=certifi.where())
+            r = session.post(auth_url, data=login_params)
             if r.status_code > 203:
                 raise DerivaDownloadError(
                     'GetExternalSession Failed with Status Code: %s\n%s\n' % (r.status_code, r.text))

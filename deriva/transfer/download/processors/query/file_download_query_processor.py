@@ -4,7 +4,6 @@ import uuid
 import datetime
 import logging
 import requests
-import certifi
 from bdbag import bdbag_ro as ro
 from deriva.core import urlsplit, format_exception, get_transfer_summary, make_dirs, DEFAULT_CHUNK_SIZE
 from deriva.core.utils.mime_utils import parse_content_disposition
@@ -39,7 +38,7 @@ class FileDownloadQueryProcessor(BaseQueryProcessor):
             else:
                 headers.update(self.HEADERS)
             session = self.getExternalSession(host)
-            with session.get(url, headers=headers, stream=True, verify=certifi.where()) as r:
+            with session.get(url, headers=headers, stream=True) as r:
                 if r.status_code != 200:
                     file_error = "File [%s] transfer failed." % output_path
                     url_error = 'HTTP GET Failed for url: %s' % url

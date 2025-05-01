@@ -5,7 +5,6 @@ import traceback
 import requests
 import argparse
 import logging
-import certifi
 import datetime
 from collections.abc import Mapping, Iterable
 from requests.exceptions import HTTPError, ConnectionError, Timeout
@@ -125,7 +124,7 @@ class DerivaExport:
 
         filename = parse_content_disposition(content_disposition)
         output_path = os.path.abspath(os.path.join(self.output_dir, filename))
-        with self.session.get(url, stream=True, verify=certifi.where()) as r:
+        with self.session.get(url, stream=True) as r:
             if r.status_code != 200:
                 file_error = "File [%s] transfer failed." % output_path
                 url_error = 'HTTP GET Failed for url: %s' % url
