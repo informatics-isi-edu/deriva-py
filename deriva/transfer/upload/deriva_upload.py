@@ -157,8 +157,12 @@ class DerivaUpload(object):
 
         # determine identity
         if self.credentials:
-            attributes = self.catalog.get_authn_session().json()
-            self.identity = attributes.get("client", self.identity)
+            try:
+                attributes = self.catalog.get_authn_session().json()
+                self.identity = attributes.get("client", self.identity)
+            except Exception as e:
+                # not a big deal since the credential token being used could be expired
+                logger.debug("Unable to determine user identity from existing credential (may be expired): %s" % e)
 
         # init dcctx cid to a default
         self.set_dcctx_cid(self.dcctx_cid)
