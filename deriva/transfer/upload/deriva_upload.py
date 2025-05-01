@@ -725,7 +725,8 @@ class DerivaUpload(object):
         # 8. Update an existing record, if necessary
         column_map = asset_mapping.get("column_map", {})
         allow_none_col_list = asset_mapping.get("allow_empty_columns_on_update", [])
-        updated_record = self.interpolateDict(self.metadata, column_map, True, allow_none_col_list)
+        allow_none = True if allow_none_col_list else False
+        updated_record = self.interpolateDict(self.metadata, column_map, allow_none, allow_none_col_list)
         if updated_record != record:
             record_update_template = asset_mapping.get("record_update_template")
             require_record_update_template = stob(asset_mapping.get("require_record_update_template", False))
