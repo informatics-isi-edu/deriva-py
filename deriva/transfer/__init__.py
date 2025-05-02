@@ -4,8 +4,8 @@ from deriva.transfer.download.deriva_download import DerivaDownload, GenericDown
 from deriva.transfer.download.deriva_download_cli import DerivaDownloadCLI
 from deriva.transfer.download.deriva_export import DerivaExport, DerivaExportCLI
 
-from deriva.transfer.upload.deriva_upload import DerivaUpload, GenericUploader, DerivaUploadError, DerivaUploadError, \
-    DerivaUploadConfigurationError, DerivaUploadCatalogCreateError, DerivaUploadCatalogUpdateError, \
+from deriva.transfer.upload.deriva_upload import DerivaUpload, GenericUploader, UploadState, DerivaUploadError, \
+    DerivaUploadError, DerivaUploadConfigurationError, DerivaUploadCatalogCreateError, DerivaUploadCatalogUpdateError, \
     DerivaUploadAuthenticationError
 from deriva.transfer.upload.deriva_upload_cli import DerivaUploadCLI
 
