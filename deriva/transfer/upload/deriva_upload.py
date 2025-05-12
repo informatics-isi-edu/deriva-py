@@ -360,6 +360,9 @@ class DerivaUpload(object):
         for k, v in dst.items():
             try:
                 value = v.format(**src)
+                if k in src:
+                    v_type = type(src[k])
+                    value = v_type(value)
             except KeyError:
                 value = v
                 if value:
@@ -375,11 +378,12 @@ class DerivaUpload(object):
         return dst
 
     @staticmethod
-    def pruneDict(src, dst, stringify=True):
+    def pruneDict(src, dst, allow_none_column_list=[]):
         dst = dst.copy()
         for k in dst.keys():
             value = src.get(k)
-            dst[k] = str(value) if (stringify and value is not None) else value
+            if value or (value is None and k in allow_none_column_list):
+                dst[k] = value
         return dst
 
     def getCurrentConfigFilePath(self):
@@ -716,7 +720,8 @@ class DerivaUpload(object):
             self.metadata["URI"] = versioned_uri
         else:
             self.metadata["URI"] = versioned_uri.rsplit(":")[0]
-        self.metadata["URI_urlencoded"] = urlquote(self.metadata["URI"])
+        safe_overrides = asset_mapping.get("url_encoding_safe_overrides", {}).get("URI", "")
+        self.metadata["URI_urlencoded"] = urlquote(self.metadata["URI"], safe=safe_overrides)
 
         # 7. Check for an existing record and create a new one if necessary
         if not record:
@@ -784,6 +789,7 @@ class DerivaUpload(object):
         """
         record = None
         column_map = asset_mapping.get("column_map", {})
+        allow_none_col_list = asset_mapping.get("allow_empty_columns_on_update", [])
         rqt = asset_mapping['record_query_template']
         try:
             path = rqt.format(**self.metadata)
@@ -793,7 +799,7 @@ class DerivaUpload(object):
         if result:
             record = result[0]
             self._updateFileMetadata(record, no_overwrite=True)
-            return self.pruneDict(record, column_map), record
+            return self.pruneDict(record, column_map, allow_none_col_list), record
         else:
             row = self.interpolateDict(self.metadata, column_map)
             result = self._catalogRecordCreate(self.metadata['target_table'], row)
@@ -892,12 +898,14 @@ class DerivaUpload(object):
     def _getFileHatracMetadata(self, asset_mapping):
         try:
             hatrac_templates = asset_mapping["hatrac_templates"]
+            # convert None values to empty strings for URI and content-disposition template replacement
+            metadata = {k: ('' if v is None else v) for k, v in self.metadata.items()}
             # URI is required
-            self.metadata["URI"] = hatrac_templates["hatrac_uri"].format(**self.metadata)
+            self.metadata["URI"] = hatrac_templates["hatrac_uri"].format(**metadata)
             # overridden content-disposition is optional
             content_disposition = hatrac_templates.get("content-disposition")
             if content_disposition:
-                filename = content_disposition.format(**self.metadata)
+                filename = content_disposition.format(**metadata)
             else:
                 filename = urlparse(self.metadata["URI"]).path.rsplit("/", 1)[-1]
 
