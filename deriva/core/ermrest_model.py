@@ -188,7 +188,7 @@ def equivalent(doc1, doc2, method=None):
         def canon_cat_acls(d):
             return {
                 k: d.get(k, [])
-                for k in {'owner', 'read', 'write', 'insert', 'update', 'delete'}
+                for k in {'owner', 'enumerate', 'write', 'select', 'insert', 'update', 'delete'}
             }
         return equivalent(canon_cat_acls(doc1), canon_cat_acls(doc2), method='acls')
     elif method == 'foreign_key_acls':
