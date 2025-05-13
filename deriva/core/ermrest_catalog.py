@@ -333,6 +333,9 @@ class ErmrestCatalog(DerivaBinding):
         self._scheme, self._server, self._catalog_id, self._credentials, self._caching, self._session_config = \
             scheme, server, catalog_id, credentials, caching, session_config
 
+        self._get_new_session(self.session_config)
+        self.set_credentials(credentials, server)
+
     @property
     def catalog_id(self):
         return self._catalog_id
@@ -481,12 +484,26 @@ class ErmrestCatalog(DerivaBinding):
     def getAsFile(self,
                   path,
                   destfilename,
-                  headers=DEFAULT_HEADERS,
-                  callback=None,
-                  delete_if_empty=False,
-                  paged=False,
-                  page_size=DEFAULT_PAGE_SIZE,
-                  page_sort_columns=frozenset(["RID"])):
+                  headers = DEFAULT_HEADERS,
+                  callback = None,
+                  delete_if_empty = False,
+                  paged = False,
+                  page_size = DEFAULT_PAGE_SIZE,
+                  page_sort_columns = frozenset(["RID"])):
+        """
+           Deprecated, call `get_as_file` instead.
+        """
+        self.get_as_file(path, destfilename, headers, callback, delete_if_empty, paged, page_size, page_sort_columns)
+
+    def get_as_file(self,
+                    path,
+                    destfilename,
+                    headers=DEFAULT_HEADERS,
+                    callback=None,
+                    delete_if_empty=False,
+                    paged=False,
+                    page_size=DEFAULT_PAGE_SIZE,
+                    page_sort_columns=frozenset(["RID"])):
         """
            Retrieve catalog data streamed to destination file.
            Caller is responsible to clean up file even on error, when the file may or may not exist.

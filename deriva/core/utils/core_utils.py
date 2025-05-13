@@ -48,7 +48,8 @@ DEFAULT_SESSION_CONFIG = {
     "allow_retry_on_all_methods": False,
     "cookie_jar": DEFAULT_COOKIE_JAR_FILE,
     "max_request_size": DEFAULT_MAX_REQUEST_SIZE,
-    "max_chunk_limit": DEFAULT_MAX_CHUNK_LIMIT
+    "max_chunk_limit": DEFAULT_MAX_CHUNK_LIMIT,
+    "bypass_cert_verify_host_list": []
 }
 OAUTH2_SCOPES_KEY = "oauth2_scopes"
 DEFAULT_CONFIG = {
@@ -190,7 +191,13 @@ def get_new_requests_session(url=None, session_config=DEFAULT_SESSION_CONFIG):
                     raise_on_status=True)
     adapter = TimeoutHTTPAdapter(timeout=session_config.get("timeout", DEFAULT_REQUESTS_TIMEOUT), max_retries=retries)
     if url:
-        session.mount(url, adapter)
+        upr = urlparse(url)
+        base_url = upr.scheme + "://" + upr.netloc
+        session.mount(base_url, adapter)
+        # allow whitelisted hosts to bypass SSL cert verification
+        bypass_cert_verify_host_list = session_config.get("bypass_cert_verify_host_list", [])
+        if upr.scheme == "https" and upr.hostname in bypass_cert_verify_host_list:
+            session.verify = False
     else:
         session.mount('http://', adapter)
         session.mount('https://', adapter)
@@ -301,7 +308,7 @@ def get_oauth_scopes_for_host(host,
                 result = scopes
                 break
     if not result or force_refresh:
-        session = get_new_requests_session(session_config=DEFAULT_SESSION_CONFIG)
+        session = get_new_requests_session(url, session_config=config.get("session", DEFAULT_SESSION_CONFIG))
         try:
             r = session.get(url, headers=DEFAULT_HEADERS)
             r.raise_for_status()

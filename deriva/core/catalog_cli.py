@@ -6,7 +6,7 @@ import traceback
 from pprint import pp
 from requests.exceptions import HTTPError, ConnectionError
 from deriva.core import __version__ as VERSION, BaseCLI, KeyValuePairArgs, DerivaServer, DerivaPathError, \
-    get_credential, format_credential, format_exception, DEFAULT_HEADERS
+    get_credential, format_credential, format_exception, read_config, DEFAULT_SESSION_CONFIG, DEFAULT_HEADERS
 from deriva.core.ermrest_model import nochange
 from deriva.core.utils import eprint
 
@@ -191,6 +191,11 @@ class DerivaCatalogCLI (BaseCLI):
         else:
             return get_credential(host_name)
 
+    @staticmethod
+    def _get_session_config():
+        config = read_config()
+        return config.get("session", DEFAULT_SESSION_CONFIG)
+
     def _post_parser_init(self, args):
         """Shared initialization for all sub-commands.
         """
@@ -202,7 +207,8 @@ class DerivaCatalogCLI (BaseCLI):
                                    credentials=DerivaCatalogCLI._get_credential(
                                        self.host,
                                        token=args.token,
-                                       oauth2_token=args.oauth2_token))
+                                       oauth2_token=args.oauth2_token),
+                                   session_config=DerivaCatalogCLI._get_session_config())
 
     @staticmethod
     def _decorate_headers(headers, file_format, method="get"):
@@ -279,10 +285,10 @@ class DerivaCatalogCLI (BaseCLI):
         catalog = self.server.connect_ermrest(args.id)
         try:
             if args.output_file:
-                catalog.getAsFile(args.path,
-                                  destfilename=args.output_file,
-                                  headers=headers,
-                                  delete_if_empty=args.auto_delete)
+                catalog.get_as_file(args.path,
+                                    destfilename=args.output_file,
+                                    headers=headers,
+                                    delete_if_empty=args.auto_delete)
             else:
                 pp(catalog.get(args.path, headers=headers).json())
         except HTTPError as e:
