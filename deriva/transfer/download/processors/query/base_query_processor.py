@@ -71,13 +71,13 @@ class BaseQueryProcessor(BaseProcessor):
             make_dirs(output_dir)
         try:
             if as_file:
-                return self.catalog.getAsFile(self.query, self.output_abspath,
-                                              headers=headers,
-                                              callback=self.callback,
-                                              delete_if_empty=True,
-                                              paged=self.paged_query,
-                                              page_size=self.paged_query_size,
-                                              page_sort_columns=self.paged_query_sort_columns)
+                return self.catalog.get_as_file(self.query, self.output_abspath,
+                                                headers=headers,
+                                                callback=self.callback,
+                                                delete_if_empty=True,
+                                                paged=self.paged_query,
+                                                page_size=self.paged_query_size,
+                                                page_sort_columns=self.paged_query_sort_columns)
             else:
                 return self.catalog.get(self.query, headers=headers).json()
         except requests.HTTPError as e:
@@ -142,21 +142,21 @@ class BaseQueryProcessor(BaseProcessor):
 
         return url
 
-    def getExternalSession(self, host):
-        sessions = self.sessions
+    def getExternalSession(self, url):
         auth_params = self.kwargs.get("auth_params", dict())
         cookies = auth_params.get("cookies")
         auth_url = auth_params.get("auth_url")
         login_params = auth_params.get("login_params")
         session_config = self.kwargs.get("session_config")
 
-        session = sessions.get(host)
+        host = urlsplit(url).hostname
+        session = self.sessions.get(host)
         if session is not None:
             return session
 
         if not session_config:
             session_config = DEFAULT_SESSION_CONFIG
-        session = get_new_requests_session(session_config=session_config)
+        session = get_new_requests_session(url, session_config=session_config)
 
         if cookies:
             session.cookies.update(cookies)
@@ -166,7 +166,7 @@ class BaseQueryProcessor(BaseProcessor):
                 raise DerivaDownloadError(
                     'GetExternalSession Failed with Status Code: %s\n%s\n' % (r.status_code, r.text))
 
-        sessions[host] = session
+        self.sessions[host] = session
         return session
 
     def create_default_paths(self):

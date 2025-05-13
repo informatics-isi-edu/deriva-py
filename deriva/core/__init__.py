@@ -55,7 +55,7 @@ def get_credential(host,
             scope_map = globus_client.hosts_to_scope_map(hosts=[host], match_scope_tag=match_scope_tag,
                                                          force_refresh=force_scope_lookup,
                                                          warn_on_discovery_failure=True if not creds else False)
-            tokens = globus_client.is_logged_in(exclude_defaults=True)
+            tokens = globus_client.is_logged_in(exclude_defaults=True, hosts_to_scope_map=scope_map)
             if tokens:
                 # 1. look for the explicitly requested scope in the token store, if specified
                 token = globus_client.find_access_token_for_scope(requested_scope, tokens)

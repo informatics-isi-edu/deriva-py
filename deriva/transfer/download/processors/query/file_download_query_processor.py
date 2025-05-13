@@ -31,13 +31,12 @@ class FileDownloadQueryProcessor(BaseQueryProcessor):
         return self.outputs
 
     def getExternalFile(self, url, output_path, headers=None):
-        host = urlsplit(url).netloc
         if output_path:
             if not headers:
                 headers = self.HEADERS.copy()
             else:
                 headers.update(self.HEADERS)
-            session = self.getExternalSession(host)
+            session = self.getExternalSession(url)
             with session.get(url, headers=headers, stream=True) as r:
                 if r.status_code != 200:
                     file_error = "File [%s] transfer failed." % output_path
@@ -58,6 +57,7 @@ class FileDownloadQueryProcessor(BaseQueryProcessor):
                     length = int(r.headers.get('Content-Length'))
                     content_type = r.headers.get("Content-Type")
                     return output_path, length, content_type
+        return None
 
     def downloadFiles(self, input_manifest):
         logging.info("Attempting to download file(s) based on the results of query: %s" % self.query)

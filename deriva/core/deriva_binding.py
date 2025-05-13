@@ -139,10 +139,10 @@ class DerivaBinding (object):
             server
         )
         self._server_uri = self._base_server_uri
+        self._auth_uri = self._base_server_uri + "/authn/session"
 
         self.session_config = DEFAULT_SESSION_CONFIG if not session_config else session_config
         self._session = None
-        self._get_new_session(self.session_config)
 
         self._caching = caching
         self._cache = {}
@@ -151,8 +151,6 @@ class DerivaBinding (object):
 
         self.dcctx = DerivaClientContext()
 
-        self.set_credentials(credentials, server)
-
     def get_server_uri(self):
         return self._server_uri
 
@@ -160,9 +158,6 @@ class DerivaBinding (object):
         self._close_session()
         self._session = get_new_requests_session(self._server_uri + '/',
                                                  session_config if session_config else self.session_config)
-        # allow loopback requests to bypass SSL cert verification
-        if "https://localhost" in self._server_uri:
-            self._session.verify = False
 
     def _pre_get(self, path, headers):
         self.check_path(path)
@@ -228,13 +223,13 @@ class DerivaBinding (object):
 
     def get_authn_session(self):
         headers = { 'deriva-client-context': self.dcctx.encoded() }
-        r = self._session.get(self._base_server_uri + "/authn/session", headers=headers)
+        r = self._session.get(self._auth_uri, headers=headers)
         _response_raise_for_status(r)
         return r
 
     def post_authn_session(self, credentials):
         headers = { 'deriva-client-context': self.dcctx.encoded() }
-        r = self._session.post(self._base_server_uri + "/authn/session", data=credentials, headers=headers)
+        r = self._session.post(self._auth_uri, data=credentials, headers=headers)
         _response_raise_for_status(r)
         return r
 
