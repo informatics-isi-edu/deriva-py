@@ -45,6 +45,7 @@ class DerivaExport:
         self.timeout = kwargs.get("timeout")
         self.export_type = kwargs.get("export_type", "bdbag")
         self.base_server_uri = "https://" + self.host
+        self.auth_service_url = self.base_server_uri + "/authn/session"
         self.service_url = self.base_server_uri + EXPORT_SERVICE_PATH % self.export_type
         self.session_config = DEFAULT_SESSION_CONFIG.copy()
         if isinstance(self.timeout, tuple):
@@ -83,10 +84,16 @@ class DerivaExport:
         elif 'cookie' in self.credential:
             cname, cval = self.credential['cookie'].split('=', 1)
             self.session.cookies.set(cname, cval, domain=self.host, path='/')
+        else:
+            try:
+                r = self.session.post(self.auth_service_url, data=self.credential)
+                r.raise_for_status()
+            except HTTPError as e:
+                raise DerivaDownloadAuthenticationError(
+                    "Exception during POST authentication flow: %s" % format_exception(e))
 
     def validate_authn_session(self):
-        url = self.base_server_uri + "/authn/session"
-        r = self.session.get(url)
+        r = self.session.get(self.auth_service_url)
         if r.status_code == requests.codes.not_found or r.status_code == requests.codes.unauthorized:
             logger.warning("Unable to authenticate. Check for missing or expired credentials.")
         r.raise_for_status()
