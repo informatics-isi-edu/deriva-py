@@ -346,7 +346,7 @@ class DerivaUpload(object):
         return '%s:%s' % (urlquote(schema_name), urlquote(table_name))
 
     @staticmethod
-    def interpolateDict(src, dst, allow_none=False, allow_none_column_list=[]):
+    def interpolateDict(src, dst, allow_none_column_list=[]):
         if not (isinstance(src, dict) and isinstance(dst, dict)):
             raise ValueError("Invalid input parameter type(s): (src = %s, dst = %s), expected (dict, dict)" % (
                 type(src).__name__, type(dst).__name__))
@@ -369,11 +369,8 @@ class DerivaUpload(object):
                     if value.startswith('{') and value.endswith('}'):
                         value = None
             dst.update({k: value})
-        # remove all None valued entries in the dest, if globally disallowed or the column is not explicitly allowed
-        empty = [k for k, v in dst.items() if v is None]
-        for k in empty:
-            if not allow_none or (allow_none and k not in allow_none_column_list):
-                del dst[k]
+        # remove all None valued entries in the dest, if column is not explicitly allowed
+        dst = {k: v for k, v in dst.items() if v is not None or k in allow_none_column_list}
 
         return dst
 
@@ -382,7 +379,7 @@ class DerivaUpload(object):
         dst = dst.copy()
         for k in dst.keys():
             value = src.get(k)
-            if value or (value is None and k in allow_none_column_list):
+            if value is not None or (value is None and k in allow_none_column_list):
                 dst[k] = value
         return dst
 
@@ -730,8 +727,7 @@ class DerivaUpload(object):
         # 8. Update an existing record, if necessary
         column_map = asset_mapping.get("column_map", {})
         allow_none_col_list = asset_mapping.get("allow_empty_columns_on_update", [])
-        allow_none = True if allow_none_col_list else False
-        updated_record = self.interpolateDict(self.metadata, column_map, allow_none, allow_none_col_list)
+        updated_record = self.interpolateDict(self.metadata, column_map, allow_none_col_list)
         if updated_record != record:
             record_update_template = asset_mapping.get("record_update_template")
             require_record_update_template = stob(asset_mapping.get("require_record_update_template", False))
@@ -806,7 +802,7 @@ class DerivaUpload(object):
             if result:
                 record = result[0]
                 self._updateFileMetadata(record)
-            return self.interpolateDict(self.metadata, column_map, allow_none=True), record
+            return self.interpolateDict(self.metadata, column_map, allow_none_column_list=allow_none_col_list), record
 
     def _urlEncodeMetadata(self, safe_overrides=None):
         urlencoded = dict()
