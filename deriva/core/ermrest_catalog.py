@@ -333,9 +333,6 @@ class ErmrestCatalog(DerivaBinding):
         self._scheme, self._server, self._catalog_id, self._credentials, self._caching, self._session_config = \
             scheme, server, catalog_id, credentials, caching, session_config
 
-        self._get_new_session(self.session_config)
-        self.set_credentials(credentials, server)
-
     @property
     def catalog_id(self):
         return self._catalog_id
