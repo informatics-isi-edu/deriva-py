@@ -291,7 +291,8 @@ class AclConfig:
         elif group.startswith(self.ROBOT_PREFIX_FORMAT.format(server=self.server)):
             self.validate_webauthn_robot(group)
         else:
-            warnings.warn("Can't determine format of group '{g}'".format(g=group))
+            if self.verbose:
+                warnings.warn("Can't determine format of group '{g}'".format(g=group))
 
     def validate_globus_group(self, group):
         guid = group[len(self.GLOBUS_PREFIX):]
