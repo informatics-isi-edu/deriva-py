@@ -190,17 +190,15 @@ def get_new_requests_session(url=None, session_config=DEFAULT_SESSION_CONFIG):
                     not session_config.get("allow_retry_on_all_methods", False) else False,
                     raise_on_status=True)
     adapter = TimeoutHTTPAdapter(timeout=session_config.get("timeout", DEFAULT_REQUESTS_TIMEOUT), max_retries=retries)
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+
     if url:
-        upr = urlparse(url)
-        base_url = upr.scheme + "://" + upr.netloc
-        session.mount(base_url, adapter)
         # allow whitelisted hosts to bypass SSL cert verification
+        upr = urlparse(url)
         bypass_cert_verify_host_list = session_config.get("bypass_cert_verify_host_list", [])
         if upr.scheme == "https" and upr.hostname in bypass_cert_verify_host_list:
             session.verify = False
-    else:
-        session.mount('http://', adapter)
-        session.mount('https://', adapter)
 
     return session
 
