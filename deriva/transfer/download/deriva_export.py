@@ -78,12 +78,13 @@ class DerivaExport:
             raise DerivaDownloadAuthenticationError(
                 "The requested service requires authentication and a valid login credential could "
                 "not be found (or was not provided) for the specified host.")
+
         if 'bearer-token' in self.credential:
             self.session.headers.update(
                 {'Authorization': 'Bearer {token}'.format(token=self.credential['bearer-token'])})
         elif 'cookie' in self.credential:
             cname, cval = self.credential['cookie'].split('=', 1)
-            self.session.cookies.set(cname, cval, domain=self.host, path='/')
+            self.session.cookies.set(cname, cval, domain="" if "." not in self.host else self.host, path='/')
         else:
             try:
                 r = self.session.post(self.auth_service_url, data=self.credential)
