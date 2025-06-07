@@ -5,7 +5,7 @@ import json
 import logging
 import platform
 import traceback
-import importlib
+import time
 import datetime
 import tzlocal
 import webbrowser
@@ -15,7 +15,8 @@ from bdbag.fetch.auth import keychain as bdbkc
 from deriva.core import __version__ as VERSION, DEFAULT_CONFIG_PATH, DEFAULT_GLOBUS_CREDENTIAL_FILE, urlparse, urljoin,\
     read_config, format_exception, BaseCLI, get_oauth_scopes_for_host, get_new_requests_session
 from deriva.core.utils import eprint
-from globus_sdk import ConfidentialAppAuthClient, AuthClient, AccessTokenAuthorizer, GlobusError, GlobusAPIError
+from globus_sdk import ConfidentialAppAuthClient, AuthClient, AccessTokenAuthorizer, RefreshTokenAuthorizer, \
+    GlobusError, GlobusAPIError, AuthAPIError
 from fair_research_login.client import NativeClient, LoadError, NoSavedTokens, TokensExpired
 
 NATIVE_APP_CLIENT_ID = "8ef15ba9-2b4a-469c-a163-7fd910c9d111"
@@ -586,11 +587,46 @@ class GlobusNativeLogin:
         if not scopes:
             return None
         try:
-            return self.client.load_tokens(scopes)
+            tokens = self.client.load_tokens(list(scopes))
+            return self.refresh_tokens_preemptively(tokens, time_before_expiry=86400)
         except LoadError as e:
             logging.debug("Unable to load or find tokens for specified scopes [%s]: %s" %
                           (scopes, format_exception(e)))
             return None
+
+    def refresh_tokens_preemptively(self, tokens, time_before_expiry=0):
+        needs_refresh = {}
+
+        for rs, ts in {t: ts for t, ts in tokens.items() if bool(ts['refresh_token'])}.items():
+            expiry_threshold = int(time.time()) + time_before_expiry
+            if ts['expires_at_seconds'] < expiry_threshold:
+                needs_refresh.update({rs:ts})
+
+        if not needs_refresh:
+            return tokens
+
+        for rs, ts in needs_refresh.items():
+            authorizer = RefreshTokenAuthorizer(
+                ts['refresh_token'],
+                self.client.client,
+                access_token=ts['access_token'],
+                expires_at=int(time.time()),
+                # setting the expires_at to the current time is vicious hack but necessary since the globus_sdk
+                # client doesn't allow you to refresh an access token unless it has already expired
+            )
+            try:
+                authorizer.ensure_valid_token()
+                ts['access_token'] = authorizer.access_token
+                ts['expires_at_seconds'] = authorizer.expires_at
+            except AuthAPIError as e:
+                if e.message == 'invalid_grant':
+                    logging.warning('Refresh Token expired for resource server: %s', rs)
+
+        self.client.save_tokens(needs_refresh)
+        result = {rs: ts for rs, ts in tokens.items() if rs not in needs_refresh}
+        result.update(needs_refresh)
+
+        return result
 
     def hosts_to_scope_map(self,
                            hosts,
@@ -662,6 +698,7 @@ class GlobusNativeLogin:
             access_token = token.get("access_token")
             if (token_scope == scope) and (access_token is not None):
                 return access_token
+        return None
 
     def update_bdbag_keychain(self, token=None, host=None, keychain_file=None, allow_redirects=False, delete=False):
         if (token is None) or (host is None):
@@ -699,7 +736,7 @@ class GlobusNativeLogin:
             prefill_named_grant = self.client.app_name + " with requested scopes [%s] " % ", ".join(scopes)
         tokens = self.client.login(no_local_server=no_local_server,
                                    no_browser=no_browser,
-                                   requested_scopes=scopes,
+                                   requested_scopes=list(scopes),
                                    refresh_tokens=refresh_tokens,
                                    prefill_named_grant=prefill_named_grant,
                                    query_params=additional_params,
