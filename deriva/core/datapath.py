@@ -1339,17 +1339,24 @@ class _ColumnWrapper (object):
         """Returns a disjunction of 'equality' comparison predictes.
 
         :param other: a _sequence_ of values of identical type
-        :return: a disjunction predicate object
+        :return: a disjunction predicate or comparison predicate object
         """
         from collections.abc import Sequence
         def is_sequence(obj):
             return isinstance(obj, Sequence)
         if not is_sequence(other):
-            logger.warning("'in_' method comparison only supports sequence literables.")
+            raise TypeError("value is not a sequence type")
+        if not other:
+            raise ValueError("value sequence is empty")
+        if isinstance(other, str):
+            raise ValueError("value is a string")
 
-        return _DisjunctionPredicate([
-            self == v for v in other
-        ])
+        if len(other) > 1:
+            return _DisjunctionPredicate([
+                self == v for v in other
+            ])
+        else:
+            return self == other[0]
 
     def alias(self, name):
         """Returns an alias for this column."""
