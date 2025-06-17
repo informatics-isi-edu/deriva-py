@@ -1,6 +1,6 @@
 """Definitions and implementations for data-path expressions to query and manipulate (insert, update, delete)."""
 
-from . import urlquote
+from collections.abc import Sequence
 import copy
 from datetime import date
 import itertools
@@ -9,7 +9,7 @@ import time
 import re
 from requests import HTTPError
 import warnings
-from . import DEFAULT_HEADERS, ermrest_model as _erm
+from . import urlquote, DEFAULT_HEADERS, ermrest_model as _erm
 
 __all__ = ['DataPathException', 'Min', 'Max', 'Sum', 'Avg', 'Cnt', 'CntD', 'Array', 'ArrayD', 'Bin']
 
@@ -1341,10 +1341,7 @@ class _ColumnWrapper (object):
         :param other: a _sequence_ of values of identical type
         :return: a disjunction predicate or comparison predicate object
         """
-        from collections.abc import Sequence
-        def is_sequence(obj):
-            return isinstance(obj, Sequence)
-        if not is_sequence(other):
+        if not isinstance(other, Sequence):
             raise TypeError("value is not a sequence type")
         if not other:
             raise ValueError("value sequence is empty")

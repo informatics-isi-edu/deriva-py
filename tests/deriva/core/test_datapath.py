@@ -598,6 +598,37 @@ class DatapathTests (unittest.TestCase):
         ).entities()
         self.assertEqual(len(results), TEST_EXP_MAX - 1)
 
+    def test_filter_membership(self):
+        """Test of filtering for membership, a.k.a. 'a in B'"""
+
+        # base case, with multiple entries in a sequence
+        results = self.experiment.filter(
+            self.experiment.column_definitions['Amount'].in_([1, 3, 5])
+        ).entities()
+        self.assertEqual(len(results), 3)
+
+        # corner case, with single entry in a sequence
+        results = self.experiment.filter(
+            self.experiment.column_definitions['Amount'].in_([3])
+        ).entities()
+        self.assertEqual(len(results), 1)
+
+        # wrong type of input
+        with self.assertRaises(TypeError):
+            self.experiment.column_definitions['Amount'].in_(None)
+
+        # wrong type of input
+        with self.assertRaises(TypeError):
+            self.experiment.column_definitions['Amount'].in_(1)
+
+        # wrong type of sequence
+        with self.assertRaises(ValueError):
+            self.experiment.column_definitions['Amount'].in_('1, 3, 5')
+
+        # empty sequence
+        with self.assertRaises(ValueError):
+            self.experiment.column_definitions['Amount'].in_([])
+
     def test_filter_conjunction(self):
         results = self.experiment.filter(
             self.experiment.column_definitions['Name'].ciregexp(TEST_EXP_NAME_FORMAT.format(0)[10:])
