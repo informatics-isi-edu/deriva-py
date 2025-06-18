@@ -1311,8 +1311,6 @@ class _ColumnWrapper (object):
         :param other: a _string_ literal value.
         :return: a filter predicate object
         """
-        if not isinstance(other, str):
-            logger.warning("'regexp' method comparison only supports string literals.")
         return _ComparisonPredicate(self, "::regexp::", other)
 
     def ciregexp(self, other):
@@ -1321,8 +1319,6 @@ class _ColumnWrapper (object):
         :param other: a _string_ literal value.
         :return: a filter predicate object
         """
-        if not isinstance(other, str):
-            logger.warning("'ciregexp' method comparison only supports string literals.")
         return _ComparisonPredicate(self, "::ciregexp::", other)
 
     def ts(self, other):
@@ -1331,8 +1327,6 @@ class _ColumnWrapper (object):
         :param other: a _string_ literal value.
         :return: a filter predicate object
         """
-        if not isinstance(other, str):
-            logger.warning("'ts' method comparison only supports string literals.")
         return _ComparisonPredicate(self, "::ts::", other)
 
     def alias(self, name):
