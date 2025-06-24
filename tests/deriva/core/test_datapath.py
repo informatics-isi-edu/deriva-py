@@ -10,10 +10,8 @@ import logging
 from operator import itemgetter
 import os
 import unittest
-import sys
 from deriva.core import DerivaServer, get_credential, ermrest_model as _em, __version__
-from deriva.core.datapath import DataPathException, Min, Max, Sum, Avg, Cnt, CntD, Array, ArrayD, Bin, \
-    simple_denormalization_with_whole_entities
+from deriva.core.datapath import *
 
 try:
     from pandas import DataFrame
@@ -591,6 +589,24 @@ class DatapathTests (unittest.TestCase):
             self.experiment.column_definitions['Name'].ciregexp(TEST_EXP_NAME_FORMAT.format(0)[10:])
         ).entities()
         self.assertEqual(len(results), 1)
+
+    @unittest.skipUnless(TEST_EXP_MAX >= 3, "this test was designed for at least 3 elements in the test set")
+    def test_fitler_w_quantifier(self):
+        int_args = [0, int(TEST_EXP_MAX/2), TEST_EXP_MAX-1, TEST_EXP_MAX*2]
+        str_args = [TEST_EXP_NAME_FORMAT.format(i) for i in int_args]
+        for name, cname, Q, args, expectation in [
+            ('any_3_ints', 'Amount', Any, int_args, 3),
+            ('all_1_int', 'Amount', All, [int_args[0]], 1),
+            ('all_3_ints', 'Amount', All, int_args, 0),
+            ('any_3_strs', 'Name', Any, str_args, 3),
+            ('all_1_str', 'Name', All, [str_args[0]], 1),
+            ('all_3_strs', 'Name', All, str_args, 0)
+        ]:
+            with self.subTest(name=name):
+                results = self.experiment.filter(
+                    self.experiment.column_definitions[cname] == Q(*args)
+                ).entities()
+                self.assertEqual(len(results), expectation)
 
     def test_filter_negation(self):
         results = self.experiment.filter(

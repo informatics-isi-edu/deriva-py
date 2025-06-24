@@ -11,7 +11,8 @@ from requests import HTTPError
 import warnings
 from . import DEFAULT_HEADERS, ermrest_model as _erm
 
-__all__ = ['DataPathException', 'Min', 'Max', 'Sum', 'Avg', 'Cnt', 'CntD', 'Array', 'ArrayD', 'Bin']
+__all__ = ['DataPathException', 'Min', 'Max', 'Sum', 'Avg', 'Cnt', 'CntD', 'Array', 'ArrayD', 'Bin', 'All', 'Any',
+           'simple_denormalization', 'simple_denormalization_with_whole_entities']
 
 logger = logging.getLogger(__name__)
 """Logger for this module"""
@@ -1311,8 +1312,6 @@ class _ColumnWrapper (object):
         :param other: a _string_ literal value.
         :return: a filter predicate object
         """
-        if not isinstance(other, str):
-            logger.warning("'regexp' method comparison only supports string literals.")
         return _ComparisonPredicate(self, "::regexp::", other)
 
     def ciregexp(self, other):
@@ -1321,8 +1320,6 @@ class _ColumnWrapper (object):
         :param other: a _string_ literal value.
         :return: a filter predicate object
         """
-        if not isinstance(other, str):
-            logger.warning("'ciregexp' method comparison only supports string literals.")
         return _ComparisonPredicate(self, "::ciregexp::", other)
 
     def ts(self, other):
@@ -1331,8 +1328,6 @@ class _ColumnWrapper (object):
         :param other: a _string_ literal value.
         :return: a filter predicate object
         """
-        if not isinstance(other, str):
-            logger.warning("'ts' method comparison only supports string literals.")
         return _ComparisonPredicate(self, "::ts::", other)
 
     def alias(self, name):
@@ -1713,7 +1708,7 @@ class _ComparisonPredicate (_Predicate):
         assert isinstance(lop, _ColumnWrapper)
         assert isinstance(rop, _ColumnWrapper) or isinstance(rop, int) or \
                isinstance(rop, float) or isinstance(rop, str) or \
-               isinstance(rop, date)
+               isinstance(rop, date) or isinstance(rop, _Quantifier)
         assert isinstance(op, str)
         self._lop = lop
         self._op = op
@@ -1739,6 +1734,9 @@ class _ComparisonPredicate (_Predicate):
         if isinstance(self._rop, _ColumnWrapper):
             # The only valid circumstance for a _ColumnWrapper rop is in a link 'on' predicate for simple key/fkey joins
             return "(%s)=(%s)" % (self._lop._instancename, self._rop._fqname)
+        elif isinstance(self._rop, _Quantifier):
+            # Quantifiers can be trusted to properly urlquote their literals
+            return "%s%s%s" % (self._lop._instancename, self._op, str(self._rop))
         else:
             # All other comparisons are serialized per the usual form
             return "%s%s%s" % (self._lop._instancename, self._op, urlquote(str(self._rop)))
@@ -1808,6 +1806,34 @@ class _NegationPredicate (_Predicate):
 
     def __str__(self):
         return "!(%s)" % self._child
+
+
+class _Quantifier (object):
+    """Base class of quantifiers."""
+    def __init__(self, quantifier_name, *args):
+        """Initializes the quantifier object.
+
+        :param quantifier_name: name of the quantifier per ERMrest specification.
+        :param args: arguments of the quantifier per ERMrest specification.
+        """
+        super(_Quantifier, self).__init__()
+        self._quantifier_name = quantifier_name
+        self._args = args
+
+    def __str__(self):
+        return "%s(%s)" % (self._quantifier_name, ','.join([urlquote(str(arg)) for arg in self._args]))
+
+
+class All (_Quantifier):
+    """Universal quantifier."""
+    def __init__(self, *args):
+        super(All, self).__init__('all', *args)
+
+
+class Any (_Quantifier):
+    """Existential quantifier."""
+    def __init__(self, *args):
+        super(Any, self).__init__('any', *args)
 
 
 class AggregateFunction (object):
