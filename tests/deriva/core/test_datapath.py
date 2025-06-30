@@ -573,10 +573,28 @@ class DatapathTests (unittest.TestCase):
                 self.assertEqual(expected_results_len, len(results))
 
     def test_filter_equality(self):
+        # test with value
         results = self.experiment.filter(
             self.experiment.column_definitions['Name'] == TEST_EXP_NAME_FORMAT.format(1)
         ).entities()
         self.assertEqual(len(results), 1)
+        # test again with null
+        results = self.experiment.filter(
+            self.experiment.column_definitions['Name'] == None
+        ).entities()
+        self.assertEqual(len(results), 0)
+
+    def test_filter_notequal(self):
+        # test with value
+        results = self.experiment.filter(
+            self.experiment.column_definitions['Amount'] != 0
+        ).entities()
+        self.assertEqual(len(results), TEST_EXP_MAX-1)
+        # test again with null
+        results = self.experiment.filter(
+            self.experiment.column_definitions['Amount'] != None
+        ).entities()
+        self.assertEqual(len(results), TEST_EXP_MAX)
 
     def test_filter_inequality(self):
         results = self.experiment.filter(

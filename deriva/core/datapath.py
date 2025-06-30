@@ -1266,6 +1266,19 @@ class _ColumnWrapper (object):
 
     __eq__ = eq
 
+    def ne(self, other):
+        """Returns a 'not equal' comparison predicate.
+
+        :param other: `None` or any other literal value.
+        :return: a filter predicate object
+        """
+        if other is None:
+            return _ComparisonPredicate(self, "::null::", '').negate()
+        else:
+            return _ComparisonPredicate(self, "=", other).negate()
+
+    __ne__ = ne
+
     def lt(self, other):
         """Returns a 'less than' comparison predicate.
 
@@ -1389,6 +1402,16 @@ class _ColumnAlias (object):
         return self._base_column.eq(other)
 
     __eq__ = eq
+
+    def ne(self, other):
+        """Returns a 'not equal' comparison predicate.
+
+        :param other: `None` or any other literal value.
+        :return: a filter predicate object
+        """
+        return self._base_column.ne(other)
+
+    __ne__ = ne
 
     def lt(self, other):
         """Returns a 'less than' comparison predicate.
