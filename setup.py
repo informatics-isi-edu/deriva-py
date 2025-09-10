@@ -58,7 +58,8 @@ setup(
             'deriva-sitemap-cli = deriva.seo.sitemap_cli:main',
             'deriva-backup-cli = deriva.transfer.backup.__main__:main',
             'deriva-restore-cli = deriva.transfer.restore.__main__:main',
-            'deriva-globus-auth-utils = deriva.core.utils.globus_auth_utils:main'
+            'deriva-globus-auth-utils = deriva.core.utils.globus_auth_utils:main',
+            'deriva-credenza-auth-utils = deriva.core.utils.credenza_auth_utils:main'
         ]
     },
     install_requires=[
