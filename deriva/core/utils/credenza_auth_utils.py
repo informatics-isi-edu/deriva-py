@@ -275,9 +275,9 @@ class CredenzaAuthUtilCLI(BaseCLI):
         except ConnectionError as e:
             eprint("{prog}: Connection error occurred".format(prog=self.parser.prog))
         except HTTPError as e:
-            if 401 == e.request.status:
+            if 401 == e.response.status_code:
                 msg = 'Authentication required: %s' % format_exception(e)
-            elif 403 == e.request.status:
+            elif 403 == e.response.status_code:
                 msg = 'Permission denied: %s' % format_exception(e)
             else:
                 msg = e
