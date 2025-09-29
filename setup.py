@@ -68,7 +68,7 @@ setup(
         'pika',
         'urllib3>=1.26.20,<3',
         'portalocker>=1.2.1',
-        'bdbag>=1.7.5',
+        'bdbag>=1.8.0',
         'globus_sdk>=3,<4',
         'fair-research-login>=0.3.1',
         'fair-identifiers-client>=0.5.1',
