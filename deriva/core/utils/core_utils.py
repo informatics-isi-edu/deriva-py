@@ -12,7 +12,6 @@ import portalocker
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from collections import OrderedDict
-from distutils import util as du_util
 from urllib.parse import quote as _urlquote, unquote as urlunquote
 from urllib.parse import urlparse, urlsplit, urlunsplit, urljoin
 from http.cookiejar import MozillaCookieJar
@@ -103,9 +102,20 @@ def urlquote_dcctx(s, safe='~{}",:'):
     return urlquote(s, safe=safe)
 
 
-def stob(string):
-    return bool(du_util.strtobool(str(string)))
+def stob(val):
+    """Convert a string representation of truth to True or False. Lifted and slightly modified from distutils.
 
+    True values are 'y', 'yes', 't', 'true', 'on', and '1'; false values
+    are 'n', 'no', 'f', 'false', 'off', and '0'.  Raises ValueError if
+    'val' is anything else.
+    """
+    val = str(val).lower()
+    if val in ('y', 'yes', 't', 'true', 'on', '1'):
+        return True
+    elif val in ('n', 'no', 'f', 'false', 'off', '0'):
+        return False
+    else:
+        raise ValueError("invalid truth value %r" % (val,))
 
 def format_exception(e):
     if not isinstance(e, Exception):
