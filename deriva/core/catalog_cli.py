@@ -294,11 +294,12 @@ class DerivaCatalogCLI (BaseCLI):
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
                 raise ResourceException('Catalog not found', e)
-        except:
+            else:
+                raise e
+        finally:
             if args.output_file and os.path.isfile(args.output_file):
-                logging.info("Deleting empty file: %s" % args.output_file)
+                logging.info("Deleting empty output file: %s" % args.output_file)
                 os.remove(args.output_file)
-            raise
 
     def catalog_put(self, args):
         """Implements the catalog_put sub-command.
