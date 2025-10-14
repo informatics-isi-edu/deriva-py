@@ -131,7 +131,7 @@ class DerivaHatracCLI (BaseCLI):
         """
         self.host = args.host if args.host else 'localhost'
         self.resource = args.resource
-        self.store = HatracStore('https', args.host, DerivaHatracCLI._get_credential(self.host,
+        self.store = HatracStore('https', self.host, DerivaHatracCLI._get_credential(self.host,
                                                                                      token=args.token,
                                                                                      oauth2_token=args.oauth2_token))
 
