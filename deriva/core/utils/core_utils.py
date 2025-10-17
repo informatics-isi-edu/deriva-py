@@ -48,7 +48,7 @@ DEFAULT_SESSION_CONFIG = {
     "cookie_jar": DEFAULT_COOKIE_JAR_FILE,
     "max_request_size": DEFAULT_MAX_REQUEST_SIZE,
     "max_chunk_limit": DEFAULT_MAX_CHUNK_LIMIT,
-    "bypass_cert_verify_host_list": []
+    "bypass_cert_verify_host_list": ["localhost"]
 }
 OAUTH2_SCOPES_KEY = "oauth2_scopes"
 DEFAULT_CONFIG = {

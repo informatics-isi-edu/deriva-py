@@ -46,6 +46,7 @@ class CredenzaAuthUtilCLI(BaseCLI):
         self.logout_init()
         self.get_session_init()
         self.put_session_init()
+        self.show_token_init()
 
     @staticmethod
     def update_bdbag_keychain(token=None, host=None, keychain_file=None, allow_redirects=False, delete=False):
@@ -80,6 +81,9 @@ class CredenzaAuthUtilCLI(BaseCLI):
             self.credentials.pop(host, None)
 
         write_credential(credential_file or DEFAULT_CREDENTIAL_FILE, self.credentials)
+
+    def show_token(self, args):
+        return self.load_credential(args.host, args.credential_file)
 
     def get_session(self, args, check_only=False):
         credential = self.load_credential(args.host, args.credential_file)
@@ -128,7 +132,9 @@ class CredenzaAuthUtilCLI(BaseCLI):
         if not args.force:
             resp = self.get_session(args, check_only=True)
             if resp:
-                return f"You are already logged in to host '{args.host}'"
+                token = self.show_token(args)
+                token_display = f"Bearer token: {token}" if args.show_token else ""
+                return f"You are already logged in to host '{args.host}'. {token_display}"
 
         path = "/authn/device/start"
         if args.refresh:
@@ -177,7 +183,7 @@ class CredenzaAuthUtilCLI(BaseCLI):
             self.update_bdbag_keychain(host=args.host,
                                        token=token,
                                        keychain_file=args.bdbag_keychain_file or bdbkc.DEFAULT_KEYCHAIN_FILE)
-        token_display = f"Access token: {token}" if args.show_token else ""
+        token_display = f"Bearer token: {token}" if args.show_token else ""
         return f"You have been successfully logged in to host '{args.host}'. {token_display}"
 
     def logout(self, args):
@@ -237,6 +243,11 @@ class CredenzaAuthUtilCLI(BaseCLI):
                             help="Attempt to refresh access tokens, other dependent tokens, and claims from the "
                                  "upstream identity provider.")
         parser.set_defaults(func=self.put_session)
+
+    def show_token_init(self):
+        parser = self.subparsers.add_parser("show-token",
+                                            help="Print access token for a given host. Use with caution.")
+        parser.set_defaults(func=self.show_token)
 
     def main(self):
         args = self.parse_cli()
