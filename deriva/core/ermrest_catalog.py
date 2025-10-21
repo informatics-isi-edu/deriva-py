@@ -1138,7 +1138,7 @@ class ErmrestAlias(DerivaBinding):
         )
 
     @classmethod
-    def _digest_alias_args(cls, id, owner, alias_target, name, description):
+    def _digest_alias_args(cls, id, owner, alias_target, name=None, description=None):
         rep = ErmrestCatalog._digest_catalog_args(id, owner, name, description)
 
         if isinstance(alias_target, (str, type(None))):
