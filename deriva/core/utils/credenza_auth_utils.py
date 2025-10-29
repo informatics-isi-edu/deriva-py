@@ -35,9 +35,9 @@ class CredenzaAuthUtilCLI(BaseCLI):
     """
     def __init__(self, *args, **kwargs):
         super(CredenzaAuthUtilCLI, self).__init__(*args, **kwargs)
-        self.remove_options(['--token', '--oauth2-token'])
-        self.parser.add_argument("--pretty", "-p", action="store_true",
-                                 help="Pretty-print all result output.")
+        self.remove_options(['--host', '--token', '--oauth2-token'])
+        self.parser.add_argument('--host', required=True, metavar='<host>', help="Fully qualified host name.")
+        self.parser.add_argument("--pretty", "-p", action="store_true", help="Pretty-print all result output.")
         self.credentials = None
 
         # init subparsers and corresponding functions
