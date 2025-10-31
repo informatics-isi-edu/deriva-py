@@ -173,7 +173,6 @@ class HatracStoreTestCase(unittest.TestCase):
                                  before_rename_callback_fn=_set_acls,
                                  after_rename_callback_fn=_confirm_acls_do_not_match)
 
-    @unittest.skip('pending hatrac changes')
     def test_rename_and_delete(self):
         """Rename test with delete variations"""
 
@@ -189,7 +188,7 @@ class HatracStoreTestCase(unittest.TestCase):
             self.assertTrue(r)
             # test that renamed object is still accessible
             r = self.hatrac.get_obj(ren_path_ver)
-            self.assertEqual(r.CONTENT, CONTENT)
+            self.assertEqual(r.content, CONTENT)
 
         def _delete_renamed(src_path, src_path_ver, ren_path, ren_path_ver):
             # test delete of rename before delete of source
@@ -206,11 +205,11 @@ class HatracStoreTestCase(unittest.TestCase):
             self.assertIsNone(r)
 
         with self.subTest(msg='delete source'):
-            self._do_rename_test(self.base_path + 'rename_and_delete_source',
+            self._do_rename_test(self.base_path + '/rename_and_delete_source',
                                  after_rename_callback_fn=_delete_source)
 
         with self.subTest(msg='delete renamed'):
-            self._do_rename_test(self.base_path + 'rename_and_delete_renamed',
+            self._do_rename_test(self.base_path + '/rename_and_delete_renamed',
                                  after_rename_callback_fn=_delete_renamed)
 
 
