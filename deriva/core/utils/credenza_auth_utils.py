@@ -278,7 +278,7 @@ class CredenzaAuthUtilCLI(BaseCLI):
                 elif not isinstance(response, str):
                     pprint(response)
                     return 0
-            print(response)
+            print(json.dumps(response))
             return 0
 
         except UsageException as e:
