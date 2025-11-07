@@ -267,18 +267,12 @@ class CredenzaAuthUtilCLI(BaseCLI):
                 pass
 
             response = args.func(args)
-            if args.pretty:
-                if isinstance(response, dict) or isinstance(response, list):
-                    try:
-                        print(json.dumps(response, indent=2))
-                        return 0
-                    except:
-                        pprint(response)
-                        return 0
-                elif not isinstance(response, str):
-                    pprint(response)
-                    return 0
-            print(json.dumps(response))
+            if isinstance(response, dict) or isinstance(response, list):
+                print(json.dumps(response, indent=2 if args.pretty else None))
+            elif not isinstance(response, str):
+                pprint(response)
+            else:
+                print(response)
             return 0
 
         except UsageException as e:

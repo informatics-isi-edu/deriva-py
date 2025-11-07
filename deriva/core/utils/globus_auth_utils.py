@@ -1179,19 +1179,13 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                 self.gau = GlobusAuthUtil(**vars(args))
 
             response = args.func(args)
-            if args.pretty:
-                if isinstance(response, dict) or isinstance(response, list):
-                    try:
-                        print(json.dumps(response, indent=2))
-                        return
-                    except:
-                        pprint(response)
-                        return
-                elif not isinstance(response, str):
-                    pprint(response)
-                    return
-            print(json.dumps(response))
-            return
+            if isinstance(response, dict) or isinstance(response, list):
+                print(json.dumps(response, indent=2 if args.pretty else None))
+            elif not isinstance(response, str):
+                pprint(response)
+            else:
+                print(response)
+            return 0
 
         except UsageException as e:
             eprint("{prog} {subcmd}: {msg}".format(prog=self.parser.prog, subcmd=args.subcmd, msg=e))
