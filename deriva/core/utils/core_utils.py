@@ -240,7 +240,7 @@ def write_config(config_file=DEFAULT_CONFIG_FILE, config=DEFAULT_CONFIG):
 def read_config(config_file=DEFAULT_CONFIG_FILE, create_default=False, default=DEFAULT_CONFIG):
     if not config_file:
         config_file = DEFAULT_CONFIG_FILE
-    config = None
+
     if not os.path.isfile(config_file) and create_default:
         logging.info("No default configuration file found, attempting to create one at: %s" % config_file)
         try:
@@ -248,13 +248,14 @@ def read_config(config_file=DEFAULT_CONFIG_FILE, create_default=False, default=D
         except Exception as e:
             logging.warning("Unable to create configuration file %s. Using internal defaults. %s" %
                             (config_file, format_exception(e)))
-            config = json.dumps(default, ensure_ascii=False)
 
-    if not config:
+    if os.path.isfile(config_file):
         with open(config_file, encoding='utf-8') as cf:
             config = cf.read()
-
-    return json.loads(config, object_pairs_hook=OrderedDict)
+            return json.loads(config, object_pairs_hook=OrderedDict)
+    else:
+        logging.debug("Unable to locate configuration file %s. Using internal defaults." % config_file)
+        return default
 
 
 def lock_file(file_path, mode, exclusive=True, timeout=60):
@@ -277,21 +278,22 @@ def write_credential(credential_file=DEFAULT_CREDENTIAL_FILE, credential=DEFAULT
 def read_credential(credential_file=DEFAULT_CREDENTIAL_FILE, create_default=False, default=DEFAULT_CREDENTIAL):
     if not credential_file:
         credential_file = DEFAULT_CREDENTIAL_FILE
-    credential = None
+
     if not os.path.isfile(credential_file) and create_default:
         logging.info("No default credential file found, attempting to create one at: %s" % credential_file)
         try:
             write_credential(credential_file, default)
         except Exception as e:
-            logging.warning("Unable to create credential file %s. Using internal defaults. %s" %
+            logging.warning("Unable to create credential file %s. Using internal (empty) defaults. %s" %
                             (credential_file, format_exception(e)))
-            credential = json.dumps(default, ensure_ascii=False)
 
-    if not credential:
+    if os.path.isfile(credential_file):
         with lock_file(credential_file, mode='r', exclusive=False) as cf:
             credential = cf.read()
-
-    return json.loads(credential, object_pairs_hook=OrderedDict)
+            return json.loads(credential, object_pairs_hook=OrderedDict)
+    else:
+        logging.debug("Unable to locate credential file %s. Using internal (empty) defaults." % credential_file)
+        return default
 
 
 def get_oauth_scopes_for_host(host,

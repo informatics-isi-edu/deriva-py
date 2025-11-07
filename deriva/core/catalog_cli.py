@@ -12,7 +12,7 @@ from deriva.core.utils import eprint
 
 
 class DerivaCatalogCLIException (Exception):
-    """Base exception class for DerivaHatracCli.
+    """Base exception class for DerivaCatalogCli.
     """
     def __init__(self, message):
         """Initializes the exception.
@@ -40,7 +40,7 @@ class ResourceException (DerivaCatalogCLIException):
 
 
 class DerivaCatalogCLI (BaseCLI):
-    """Deriva Hatrac Command-line Interface.
+    """Deriva Catalog Utility Command-line Interface.
     """
     def __init__(self, description, epilog):
         """Initializes the CLI.
@@ -193,7 +193,7 @@ class DerivaCatalogCLI (BaseCLI):
 
     @staticmethod
     def _get_session_config():
-        config = read_config()
+        config = read_config(create_default=True)
         return config.get("session", DEFAULT_SESSION_CONFIG)
 
     def _post_parser_init(self, args):
