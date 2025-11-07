@@ -1,9 +1,9 @@
 import logging
 import os
 import sys
+import json
 import requests
 import traceback
-from pprint import pp
 from requests.exceptions import HTTPError, ConnectionError
 from deriva.core import __version__ as VERSION, BaseCLI, KeyValuePairArgs, DerivaServer, DerivaPathError, \
     get_credential, format_credential, format_exception, read_config, DEFAULT_SESSION_CONFIG, DEFAULT_HEADERS
@@ -233,7 +233,7 @@ class DerivaCatalogCLI (BaseCLI):
         """Implements the catalog_exists sub-command.
         """
         catalog = self.server.connect_ermrest(self.id)
-        pp(catalog.exists())
+        print(catalog.exists())
 
     def catalog_create(self, args):
         """Implements the catalog_create sub-command.
@@ -248,8 +248,7 @@ class DerivaCatalogCLI (BaseCLI):
                 model = catalog.getCatalogModel()
                 model.configure_baseline_catalog(**args.configure_args)
             if not args.quiet:
-                print("Created new catalog %s with the following default configuration:\n" % catalog.catalog_id)
-                pp(catalog.get('/').json())
+                print(json.dumps(catalog.get('/').json()))
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
                 raise ResourceException('Catalog not found', e)
@@ -290,7 +289,7 @@ class DerivaCatalogCLI (BaseCLI):
                                     headers=headers,
                                     delete_if_empty=args.auto_delete)
             else:
-                pp(catalog.get(args.path, headers=headers).json())
+                print(json.dumps(catalog.get(args.path, headers=headers).json()))
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
                 raise ResourceException('Catalog not found', e)
@@ -312,7 +311,7 @@ class DerivaCatalogCLI (BaseCLI):
             with open(args.input_file, "rb") as input_file:
                 resp = catalog.put(args.path, data=input_file, headers=headers)
                 if not args.quiet:
-                    pp(resp.json())
+                    print(json.dumps(resp.json()))
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
                 raise ResourceException('Catalog not found', e)
@@ -330,7 +329,7 @@ class DerivaCatalogCLI (BaseCLI):
             with open(args.input_file, "rb") as input_file:
                 resp = catalog.post(args.path, data=input_file, headers=headers)
                 if not args.quiet:
-                    pp(resp.json())
+                    print(json.dumps(resp.json()))
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
                 raise ResourceException('Catalog not found', e)
@@ -381,8 +380,7 @@ class DerivaCatalogCLI (BaseCLI):
             owner = args.owner if args.owner else None
             alias = self.server.create_ermrest_alias(args.id, owner, args.alias_target)
             if not args.quiet:
-                print("Created new catalog alias %s with the following configuration:\n" % alias.alias_id)
-                pp(alias.retrieve())
+                print(json.dumps(alias.retrieve()))
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
                 raise ResourceException('Catalog alias not found', e)
@@ -398,7 +396,7 @@ class DerivaCatalogCLI (BaseCLI):
             alias = self.server.connect_ermrest_alias(args.id)
             response = alias.retrieve()
             if not args.quiet:
-                pp(response)
+                print(json.dumps(response))
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
                 raise ResourceException('Catalog alias not found', e)
@@ -410,8 +408,7 @@ class DerivaCatalogCLI (BaseCLI):
             owner = args.owner if args.owner else None
             alias = self.server.connect_ermrest_alias(args.id)
             response = alias.update(owner, args.alias_target, args.id)
-            print("Updated catalog alias %s with the following configuration:\n" % alias.alias_id)
-            pp(response)
+            print(json.dumps(response))
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
                 raise ResourceException('Catalog alias not found', e)

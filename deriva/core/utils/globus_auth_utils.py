@@ -1190,7 +1190,7 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                 elif not isinstance(response, str):
                     pprint(response)
                     return
-            print(response)
+            print(json.dumps(response))
             return
 
         except UsageException as e:
