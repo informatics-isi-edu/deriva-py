@@ -706,6 +706,7 @@ class DerivaUpload(object):
                                chunked=True if (file_size > DEFAULT_CHUNK_SIZE or file_size == 0) else False,
                                create_parents=stob(hatrac_options.get("create_parents", True)),
                                allow_versioning=stob(hatrac_options.get("allow_versioning", True)),
+                               force=stob(hatrac_options.get("force", False)),
                                callback=callback)
         logger.debug("Hatrac upload successful. Result object URI: %s" % versioned_uri)
         versioned_uris = True
@@ -944,7 +945,8 @@ class DerivaUpload(object):
                       chunked=True,
                       create_parents=True,
                       allow_versioning=True,
-                      callback=None):
+                      callback=None,
+                      force=False):
 
         # check if there is already an in-progress transfer for this file,
         # and if so, that the local file has not been modified since the original upload job was created
@@ -982,7 +984,8 @@ class DerivaUpload(object):
                                       create_parents=create_parents,
                                       allow_versioning=allow_versioning,
                                       callback=callback,
-                                      cancel_job_on_error=False)
+                                      cancel_job_on_error=False,
+                                      force=force)
 
     def _get_catalog_table_columns(self, table):
         table_columns = set()

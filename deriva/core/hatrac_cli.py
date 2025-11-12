@@ -112,6 +112,8 @@ class DerivaHatracCLI (BaseCLI):
                                    help="Chunk size in bytes")
         putobj_parser.add_argument("--parents", action="store_true",
                                    help="Create intermediate parent namespaces as required")
+        putobj_parser.add_argument("--force", action="store_true",
+                                   help="Force upload even if same object content already exists")
         putobj_parser.set_defaults(func=self.putobj)
 
         # delobj parser
@@ -256,7 +258,8 @@ class DerivaHatracCLI (BaseCLI):
                 content_type=content_type,
                 chunked=True if file_size > args.chunk_size else False,
                 chunk_size=args.chunk_size,
-                create_parents=args.parents)
+                create_parents=args.parents,
+                force=args.force)
             print(loc)
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
