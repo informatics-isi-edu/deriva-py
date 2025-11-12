@@ -253,6 +253,54 @@ class HatracStore(DerivaBinding):
         self.delete(path)
         logging.debug('Deleted object "%s%s".' % (self._server_uri, path))
 
+    def rename_obj(self,
+                   source_path,
+                   path,
+                   versions=None,
+                   copy_acls=False,
+                   headers=DEFAULT_HEADERS):
+        """Rename object optionally specifying versions to process and whether to copy acls.
+
+        :param source_path: source object path
+        :param path: new path for object
+        :param versions: list of object versions to process, by default it processes all versions
+        :param copy_acls: if true, copy all source acls, else default to set basic ownership like a new object version
+        :param headers: headers to send to hatrac
+        :return: resource location
+        """
+        self.check_path(source_path)
+        self.check_path(path)
+
+        headers = headers.copy()
+        headers['deriva-client-context'] = self.dcctx.merged(headers.get('deriva-client-context', {})).encoded()
+        headers['Content-Type'] = 'application/json'
+
+        obj = {
+            "command": "rename_from",
+            "source_name": source_path.removeprefix('/hatrac'),
+        }
+
+        if versions:
+            if not isinstance(versions, list):
+                raise TypeError('"versions" argument must be a list')
+            if not all(isinstance(v, str) for v in versions):
+                raise TypeError('elements of "versions" argument must be strings')
+            obj["versions"] = versions
+
+        if copy_acls:
+            if copy_acls is not True:
+                raise TypeError('"copy_acls" argument must be a boolean')
+            obj["copy_acls"] = copy_acls
+
+        logging.debug(f'rename object message body: {str(obj)}')
+
+        r = self._session.post(self._server_uri + path, json=obj, headers=headers)
+        self._response_raise_for_status(r)
+        loc = r.text.strip() or r.url
+        if loc.startswith(self._server_uri):
+            loc = loc[len(self._server_uri):]
+        return loc
+
     def put_loc(self,
                 path,
                 file_path,
