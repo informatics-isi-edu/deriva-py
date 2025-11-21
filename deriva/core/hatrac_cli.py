@@ -121,6 +121,13 @@ class DerivaHatracCLI (BaseCLI):
         delobj_parser.add_argument("resource", metavar="<path>", type=str, help="object path")
         delobj_parser.set_defaults(func=self.delobj)
 
+        # renobj parser
+        renobj_parser = subparsers.add_parser('rename', help="rename object")
+        renobj_parser.add_argument('source_name', metavar="<source_name>", type=str, help="source object path")
+        renobj_parser.add_argument("resource", metavar="<path>", type=str, help="object path")
+        renobj_parser.add_argument("--copy-acls", action="store_true", help="copy source ACLs to new resource")
+        renobj_parser.set_defaults(func=self.renobj)
+
     @staticmethod
     def _get_credential(host_name, token=None, oauth2_token=None):
         if token or oauth2_token:
@@ -278,6 +285,24 @@ class DerivaHatracCLI (BaseCLI):
         except HTTPError as e:
             if e.response.status_code == requests.codes.not_found:
                 raise ResourceException('No such object', e)
+            else:
+                raise e
+
+    def renobj(self, args):
+        """Implements the renobj sub-command.
+        """
+        try:
+            loc = self.store.rename_obj(
+                args.source_name,
+                self.resource,
+                copy_acls=args.copy_acls)
+            print(loc)
+        except HTTPError as e:
+            if e.response.status_code == requests.codes.conflict:
+                raise ResourceException(
+                    f'Source name "{args.source_name}" must name an existing object', e)
+            elif e.response.status_code == requests.codes.method_not_allowed:
+                raise UsageException('operation not support by host. To enable this feature, upgrade Hatrac service.')
             else:
                 raise e
 
