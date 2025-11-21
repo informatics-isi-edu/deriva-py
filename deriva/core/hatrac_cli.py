@@ -298,6 +298,8 @@ class DerivaHatracCLI (BaseCLI):
             if e.response.status_code == requests.codes.conflict:
                 raise ResourceException(
                     f'Source name "{args.source_name}" must name an existing object', e)
+            elif e.response.status_code == requests.codes.method_not_allowed:
+                raise UsageException('operation not support by host. To enable this feature, upgrade Hatrac service.')
             else:
                 raise e
 
