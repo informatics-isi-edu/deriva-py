@@ -233,9 +233,8 @@ class CredenzaAuthUtil:
 
 
     def show_token(self, host: str):
-        credential = self.load_credential(host)
-        if credential:
-            credential.get("bearer-token")
+        credential = self.load_credential(host) or {}
+        return credential.get("bearer-token")
 
 
     def get_session(self, host: str, *, resources=None):
@@ -296,9 +295,9 @@ class CredenzaAuthUtil:
                             host: str,
                             resources = None,
                             *,
+                            auth_method,
                             scope = None,
                             requested_ttl_seconds = None,
-                            auth_method,
                             no_bdbag_keychain= False,
                             bdbag_keychain_file = None,
                             **method_kwargs):
@@ -319,7 +318,7 @@ class CredenzaAuthUtil:
             form.append(("audience", r))
         if scope:
             form.append(("scope", scope))
-        if requested_ttl_seconds:
+        if requested_ttl_seconds is not None:
             form.append(("requested_ttl_seconds", str(int(requested_ttl_seconds))))
 
         # Delegate method-specific preparation
@@ -560,7 +559,7 @@ class CredenzaAuthUtilCLI(BaseCLI):
         self._api().save_credential(args.host, None)
         if not args.no_bdbag_keychain:
             self._api().update_bdbag_keychain(host=args.host,
-                                              token=credential,
+                                              token=token,
                                               delete=True,
                                               keychain_file=args.bdbag_keychain_file or bdbkc.DEFAULT_KEYCHAIN_FILE)
 
@@ -586,9 +585,9 @@ class CredenzaAuthUtilCLI(BaseCLI):
         response = self._api().issue_service_token(
             host,
             resources,
+            auth_method=auth_method,
             scope=scope,
             requested_ttl_seconds=requested_ttl_seconds,
-            auth_method=auth_method,
             no_bdbag_keychain=no_bdbag_keychain,
             bdbag_keychain_file=bdbag_keychain_file,
             **kw  # remaining CLI params become method_kwargs for adapters
