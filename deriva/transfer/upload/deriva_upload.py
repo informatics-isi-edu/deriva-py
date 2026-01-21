@@ -695,6 +695,16 @@ class DerivaUpload(object):
         # 6. Perform the Hatrac upload
         self._getFileHatracMetadata(asset_mapping)
         hatrac_options = asset_mapping.get("hatrac_options", {})
+        v = hatrac_options.get("chunk_size")
+        try:
+            chunk_size = int(v) if v not in (None, "") else DEFAULT_CHUNK_SIZE
+        except (TypeError, ValueError):
+            chunk_size = DEFAULT_CHUNK_SIZE
+        if chunk_size <= 0:
+            chunk_size = DEFAULT_CHUNK_SIZE
+            logger.warning(
+                "Specified chunk_size must be a positive integer (> 0) - falling back to default chunk size: %d." %
+                DEFAULT_CHUNK_SIZE)
         file_size = self.metadata["file_size"]
         versioned_uri = \
             self._hatracUpload(self.metadata["URI"],
@@ -704,7 +714,7 @@ class DerivaUpload(object):
                                content_type=self.guessContentType(file_path),
                                content_disposition=self.metadata.get("content-disposition"),
                                chunked=True if (file_size > DEFAULT_CHUNK_SIZE or file_size == 0) else False,
-                               chunk_size=int(hatrac_options.get("chunk_size")) or DEFAULT_CHUNK_SIZE,
+                               chunk_size=chunk_size,
                                create_parents=stob(hatrac_options.get("create_parents", True)),
                                allow_versioning=stob(hatrac_options.get("allow_versioning", True)),
                                force=stob(hatrac_options.get("force", False)),
