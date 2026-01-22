@@ -215,3 +215,20 @@ class TemplateEngine(str, Enum):
 
     handlebars = "handlebars"
     mustache = "mustache"
+
+
+class UpdateMappings(str, Enum):
+    """Update mappings flag for alter() operations.
+
+    Controls how foreign key and other constraint mappings are updated
+    when column/table alterations are made.
+
+    Values:
+        no_update: Don't update mappings (default)
+        deferred: Update mappings in a deferred manner
+        immediate: Update mappings immediately
+    """
+
+    no_update = ""
+    deferred = "deferred"
+    immediate = "immediate"

@@ -40,7 +40,7 @@ The import paths mirror the native interface:
     - deriva.core.ermrest_model.Schema -> deriva.core.typed.SchemaDef
 """
 
-from deriva.core.typed.types import BuiltinType, OnAction, AclMode
+from deriva.core.typed.types import BuiltinType, OnAction, AclMode, UpdateMappings, DisplayContext, TemplateEngine
 from deriva.core.typed.column import ColumnDef
 from deriva.core.typed.key import KeyDef
 from deriva.core.typed.foreign_key import ForeignKeyDef
@@ -85,6 +85,9 @@ __all__ = [
     "BuiltinType",
     "OnAction",
     "AclMode",
+    "UpdateMappings",
+    "DisplayContext",
+    "TemplateEngine",
     # Definition classes
     "ColumnDef",
     "KeyDef",
