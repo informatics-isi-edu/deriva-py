@@ -108,13 +108,13 @@ class AwsPresignedClient(ServiceAuthClient):
         return "aws_presigned"
 
     def add_cli_args(self, parser):
-        parser.add_argument("--aws-region", default="us-east-1",
-                       help="STS signing region (default: us-east-1).")
+        parser.add_argument("--aws-region", default="us-west-2",
+                       help="STS signing region (default: us-west-2).")
         parser.add_argument("--aws-expires", type=int, default=60,
                        help="Presigned URL validity seconds (default: 60).")
 
     def prepare(self, session, form, **kwargs):
-        aws_region = kwargs.get("aws_region", "us-east-1")
+        aws_region = kwargs.get("aws_region", "us-west-2")
         aws_expires = int(kwargs.get("aws_expires", 60))
         try:
             from botocore.session import get_session
