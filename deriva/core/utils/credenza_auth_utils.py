@@ -134,6 +134,7 @@ class AwsPresignedClient(ServiceAuthClient):
 
         req = AWSRequest(method="GET", url=f"{base}?{query}")
         SigV4QueryAuth(frozen, "sts", aws_region, aws_expires).add_auth(req)
+        logger.debug("Successfully generated AWS presigned GetCallerIdentity URL: %s" % req.url)
         form.append(("subject_token", req.url))
 
 
