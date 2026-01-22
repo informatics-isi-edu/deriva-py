@@ -124,19 +124,16 @@ class AwsPresignedClient(ServiceAuthClient):
             raise UsageException("AWS presign requires botocore; please install it.") from e
 
         sess = get_session()
-        creds = sess.get_credentials()
-        if creds is None:
-            raise UsageException("No AWS credentials found (IRSA/ECS/EC2/profile env).")
+        client = sess.create_client("sts", region_name=aws_region)
 
-        frozen = creds.get_frozen_credentials()
-        base = "https://sts.amazonaws.com"
-        query = "Action=GetCallerIdentity&Version=2011-06-15"
-
-        req = AWSRequest(method="GET", url=f"{base}?{query}")
-        SigV4QueryAuth(frozen, "sts", aws_region, aws_expires).add_auth(req)
-        logger.debug("Successfully generated AWS presigned GetCallerIdentity URL: %s" % req.url)
-        form.append(("subject_token", req.url))
-
+        url = client.generate_presigned_url(
+            "get_caller_identity",
+            Params={},
+            ExpiresIn=aws_expires,
+            HttpMethod="GET",
+        )
+        form.append(("subject_token", url))
+        logger.debug("Successfully generated AWS presigned GetCallerIdentity URL: %s" % url)
 
 class ClientSecretBasicClient(ServiceAuthClient):
     def name(self):
