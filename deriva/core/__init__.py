@@ -9,6 +9,7 @@ from deriva.core.polling_ermrest_catalog import PollingErmrestCatalog
 from deriva.core.hatrac_store import HatracStore, HatracHashMismatch, HatracJobPaused, HatracJobAborted, \
     HatracJobTimeout
 from deriva.core.utils.globus_auth_utils import GlobusNativeLogin
+from deriva.core.model_handles import TableHandle, ColumnHandle
 
 
 def get_credential(host,
