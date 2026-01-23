@@ -232,3 +232,60 @@ class UpdateMappings(str, Enum):
     no_update = ""
     deferred = "deferred"
     immediate = "immediate"
+
+
+class FacetUxMode(str, Enum):
+    """UX modes for facet filters in the search panel.
+
+    Controls how users interact with a facet filter.
+
+    Values:
+        CHOICES: Checkbox list for selecting values
+        RANGES: Range slider/inputs for numeric or date ranges
+        CHECK_PRESENCE: Check if value exists or is null
+    """
+
+    CHOICES = "choices"
+    RANGES = "ranges"
+    CHECK_PRESENCE = "check_presence"
+
+
+class Aggregate(str, Enum):
+    """Aggregation functions for pseudo-columns.
+
+    Used when a pseudo-column follows an inbound foreign key and returns
+    multiple values that need to be aggregated.
+
+    Values:
+        MIN: Minimum value
+        MAX: Maximum value
+        CNT: Count of values
+        CNT_D: Count of distinct values
+        ARRAY: Array of all values
+        ARRAY_D: Array of distinct values
+    """
+
+    MIN = "min"
+    MAX = "max"
+    CNT = "cnt"
+    CNT_D = "cnt_d"
+    ARRAY = "array"
+    ARRAY_D = "array_d"
+
+
+class ArrayUxMode(str, Enum):
+    """Display modes for array values in pseudo-columns.
+
+    Controls how arrays of values are rendered in the UI.
+
+    Values:
+        RAW: Raw array display
+        CSV: Comma-separated values
+        OLIST: Ordered (numbered) list
+        ULIST: Unordered (bulleted) list
+    """
+
+    RAW = "raw"
+    CSV = "csv"
+    OLIST = "olist"
+    ULIST = "ulist"
