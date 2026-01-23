@@ -7,9 +7,10 @@ replacing the dict-based `Schema.define()` method from `deriva.core.ermrest_mode
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from deriva.core.typed.table import TableDef
+if TYPE_CHECKING:
+    from deriva.core.typed.table import TableDef
 
 
 @dataclass
@@ -100,6 +101,8 @@ class SchemaDef:
         Returns:
             A SchemaDef instance with the parsed values.
         """
+        from deriva.core.typed.table import TableDef
+
         tables = None
         if "tables" in d:
             tables = {
@@ -191,3 +194,51 @@ def ml_schema(name: str = "deriva-ml") -> SchemaDef:
         name=name,
         comment="Machine learning workflow and data management schema",
     )
+
+
+@dataclass
+class WWWSchemaDef:
+    """Definition for a wiki-like web content schema.
+
+    This is a typed replacement for `deriva.core.ermrest_model.Schema.define_www()`.
+    A WWW schema contains a "Page" wiki-like page table and a "File" asset table
+    for attachments to the wiki pages.
+
+    Attributes:
+        name: Schema name.
+        comment: Human-readable description of the schema.
+        acls: Access control lists mapping AclMode to lists of roles.
+        annotations: Annotation URIs mapped to annotation values.
+
+    Example:
+        >>> www = WWWSchemaDef(
+        ...     name="documentation",
+        ...     comment="Wiki-like documentation pages",
+        ... )
+        >>> schema_dict = www.to_dict()
+        >>> # schema_dict includes Page and File table definitions
+    """
+
+    name: str
+    comment: str | None = None
+    acls: dict[str, list[str]] = field(default_factory=dict)
+    annotations: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to the dict format expected by ERMrest API.
+
+        This produces a dictionary compatible with `Schema.define_www()` output,
+        which includes both the schema definition and the Page and File tables.
+
+        Returns:
+            A dictionary with the complete WWW schema definition including
+            Page and File table definitions.
+        """
+        from deriva.core.ermrest_model import Schema
+
+        return Schema.define_www(
+            sname=self.name,
+            comment=self.comment,
+            acls=self.acls,
+            annotations=self.annotations,
+        )

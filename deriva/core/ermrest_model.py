@@ -8,8 +8,40 @@ import re
 from collections import OrderedDict
 from collections.abc import Iterable
 from enum import Enum
+from typing import TYPE_CHECKING, Any, Self, overload
 
 from . import AttrDict, tag, urlquote, stob, mmo
+
+if TYPE_CHECKING:
+    from deriva.core.typed import (
+        ColumnDef,
+        KeyDef,
+        ForeignKeyDef,
+        TableDef,
+        VocabularyTableDef,
+        AssetTableDef,
+        AssociationTableDef,
+        PageTableDef,
+        SchemaDef,
+        WWWSchemaDef,
+    )
+
+
+def _to_dict(obj: Any) -> dict[str, Any]:
+    """Convert a typed definition object to dict, or return dict as-is.
+
+    This helper allows methods to accept both typed dataclass definitions
+    (e.g., ColumnDef, TableDef) and raw dict definitions.
+
+    Args:
+        obj: Either a typed definition with a to_dict() method, or a dict.
+
+    Returns:
+        A dictionary suitable for use with ERMrest API.
+    """
+    if hasattr(obj, 'to_dict'):
+        return obj.to_dict()
+    return obj
 
 
 class NoChange (object):
@@ -319,14 +351,25 @@ class Model (object):
         for sname, schema in self.schemas.items():
             schema.apply(existing.schemas[sname])
 
-    def create_schema(self, schema_def):
+    def create_schema(
+        self,
+        schema_def: SchemaDef | WWWSchemaDef | dict[str, Any],
+    ) -> Schema:
         """Add a new schema to this model in the remote database based on schema_def.
 
-           Returns a new Schema instance based on the server-supplied
-           representation of the newly created schema.
+        Args:
+            schema_def: Schema definition, either as a SchemaDef/WWWSchemaDef
+                dataclass or a dict from Schema.define().
 
-           The returned Schema is also added to self.schemas.
+        Returns:
+            A new Schema instance based on the server-supplied representation
+            of the newly created schema. The returned Schema is also added
+            to self.schemas.
+
+        Raises:
+            ValueError: If a schema with the same name already exists.
         """
+        schema_def = _to_dict(schema_def)
         sname = schema_def['schema_name']
         if sname in self.schemas:
             raise ValueError('Schema %s already exists.' % sname)
@@ -654,16 +697,26 @@ class Schema (object):
         for tname, table in self.tables.items():
             table.apply(existing.tables[tname] if existing else None)
 
-    def alter(self, schema_name=nochange, comment=nochange, acls=nochange, annotations=nochange, update_mappings=UpdateMappings.no_update):
+    def alter(
+        self,
+        schema_name: str | NoChange = nochange,
+        comment: str | None | NoChange = nochange,
+        acls: dict[str, list[str]] | NoChange = nochange,
+        annotations: dict[str, Any] | NoChange = nochange,
+        update_mappings: UpdateMappings = UpdateMappings.no_update,
+    ) -> Self:
         """Alter existing schema definition.
 
-        :param schema_name: Replacement schema name (default nochange)
-        :param comment: Replacement comment (default nochange)
-        :param acls: Replacement ACL configuration (default nochange)
-        :param annotations: Replacement annotations (default nochange)
-        :param update_mappings: Update annotations to reflect changes (default UpdateMappings.no_updates)
+        Args:
+            schema_name: Replacement schema name (default nochange).
+            comment: Replacement comment (default nochange).
+            acls: Replacement ACL configuration (default nochange).
+            annotations: Replacement annotations (default nochange).
+            update_mappings: Update annotations to reflect changes
+                (default UpdateMappings.no_update).
 
-        Returns self (to allow for optional chained access).
+        Returns:
+            Self, to allow for optional chained access.
         """
         changes = strip_nochange({
             'schema_name': schema_name,
@@ -699,14 +752,26 @@ class Schema (object):
 
         return self
 
-    def create_table(self, table_def):
+    def create_table(
+        self,
+        table_def: TableDef | VocabularyTableDef | AssetTableDef | AssociationTableDef | PageTableDef | dict[str, Any],
+    ) -> Table:
         """Add a new table to this schema in the remote database based on table_def.
 
-           Returns a new Table instance based on the server-supplied
-           representation of the newly created table.
+        Args:
+            table_def: Table definition, either as a typed dataclass
+                (TableDef, VocabularyTableDef, AssetTableDef, AssociationTableDef,
+                PageTableDef) or a dict from Table.define() and related methods.
 
-           The returned Table is also added to self.tables.
+        Returns:
+            A new Table instance based on the server-supplied representation
+            of the newly created table. The returned Table is also added
+            to self.tables.
+
+        Raises:
+            ValueError: If a table with the same name already exists.
         """
+        table_def = _to_dict(table_def)
         tname = table_def['table_name']
         if tname in self.tables:
             raise ValueError('Table %s already exists.' % tname)
@@ -859,6 +924,88 @@ class Table (object):
     def uri_path(self):
         """URI to this model element."""
         return "%s/table/%s" % (self.schema.uri_path, urlquote(self.name))
+
+    def is_vocabulary(self) -> bool:
+        """Check if this table is a vocabulary table.
+
+        A vocabulary table is identified by having the standard vocabulary columns:
+        - ID (ermrest_curie type, not null)
+        - URI (ermrest_uri type, not null)
+        - Name (text type, not null)
+        - Description (markdown type, not null)
+        - Synonyms (text[] type)
+
+        Returns:
+            True if this table has the structure of a vocabulary table.
+        """
+        required_columns = {
+            'ID': ('ermrest_curie', False),
+            'URI': ('ermrest_uri', False),
+            'Name': ('text', False),
+            'Description': ('markdown', False),
+            'Synonyms': ('text[]', True),
+        }
+
+        col_map = {col.name: col for col in self.column_definitions}
+
+        for col_name, (expected_type, expected_nullok) in required_columns.items():
+            if col_name not in col_map:
+                return False
+            col = col_map[col_name]
+            # Check type matches (allowing for domain type variations)
+            if col.type.typename != expected_type:
+                # Check if it's a domain type with compatible base
+                if hasattr(col.type, 'base_type'):
+                    if col.type.base_type.typename != expected_type.replace('ermrest_', '').replace('[]', ''):
+                        return False
+                else:
+                    return False
+            # Check nullok matches for required columns
+            if not expected_nullok and col.nullok:
+                return False
+
+        return True
+
+    def is_asset(self) -> bool:
+        """Check if this table is an asset table.
+
+        An asset table is identified by having the standard asset columns:
+        - URL (text type, not null, with tag.asset annotation)
+        - Filename (text type)
+        - Length (int8 type, not null)
+        - MD5 (text type, not null)
+
+        The URL column must also have the asset annotation (tag:isrd.isi.edu,2017:asset).
+
+        Returns:
+            True if this table has the structure of an asset table.
+        """
+        required_columns = {
+            'URL': ('text', False),
+            'Filename': ('text', True),
+            'Length': ('int8', False),
+            'MD5': ('text', False),
+        }
+
+        col_map = {col.name: col for col in self.column_definitions}
+
+        for col_name, (expected_type, expected_nullok) in required_columns.items():
+            if col_name not in col_map:
+                return False
+            col = col_map[col_name]
+            # Check type matches
+            if col.type.typename != expected_type:
+                return False
+            # Check nullok matches for required columns
+            if not expected_nullok and col.nullok:
+                return False
+
+        # Check that URL column has the asset annotation
+        url_col = col_map.get('URL')
+        if url_col and tag.asset not in url_col.annotations:
+            return False
+
+        return True
 
     @classmethod
     def system_column_defs(cls, custom=[]):
@@ -1691,31 +1838,32 @@ class Table (object):
             fkey.apply(existing.foreign_keys[fkey.name_in_model(existing.schema.model)] if existing else None)
 
     def alter(
-            self,
-            schema_name=nochange,
-            table_name=nochange,
-            comment=nochange,
-            acls=nochange,
-            acl_bindings=nochange,
-            annotations=nochange,
-            update_mappings=UpdateMappings.no_update
-    ):
-        """Alter existing schema definition.
+        self,
+        schema_name: str | NoChange = nochange,
+        table_name: str | NoChange = nochange,
+        comment: str | None | NoChange = nochange,
+        acls: dict[str, list[str]] | NoChange = nochange,
+        acl_bindings: dict[str, Any] | NoChange = nochange,
+        annotations: dict[str, Any] | NoChange = nochange,
+        update_mappings: UpdateMappings = UpdateMappings.no_update,
+    ) -> Self:
+        """Alter existing table definition.
 
-        :param schema_name: Destination schema name (default nochange)
-        :param table_name: Replacement table name (default nochange)
-        :param comment: Replacement comment (default nochange)
-        :param acls: Replacement ACL configuration (default nochange)
-        :param acl_bindings: Replacement ACL bindings (default nochange)
-        :param annotations: Replacement annotations (default nochange)
-        :param update_mappings: Update annotations to reflect changes (default UpdateMappings.no_updates)
+        Args:
+            schema_name: Destination schema name (default nochange).
+                A change of schema name is a transfer of the existing table to
+                an existing destination schema (not a rename of the current
+                containing schema).
+            table_name: Replacement table name (default nochange).
+            comment: Replacement comment (default nochange).
+            acls: Replacement ACL configuration (default nochange).
+            acl_bindings: Replacement ACL bindings (default nochange).
+            annotations: Replacement annotations (default nochange).
+            update_mappings: Update annotations to reflect changes
+                (default UpdateMappings.no_update).
 
-        A change of schema name is a transfer of the existing table to
-        an existing destination schema (not a rename of the current
-        containing schema).
-
-        Returns self (to allow for optional chained access).
-
+        Returns:
+            Self, to allow for optional chained access.
         """
         changes = strip_nochange({
             'schema_name': schema_name,
@@ -1795,13 +1943,21 @@ class Table (object):
             created = created[0]
         return registerfunc(constructor(self, created))
 
-    def create_column(self, column_def: dict) -> Column:
+    def create_column(self, column_def: ColumnDef | dict[str, Any]) -> Column:
         """Add a new column to this table in the remote database based on column_def.
 
-           Returns a new Column instance based on the server-supplied
-           representation of the new column, and adds it to
-           self.column_definitions too.
+        Args:
+            column_def: Column definition, either as a ColumnDef dataclass
+                or a dict from Column.define().
+
+        Returns:
+            A new Column instance based on the server-supplied representation
+            of the new column. The column is also added to self.column_definitions.
+
+        Raises:
+            ValueError: If a column with the same name already exists.
         """
+        column_def = _to_dict(column_def)
         cname = column_def['name']
         if cname in self.column_definitions.elements:
             raise ValueError('Column %s already exists.' % cname)
@@ -1810,27 +1966,35 @@ class Table (object):
             return col
         return self._create_table_part('column', add_column, Column, column_def)
 
-    def create_key(self, key_def: dict) -> Key:
+    def create_key(self, key_def: KeyDef | dict[str, Any]) -> Key:
         """Add a new key to this table in the remote database based on key_def.
 
-           Returns a new Key instance based on the server-supplied
-           representation of the new key, and adds it to self.keys
-           too.
+        Args:
+            key_def: Key definition, either as a KeyDef dataclass
+                or a dict from Key.define().
 
+        Returns:
+            A new Key instance based on the server-supplied representation
+            of the new key. The key is also added to self.keys.
         """
+        key_def = _to_dict(key_def)
         def add_key(key):
             self.keys.append(key)
             return key
         return self._create_table_part('key', add_key, Key, key_def)
 
-    def create_fkey(self, fkey_def: dict) -> ForeignKey:
+    def create_fkey(self, fkey_def: ForeignKeyDef | dict[str, Any]) -> ForeignKey:
         """Add a new foreign key to this table in the remote database based on fkey_def.
 
-           Returns a new ForeignKey instance based on the
-           server-supplied representation of the new foreign key, and
-           adds it to self.foreign_keys too.
+        Args:
+            fkey_def: Foreign key definition, either as a ForeignKeyDef dataclass
+                or a dict from ForeignKey.define().
 
+        Returns:
+            A new ForeignKey instance based on the server-supplied representation
+            of the new foreign key. The foreign key is also added to self.foreign_keys.
         """
+        fkey_def = _to_dict(fkey_def)
         def add_fkey(fkey):
             self.foreign_keys.append(fkey)
             fkey.digest_referenced_columns(self.schema.model)
@@ -2300,31 +2464,33 @@ class Column (object):
             self.alter(**changes)
 
     def alter(
-            self,
-            name=nochange,
-            type=nochange,
-            nullok=nochange,
-            default=nochange,
-            comment=nochange,
-            acls=nochange,
-            acl_bindings=nochange,
-            annotations=nochange,
-            update_mappings=UpdateMappings.no_update
-    ):
-        """Alter existing schema definition.
+        self,
+        name: str | NoChange = nochange,
+        type: Type | NoChange = nochange,
+        nullok: bool | NoChange = nochange,
+        default: Any | NoChange = nochange,
+        comment: str | None | NoChange = nochange,
+        acls: dict[str, list[str]] | NoChange = nochange,
+        acl_bindings: dict[str, Any] | NoChange = nochange,
+        annotations: dict[str, Any] | NoChange = nochange,
+        update_mappings: UpdateMappings = UpdateMappings.no_update,
+    ) -> Self:
+        """Alter existing column definition.
 
-        :param name: Replacement column name (default nochange)
-        :param type: Replacement Type instance (default nochange)
-        :param nullok: Replacement nullok value (default nochange)
-        :param default: Replacement default value (default nochange)
-        :param comment: Replacement comment (default nochange)
-        :param acls: Replacement ACL configuration (default nochange)
-        :param acl_bindings: Replacement ACL bindings (default nochange)
-        :param annotations: Replacement annotations (default nochange)
-        :param update_mappings: Update annotations to reflect changes (default UpdateMappings.no_updates)
+        Args:
+            name: Replacement column name (default nochange).
+            type: Replacement Type instance (default nochange).
+            nullok: Replacement nullok value (default nochange).
+            default: Replacement default value (default nochange).
+            comment: Replacement comment (default nochange).
+            acls: Replacement ACL configuration (default nochange).
+            acl_bindings: Replacement ACL bindings (default nochange).
+            annotations: Replacement annotations (default nochange).
+            update_mappings: Update annotations to reflect changes
+                (default UpdateMappings.no_update).
 
-        Returns self (to allow for optional chained access).
-
+        Returns:
+            Self, to allow for optional chained access.
         """
         if type is not nochange:
             if not isinstance(type, Type):
@@ -2603,21 +2769,23 @@ class Key (object):
             self.alter(**changes)
 
     def alter(
-            self,
-            constraint_name=nochange,
-            comment=nochange,
-            annotations=nochange,
-            update_mappings=UpdateMappings.no_update
-    ):
-        """Alter existing schema definition.
+        self,
+        constraint_name: str | NoChange = nochange,
+        comment: str | None | NoChange = nochange,
+        annotations: dict[str, Any] | NoChange = nochange,
+        update_mappings: UpdateMappings = UpdateMappings.no_update,
+    ) -> Self:
+        """Alter existing key definition.
 
-        :param constraint_name: Unqualified constraint name string
-        :param comment: Replacement comment (default nochange)
-        :param annotations: Replacement annotations (default nochange)
-        :param update_mappings: Update annotations to reflect changes (default UpdateMappings.no_updates)
+        Args:
+            constraint_name: Unqualified constraint name string.
+            comment: Replacement comment (default nochange).
+            annotations: Replacement annotations (default nochange).
+            update_mappings: Update annotations to reflect changes
+                (default UpdateMappings.no_update).
 
-        Returns self (to allow for optional chained access).
-
+        Returns:
+            Self, to allow for optional chained access.
         """
         changes = strip_nochange({
             'comment': comment,
@@ -2907,28 +3075,31 @@ class ForeignKey (object):
             self.alter(**changes)
 
     def alter(
-            self,
-            constraint_name=nochange,
-            on_update=nochange,
-            on_delete=nochange,
-            comment=nochange,
-            acls=nochange,
-            acl_bindings=nochange,
-            annotations=nochange,
-            update_mappings=UpdateMappings.no_update
-    ):
-        """Alter existing schema definition.
+        self,
+        constraint_name: str | NoChange = nochange,
+        on_update: str | NoChange = nochange,
+        on_delete: str | NoChange = nochange,
+        comment: str | None | NoChange = nochange,
+        acls: dict[str, list[str]] | NoChange = nochange,
+        acl_bindings: dict[str, Any] | NoChange = nochange,
+        annotations: dict[str, Any] | NoChange = nochange,
+        update_mappings: UpdateMappings = UpdateMappings.no_update,
+    ) -> Self:
+        """Alter existing foreign key definition.
 
-        :param constraint_name: Replacement constraint name string
-        :param on_update: Replacement on-update action string
-        :param on_delete: Replacement on-delete action string
-        :param comment: Replacement comment (default nochange)
-        :param acls: Replacement ACL configuration (default nochange)
-        :param acl_bindings: Replacement ACL bindings (default nochange)
-        :param annotations: Replacement annotations (default nochange)
-        :param update_mappings: Update annotations to reflect changes (default UpdateMappings.no_updates)
+        Args:
+            constraint_name: Replacement constraint name string.
+            on_update: Replacement on-update action string.
+            on_delete: Replacement on-delete action string.
+            comment: Replacement comment (default nochange).
+            acls: Replacement ACL configuration (default nochange).
+            acl_bindings: Replacement ACL bindings (default nochange).
+            annotations: Replacement annotations (default nochange).
+            update_mappings: Update annotations to reflect changes
+                (default UpdateMappings.no_update).
 
-        Returns self (to allow for optional chained access).
+        Returns:
+            Self, to allow for optional chained access.
 
         """
         changes = strip_nochange({

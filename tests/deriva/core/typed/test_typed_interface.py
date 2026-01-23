@@ -18,7 +18,10 @@ from deriva.core.typed import (
     TableDef,
     VocabularyTableDef,
     AssetTableDef,
+    AssociationTableDef,
+    PageTableDef,
     SchemaDef,
+    WWWSchemaDef,
     # ACL classes
     Acl,
     AclBinding,
@@ -841,6 +844,293 @@ class TestFkeyDefaultAcls(unittest.TestCase):
 
         self.assertEqual(acl.insert, ["*"])
         self.assertEqual(acl.update, ["*"])
+
+
+class TestAssociationTableDef(unittest.TestCase):
+    """Test the AssociationTableDef dataclass."""
+
+    def test_binary_association(self):
+        """Test creating a binary association table."""
+        from deriva.core.typed import AssociationTableDef
+
+        assoc = AssociationTableDef(
+            associates=[
+                ("domain", "Subject"),
+                ("domain", "Study"),
+            ],
+            comment="Links subjects to studies",
+        )
+        result = assoc.to_dict()
+
+        self.assertEqual(result["table_name"], "Subject_Study")
+        self.assertEqual(result["comment"], "Links subjects to studies")
+
+        # Check that columns exist for both associates
+        col_names = [c["name"] for c in result["column_definitions"]]
+        self.assertIn("Subject", col_names)
+        self.assertIn("Study", col_names)
+
+        # Check that foreign keys are created
+        self.assertEqual(len(result["foreign_keys"]), 4)  # 2 for associations + 2 for RCB/RMB
+
+    def test_explicit_column_names(self):
+        """Test association with explicit column names."""
+        from deriva.core.typed import AssociationTableDef
+
+        assoc = AssociationTableDef(
+            associates=[
+                ("Patient", "clinical", "Subject"),
+                ("Dx", "clinical", "Diagnosis"),
+            ],
+            name="Patient_Diagnosis",
+        )
+        result = assoc.to_dict()
+
+        self.assertEqual(result["table_name"], "Patient_Diagnosis")
+
+        col_names = [c["name"] for c in result["column_definitions"]]
+        self.assertIn("Patient", col_names)
+        self.assertIn("Dx", col_names)
+
+    def test_with_metadata(self):
+        """Test impure association with metadata columns."""
+        from deriva.core.typed import AssociationTableDef
+
+        assoc = AssociationTableDef(
+            associates=[
+                ("domain", "Subject"),
+                ("domain", "Study"),
+            ],
+            metadata=[
+                ColumnDef("Enrollment_Date", BuiltinType.date),
+                ColumnDef("Notes", BuiltinType.markdown),
+            ],
+        )
+        result = assoc.to_dict()
+
+        col_names = [c["name"] for c in result["column_definitions"]]
+        self.assertIn("Enrollment_Date", col_names)
+        self.assertIn("Notes", col_names)
+
+    def test_validation_requires_two_associates(self):
+        """Test that at least 2 associates are required."""
+        from deriva.core.typed import AssociationTableDef
+
+        assoc = AssociationTableDef(
+            associates=[("domain", "Subject")],
+        )
+
+        with self.assertRaises(ValueError) as context:
+            assoc.to_dict()
+
+        self.assertIn("at least 2", str(context.exception))
+
+
+class TestPageTableDef(unittest.TestCase):
+    """Test the PageTableDef dataclass."""
+
+    def test_basic_page_table(self):
+        """Test creating a basic page table."""
+        from deriva.core.typed import PageTableDef
+
+        page = PageTableDef(
+            name="Documentation",
+            comment="Documentation pages",
+        )
+        result = page.to_dict()
+
+        self.assertEqual(result["table_name"], "Documentation")
+        self.assertEqual(result["comment"], "Documentation pages")
+
+        # Check that standard page columns exist
+        col_names = [c["name"] for c in result["column_definitions"]]
+        self.assertIn("Title", col_names)
+        self.assertIn("Content", col_names)
+
+    def test_page_table_with_extra_columns(self):
+        """Test page table with additional columns."""
+        from deriva.core.typed import PageTableDef
+
+        page = PageTableDef(
+            name="Article",
+            columns=[
+                ColumnDef("Author", BuiltinType.text),
+                ColumnDef("Publish_Date", BuiltinType.date),
+            ],
+        )
+        result = page.to_dict()
+
+        col_names = [c["name"] for c in result["column_definitions"]]
+        self.assertIn("Title", col_names)
+        self.assertIn("Content", col_names)
+        self.assertIn("Author", col_names)
+        self.assertIn("Publish_Date", col_names)
+
+
+class TestWWWSchemaDef(unittest.TestCase):
+    """Test the WWWSchemaDef dataclass."""
+
+    def test_basic_www_schema(self):
+        """Test creating a basic WWW schema."""
+        from deriva.core.typed import WWWSchemaDef
+
+        www = WWWSchemaDef(
+            name="wiki",
+            comment="Wiki documentation schema",
+        )
+        result = www.to_dict()
+
+        self.assertEqual(result["schema_name"], "wiki")
+        self.assertEqual(result["comment"], "Wiki documentation schema")
+
+        # Check that Page and File tables exist
+        self.assertIn("Page", result["tables"])
+        self.assertIn("File", result["tables"])
+
+        # Check Page table structure
+        page_def = result["tables"]["Page"]
+        page_col_names = [c["name"] for c in page_def["column_definitions"]]
+        self.assertIn("Title", page_col_names)
+        self.assertIn("Content", page_col_names)
+
+        # Check File table structure (asset table)
+        file_def = result["tables"]["File"]
+        file_col_names = [c["name"] for c in file_def["column_definitions"]]
+        self.assertIn("URL", file_col_names)
+        self.assertIn("Filename", file_col_names)
+
+
+class TestToDictHelper(unittest.TestCase):
+    """Test the _to_dict helper function for dual-input support."""
+
+    def test_to_dict_with_dict(self):
+        """Test that _to_dict passes through dicts unchanged."""
+        from deriva.core.ermrest_model import _to_dict
+
+        input_dict = {"name": "test", "type": {"typename": "text"}}
+        result = _to_dict(input_dict)
+        self.assertEqual(result, input_dict)
+
+    def test_to_dict_with_dataclass(self):
+        """Test that _to_dict calls to_dict() on dataclasses."""
+        from deriva.core.ermrest_model import _to_dict
+
+        col = ColumnDef(name="Test", type=BuiltinType.text)
+        result = _to_dict(col)
+
+        self.assertIsInstance(result, dict)
+        self.assertEqual(result["name"], "Test")
+
+    def test_to_dict_with_table_def(self):
+        """Test that _to_dict works with TableDef."""
+        from deriva.core.ermrest_model import _to_dict
+
+        table = TableDef(
+            name="TestTable",
+            columns=[ColumnDef("Name", BuiltinType.text)],
+        )
+        result = _to_dict(table)
+
+        self.assertIsInstance(result, dict)
+        self.assertEqual(result["table_name"], "TestTable")
+
+    def test_to_dict_with_foreign_key_def(self):
+        """Test that _to_dict works with ForeignKeyDef."""
+        from deriva.core.ermrest_model import _to_dict
+        from deriva.core.typed import OnAction
+
+        fkey = ForeignKeyDef(
+            columns=["Subject"],
+            referenced_schema="domain",
+            referenced_table="Subject",
+            on_delete=OnAction.CASCADE,
+        )
+        result = _to_dict(fkey)
+
+        self.assertIsInstance(result, dict)
+        self.assertEqual(result["on_delete"], "CASCADE")
+
+
+class TestTableIsVocabulary(unittest.TestCase):
+    """Test the Table.is_vocabulary property."""
+
+    def test_vocabulary_table_definition_has_required_columns(self):
+        """Test that VocabularyTableDef produces tables with vocabulary columns."""
+        vocab_def = VocabularyTableDef(
+            name="Test_Vocab",
+            curie_template="TEST:{RID}",
+        )
+        result = vocab_def.to_dict()
+
+        col_names = [c["name"] for c in result["column_definitions"]]
+        self.assertIn("ID", col_names)
+        self.assertIn("URI", col_names)
+        self.assertIn("Name", col_names)
+        self.assertIn("Description", col_names)
+        self.assertIn("Synonyms", col_names)
+
+    def test_regular_table_missing_vocabulary_columns(self):
+        """Test that regular tables don't have vocabulary columns."""
+        table_def = TableDef(
+            name="Regular_Table",
+            columns=[
+                ColumnDef("Name", BuiltinType.text),
+                ColumnDef("Value", BuiltinType.int4),
+            ],
+        )
+        result = table_def.to_dict()
+
+        col_names = [c["name"] for c in result["column_definitions"]]
+        self.assertNotIn("ID", col_names)
+        self.assertNotIn("URI", col_names)
+        self.assertNotIn("Synonyms", col_names)
+
+
+class TestTableIsAsset(unittest.TestCase):
+    """Test the Table.is_asset property."""
+
+    def test_asset_table_definition_has_required_columns(self):
+        """Test that AssetTableDef produces tables with asset columns."""
+        asset_def = AssetTableDef(
+            schema_name="domain",
+            name="Test_Asset",
+        )
+        result = asset_def.to_dict()
+
+        col_names = [c["name"] for c in result["column_definitions"]]
+        self.assertIn("URL", col_names)
+        self.assertIn("Filename", col_names)
+        self.assertIn("Length", col_names)
+        self.assertIn("MD5", col_names)
+
+    def test_asset_table_has_asset_annotation_on_url(self):
+        """Test that AssetTableDef adds asset annotation to URL column."""
+        from deriva.core import tag
+
+        asset_def = AssetTableDef(
+            schema_name="domain",
+            name="Test_Asset",
+        )
+        result = asset_def.to_dict()
+
+        url_col = next(c for c in result["column_definitions"] if c["name"] == "URL")
+        self.assertIn(tag.asset, url_col.get("annotations", {}))
+
+    def test_regular_table_missing_asset_columns(self):
+        """Test that regular tables don't have asset columns."""
+        table_def = TableDef(
+            name="Regular_Table",
+            columns=[
+                ColumnDef("Name", BuiltinType.text),
+                ColumnDef("Value", BuiltinType.int4),
+            ],
+        )
+        result = table_def.to_dict()
+
+        col_names = [c["name"] for c in result["column_definitions"]]
+        self.assertNotIn("URL", col_names)
+        self.assertNotIn("MD5", col_names)
+        self.assertNotIn("Length", col_names)
 
 
 if __name__ == "__main__":
