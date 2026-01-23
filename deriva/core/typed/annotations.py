@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from deriva.core.typed.types import TemplateEngine, DisplayContext
+from deriva.core.typed.types import TemplateEngine, DisplayContext, FacetUxMode
 
 
 # Re-export the tag constants for convenience
@@ -572,11 +572,12 @@ class VisibleColumnsAnnotation:
 
     Attributes:
         contexts: Mapping of context names to column lists.
-        filter: Optional filter configuration.
+        filter: Optional filter configuration. Can be a FacetList for typed
+            faceted search configuration, or a raw dict for backwards compatibility.
     """
 
     contexts: dict[str, list[VisibleColumnEntry] | str] = field(default_factory=dict)
-    filter: dict[str, Any] | None = None
+    filter: "FacetList | dict[str, Any] | None" = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dict format for ERMrest API."""
@@ -590,7 +591,10 @@ class VisibleColumnsAnnotation:
                     for col in columns
                 ]
         if self.filter is not None:
-            result["filter"] = self.filter
+            if hasattr(self.filter, "to_dict"):
+                result["filter"] = self.filter.to_dict()
+            else:
+                result["filter"] = self.filter
         return result
 
     @classmethod
@@ -613,9 +617,14 @@ class VisibleColumnsAnnotation:
                         columns.append(PseudoColumn.from_dict(item))
                 contexts[key] = columns
 
+        filter_value = d.get("filter")
+        # Try to parse as FacetList if it has the right structure
+        if filter_value is not None and isinstance(filter_value, dict) and "and" in filter_value:
+            filter_value = FacetList.from_dict(filter_value)
+
         return cls(
             contexts=contexts,
-            filter=d.get("filter"),
+            filter=filter_value,
         )
 
     def set_context(
@@ -625,6 +634,20 @@ class VisibleColumnsAnnotation:
         new_contexts = dict(self.contexts)
         new_contexts[context] = columns
         return VisibleColumnsAnnotation(contexts=new_contexts, filter=self.filter)
+
+    def set_filter(self, facets: "FacetList") -> VisibleColumnsAnnotation:
+        """Return a new annotation with filter configuration.
+
+        Args:
+            facets: The FacetList defining the faceted search configuration.
+
+        Returns:
+            A new VisibleColumnsAnnotation with the filter set.
+        """
+        return VisibleColumnsAnnotation(
+            contexts=dict(self.contexts),
+            filter=facets,
+        )
 
 
 @dataclass
@@ -1070,3 +1093,351 @@ def required() -> tuple[str, None]:
         A tuple of (tag URI, None).
     """
     return (Tag.required, None)
+
+
+# =============================================================================
+# Foreign Key Path Helpers
+# =============================================================================
+
+
+@dataclass
+class InboundFK:
+    """An inbound foreign key path step for pseudo-column source paths.
+
+    Use this when following a foreign key FROM another table TO the current table.
+    This is common when counting or aggregating related records.
+
+    Attributes:
+        schema: Schema name containing the FK constraint.
+        constraint: Foreign key constraint name.
+
+    Example:
+        Count images related to a subject (Image has FK to Subject)::
+
+            >>> # In Subject table, count related images
+            >>> pc = PseudoColumn(
+            ...     source=SourceEntry(
+            ...         column="RID",
+            ...         path=[InboundFK("domain", "Image_Subject_fkey")]
+            ...     ),
+            ...     aggregate="cnt",
+            ...     markdown_name="Image Count"
+            ... )
+    """
+
+    schema: str
+    constraint: str
+
+    def to_dict(self) -> dict[str, list[str]]:
+        """Convert to dict format for ERMrest API."""
+        return {"inbound": [self.schema, self.constraint]}
+
+
+@dataclass
+class OutboundFK:
+    """An outbound foreign key path step for pseudo-column source paths.
+
+    Use this when following a foreign key FROM the current table TO another table.
+    This is common when displaying values from referenced tables.
+
+    Attributes:
+        schema: Schema name containing the FK constraint.
+        constraint: Foreign key constraint name.
+
+    Example:
+        Show species name from a related Species table::
+
+            >>> # Subject has FK to Species, display Species.Name
+            >>> pc = PseudoColumn(
+            ...     source=SourceEntry(
+            ...         column="Name",
+            ...         path=[OutboundFK("domain", "Subject_Species_fkey")]
+            ...     ),
+            ...     markdown_name="Species"
+            ... )
+    """
+
+    schema: str
+    constraint: str
+
+    def to_dict(self) -> dict[str, list[str]]:
+        """Convert to dict format for ERMrest API."""
+        return {"outbound": [self.schema, self.constraint]}
+
+
+def fk_constraint(schema: str, constraint: str) -> list[str]:
+    """Create a foreign key constraint reference for visible-columns.
+
+    Use this in visible-columns to include a foreign key column (showing the
+    referenced row's name/link). This is different from InboundFK/OutboundFK
+    which are used inside PseudoColumn source paths.
+
+    Args:
+        schema: Schema name containing the FK constraint.
+        constraint: Foreign key constraint name.
+
+    Returns:
+        [schema, constraint] list for use in visible-columns.
+
+    Example:
+        Include a foreign key in visible columns::
+
+            >>> vc = VisibleColumnsAnnotation(contexts={
+            ...     "compact": [
+            ...         "RID",
+            ...         "Name",
+            ...         fk_constraint("domain", "Subject_Species_fkey"),
+            ...     ]
+            ... })
+    """
+    return [schema, constraint]
+
+
+# =============================================================================
+# Facet Classes for Filter Configuration
+# =============================================================================
+
+
+@dataclass
+class FacetRange:
+    """A range for facet filtering.
+
+    Used to define preset range values for numeric or date facets.
+
+    Attributes:
+        min: Minimum value for the range.
+        max: Maximum value for the range.
+        min_exclusive: Whether to exclude the min value from the range.
+        max_exclusive: Whether to exclude the max value from the range.
+
+    Example:
+        Define age ranges::
+
+            >>> ranges = [
+            ...     FacetRange(min=0, max=18),        # 0-18
+            ...     FacetRange(min=18, max=65),       # 18-65
+            ...     FacetRange(min=65),               # 65+
+            ... ]
+    """
+
+    min: float | None = None
+    max: float | None = None
+    min_exclusive: bool | None = None
+    max_exclusive: bool | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dict format for ERMrest API."""
+        result: dict[str, Any] = {}
+        if self.min is not None:
+            result["min"] = self.min
+        if self.max is not None:
+            result["max"] = self.max
+        if self.min_exclusive is not None:
+            result["min_exclusive"] = self.min_exclusive
+        if self.max_exclusive is not None:
+            result["max_exclusive"] = self.max_exclusive
+        return result
+
+
+@dataclass
+class Facet:
+    """A facet definition for filtering.
+
+    Facets appear in the filter panel and allow users to narrow down
+    search results by selecting values or ranges.
+
+    Attributes:
+        source: Source entry (column or path) for the facet data.
+        sourcekey: Reference to a named source in source-definitions.
+        markdown_name: Display name for the facet (supports markdown).
+        comment: Description or tooltip text.
+        entity: Whether this is an entity-mode facet.
+        open: Whether the facet starts expanded.
+        ux_mode: UI interaction mode (choices, ranges, check_presence).
+        bar_plot: Whether to show a histogram bar plot.
+        choices: Preset choice values to display.
+        ranges: Preset range values for range mode.
+        not_null: Filter to non-null values only.
+        hide_null_choice: Hide the "null" filter option.
+        hide_not_null_choice: Hide the "not null" filter option.
+        n_bins: Number of bins for histogram display.
+
+    Example:
+        Simple choice-based facet::
+
+            >>> Facet(source=SourceEntry("Species"), open=True)
+
+        Range-based facet::
+
+            >>> Facet(
+            ...     source=SourceEntry("Age"),
+            ...     ux_mode=FacetUxMode.ranges,
+            ...     ranges=[FacetRange(min=0, max=18), FacetRange(min=18, max=65)]
+            ... )
+
+        FK traversal for facet source::
+
+            >>> Facet(
+            ...     source=SourceEntry(
+            ...         column="Name",
+            ...         path=[OutboundFK("domain", "Subject_Species_fkey")]
+            ...     ),
+            ...     markdown_name="Species"
+            ... )
+    """
+
+    source: SourceEntry | str | None = None
+    sourcekey: str | None = None
+    markdown_name: str | None = None
+    comment: str | None = None
+    entity: bool | None = None
+    open: bool | None = None
+    ux_mode: FacetUxMode | None = None
+    bar_plot: bool | None = None
+    choices: list[Any] | None = None
+    ranges: list[FacetRange] | None = None
+    not_null: bool | None = None
+    hide_null_choice: bool | None = None
+    hide_not_null_choice: bool | None = None
+    n_bins: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dict format for ERMrest API."""
+        result: dict[str, Any] = {}
+
+        if self.source is not None:
+            if isinstance(self.source, str):
+                result["source"] = self.source
+            else:
+                result["source"] = self.source.to_dict()
+        if self.sourcekey is not None:
+            result["sourcekey"] = self.sourcekey
+        if self.markdown_name is not None:
+            result["markdown_name"] = self.markdown_name
+        if self.comment is not None:
+            result["comment"] = self.comment
+        if self.entity is not None:
+            result["entity"] = self.entity
+        if self.open is not None:
+            result["open"] = self.open
+        if self.ux_mode is not None:
+            result["ux_mode"] = self.ux_mode.value
+        if self.bar_plot is not None:
+            result["bar_plot"] = self.bar_plot
+        if self.choices is not None:
+            result["choices"] = self.choices
+        if self.ranges is not None:
+            result["ranges"] = [r.to_dict() for r in self.ranges]
+        if self.not_null is not None:
+            result["not_null"] = self.not_null
+        if self.hide_null_choice is not None:
+            result["hide_null_choice"] = self.hide_null_choice
+        if self.hide_not_null_choice is not None:
+            result["hide_not_null_choice"] = self.hide_not_null_choice
+        if self.n_bins is not None:
+            result["n_bins"] = self.n_bins
+
+        return result
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "Facet":
+        """Create from dictionary representation."""
+        source = None
+        if "source" in d:
+            source = SourceEntry.from_dict(d["source"])
+
+        ranges = None
+        if "ranges" in d:
+            ranges = [
+                FacetRange(
+                    min=r.get("min"),
+                    max=r.get("max"),
+                    min_exclusive=r.get("min_exclusive"),
+                    max_exclusive=r.get("max_exclusive"),
+                )
+                for r in d["ranges"]
+            ]
+
+        ux_mode = None
+        if "ux_mode" in d:
+            ux_mode = FacetUxMode(d["ux_mode"])
+
+        return cls(
+            source=source,
+            sourcekey=d.get("sourcekey"),
+            markdown_name=d.get("markdown_name"),
+            comment=d.get("comment"),
+            entity=d.get("entity"),
+            open=d.get("open"),
+            ux_mode=ux_mode,
+            bar_plot=d.get("bar_plot"),
+            choices=d.get("choices"),
+            ranges=ranges,
+            not_null=d.get("not_null"),
+            hide_null_choice=d.get("hide_null_choice"),
+            hide_not_null_choice=d.get("hide_not_null_choice"),
+            n_bins=d.get("n_bins"),
+        )
+
+
+@dataclass
+class FacetList:
+    """A list of facets for the filter context in visible-columns.
+
+    Used to configure the faceted search panel. The facets are combined
+    with AND logic.
+
+    Attributes:
+        facets: List of Facet definitions.
+
+    Example:
+        Create a filter configuration::
+
+            >>> facets = FacetList()
+            >>> facets.add(Facet(source=SourceEntry("Species"), open=True))
+            >>> facets.add(Facet(source=SourceEntry("Age"), ux_mode=FacetUxMode.ranges))
+
+        Or using constructor::
+
+            >>> facets = FacetList([
+            ...     Facet(source=SourceEntry("Species"), open=True),
+            ...     Facet(source=SourceEntry("Age"), ux_mode=FacetUxMode.ranges),
+            ... ])
+
+        Use with VisibleColumnsAnnotation::
+
+            >>> vc = VisibleColumnsAnnotation(
+            ...     contexts={"compact": ["RID", "Name"]},
+            ...     filter=facets
+            ... )
+    """
+
+    facets: list[Facet] = field(default_factory=list)
+
+    def add(self, facet: Facet) -> "FacetList":
+        """Add a facet to the list (fluent API).
+
+        Args:
+            facet: The facet to add.
+
+        Returns:
+            Self for method chaining.
+        """
+        self.facets.append(facet)
+        return self
+
+    def to_dict(self) -> dict[str, list[dict[str, Any]]]:
+        """Convert to dict format for ERMrest API.
+
+        Returns:
+            Dictionary with "and" key containing list of facet dicts.
+        """
+        return {"and": [f.to_dict() for f in self.facets]}
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "FacetList":
+        """Create from dictionary representation."""
+        facets = []
+        if "and" in d:
+            facets = [Facet.from_dict(f) for f in d["and"]]
+        return cls(facets=facets)

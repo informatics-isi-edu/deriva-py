@@ -40,12 +40,28 @@ The import paths mirror the native interface:
     - deriva.core.ermrest_model.Schema -> deriva.core.typed.SchemaDef
 """
 
-from deriva.core.typed.types import BuiltinType, OnAction, AclMode, UpdateMappings, DisplayContext, TemplateEngine
+from deriva.core.typed.types import (
+    BuiltinType,
+    OnAction,
+    AclMode,
+    UpdateMappings,
+    DisplayContext,
+    TemplateEngine,
+    FacetUxMode,
+    Aggregate,
+    ArrayUxMode,
+)
 from deriva.core.typed.column import ColumnDef
 from deriva.core.typed.key import KeyDef
 from deriva.core.typed.foreign_key import ForeignKeyDef
-from deriva.core.typed.table import TableDef, VocabularyTableDef, AssetTableDef
-from deriva.core.typed.schema import SchemaDef
+from deriva.core.typed.table import (
+    TableDef,
+    VocabularyTableDef,
+    AssetTableDef,
+    AssociationTableDef,
+    PageTableDef,
+)
+from deriva.core.typed.schema import SchemaDef, WWWSchemaDef
 from deriva.core.typed.acl import Acl, AclBinding, AclBindings
 from deriva.core.typed.annotations import (
     # Tag URIs
@@ -56,6 +72,14 @@ from deriva.core.typed.annotations import (
     SourceEntry,
     PseudoColumn,
     PreFormat,
+    # FK path helpers
+    InboundFK,
+    OutboundFK,
+    fk_constraint,
+    # Facet classes
+    FacetRange,
+    Facet,
+    FacetList,
     # Annotation dataclasses
     DisplayAnnotation,
     TableDisplayOptions,
@@ -88,6 +112,9 @@ __all__ = [
     "UpdateMappings",
     "DisplayContext",
     "TemplateEngine",
+    "FacetUxMode",
+    "Aggregate",
+    "ArrayUxMode",
     # Definition classes
     "ColumnDef",
     "KeyDef",
@@ -95,7 +122,10 @@ __all__ = [
     "TableDef",
     "VocabularyTableDef",
     "AssetTableDef",
+    "AssociationTableDef",
+    "PageTableDef",
     "SchemaDef",
+    "WWWSchemaDef",
     # ACL classes
     "Acl",
     "AclBinding",
@@ -108,6 +138,14 @@ __all__ = [
     "SourceEntry",
     "PseudoColumn",
     "PreFormat",
+    # FK path helpers
+    "InboundFK",
+    "OutboundFK",
+    "fk_constraint",
+    # Facet classes
+    "FacetRange",
+    "Facet",
+    "FacetList",
     # Annotation dataclasses
     "DisplayAnnotation",
     "TableDisplayOptions",
