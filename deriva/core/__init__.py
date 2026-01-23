@@ -10,6 +10,7 @@ from deriva.core.hatrac_store import HatracStore, HatracHashMismatch, HatracJobP
     HatracJobTimeout
 from deriva.core.utils.globus_auth_utils import GlobusNativeLogin
 from deriva.core.model_handles import TableHandle, ColumnHandle
+from deriva.core.export import export_entity
 
 
 def get_credential(host,
