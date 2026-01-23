@@ -11,6 +11,7 @@ from deriva.core.hatrac_store import HatracStore, HatracHashMismatch, HatracJobP
 from deriva.core.utils.globus_auth_utils import GlobusNativeLogin
 from deriva.core.model_handles import TableHandle, ColumnHandle
 from deriva.core.export import export_entity
+from deriva.core.bag_database import BagDatabase
 
 
 def get_credential(host,
