@@ -14,7 +14,7 @@ from typing import Any
 from deriva.core.typed.column import ColumnDef
 from deriva.core.typed.key import KeyDef
 from deriva.core.typed.foreign_key import ForeignKeyDef
-from deriva.core.typed.types import BuiltinType
+from deriva.core.typed.types import BuiltinType, OnAction
 
 
 @dataclass
@@ -422,3 +422,199 @@ def association_table(
         ],
         comment=comment or f"Association between {left_table} and {right_table}",
     )
+
+
+@dataclass
+class AssociationTableDef:
+    """Definition for an association (N-ary relationship) table.
+
+    This is a typed replacement for `deriva.core.ermrest_model.Table.define_association()`.
+    Association tables manage sets of distinct combinations of foreign key values,
+    implementing N-ary relationships between tables.
+
+    A "pure" association table contains only the foreign keys being associated.
+    An "impure" association adds metadata columns alongside the foreign keys.
+
+    The association automatically creates:
+        - Foreign key columns referencing each associated table
+        - A composite key covering all foreign key columns (prevents duplicates)
+        - Foreign key constraints with CASCADE on update/delete
+
+    Attributes:
+        associates: List of reference targets being associated. Each can be:
+            - A tuple (column_name, schema, table_name) for explicit naming
+            - A tuple (schema, table_name) for auto-named columns
+        metadata: Additional metadata columns for impure associations.
+        name: Table name. If None, auto-generated from associated table names.
+        comment: Human-readable description of the association.
+        provide_system: Whether to inject system columns. Defaults to True.
+        provide_system_fkeys: Whether to inject system foreign keys. Defaults to True.
+
+    Example:
+        >>> # Binary association between Subject and Diagnosis
+        >>> assoc = AssociationTableDef(
+        ...     associates=[
+        ...         ("domain", "Subject"),
+        ...         ("domain", "Diagnosis"),
+        ...     ],
+        ...     comment="Links subjects to their diagnoses",
+        ... )
+
+        >>> # With explicit column names
+        >>> assoc = AssociationTableDef(
+        ...     associates=[
+        ...         ("Patient", "clinical", "Subject"),
+        ...         ("Dx", "clinical", "Diagnosis"),
+        ...     ],
+        ... )
+
+        >>> # With metadata (impure association)
+        >>> assoc = AssociationTableDef(
+        ...     associates=[
+        ...         ("domain", "Subject"),
+        ...         ("domain", "Study"),
+        ...     ],
+        ...     metadata=[
+        ...         ColumnDef("Enrollment_Date", BuiltinType.date),
+        ...         ColumnDef("Notes", BuiltinType.markdown),
+        ...     ],
+        ... )
+    """
+
+    associates: list[tuple[str, str] | tuple[str, str, str]]
+    metadata: list[ColumnDef] = field(default_factory=list)
+    name: str | None = None
+    comment: str | None = None
+    provide_system: bool = True
+    provide_system_fkeys: bool = True
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to the dict format expected by ERMrest API.
+
+        Note: This method requires the referenced tables to exist in the catalog
+        when called, as it needs to resolve table references. For use before
+        tables exist, construct a TableDef manually instead.
+
+        Returns:
+            A dictionary with the complete association table definition.
+
+        Raises:
+            ValueError: If associates contains fewer than 2 entries.
+        """
+        if len(self.associates) < 2:
+            raise ValueError("An association table requires at least 2 associates")
+
+        # Build the association manually since Table.define_association()
+        # requires live Table/Key objects
+        columns: list[ColumnDef] = []
+        foreign_keys: list[ForeignKeyDef] = []
+        key_columns: list[str] = []
+
+        for assoc in self.associates:
+            if len(assoc) == 2:
+                schema, table = assoc
+                col_name = table
+            else:
+                col_name, schema, table = assoc
+
+            columns.append(ColumnDef(col_name, BuiltinType.text, nullok=False))
+            foreign_keys.append(
+                ForeignKeyDef(
+                    columns=[col_name],
+                    referenced_schema=schema,
+                    referenced_table=table,
+                    referenced_columns=["RID"],
+                    on_update=OnAction.CASCADE,
+                    on_delete=OnAction.CASCADE,
+                )
+            )
+            key_columns.append(col_name)
+
+        # Add metadata columns
+        columns.extend(self.metadata)
+
+        # Generate table name if not provided
+        table_name = self.name
+        if table_name is None:
+            table_names = []
+            for assoc in self.associates:
+                if len(assoc) == 2:
+                    table_names.append(assoc[1])
+                else:
+                    table_names.append(assoc[2])
+            table_name = "_".join(table_names)
+
+        return TableDef(
+            name=table_name,
+            columns=columns,
+            keys=[KeyDef(key_columns)],
+            foreign_keys=foreign_keys,
+            comment=self.comment,
+            provide_system=self.provide_system,
+            provide_system_fkeys=self.provide_system_fkeys,
+        ).to_dict()
+
+
+@dataclass
+class PageTableDef:
+    """Definition for a wiki-like page table.
+
+    This is a typed replacement for `deriva.core.ermrest_model.Table.define_page()`.
+    Page tables are used to store wiki-like web content with title and markdown content.
+
+    Page tables automatically include these columns (unless overridden):
+        - Title: text, unique not null - Page title
+        - Content: markdown - Page content in markdown format
+
+    Attributes:
+        name: Table name for the page table.
+        columns: Additional column definitions beyond standard page columns.
+        keys: Additional key constraint definitions.
+        foreign_keys: Foreign key constraint definitions.
+        comment: Human-readable description of the page table.
+        acls: Access control lists.
+        acl_bindings: Dynamic ACL binding configurations.
+        annotations: Annotation URIs mapped to annotation values.
+        provide_system: Whether to inject system columns. Defaults to True.
+        provide_system_fkeys: Whether to inject system foreign keys. Defaults to True.
+
+    Example:
+        >>> page = PageTableDef(
+        ...     name="Documentation",
+        ...     comment="Documentation pages for the application",
+        ... )
+    """
+
+    name: str
+    columns: list[ColumnDef] = field(default_factory=list)
+    keys: list[KeyDef] = field(default_factory=list)
+    foreign_keys: list[ForeignKeyDef] = field(default_factory=list)
+    comment: str | None = None
+    acls: dict[str, list[str]] = field(default_factory=dict)
+    acl_bindings: dict[str, Any] = field(default_factory=dict)
+    annotations: dict[str, Any] = field(default_factory=dict)
+    provide_system: bool = True
+    provide_system_fkeys: bool = True
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to the dict format expected by ERMrest API.
+
+        This produces a dictionary compatible with `Table.define_page()` output.
+
+        Returns:
+            A dictionary with the complete page table definition.
+        """
+        from deriva.core.ermrest_model import Table
+
+        return Table.define_page(
+            tname=self.name,
+            column_defs=[c.to_dict() for c in self.columns],
+            key_defs=[k.to_dict() for k in self.keys],
+            fkey_defs=[fk.to_dict() for fk in self.foreign_keys],
+            comment=self.comment,
+            acls=self.acls,
+            acl_bindings=self.acl_bindings,
+            annotations=self.annotations,
+            provide_system=self.provide_system,
+            provide_system_fkeys=self.provide_system_fkeys,
+        )
