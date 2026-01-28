@@ -25,6 +25,11 @@ class DerivaBackupCLI(DerivaDownloadCLI):
                                           "references to asset files in the bag's \"fetch.txt\" file.")
         self.parser.add_argument("--bag-archiver", choices=['zip', 'tgz', 'bz2'],
                                  help="Format for compressed bag output.")
+        self.parser.add_argument("--ignore-acl", action="store_true",
+                                     help="If no ACL is present in the catalog schema, which may mean the user is not "
+                                          "the catalog owner, proceed anyway. WARNING: this will result in the backup "
+                                          "process running under whatever permissions the user possesses, which may be "
+                                          "limited enough to result in incomplete schema, incomplete data, or both.")
         self.parser.add_argument("--exclude-data", default=list(),
                                  type=lambda s: [item.strip() for item in s.split(',')],
                                  metavar="<schema>, <schema:table>, ...",

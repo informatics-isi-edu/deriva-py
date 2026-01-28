@@ -54,8 +54,8 @@ class DerivaBackup(DerivaDownload):
 
             logging.debug("Inspecting catalog model...")
             model = self.catalog.getCatalogModel()
-            # if we dont have catalog ownership rights, its a hard error for now
-            if not model.acls:
+            ignore_acl = kwargs.get("ignore_acl", False)
+            if not model.acls and not ignore_acl:
                 raise DerivaBackupAuthorizationError("Only catalog owners may perform full catalog dumps.")
 
             if kwargs.get("no_data", False):
