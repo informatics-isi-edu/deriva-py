@@ -100,6 +100,14 @@ class ErmrestTimestampCodingTests (unittest.TestCase):
         for dt, ts, usecs, snap in self._basic_equivalents:
             self.assertEqual(dt, snaptime_to_datetime(snap), f"{dt=} {snap=}")
 
+    def test_timestamptz_to_snaptime(self):
+        for dt, ts, usecs, snap in self._basic_equivalents:
+            self.assertEqual(snap, timestamptz_to_snaptime(ts), f"{snap=} {ts=}")
+
+    def test_snaptime_to_timestamptz(self):
+        for dt, ts, usecs, snap in self._basic_equivalents:
+            self.assertEqual(ts, snaptime_to_timestamptz(snap), f"{ts=} {snap=}")
+
 
 @unittest.skipUnless(hostname, "Test host not specified")
 class ErmrestModelTests (unittest.TestCase):
@@ -856,15 +864,6 @@ class ErmrestModelTests (unittest.TestCase):
     def test_schema_drop_cascading(self):
         self._create_schema_with_fkeys()
         self.model.schemas['schema_with_fkeys'].drop(cascade=True)
-
-    def test_timestamptz_to_snaptime(self):
-        for dt, ts, usecs, snap in self._basic_equivalents:
-            self.assertEqual(snap, timestamptz_to_snaptime(ts), f"{snap=} {ts=}")
-
-    def test_snaptime_to_timestamptz(self):
-        for dt, ts, usecs, snap in self._basic_equivalents:
-            self.assertEqual(ts, snaptime_to_timestamptz(snap), f"{ts=} {snap=}")
-
 
 if __name__ == '__main__':
     unittest.main()
