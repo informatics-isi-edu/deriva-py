@@ -8,8 +8,18 @@
 
 import logging
 import os
+import datetime
 import unittest
 from deriva.core import DerivaServer, get_credential, ermrest_model, tag
+from deriva.core import \
+    crockford_b32encode, crockford_b32decode, \
+    int_to_uintX, uintX_to_int, \
+    datetime_to_epoch_microseconds, epoch_microseconds_to_datetime
+from deriva.core.ermrest_model import \
+    timestamptz_to_datetime, datetime_to_timestamptz, \
+    snaptime_to_epoch_microseconds, epoch_microseconds_to_snaptime, \
+    datetime_to_snaptime, snaptime_to_datetime, \
+    timestamptz_to_snaptime, snaptime_to_timestamptz
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.StreamHandler())
@@ -19,6 +29,76 @@ else:
     logger.setLevel(logging.INFO)
 
 hostname = os.getenv("DERIVA_PY_TEST_HOSTNAME")
+
+class ErmrestTimestampCodingTests (unittest.TestCase):
+    _basic_equivalents = [
+        # datetime, isostr, usecs, snap
+        (
+            datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc),
+            "1970-01-01 00:00:00+00:00",
+            0,
+            '0',
+        ),
+        (
+            datetime.datetime(1969, 12, 31, 23, 59, 59, 999999, tzinfo=datetime.timezone.utc),
+            "1969-12-31 23:59:59.999999+00:00",
+            -1,
+            'Z-ZZZZ-ZZZZ-ZZZY',
+        ),
+        (
+            datetime.datetime(1900, 1, 1, tzinfo=datetime.timezone.utc),
+            '1900-01-01 00:00:00+00:00',
+            -2208988800000000,
+            'Z-ZW2D-VXQ8-DG00',
+        ),
+        (
+            datetime.datetime(2030, 12, 31, 12, 34, 56, 789012, tzinfo=datetime.timezone.utc),
+            '2030-12-31 12:34:56.789012+00:00',
+            1924950896789012,
+            '3DD-EWED-7318',
+        ),
+    ]
+
+    def test_fromiso_denorm(self):
+        for i in range(8):
+            us = 789012 // 10**i * 10**i
+            dt = datetime.datetime(2030, 12, 31, 12, 34, 56, us, tzinfo=datetime.timezone.utc)
+            ts = '2030-12-31 12:34:56%s+00:00' % (
+                ('.%d' % us).rstrip('0') if us else ''
+            )
+            self.assertEqual(dt, timestamptz_to_datetime(ts), f"{dt=} {ts=}")
+
+    def test_timestamptz_to_datetime(self):
+        for dt, ts, usecs, snap in self._basic_equivalents:
+            self.assertEqual(dt, timestamptz_to_datetime(ts), f"{dt=} {ts=}")
+
+    def test_datetime_to_timestamptz(self):
+        for dt, ts, usecs, snap in self._basic_equivalents:
+            self.assertEqual(ts, datetime_to_timestamptz(dt), f"{ts=} {dt=}")
+
+    def test_timestamptz_to_usecs(self):
+        for dt, ts, usecs, snap in self._basic_equivalents:
+            self.assertEqual(usecs, datetime_to_epoch_microseconds(timestamptz_to_datetime(ts)), f"{usecs=} {ts=}")
+
+    def test_usecs_to_timestamptz(self):
+        for dt, ts, usecs, snap in self._basic_equivalents:
+            self.assertEqual(ts, datetime_to_timestamptz(epoch_microseconds_to_datetime(usecs)), f"{ts=} {usecs=}")
+
+    def test_usecs_to_snaptime(self):
+        for dt, ts, usecs, snap in self._basic_equivalents:
+            self.assertEqual(snap, epoch_microseconds_to_snaptime(usecs), f"{snap=} {usecs=}")
+
+    def test_snap_to_usecs(self):
+        for dt, ts, usecs, snap in self._basic_equivalents:
+            self.assertEqual(usecs, snaptime_to_epoch_microseconds(snap), f"{usecs=} {snap=}")
+
+    def test_datetime_to_snaptime(self):
+        for dt, ts, usecs, snap in self._basic_equivalents:
+            self.assertEqual(snap, datetime_to_snaptime(dt), f"{snap=} {dt=}")
+
+    def test_snaptime_to_datetime(self):
+        for dt, ts, usecs, snap in self._basic_equivalents:
+            self.assertEqual(dt, snaptime_to_datetime(snap), f"{dt=} {snap=}")
 
 
 @unittest.skipUnless(hostname, "Test host not specified")
@@ -776,6 +856,14 @@ class ErmrestModelTests (unittest.TestCase):
     def test_schema_drop_cascading(self):
         self._create_schema_with_fkeys()
         self.model.schemas['schema_with_fkeys'].drop(cascade=True)
+
+    def test_timestamptz_to_snaptime(self):
+        for dt, ts, usecs, snap in self._basic_equivalents:
+            self.assertEqual(snap, timestamptz_to_snaptime(ts), f"{snap=} {ts=}")
+
+    def test_snaptime_to_timestamptz(self):
+        for dt, ts, usecs, snap in self._basic_equivalents:
+            self.assertEqual(ts, snaptime_to_timestamptz(snap), f"{ts=} {snap=}")
 
 
 if __name__ == '__main__':
