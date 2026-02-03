@@ -534,7 +534,7 @@ def crockford_b32encode(v: int, grplen: int=4) -> str:
     return ''.join(reversed(encoded_rev))
 
 def crockford_b32decode(s: str) -> int:
-    """Decode ERmrest base-32 string representation to non-negative integer.
+    """Decode Crockford base-32 string representation to non-negative integer.
 
     :param s: String to decode.
 
@@ -552,6 +552,9 @@ def crockford_b32decode(s: str) -> int:
     Optional hyphens may be present in the input string to break it
     into symbol groups. These bear no information and are simply
     ignored.
+
+    The optional checksum suffix from Crockford's proposal is
+    not supported.
 
     """
     sep = '-'
