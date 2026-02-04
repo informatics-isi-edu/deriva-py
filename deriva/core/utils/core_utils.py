@@ -5,6 +5,7 @@ import shutil
 import errno
 import json
 import math
+import datetime
 import platform
 import logging
 import requests
@@ -469,6 +470,217 @@ def topo_sorted(depmap):
         ordered.extend(additions)
         additions = []
     return ordered
+
+_crockford_base32_codex = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
+
+def crockford_b32encode(v: int, grplen: int=4) -> str:
+    """Encode a non-negative integer using the Crockford Base-32 representation.
+
+    :param v: Non-negative integer value to encode.
+    :param grplen: Non-negative number of output symbols in each group.
+
+    The input integer value is interpreted as an arbitrary-length bit
+    stream of length v.bit_length(). The input integer is
+    zero-extended to make the length a multiple of 5, i.e. effectively
+    prefix-padded with zero bits.
+
+    The result is a string uses the Crockford Base-32 representation
+    without any checksum suffix.
+
+    Output symbols are separated by a hyphen in groups of grplen
+    symbols. Specify grplen=0 to suppress hyphenation.
+
+    This function is the inverse of crockford_b32decode().
+
+    Those wishing to encode negative integers must use their own
+    convention to somehow multiplex sign information into the bit
+    stream represented by the non-negative integer.
+
+    """
+    sep = '-'
+
+    if not isinstance(v, int):
+        raise TypeError(f"bad operand for crockford_b32encode(): {v=}")
+
+    if not isinstance(grplen, int):
+        raise TypeError(f"bad operand for crockford_b32encode(): {grplen=}")
+
+    if v < 0:
+        raise ValueError(f"bad operand for crockford_b32encode(): {v=}")
+
+    if grplen < 0:
+        raise ValueError(f"bad operand for crockford_b32encode(): {grplen=}")
+
+    encoded_rev = []
+    d = 0
+    while v > 0:
+        # encode 5-bit chunk
+        code = _crockford_base32_codex[v % 32]
+        v = v // 32
+        # add (optional) group separator
+        if grplen > 0 and d > 0 and d % grplen == 0:
+            encoded_rev.append(sep)
+        d += 1
+        encoded_rev.append(code)
+
+    # trim "leading" zeroes and separators
+    while encoded_rev and encoded_rev[-1] in {'0', sep}:
+        del encoded_rev[-1]
+
+    # but restore zero for base case
+    if not encoded_rev:
+        encoded_rev.append('0')
+
+    return ''.join(reversed(encoded_rev))
+
+def crockford_b32decode(s: str) -> int:
+    """Decode Crockford base-32 string representation to non-negative integer.
+
+    :param s: String to decode.
+
+    The input string is decoded as a sequence of Crockford Base-32
+    symbols, each encoding 5 bits, such that the first symbol
+    represents the most-signficant bits.
+
+    The result is the non-negative integer corresponding to the
+    decoded bit stream.
+
+    The Crockford decode process is case-insensitive and recognizes
+    several synonyms for likely typographical errors. Namely,
+    'O'->'0', 'I'->'1', and 'L'->'1'.
+
+    Optional hyphens may be present in the input string to break it
+    into symbol groups. These bear no information and are simply
+    ignored.
+
+    The optional checksum suffix from Crockford's proposal is
+    not supported.
+
+    """
+    sep = '-'
+    inverted_codex = {
+        _crockford_base32_codex[i]: i
+        for i in range(32)
+    }
+    # add normalization alternatives
+    inverted_codex.update({'O':0, 'I':1, 'L':1})
+
+    if not isinstance(s, str):
+        raise TypeError(f"bad operand for crockford_b32decode() {s=}")
+
+    # make decoding case-insensitive
+    s = s.upper()
+    # remove separators
+    s = s.replace(sep, '')
+
+    res = 0
+    for d in range(len(s)):
+        try:
+            symbol = s[d]
+            coded = inverted_codex[symbol]
+        except KeyError as e:
+            raise ValueError(f"bad operand for crockford_b32decode(): unsupported {symbol=} in {s=}")
+
+        res = (res << 5) + coded
+
+    return res
+
+def int_to_uintX(i: int, nbits: int) -> int:
+    """Cast integer to an unsigned integer of desired width.
+
+    :param i: Signed integer to encode.
+    :param nbits: Number output bits.
+
+    For negative inputs, the requested nbits must be equal or greater
+    than i.bit_length(). For non-negative inputs, the requested nbits
+    must be greater than i.bit_length(). The output bits are to be
+    interpreted as 2's complement, so the most-significant bit is set
+    to represent negative inputs and kept clear to represent
+    non-negative inputs.
+
+    This function is the inverse of uintX_to_int() when both are called
+    using the same nbits operand.
+
+    """
+    if not isinstance(i, int):
+        raise TypeError(f"bad operand to int_to_uintX() {i=}")
+
+    if not isinstance(nbits, int):
+        raise TypeError(f"bad operand to int_to_uintX() {nbits=}")
+
+    if nbits < 1:
+        raise ValueError(f"bad operand to int_to_uintX() {nbits=}")
+
+    if i >= 0:
+        if i.bit_length() >= nbits:
+            raise ValueError(f"bad operand to int_to_uintX() {i=} {nbits=}")
+        return i
+    else:
+        if i.bit_length() > nbits:
+            raise ValueError(f"bad operand to int_to_uintX() {i=} {nbits=}")
+        hibit_mask = (1 << (nbits-1))
+        return i + hibit_mask + hibit_mask
+
+def uintX_to_int(b: int, nbits: int) -> int:
+    """Cast unsigned integer of known width into signed integer.
+
+    :param b: The non-negative integer holding bits to convert.
+    :param nbits: The number of input bits.
+
+    The specified input nbits must be equal or greater than
+    i.bit_length(). The input bits are interpreted as 2's complement,
+    so values with the most-significant bit set are recast as negative
+    numbers while inputs with the highest bit unset remain unchanged.
+
+    This function is the inverse of int_to_uintX() when both are called
+    using the same nbits operand.
+
+    """
+    if not isinstance(b, int):
+        raise TypeError(f"bad operand to uintX_to_int() {b=}")
+
+    if not isinstance(nbits, int):
+        raise TypeError(f"bad operand to uintX_to_int() {nbits=}")
+
+    if b < 0:
+        raise ValueError(f"bad operand to uintX_to_int() {b=}")
+
+    if nbits < 1:
+        raise ValueError(f"bad operand to uintX_to_int() {nbits=}")
+
+    if b.bit_length() > nbits:
+        raise ValueError(f"bad operand to uintX_to_int() {b=} {nbits=}")
+
+    hibit_mask = 1 << (nbits-1)
+
+    if b & hibit_mask:
+        return b - hibit_mask - hibit_mask
+    else:
+        return b
+
+def datetime_to_epoch_microseconds(dt: datetime.datetime) -> int:
+    """Convert a datatime to integer microseconds-since-epoch.
+
+    :param dt: A timezone-aware datetime.datetime instance.
+    """
+    # maintain exact microsecond precision in integer result
+    delta = dt - datetime.datetime(
+        1970, 1, 1, tzinfo=datetime.timezone.utc
+    )
+    whole_seconds = delta.days * 86400 + delta.seconds
+    return whole_seconds * 1000000 + delta.microseconds
+
+def epoch_microseconds_to_datetime(us: int) -> datetime.datetime:
+    """Convert integer microseconds-since-epoch to timezone-aware datetime.
+
+    :param us: Integer microseconds-since-epoch.
+    """
+    return datetime.datetime(
+        1970, 1, 1, tzinfo=datetime.timezone.utc
+    ) + datetime.timedelta(
+        seconds=us//1000000,
+        microseconds=us%1000000,
+    )
 
 
 class AttrDict (dict):

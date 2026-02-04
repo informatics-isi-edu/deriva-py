@@ -1,6 +1,7 @@
 
 from __future__ import annotations
 
+import datetime
 import base64
 import hashlib
 import json
@@ -10,7 +11,10 @@ from collections.abc import Iterable
 from enum import Enum
 
 from . import AttrDict, tag, urlquote, stob, mmo
-
+from . import \
+    crockford_b32encode, crockford_b32decode, \
+    int_to_uintX, uintX_to_int, \
+    datetime_to_epoch_microseconds, epoch_microseconds_to_datetime
 
 class NoChange (object):
     """Special class used to distinguish no-change default arguments to methods.
@@ -110,6 +114,93 @@ def sql_literal(v):
     # double ' to protect from SQL
     s = '%s' % v
     return "'%s'" % (s.replace("'", "''"))
+
+def timestamptz_to_datetime(ts: str) -> datetime.datetime:
+    """Convert an ERMrest (i.e. PostgreSQL) timestamptz string to native datetime.
+
+    :param ts: A string in ISO format as serialized by ERMrest.
+    """
+    # Workaround for fromisoformat() limitations in older Python 3.x:
+    # Make sure ISO sring has exactly 6 digits of fractional second
+    # precision. We can remove this rewrite phase once we bump our
+    # minimum language version requirement.
+    m = re.match(
+        # groups: basetimestamp fracseconds tzoffset
+        "^([-0-9]+[T ][:0-9]+)([.][0-9]+)?([-+][:0-9]+)$",
+        ts,)
+    if m:
+        parts = list(m.group(1, 2, 3))
+        if parts[1]:
+            frac = float(parts[1])
+            parts[1] = ("%.6f" % frac).lstrip('0')
+        else:
+            parts[1] = '.000000'
+        ts = '%s%s%s' % tuple(parts)
+    else:
+        raise ValueError(f'bad operand to timestamptz_to_datetime() {ts=}')
+
+    return datetime.datetime.fromisoformat(ts)
+
+def datetime_to_timestamptz(dt: datetime.datetime) -> str:
+    """Convert a native datetime to an ERMrest timestamptz string.
+
+    :param dt: A timezone-aware datetime.datetime instance.
+    """
+    return dt.isoformat(' ')
+
+def epoch_microseconds_to_snaptime(us: int) -> str:
+    """Convert microseconds-since-epoch to ERMrest snaptime format.
+
+    :param us: Signed integer microseconds-since-epoch.
+
+    This function includes a bit-shift necessary to introduce the
+    padding that ERMrest uses to pack a 64-bit value into a 65-bit
+    base32 encoding scheme.
+    """
+    if not isinstance(us, int) or us > 2**63-1 or us < -2**63:
+        raise ValueError(us)
+
+    return crockford_b32encode(int_to_uintX(us, 64) << 1)
+
+def snaptime_to_epoch_microseconds(s: str) -> int:
+    """Convert ERMrest snaptime format to integer microseconds-since-epoch.
+
+    :param s: The ERMrest snaptime string.
+
+    This function includes a bit-shift necessary to strip the
+    padding that ERMrest uses to pack a 64-bit value into a 65-bit
+    base32 encoding scheme.
+    """
+    return uintX_to_int(crockford_b32decode(s) >> 1, 64)
+
+def datetime_to_snaptime(dt: datetime.datetime) -> str:
+    """Convert a datetime to ERMrest snaptime format.
+
+    :param dt: A timezone-aware datetime.datetime instance.
+    """
+    return epoch_microseconds_to_snaptime(datetime_to_epoch_microseconds(dt))
+
+def snaptime_to_datetime(s: str) -> datetime.datetime:
+    """Convert ERMrest snatime format to datetime.
+
+    :param s: The ERMrest snaptime string.
+    """
+    return epoch_microseconds_to_datetime(snaptime_to_epoch_microseconds(s))
+
+def snaptime_to_timestamptz(s: str) -> str:
+    """Convert ERMrest stamptime format to ERMrest timestamptz string.
+
+    :param s: The ERMrest snaptime string.
+
+    """
+    return datetime_to_timestamptz(snaptime_to_datetime(s))
+
+def timestamptz_to_snaptime(ts: str) -> str:
+    """Convert ERMrest timestamptz str to ERMrest snaptime format.
+
+    :param ts: A string in ISO datetime format as serialized by ERMrest.
+    """
+    return datetime_to_snaptime(timestamptz_to_datetime(ts))
 
 def presence_annotation(tag_uri):
     """Decorator to establish property getter/setter/deleter for presence annotations.
