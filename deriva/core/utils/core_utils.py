@@ -16,7 +16,7 @@ from collections import OrderedDict
 from urllib.parse import quote as _urlquote, unquote as urlunquote
 from urllib.parse import urlparse, urlsplit, urlunsplit, urljoin
 from http.cookiejar import MozillaCookieJar
-from typing import Any
+from typing import Any, Union
 from collections.abc import Iterable
 
 Kilobyte = 1024
@@ -444,7 +444,7 @@ def json_item_handler(input_file, callback):
         finally:
             infile.close()
 
-def topo_ranked(depmap: dict[Any, set | Iterable]) -> list[set]:
+def topo_ranked(depmap: dict[Any,Union[set,Iterable]]) -> list[set]:
     """Return list-of-sets representing values in ranked tiers as a topological partial order.
 
     :param depmap: Dictionary mapping of values to required values.
@@ -501,7 +501,7 @@ def topo_ranked(depmap: dict[Any, set | Iterable]) -> list[set]:
 
     return ranked
 
-def topo_sorted(depmap: dict[Any, set | Iterable]) -> list:
+def topo_sorted(depmap: dict[Any,Union[set,Iterable]]) -> list:
     """Return list of items topologically sorted.
 
     :param depmap: Dictionary mapping of values to required values.
