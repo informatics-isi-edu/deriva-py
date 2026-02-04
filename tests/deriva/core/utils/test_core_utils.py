@@ -3,9 +3,116 @@ import datetime
 import unittest
 
 from deriva.core import \
+    topo_ranked, topo_sorted, \
     crockford_b32encode, crockford_b32decode, \
     int_to_uintX, uintX_to_int, \
     datetime_to_epoch_microseconds, epoch_microseconds_to_datetime
+
+def _myiter(s):
+    for v in s:
+        yield v
+
+class TopoSortTests(unittest.TestCase):
+
+    _good_depmaps = [
+        ({}, []),
+        (
+            {1:{}, 2:{}, 3:{}},
+            [{1,2,3}]
+        ),
+        (
+            {"a":[], "b":[], "c":[]},
+            [{"a","b","c"}]
+        ),
+        (
+            {1:{3}, 2:{3}, 3:{}},
+            [{3},{1,2}]
+        ),
+        (
+            {1:{2}, 2:{3}, 3:{}},
+            [{3},{2},{1}]
+        ),
+        (
+            {1:{3}, 2:{3}, 3:{}, 4:{}, 5:{1}, 6:{7}, 7:{}},
+            [{3,4,7},{1,2,6},{5}]
+        ),
+        (
+            {1:{3}, "2":{3}, 3:{}, 4:{}, 5:{1}, 6:{"7"}, "7":{}},
+            [{3,4,"7"},{1,"2",6},{5}]
+        ),
+    ]
+
+    _unsatisfiable_depmaps = [
+        {1:{2}},
+        {1:{2}, 2:{1}},
+        {1:{3}, 2:{"3"}, 3:{}, 4:{}, 5:{1}, 6:{7}, 7:{}},
+        {1:{3}, 2:{3}, 3:{4}, 4:{5}, 5:{1}, 6:{7}, 7:{}},
+    ]
+
+    _mistyped_depmaps = [
+        [],
+        set(),
+        5,
+        None,
+        "x",
+        lambda : None,
+        {1:None},
+        {1:5},
+        {1:lambda:None},
+    ]
+
+    def _check_ranking(self, depmap, check, guide):
+        depmap_keys = set(depmap.keys())
+        check_vals = set()
+        check_vals.update(*check)
+        self.assertEqual(depmap_keys, check_vals, f"{depmap_keys=} {check_vals=}")
+        self.assertIsInstance(check, list, f"type(check)={type(check)}")
+        self.assertEqual(len(guide), len(check), f"len(guide)={len(guide)} len(check)={len(check)} {guide=} {check=} {depmap=}")
+        for i in range(len(guide)):
+            check_tier = check[i]
+            guide_tier = guide[i]
+            self.assertIsInstance(check_tier, set, f"type(check_tier)={type(check_tier)}")
+            self.assertEqual(guide_tier, check_tier, f"{guide_tier=} {check_tier}")
+
+    def _check_sorting(self, depmap, check, guide):
+        check_idx = 0
+        for guide_idx in range(len(guide)):
+            guide_tier = guide[guide_idx]
+            check_tier = set(check[check_idx:check_idx+len(guide_tier)])
+            self.assertEqual(guide_tier, check_tier, f"{guide_tier=} {check_tier=} {guide_idx=} {guide=} {check=}")
+            check_idx += len(guide_tier)
+
+    def test_topo_ranked(self):
+        for depmap, guide_ranked in self._good_depmaps:
+            self._check_ranking(depmap, topo_ranked(depmap), guide_ranked)
+
+    def test_topo_ranked_iters(self):
+        for depmap, guide_ranked in self._good_depmaps:
+            self._check_ranking(depmap, topo_ranked({ k: _myiter(v) for k, v in depmap.items() }), guide_ranked)
+
+    def test_topo_ranked_unsatisfied(self):
+        for depmap in self._unsatisfiable_depmaps:
+            with self.assertRaises(ValueError, msg=f"{depmap=}"):
+                topo_ranked(depmap)
+
+    def test_topo_ranked_typeerrors(self):
+        for depmap in self._mistyped_depmaps:
+            with self.assertRaises(TypeError, msg=f"{depmap=}"):
+                topo_ranked(depmap)
+
+    def test_topo_sorted(self):
+        for depmap, guide_ranked in self._good_depmaps:
+            self._check_sorting(depmap, topo_sorted(depmap), guide_ranked)
+
+    def test_topo_ranked_unsatisfied(self):
+        for depmap in self._unsatisfiable_depmaps:
+            with self.assertRaises(ValueError, msg=f"{depmap=}"):
+                topo_sorted(depmap)
+
+    def test_topo_ranked_typeerrors(self):
+        for depmap in self._mistyped_depmaps:
+            with self.assertRaises(TypeError, msg=f"{depmap=}"):
+                topo_sorted(depmap)
 
 class CrockfordBase32Tests(unittest.TestCase):
 
