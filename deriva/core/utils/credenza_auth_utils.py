@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 # Default resource hint for service/M2M introspection calls when the caller
-# doesn't provide any explicit --resource values. This is an umbrella audience
+# doesn't provide any explicit --resource values. This is an umbrella resource
 # and will only succeed if the token was minted to include it.
 DEFAULT_SERVICE_RESOURCE = "urn:deriva:rest:service:all"
 
@@ -301,18 +301,16 @@ class CredenzaAuthUtil:
         """
         Issue a service/M2M token via /authn/service/token.
 
-        Client uses `resources` (repeatable audience hints). Server still receives
-        multiple `audience` form fields.
         """
         base = host_to_url(host, "/authn/service/token")
         session = get_new_requests_session(base)
 
         # Common body
         form = [("grant_type", CREDENZA_SERVICE_AUTH_URN)]
-        # Default to umbrella audience if caller omitted resources
+        # Default to umbrella resource if caller omitted resources
         resources = resources or [DEFAULT_SERVICE_RESOURCE]
         for r in resources:
-            form.append(("audience", r))
+            form.append(("resource", r))
         if scope:
             form.append(("scope", scope))
         if requested_ttl_seconds is not None:
@@ -390,7 +388,7 @@ class CredenzaAuthUtilCLI(BaseCLI):
             "--resource",
             action="append",
             default=SUPPRESS,  # avoid auto-mixing a default with user-specified values
-            help=f"Resource audience hint (repeatable). Defaults to {DEFAULT_SERVICE_RESOURCE} when omitted."
+            help=f"Resource hint (repeatable). Defaults to {DEFAULT_SERVICE_RESOURCE} when omitted."
         )
         parser.set_defaults(func=self.get_session)
 
@@ -402,7 +400,7 @@ class CredenzaAuthUtilCLI(BaseCLI):
             "--resource",
             action="append",
             default=SUPPRESS,
-            help=f"Resource audience hint (repeatable). Defaults to {DEFAULT_SERVICE_RESOURCE} when omitted."
+            help=f"Resource hint (repeatable). Defaults to {DEFAULT_SERVICE_RESOURCE} when omitted."
         )
         parser.add_argument("--refresh-upstream", action="store_true",
                             help="Attempt to refresh access tokens, other dependent tokens, and claims from the "
@@ -423,7 +421,7 @@ class CredenzaAuthUtilCLI(BaseCLI):
         )
         parser.add_argument(
             "--resource", dest="resource", action="append", default=SUPPRESS,
-            help=f"Resource audience hint (repeatable). Defaults to {DEFAULT_SERVICE_RESOURCE} when omitted."
+            help=f"Resource hint (repeatable). Defaults to {DEFAULT_SERVICE_RESOURCE} when omitted."
         )
         parser.add_argument("--scope", help="Optional scope string (space-delimited).")
         parser.add_argument("--requested-ttl-seconds", type=int, help="Requested TTL; server may cap/deny.")
