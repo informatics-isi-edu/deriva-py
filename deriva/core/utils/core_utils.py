@@ -5,6 +5,7 @@ import shutil
 import errno
 import json
 import math
+import datetime
 import platform
 import logging
 import requests
@@ -15,7 +16,8 @@ from collections import OrderedDict
 from urllib.parse import quote as _urlquote, unquote as urlunquote
 from urllib.parse import urlparse, urlsplit, urlunsplit, urljoin
 from http.cookiejar import MozillaCookieJar
-
+from typing import Any, Union
+from collections.abc import Iterable
 
 Kilobyte = 1024
 Megabyte = Kilobyte ** 2
@@ -442,34 +444,297 @@ def json_item_handler(input_file, callback):
         finally:
             infile.close()
 
+def topo_ranked(depmap: dict[Any,Union[set,Iterable]]) -> list[set]:
+    """Return list-of-sets representing values in ranked tiers as a topological partial order.
 
-def topo_sorted(depmap):
-    """Return list of items topologically sorted.
+    :param depmap: Dictionary mapping of values to required values.
 
-       depmap: { item: [required_item, ...], ... }
+    The entire set of values to rank must be represented as keys in
+    depmap, and therefore must be hashable. For each depmap key, the
+    corresponding value should be a set of required values, or an
+    iterable of required values suitable to pass to set(). An empty
+    set or iterable represents a lack of requirements to satisfy for
+    a given key value.
 
-    Raises ValueError if a required_item cannot be satisfied in any order.
+    The result list provides a partial order satisfying the
+    requirements from the dependency map. Each entry in the list is a
+    set representing a tier of values with equal rank. Values in a
+    given tier do not require any value from a tier at a higher index.
 
-    The per-item required_item iterables must allow revisiting on
-    multiple iterations.
+    Raises ValueError if a requirement cannot be satisfied in any order.
 
     """
-    ordered = [ item for item, requires in depmap.items() if not requires ]
-    depmap = { item: set(requires) for item, requires in depmap.items() if requires }
-    satisfied = set(ordered)
+    def opportunistic_set(s):
+        if isinstance(s, set):
+            return s
+        elif isinstance(s, Iterable):
+            return set(s)
+        else:
+            raise TypeError(f"bad depmap operand to topo_ranked(), got {type(s)} instead of expected set or iterable")
+
+    if not isinstance(depmap, dict):
+        raise TypeError(f"bad depmap operand to topo_ranked(), got {type(depmap)} instead of expected dict")
+
+    # make a mutable copy that supports our incremental algorithm
+    depmap = {
+        k: opportunistic_set(v)
+        for k, v in depmap.items()
+    }
+
+    ranked = []
+    satisfied = set()
+
     while depmap:
-        additions = []
+        tier = set()
+        ranked.append(tier)
+
         for item, requires in list(depmap.items()):
             if requires.issubset(satisfied):
-                additions.append(item)
-                satisfied.add(item)
+                tier.add(item)
                 del depmap[item]
-        if not additions:
-            raise ValueError(("unsatisfiable", depmap))
-        ordered.extend(additions)
-        additions = []
-    return ordered
 
+        # sanity-check for cyclic or unreachable requirements
+        if not tier:
+            raise ValueError(f"bad operand depmap to topo_ranked(), unsatisfiable={depmap}")
+
+        satisfied.update(tier)
+
+    return ranked
+
+def topo_sorted(depmap: dict[Any,Union[set,Iterable]]) -> list:
+    """Return list of items topologically sorted.
+
+    :param depmap: Dictionary mapping of values to required values.
+
+    This is a simple wrapper to flatten the partially ordered output
+    of topo_ranked(depmap) into an arbitrary total order.
+
+    The entire set of values to sort must be represented as keys in
+    depmap, and therefore must be hashable. For each depmap key, the
+    corresponding value should be a set of required values, or an
+    iterable of required values suitable to pass to set(). An empty
+    set or iterable represents a lack of requirements to satisfy for
+    a given key value.
+
+    The result list provides a total order satisfying the requirements
+    from the dependency map. Values at lower indices do not require
+    values at higher indices.
+
+    Raises ValueError if a requirement cannot be satisfied in any order.
+
+    """
+    return [ v for tier in topo_ranked(depmap) for v in tier ]
+
+_crockford_base32_codex = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
+
+def crockford_b32encode(v: int, grplen: int=4) -> str:
+    """Encode a non-negative integer using the Crockford Base-32 representation.
+
+    :param v: Non-negative integer value to encode.
+    :param grplen: Non-negative number of output symbols in each group.
+
+    The input integer value is interpreted as an arbitrary-length bit
+    stream of length v.bit_length(). The input integer is
+    zero-extended to make the length a multiple of 5, i.e. effectively
+    prefix-padded with zero bits.
+
+    The result is a string uses the Crockford Base-32 representation
+    without any checksum suffix.
+
+    Output symbols are separated by a hyphen in groups of grplen
+    symbols. Specify grplen=0 to suppress hyphenation.
+
+    This function is the inverse of crockford_b32decode().
+
+    Those wishing to encode negative integers must use their own
+    convention to somehow multiplex sign information into the bit
+    stream represented by the non-negative integer.
+
+    """
+    sep = '-'
+
+    if not isinstance(v, int):
+        raise TypeError(f"bad operand for crockford_b32encode(): {v=}")
+
+    if not isinstance(grplen, int):
+        raise TypeError(f"bad operand for crockford_b32encode(): {grplen=}")
+
+    if v < 0:
+        raise ValueError(f"bad operand for crockford_b32encode(): {v=}")
+
+    if grplen < 0:
+        raise ValueError(f"bad operand for crockford_b32encode(): {grplen=}")
+
+    encoded_rev = []
+    d = 0
+    while v > 0:
+        # encode 5-bit chunk
+        code = _crockford_base32_codex[v % 32]
+        v = v // 32
+        # add (optional) group separator
+        if grplen > 0 and d > 0 and d % grplen == 0:
+            encoded_rev.append(sep)
+        d += 1
+        encoded_rev.append(code)
+
+    # trim "leading" zeroes and separators
+    while encoded_rev and encoded_rev[-1] in {'0', sep}:
+        del encoded_rev[-1]
+
+    # but restore zero for base case
+    if not encoded_rev:
+        encoded_rev.append('0')
+
+    return ''.join(reversed(encoded_rev))
+
+def crockford_b32decode(s: str) -> int:
+    """Decode Crockford base-32 string representation to non-negative integer.
+
+    :param s: String to decode.
+
+    The input string is decoded as a sequence of Crockford Base-32
+    symbols, each encoding 5 bits, such that the first symbol
+    represents the most-signficant bits.
+
+    The result is the non-negative integer corresponding to the
+    decoded bit stream.
+
+    The Crockford decode process is case-insensitive and recognizes
+    several synonyms for likely typographical errors. Namely,
+    'O'->'0', 'I'->'1', and 'L'->'1'.
+
+    Optional hyphens may be present in the input string to break it
+    into symbol groups. These bear no information and are simply
+    ignored.
+
+    The optional checksum suffix from Crockford's proposal is
+    not supported.
+
+    """
+    sep = '-'
+    inverted_codex = {
+        _crockford_base32_codex[i]: i
+        for i in range(32)
+    }
+    # add normalization alternatives
+    inverted_codex.update({'O':0, 'I':1, 'L':1})
+
+    if not isinstance(s, str):
+        raise TypeError(f"bad operand for crockford_b32decode() {s=}")
+
+    # make decoding case-insensitive
+    s = s.upper()
+    # remove separators
+    s = s.replace(sep, '')
+
+    res = 0
+    for d in range(len(s)):
+        try:
+            symbol = s[d]
+            coded = inverted_codex[symbol]
+        except KeyError as e:
+            raise ValueError(f"bad operand for crockford_b32decode(): unsupported {symbol=} in {s=}")
+
+        res = (res << 5) + coded
+
+    return res
+
+def int_to_uintX(i: int, nbits: int) -> int:
+    """Cast integer to an unsigned integer of desired width.
+
+    :param i: Signed integer to encode.
+    :param nbits: Number output bits.
+
+    For negative inputs, the requested nbits must be equal or greater
+    than i.bit_length(). For non-negative inputs, the requested nbits
+    must be greater than i.bit_length(). The output bits are to be
+    interpreted as 2's complement, so the most-significant bit is set
+    to represent negative inputs and kept clear to represent
+    non-negative inputs.
+
+    This function is the inverse of uintX_to_int() when both are called
+    using the same nbits operand.
+
+    """
+    if not isinstance(i, int):
+        raise TypeError(f"bad operand to int_to_uintX() {i=}")
+
+    if not isinstance(nbits, int):
+        raise TypeError(f"bad operand to int_to_uintX() {nbits=}")
+
+    if nbits < 1:
+        raise ValueError(f"bad operand to int_to_uintX() {nbits=}")
+
+    if i >= 0:
+        if i.bit_length() >= nbits:
+            raise ValueError(f"bad operand to int_to_uintX() {i=} {nbits=}")
+        return i
+    else:
+        if i.bit_length() > nbits:
+            raise ValueError(f"bad operand to int_to_uintX() {i=} {nbits=}")
+        hibit_mask = (1 << (nbits-1))
+        return i + hibit_mask + hibit_mask
+
+def uintX_to_int(b: int, nbits: int) -> int:
+    """Cast unsigned integer of known width into signed integer.
+
+    :param b: The non-negative integer holding bits to convert.
+    :param nbits: The number of input bits.
+
+    The specified input nbits must be equal or greater than
+    i.bit_length(). The input bits are interpreted as 2's complement,
+    so values with the most-significant bit set are recast as negative
+    numbers while inputs with the highest bit unset remain unchanged.
+
+    This function is the inverse of int_to_uintX() when both are called
+    using the same nbits operand.
+
+    """
+    if not isinstance(b, int):
+        raise TypeError(f"bad operand to uintX_to_int() {b=}")
+
+    if not isinstance(nbits, int):
+        raise TypeError(f"bad operand to uintX_to_int() {nbits=}")
+
+    if b < 0:
+        raise ValueError(f"bad operand to uintX_to_int() {b=}")
+
+    if nbits < 1:
+        raise ValueError(f"bad operand to uintX_to_int() {nbits=}")
+
+    if b.bit_length() > nbits:
+        raise ValueError(f"bad operand to uintX_to_int() {b=} {nbits=}")
+
+    hibit_mask = 1 << (nbits-1)
+
+    if b & hibit_mask:
+        return b - hibit_mask - hibit_mask
+    else:
+        return b
+
+def datetime_to_epoch_microseconds(dt: datetime.datetime) -> int:
+    """Convert a datatime to integer microseconds-since-epoch.
+
+    :param dt: A timezone-aware datetime.datetime instance.
+    """
+    # maintain exact microsecond precision in integer result
+    delta = dt - datetime.datetime(
+        1970, 1, 1, tzinfo=datetime.timezone.utc
+    )
+    whole_seconds = delta.days * 86400 + delta.seconds
+    return whole_seconds * 1000000 + delta.microseconds
+
+def epoch_microseconds_to_datetime(us: int) -> datetime.datetime:
+    """Convert integer microseconds-since-epoch to timezone-aware datetime.
+
+    :param us: Integer microseconds-since-epoch.
+    """
+    return datetime.datetime(
+        1970, 1, 1, tzinfo=datetime.timezone.utc
+    ) + datetime.timedelta(
+        seconds=us//1000000,
+        microseconds=us%1000000,
+    )
 
 class AttrDict (dict):
     """Dictionary with optional attribute-based lookup.
