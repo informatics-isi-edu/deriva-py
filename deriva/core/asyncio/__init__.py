@@ -45,21 +45,22 @@ For datapath operations, use AsyncCatalogWrapper:
     async for page in result_set.fetch_paged_async(page_size=10000):
         process(page)
 
-For catalog cloning, there's also a high-level async API:
+For table-level async copying, use AsyncTableCopier:
 
-    result = await clone_catalog_async(
-        source_hostname="source.example.org",
-        source_catalog_id="1",
-        dest_hostname="dest.example.org",
-        table_concurrency=10,  # Number of concurrent table copies
-    )
+    from deriva.core.asyncio.clone import AsyncTableCopier
+
+    copier = AsyncTableCopier(src_wrapper, dst_catalog, "Schema", "Table")
+    rows_copied = await copier.copy_async()
+
+For full catalog clone orchestration (FK handling, orphan strategies, etc.),
+see ``deriva_ml.catalog.clone``.
 """
 
 from deriva.core.asyncio.async_binding import AsyncDerivaBinding
 from deriva.core.asyncio.async_catalog import AsyncErmrestCatalog
 from deriva.core.asyncio.async_server import AsyncDerivaServer
 from deriva.core.asyncio.async_datapath import AsyncCatalogWrapper, AsyncResultSet
-from deriva.core.asyncio.clone import clone_catalog_async, clone_subset_catalog_async
+from deriva.core.asyncio.clone import AsyncTableCopier, AsyncCloneResult
 
 __all__ = [
     "AsyncDerivaBinding",
@@ -67,6 +68,6 @@ __all__ = [
     "AsyncDerivaServer",
     "AsyncCatalogWrapper",
     "AsyncResultSet",
-    "clone_catalog_async",
-    "clone_subset_catalog_async",
+    "AsyncTableCopier",
+    "AsyncCloneResult",
 ]
