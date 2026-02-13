@@ -6,9 +6,12 @@ import base64
 import hashlib
 import json
 import re
+import io
+import csv
 from collections import OrderedDict
 from collections.abc import Iterable
 from enum import Enum
+from typing import Any, Callable, Optional, Union
 
 from . import AttrDict, tag, urlquote, stob, mmo
 from . import \
@@ -201,6 +204,116 @@ def timestamptz_to_snaptime(ts: str) -> str:
     :param ts: A string in ISO datetime format as serialized by ERMrest.
     """
     return datetime_to_snaptime(timestamptz_to_datetime(ts))
+
+def pgarray_decode(s: str, converter:Callable[[str, bool], Any]=lambda s, pgq: s) -> list:
+    """Decode a given PostgreSQL array serialization into a Python list of values.
+
+    :param s: The string containing a PostgreSQL array serialization.
+    :param converter: A callable to transform each str to a value.
+
+    When decoding a PostgreSQL array, a list of strings is obtained
+    after splitting and unquoting each field value.
+
+    The converter can be overridden to transform each value before it
+    is returned. A NULL field in an array is mapped directly to None,
+    bypassing the supplied converter function. The second argument to
+    the converter is True when the string was quoted, else False. When
+    quoted, the string is unquoted/unescaped before being passed to
+    the converter function.
+
+    """
+    if not isinstance(s, str):
+        raise TypeError(f"bad operand to pgarray_decode(): expected str {s=}")
+    if not (s.startswith("{") and s.endswith("}")):
+        raise ValueError(f"bad operand to pgarray_decode(): missing enclosing brackets {s=}")
+
+    def unescape(s, quoted=False):
+        if s == 'NULL' and not quoted:
+            return None
+        if quoted:
+            return converter(re.sub(r'\\(.)', r'\1', s), True)
+        else:
+            return converter(s, False)
+
+    # strip the enclosing brackets and prepare to parse fields incrementally
+    s = s[1:-1]
+    parts = []
+
+    # unquote as we go to find field boundaries
+    while s:
+        if s[0] == ',':
+            # unquoted empty field!
+            parts.append(unescape('', quoted=False))
+            s = s[1:]
+        elif s[0] != '"':
+            # start of unquoted field
+            i = s.find(',')
+            if i < 0:
+                parts.append(unescape(s, quoted=False))
+                s = None
+            else:
+                parts.append(unescape(s[:i], quoted=False))
+                s = s[i+1:]
+        else:
+            # start of quoted field
+            s = s[1:]
+            m = re.match(r'([^"\\]|\\"|\\\\)*', s)
+            if not m:
+                raise ValueError("bad operand to pgarray_decode() with unknown field structure {s=}")
+            parts.append(unescape(s[:m.end(0)], quoted=True))
+
+            s = s[m.end(0):]
+            if s.startswith('",'):
+                s = s[2:]
+            elif s.startswith('"'):
+                s = s[1:]
+            else:
+                raise ValueError("bad operand to pgarray_decode() with unclosed field quote?")
+
+    return parts
+
+def pgarray_encode(a: list, converter:Callable[[Any], tuple[str, bool]]=lambda v: (str(v), False)) -> str:
+    """Encode a PostgreSQL array serialization of a given a list of values.
+
+    :param a: The list (array) of values.
+    :param converter: A callable to transform each value to a string with a boolean flag for whether quoting is desired.
+
+    When encoding a PostgreSQL array, a list of values is converted to
+    strings and conditionally escaped and quoted, as needed to fit
+    into the PostgreSQL array syntax. Values are always quoted when
+    needed for the PostgreSQL array format, but are also quoted when
+    requested by the converter function, even if it would be possible
+    to remain unquoted.
+
+    The converter can be overridden to customize how values are
+    converted to strings. The default applies str(v) conversion.
+
+    """
+    if not isinstance(a, list):
+        raise TypeError(f"bad operand to pgarray_encode() expected list {a=}")
+
+    def embed(v):
+        if v is None:
+            return 'NULL'
+
+        res = converter(v)
+        if isinstance(res, tuple) and len(res) == 2:
+            s, quoted = res
+        else:
+            raise ValueError(f"bad converter operand in pgarray_encode(): result of converter(v) should be tuple[str, bool] {v=} {res=}")
+
+        if s is "" \
+           or s.lower() == 'null' \
+           or re.search(r'[\s"\\{}]', s):
+            quoted = True
+
+        if quoted:
+            s = re.sub(r'([\\"])', r'\\\1', s)
+            return '"%s"' % (s,)
+        else:
+            return s
+
+    return "{%s}" % (",".join([ embed(v) for v in a ]),)
 
 def presence_annotation(tag_uri):
     """Decorator to establish property getter/setter/deleter for presence annotations.
@@ -2197,6 +2310,177 @@ CREATE TABLE IF NOT EXISTS %(tname)s (
     'body': ',\n  '.join(parts),
 })
 
+    def rows_pre_json(
+        self,
+        rows: Iterable[dict],
+        strict: bool = True,
+    ) -> Iterable[dict]:
+        """Return transformed rows with typed data encoding.
+
+        :param rows: Iterable of dicts representing rows.
+        :param strict: Reject unknown columns when True, else pass unmodified.
+
+        This is a convenience utility for encoding JSON-destined
+        values conforming to the table definition. It applies data
+        encoding based on each column type, replacing some idiomatic
+        native Python types with strings.
+
+        When strict is True, a KeyError is raised if rows use a column
+        name not found in the table definition. Otherwise, such
+        columns are naively coerced as str(v).
+
+        Text, numeric, boolean, and JSON columns are passed through
+        unmodified. This wrapper provides additional encoding of
+        non-text column types into the idiomatic Python types for each
+        column type.
+
+        NOTE: Because this is a generator which processes the input
+        iterable incrementally, exceptions may occur after some rows
+        have already been generated. A successful execution should
+        raise nothing before StopIteration.
+
+        """
+        converters = {}
+        for row in rows:
+            for cname in row.keys():
+                if cname not in converters:
+                    if cname not in self.columns.elements:
+                        if strict:
+                            raise KeyError(cname)
+                        else:
+                            converters[cname] = lambda v: str(v)
+                    else:
+                        converters[cname] = self.columns[cname].type.py_pre_json
+            yield { k: converters[k](v) for k, v in row.items() }
+
+    def rows_post_json(
+        self,
+        rows: Iterable[dict],
+        strict: bool = True,
+    ) -> Iterable[dict]:
+        """Return transformed rows with typed data decoding.
+
+        :param rows: Iterable of dicts representing rows obtained from JSON.
+        :param strict: Reject unknown columns when True, else pass unmodified.
+
+        This is a convenience utility for decoding JSON-derived values
+        conforming to the table definition. It applies data decoding
+        based on each column type, replacing some string values with
+        idiomatic native Python types.
+
+        When strict is True, a KeyError is raised if rows use a column
+        name not found in the table definition. Otherwise, such
+        columns are processed as if they are JSON columns.
+
+        Text, numeric, boolean, and JSON columns are passed through
+        unmodified. This wrapper provides additional decoding of
+        non-text column types into the idiomatic Python types for each
+        column type.
+
+        NOTE: Because this is a generator which processes the input
+        iterable incrementally, exceptions may occur after some rows
+        have already been generated. A successful execution should
+        raise nothing before StopIteration.
+
+        """
+        converters = {}
+        for row in rows:
+            for cname in row.keys():
+                if cname not in converters:
+                    if cname not in self.columns.elements:
+                        if strict:
+                            raise KeyError(cname)
+                        else:
+                            converters[cname] = builtin_types['json'].py_post_json
+                    else:
+                        converters[cname] = self.columns[cname].type.py_post_json
+            yield { k: converters[k](v) for k, v in row.items() }
+
+    def csv_file_decode(
+        self,
+        infile: io.TextIOBase,
+        use_dicts: bool = True,
+        strict: bool = True,
+    ) -> Iterator[Union[list, dict]]:
+        """Generate rows of CSV content from input file with typed data decoding.
+
+        :param infile: A readable file or file-like object.
+        :param use_dicts: Produce row dicts when True, else row lists.
+        :param strict: Reject unknown columns when True, else pass unmodified.
+
+        This is a convenience wrapper around csv.reader() for decoding
+        CSV files representing data conforming to the table
+        definition. It applies data decoding based on each column
+        type.
+
+        The infile must be prepared by the caller and should be
+        suitable for use with csv.reader(). The content of infile must
+        be compliant with the CSV encoding rules followed by ERMrest.
+
+        As stated in csv.reader() documentation, infile should be
+        opened in newline='' mode. Otherwise, records with embedded
+        newline content may be incorrectly decoded.
+
+        When use_dicts is True, results are similar to
+        csv.DictReader(), producing one dict per row. Otherwise,
+        results are similar to csv.reader(), producing one list per
+        row including an initial header row.
+
+        When strict is True, a KeyError is raised if infile uses a
+        column name not found in the table definition. Otherwise, such
+        columns are processed as if they are text columns.
+
+        Text columns are passed through unmodified. This wrapper
+        provides additional decoding of non-text column types into the
+        idiomatic Python types for each column type.
+
+        """
+        reader = csv.reader(infile)
+        column_names = None
+        column_count = None
+        column_types = []
+
+        for row in reader:
+            if column_names is None:
+                # process first row as header
+                column_names = tuple(row)
+                column_count = len(column_names)
+                for cname in column_names:
+                    if cname not in self.columns.elements:
+                        if strict:
+                            raise KeyError(cname)
+                        else:
+                            column_types.append(builtin_types['text'])
+                    else:
+                        column_types.append(self.columns[cname].type)
+                #
+                if not use_dicts:
+                    yield column_names
+                #
+                continue
+
+            # process regular data row
+            if len(row) != column_count:
+                raise ValueError(f"bad infile to csv_table_decode() header has {column_count} fields, but row has {len(row)} fields")
+            column_values = []
+            for i in range(column_count):
+                try:
+                    if row[i] is "":
+                        # BUG: csv.reader() does not let us distinguish quoted and unquoted empty
+                        # but, ERMrest/PostgreSQL CSV uses both
+                        # - unquoted empty is NULL
+                        # - quoted empty is a zero-length string
+                        # for now, assume NULLs are more likely than intentional empty strings
+                        column_values.append(None)
+                    else:
+                        column_values.append(column_types[i].text_to_py(row[i]))
+                except:
+                    raise ValueError(f"could not decode column={column_names[i]!r} type={column_types[i].typename!r} value={row[i]!r}")
+            if use_dicts:
+                yield dict(zip(column_names, column_values))
+            else:
+                yield column_values
+
     @presence_annotation(tag.immutable)
     def immutable(self): pass
 
@@ -3108,24 +3392,78 @@ class ForeignKey (object):
     @object_annotation(tag.foreign_key)
     def foreign_key(self): pass
 
-def make_type(type_doc):
-    """Create instance of Type, DomainType, or ArrayType as appropriate for type_doc."""
+builtin_types = AttrDict()
+
+def make_type(type_doc, **kwargs):
+    """Find instance of Type, DomainType, or ArrayType as appropriate for type_doc.
+
+    Use builtin_types to get canonical type singletons.
+
+    This function is provided for backwards compatibility, but
+    creation of novel types is not recommended. Newer features may not
+    work correctly with tables including novel types.
+
+    """
+    typename = type_doc['typename']
+    if typename in builtin_types:
+        return builtin_types[typename]
+
     if type_doc.get('is_domain', False):
-        return DomainType(type_doc)
+        return DomainType(type_doc, **kwargs)
     elif type_doc.get('is_array', False):
-        return ArrayType(type_doc)
+        return ArrayType(type_doc, **kwargs)
     else:
-        return Type(type_doc)
+        return Type(type_doc, **kwargs)
 
 class Type (object):
-    """Named type.
+    """Named ERMrest column type.
+
+    An individual ERMrest column type will be represented by an
+    instance of this class.  Calling programs should obtain singleton
+    Type instances from the builtin_types dictionary in this module.
+
+    Subtyping may be used for implementation purposes, but should not
+    be interpreted as meaningful nor considered a stable interface by
+    calling programs.
+
     """
-    def __init__(self, type_doc):
-        self.typename = type_doc['typename']
-        self.is_domain = False
-        self.is_array = False
+    is_domain = False
+    is_array = False
+    typename: str = 'unknown'
+
+    def __init__(
+        self,
+        type_doc: Optional[dict] = None,
+        py_type: type = str,
+        value_check: Callable[[Type, Any], bool] = (lambda self, v: False),
+        to_text: Callable[[Type, Any], str] = (lambda self, v: str(v)),
+        from_text: Callable[[Type, str], Any] = (lambda self, s: self.py_type(s)),
+        json_uses_passthrough: bool = False,
+        sqlite3_type_ddl: str = 'text',
+    ):
+        """Initialize an ERMrest column type.
+
+        :param type_doc: A dict isomorphic to the ERMrest JSON wire representation of the type.
+        :param py_type: The idiomatic Python native type to use for values of the type.
+        :param value_check: A callable returning False for invalid values of the type.
+        :param to_text: A callable converting a py_type value to ERMrest text representation.
+        :param from_text: A callable converting an ERMrest text value to py_type.
+        :param json_uses_passthrough: False when the type should be converted to text prior to JSON serialization.
+        :param sqlite3_type_ddl: The idiomatic SQLite3 DDL column type for this type.
+        """
+        if type_doc:
+            self.typename = type_doc['typename']
+        self.py_type = py_type
+        self._value_check = value_check
+        self._to_text = to_text
+        self._from_text = from_text
+        self._json_uses_passthrough = json_uses_passthrough
+        self._sqlite3_type_ddl = sqlite3_type_ddl
 
     def prejson(self, prune=True):
+        """Return a JSON serializable representation of this column type conforming to the ERMrest wire representation.
+
+        """
         d = {
             'typename': self.typename,
         }
@@ -3133,28 +3471,350 @@ class Type (object):
 
     def sqlite3_ddl(self) -> str:
         """Return a SQLite3 column type DDL fragment for this type"""
-        return {
-            'boolean': 'boolean',
-            'date': 'date',
-            'float4': 'real',
-            'float8': 'real',
-            'int2': 'integer',
-            'int4': 'integer',
-            'int8': 'integer',
-            'json': 'json',
-            'jsonb': 'json',
-            'timestamptz': 'datetime',
-            'timestamp': 'datetime',
-        }.get(self.typename, 'text')
+        return self._sqlite3_type_ddl
+
+    def py_checked(self, v: Any) -> Any:
+        """Return value if it conforms to column's native Python type, else raise TypeError.
+
+        :param v: The value to check and return
+        """
+        if v is None:
+            return None
+
+        if not isinstance(v, self.py_type):
+            raise TypeError(f"bad value for ermrest typename={self.typename} value={v!r}")
+        if not self._value_check(self, v):
+            raise ValueError(f"bad value for ermrest typename={self.typename} value={v!r}")
+        return v
+
+    def py_to_text(self, v: Any) -> str:
+        """Convert a Python native value of this type to text representation.
+
+        :param v: The Python value to convert
+        """
+        if v is None:
+            return None
+        return self._to_text(self, self.py_checked(v))
+
+    def text_to_py(self, s: str) -> Any:
+        """Convert a text representation of this type to native Python.
+
+        :param s: A string containing the text representation
+        """
+        if s is None:
+            return None
+        return self.py_checked(self._from_text(self, s))
+
+    def py_pre_json(self, v: Any) -> Any:
+        """Convert a Python native value of this type to one which is JSON serializable.
+
+        :param v: The Python value to convert
+
+        For known ERMrest scenarios, this function is idempotent.
+        """
+        if v is None:
+            return None
+        elif self._json_uses_passthrough or isinstance(v, str):
+            return v
+        else:
+            return self.py_to_text(v)
+
+    def py_post_json(self, v: Any) -> Any:
+        """Convert a Python value as produced by json.load() to an idiomatic Python value.
+
+        :param v: The Python value obtained from JSON decoding.
+
+        For known ERMrest scenarios, this function is idempotent.
+        """
+        if v is None:
+            return None
+        elif self._json_uses_passthrough or not isinstance(v, str):
+            return v
+        else:
+            return self.text_to_py(v)
+
+def _skipped_value_check(self:Type, v:Any) -> bool:
+    return True
+
+def _int_value_check(self:Type, v:Any):
+    # Python ints are arbitary-length so check for signed 2's complement range
+    if isinstance(v, bool):
+        # reject this python type conflation
+        return False
+    max_nbits = {
+        "int8": 64,
+        "int4": 32,
+        "int2": 16,
+        "serial8": 64,
+        "serial4": 32,
+        "serial2": 16
+        # use 64 bit default for unknown integer types?
+    }.get(self.typename, 64)
+    if v < 0:
+        return v >= -(2**(max_nbits-1))
+    else:
+        return v < 2**(max_nbits-1)
+
+def _datetime_tzaware_value_check(self:Type, v:Any):
+    # return True when v is timezone-aware
+    if v.tzinfo is None:
+        return False
+    if v.tzinfo.utcoffset(v) is None:
+        return False
+    return True
+
+def _json_value_check(self:Type, v:Any):
+    if v is None:
+        return True
+    if isinstance(v, (str, bool, int, float)):
+        return True
+    if isinstance(v, list):
+        for e in v:
+            if not _json_value_check(self, e):
+                return False
+        return True
+    if isinstance(v, dict):
+        for k, e in v.items():
+            if not isinstance(k, str):
+                return False
+            if not _json_value_check(self, e):
+                return False
+        return True
+    return False
+
+def _repr_to_text(self:Type, v:Any) -> str:
+    return repr(v)
+
+builtin_types.update({
+    # first define standard scalar types
+    typ.typename: typ
+    for typ in [
+        make_type(
+            {"typename": "text"},
+            py_type = str,
+            value_check = _skipped_value_check,
+            json_uses_passthrough = True,
+            sqlite3_type_ddl = 'text',
+        ),
+        make_type(
+            {"typename": "float8"},
+            py_type = float,
+            value_check = _skipped_value_check,
+            to_text = _repr_to_text,
+            json_uses_passthrough = True,
+            sqlite3_type_ddl = 'real',
+        ),
+        make_type(
+            {"typename": "float4"},
+            py_type = float,
+            value_check = _skipped_value_check,
+            to_text = _repr_to_text,
+            json_uses_passthrough = True,
+            sqlite3_type_ddl = 'real',
+        ),
+        make_type(
+            {"typename": "int8"},
+            py_type = int,
+            value_check = _int_value_check,
+            to_text = _repr_to_text,
+            json_uses_passthrough = True,
+            sqlite3_type_ddl = 'integer',
+        ),
+        make_type(
+            {"typename": "int4"},
+            py_type = int,
+            value_check = _int_value_check,
+            to_text = _repr_to_text,
+            json_uses_passthrough = True,
+            sqlite3_type_ddl = 'integer',
+        ),
+        make_type(
+            {"typename": "int2"},
+            py_type = int,
+            value_check = _int_value_check,
+            to_text = _repr_to_text,
+            json_uses_passthrough = True,
+            sqlite3_type_ddl = 'integer',
+        ),
+        make_type(
+            {"typename": "boolean"},
+            py_type = bool,
+            value_check = lambda self, v: isinstance(v, bool),
+            to_text = lambda self, v: 'true' if v else 'false',
+            from_text = lambda self, s: s.lower() not in {'f', 'false', 'n', 'no', '0'},
+            json_uses_passthrough = True,
+            sqlite3_type_ddl = 'boolean',
+        ),
+        make_type(
+            {"typename": "timestamptz"},
+            py_type = datetime.datetime,
+            value_check = _datetime_tzaware_value_check,
+            to_text = (lambda self, v: v.isoformat(' ')),
+            from_text = (lambda self, s: datetime.datetime.fromisoformat(s)),
+            sqlite3_type_ddl = 'datetime',
+        ),
+        make_type(
+            {"typename": "timestamp"},
+            py_type = datetime.datetime,
+            value_check = _skipped_value_check,
+            to_text = lambda self, v: v.isoformat(' '),
+            from_text = lambda self, s: datetime.datetime.fromisoformat(s),
+            sqlite3_type_ddl = 'datetime',
+        ),
+        make_type(
+            {"typename": "date"},
+            py_type = datetime.date,
+            value_check = _skipped_value_check,
+            to_text = lambda self, v: v.isoformat(),
+            from_text = lambda self, s: datetime.date.fromisoformat(s),
+            sqlite3_type_ddl = 'date',
+        ),
+        make_type(
+            {"typename": "json"},
+            py_type = object,
+            value_check = _json_value_check,
+            to_text = lambda self, v: json.dumps(v, separators=(',', ':')),
+            from_text = lambda self, s: json.loads(s),
+            json_uses_passthrough = True,
+            sqlite3_type_ddl = 'json',
+        ),
+        make_type(
+            {"typename": "jsonb"},
+            py_type = object,
+            value_check = _json_value_check,
+            to_text = lambda self, v: json.dumps(v, separators=(',', ':')),
+            from_text = lambda self, s: json.loads(s),
+            json_uses_passthrough = True,
+            sqlite3_type_ddl = 'json',
+        ),
+    ]
+})
+
+class ArrayType (Type):
+    """Named array type.
+    """
+    is_array = True
+
+    def __init__(self, type_doc):
+        super(ArrayType, self).__init__(type_doc, py_type=list)
+        self._sqlite3_type_ddl = 'json'
+        self.base_type = make_type(type_doc['base_type'])
+        if self.base_type.typename not in builtin_types:
+            raise NotImplementedError(f"bad operand to ArrayType() {self.base_type.typename=!r} not found in ermrest_model.builtin_types")
+
+    def prejson(self, prune=True):
+        d = super(ArrayType, self).prejson(prune)
+        d.update({
+            'is_array': True,
+            'base_type': self.base_type.prejson(prune)
+        })
+        return d
+
+    def py_checked(self, v: Any) -> Any:
+        """Return value if it conforms to column's native Python type, else raise TypeError.
+
+        :param v: The value to check and return
+        """
+        if v is None:
+            return None
+
+        if not isinstance(v, list):
+            raise TypeError(f"bad value for ermrest column typename={self.typename} value={v!r}")
+        for e in v:
+            self.base_type.py_checked(e)
+
+        return v
+
+    def py_to_text(self, v: Any) -> str:
+        """Convert a Python native value of this type to text representation.
+
+        :param v: The Python value to convert
+        """
+        if v is None:
+            return None
+
+        v = self.py_checked(v)
+        if self.base_type._json_uses_passthrough:
+            pass
+        else:
+            v = [ self.base_type.py_pre_json(e) for e in v ]
+        return json.dumps(v, separators=(',',':'))
+
+    def text_to_py(self, s: str) -> Any:
+        """Convert a text representation of this type to native Python.
+
+        :param s: A string containing the text representation
+        """
+        if s is None:
+            return None
+
+        if s.startswith('['):
+            try:
+                v = json.loads(s)
+            except json.JSONDecodeError as err:
+                raise ValueError(f"bad operand to ArrayType.text_to_py() failed to decode JSON array {s=} {err=}")
+            v = [ self.base_type.py_post_json(e) for e in v ]
+        elif s.startswith('{'):
+            v = pgarray_decode(s, lambda s, pgq: self.base_type.text_to_py(s))
+        else:
+            raise ValueError(f"bad operand to ArrayType.text_to_py() expected JSON or PostgreSQL array syntax, not {s=}")
+
+        return v
+
+    def py_pre_json(self, v: Any) -> Any:
+        """Convert a Python native value of this type to one which is JSON serializable.
+
+        :param v: The Python value to convert
+        """
+        if v is None:
+            return None
+        else:
+            return [ self.base_type.py_pre_json(e) for e in v ]
+
+    def py_post_json(self, v: Any) -> Any:
+        """Convert a Python value as produced by json.load() to an idiomatic Python value.
+
+        :param v: The Python value obtained from JSON decoding.
+
+        For known ERMrest scenarios, this function is idempotent.
+        """
+        if v is None:
+            return None
+        else:
+            return [ self.base_type.py_post_json(e) for e in v ]
+
+builtin_types.update({
+    # define array types over base scalar types
+    atype.typename: atype
+    for atype in [
+        ArrayType({
+            "typename": '%s[]' % bt.typename,
+            "base_type": bt.prejson(),
+        })
+        for bt in builtin_types.values()
+    ]
+})
 
 class DomainType (Type):
     """Named domain type.
     """
-    def __init__(self, type_doc):
-        super(DomainType, self).__init__(type_doc)
-        self.is_domain = True
+    is_domain = True
+
+    def __init__(self, type_doc: dict):
+        super(DomainType, self).__init__(
+            type_doc,
+            # break these to test that we proxy everything to base_type
+            py_type = None,
+            value_check = (lambda self, v: False),
+            to_text = (lambda self, v: NotImplementedError()),
+            from_text = (lambda self, s: NotImplementedError()),
+            json_uses_passthrough = None,
+            sqlite3_type_ddl = None,
+        )
         self.base_type = make_type(type_doc['base_type'])
-        
+        if self.base_type.typename not in builtin_types:
+            raise NotImplementedError(f"bad operand to DomainType() {self.base_type.typename=!r} not found in ermrest_model.builtin_types")
+
     def prejson(self, prune=True):
         d = super(DomainType, self).prejson(prune)
         d.update({
@@ -3167,78 +3827,81 @@ class DomainType (Type):
         """Return a SQLite3 column type DDL fragment for this type"""
         return self.base_type.sqlite3_ddl()
 
-class ArrayType (Type):
-    """Named domain type.
-    """
-    def __init__(self, type_doc):
-        super(ArrayType, self).__init__(type_doc)
-        is_array = True
-        self.base_type = make_type(type_doc['base_type'])
+    def py_checked(self, v: Any) -> Any:
+        """Return value if it conforms to the column's native Python type, else raise TypeError.
 
-    def prejson(self, prune=True):
-        d = super(ArrayType, self).prejson(prune)
-        d.update({
-            'is_array': True,
-            'base_type': self.base_type.prejson(prune)
-        })
-        return d
+        :param v: The value to check and return
+        """
+        return self.base_type.py_checked(v)
 
-    def sqlite3_ddl(self) -> str:
-        """Return a SQLite3 column type DDL fragment for this type"""
-        return 'json'
+    def py_to_text(self, v: Any) -> str:
+        """Convert a Python native value of this type to text representation.
 
-builtin_types = AttrDict(
-    # first define standard scalar types
-    {
-        typename: Type({'typename': typename})
-        for typename in {
-                'date',
-                'float4', 'float8',
-                'json', 'jsonb',
-                'int2', 'int4', 'int8',
-                'text',
-                'timestamptz', 'timestamp',
-                'boolean'
-        }
-    }
-)
-builtin_types.update(
-    # define some typical array types
-    {
-        '%s[]' % typename: ArrayType({
-            'typename': '%s[]' % typename,
-            'is_array': True,
-            'base_type': typedoc.prejson()
-        })
-        for typename, typedoc in builtin_types.items()
-    }
-)
-builtin_types.update(
+        :param v: The Python value to convert
+        """
+        return self.base_type.py_to_text(v)
+
+    def text_to_py(self, s: str) -> Any:
+        """Convert a text representation of this type to native Python.
+
+        :param s: A string containing the text representation
+        """
+        return self.base_type.text_to_py(s)
+
+    def py_pre_json(self, v: Any) -> Any:
+        """Convert a Python native value of this type to one which is JSON serializable.
+
+        :param v: The Python value to convert
+        """
+        return self.base_type.py_pre_json(v)
+
+builtin_types.update({
     # define standard domain types
-    {
-        domain: DomainType({
-            'typename': domain,
-            'is_domain': True,
-            'base_type': builtin_types[basetypename].prejson(),
-        })
-        for domain, basetypename in {
-                'ermrest_rid': 'text',
-                'ermrest_rcb': 'text',
-                'ermrest_rmb': 'text',
-                'ermrest_rct': 'timestamptz',
-                'ermrest_rmt': 'timestamptz',
-                'markdown': 'text',
-                'longtext': 'text',
-                'ermrest_curie': 'text',
-                'ermrest_uri': 'text',
-                'color_rgb_hex': 'text',
-        }.items()
-    }
-)
-builtin_types.update(
+    domain: DomainType({
+        'typename': domain,
+        'base_type': builtin_types[basetypename].prejson(),
+    })
+    for domain, basetypename in {
+        'markdown': 'text',
+        'longtext': 'text',
+        'ermrest_curie': 'text',
+        'ermrest_uri': 'text',
+        'color_rgb_hex': 'text',
+        'ermrest_rid': 'text',
+        'ermrest_rcb': 'text',
+        'ermrest_rmb': 'text',
+        'ermrest_rct': 'timestamptz',
+        'ermrest_rmt': 'timestamptz',
+    }.items()
+})
+
+builtin_types.update({
     # define standard serial types which don't have array types
-    {
-        typename: Type({'typename': typename})
-        for typename in [ 'serial2', 'serial4', 'serial8' ]
-    }
-)
+    typ.typename: typ
+    for typ in [
+        make_type(
+            {"typename": "serial8"},
+            py_type = int,
+            value_check = _int_value_check,
+            to_text = _repr_to_text,
+            json_uses_passthrough = True,
+            sqlite3_type_ddl = 'integer',
+        ),
+        make_type(
+            {"typename": "serial4"},
+            py_type = int,
+            value_check = _int_value_check,
+            to_text = _repr_to_text,
+            json_uses_passthrough = True,
+            sqlite3_type_ddl = 'integer',
+        ),
+        make_type(
+            {"typename": "serial2"},
+            py_type = int,
+            value_check = _int_value_check,
+            to_text = _repr_to_text,
+            json_uses_passthrough = True,
+            sqlite3_type_ddl = 'integer',
+        ),
+    ]
+})
