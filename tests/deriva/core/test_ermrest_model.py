@@ -614,39 +614,53 @@ class ErmrestTableDecodeTests (unittest.TestCase):
     # NOTE: all whitespace is signficant in multiline text blocks
     # so do not reformat or pretty-indent the trailing quotes etc!
 
-    def _test_csv_generic(self, table, csv_data_str, py_data):
+    def _test_csv_generic(self, table, csv_pgarray_str, csv_jsonarray_str, py_data):
         def check_value(rownum, cname, val):
             self.assertEqual(py_data[rownum][cname], val, f"py_data[{rownum}][{cname}]={py_data[rownum][cname]!r} != {val=!r}")
 
-        # test tuple output mode
-        column_names = None
-        tuple_row_count = 0
-        for row in table.csv_file_decode(io.StringIO(csv_data_str, newline=''), use_dicts=False):
-            column_count = len(py_data[0])
-            # digest header row
-            if column_names is None:
-                column_names = list(row)
-                self.assertEqual(column_count, len(column_names))
-                for cname in column_names:
-                    self.assertIn(cname, table.columns.elements)
-                continue
-            # regular data rows
-            self.assertEqual(column_count, len(row))
-            for i in range(column_count):
-                check_value(tuple_row_count, column_names[i], row[i])
-            tuple_row_count += 1
-        self.assertEqual(len(py_data), tuple_row_count)
+        def check_decode(csv_data_str):
+            # test tuple output mode
+            column_names = None
+            tuple_row_count = 0
+            for row in table.csv_file_decode(io.StringIO(csv_data_str, newline=''), use_dicts=False):
+                column_count = len(py_data[0])
+                # digest header row
+                if column_names is None:
+                    column_names = list(row)
+                    self.assertEqual(column_count, len(column_names))
+                    for cname in column_names:
+                        self.assertIn(cname, table.columns.elements)
+                    continue
+                # regular data rows
+                self.assertEqual(column_count, len(row))
+                for i in range(column_count):
+                    check_value(tuple_row_count, column_names[i], row[i])
+                tuple_row_count += 1
+            self.assertEqual(len(py_data), tuple_row_count)
 
-        # test default use_dicts=True mode
-        dict_row_count = 0
-        for row in table.csv_file_decode(io.StringIO(csv_data_str, newline='')):
-            self.assertIsInstance(row, dict)
-            self.assertEqual(column_count, len(row.keys()))
-            for cname in row.keys():
-                self.assertIn(cname, table.columns.elements)
-                check_value(dict_row_count, cname, row[cname])
-            dict_row_count += 1
-        self.assertEqual(len(py_data), dict_row_count)
+            # test default use_dicts=True mode
+            dict_row_count = 0
+            for row in table.csv_file_decode(io.StringIO(csv_data_str, newline='')):
+                self.assertIsInstance(row, dict)
+                self.assertEqual(column_count, len(row.keys()))
+                for cname in row.keys():
+                    self.assertIn(cname, table.columns.elements)
+                    check_value(dict_row_count, cname, row[cname])
+                dict_row_count += 1
+            self.assertEqual(len(py_data), dict_row_count)
+
+        def check_encode(csv_data_str, use_pgarrays):
+            outfile = io.StringIO('', newline='')
+            table.csv_file_encode(outfile, py_data, use_pgarrays=use_pgarrays)
+            outfile.seek(0)
+            encoded_str = outfile.read()
+            self.maxDiff = None
+            self.assertEqual(csv_data_str.replace('\r\n', '\n'), encoded_str.replace('\r\n', '\n'))
+
+        check_decode(csv_pgarray_str)
+        check_decode(csv_jsonarray_str)
+        check_encode(csv_pgarray_str, True)
+        check_encode(csv_jsonarray_str, False)
 
     def _test_json_generic(self, table, json_rows, py_rows):
         def assertEqualRows(testname, guide, check):
@@ -717,18 +731,15 @@ class ErmrestTableDecodeTests (unittest.TestCase):
  {"RID":"1-4FBM","RCT":"2018-11-28 00:49:40.407895+00:00","RMT":"2020-11-06 21:40:33.502879+00:00","RCB":"https://auth.globus.org/b506963e-d274-11e5-99f0-67ee73dd4c3f","RMB":"https://auth.globus.org/b506963e-d274-11e5-99f0-67ee73dd4c3f","id":"UBERON:0001676","uri":"http://purl.obolibrary.org/obo/UBERON_0001676","name":"occipital bone","description":"the bone at the lower, posterior part of the skull","synonyms":["occipital complex","occipital squama","os occipitale"],"alternate_ids":["ISBN:0-683-40008-8","MP:0005269","NCIT:C12757","EMAPA:25112","FMA:52735","GAID:227","http://linkedlifedata.com/resource/umls/id/C0028784","http://www.snomedbrowser.com/Codes/Details/181796003","MA:0001468","MESH:D009777","Occipital:bone","OpenCyc:Mx4rwQtsiZwpEbGdrcN5Y29ycA","UMLS:C0028784"]}]
 
     _realistic_csv_pgarray = '''RID,RCT,RMT,RCB,RMB,id,uri,name,description,synonyms,alternate_ids
-1-4FD8,2018-11-28 00:49:40.407895+00,2020-11-06 22:03:19.113675+00,https://auth.globus.org/b506963e-d274-11e5-99f0-67ee73dd4c3f,https://auth.globus.org/b506963e-d274-11e5-99f0-67ee73dd4c3f,UBERON:0005868,http://purl.obolibrary.org/obo/UBERON_0005868,maxillary prominence,the paired dorsal prominences formed by bifurcation of the first pharyngeal arches in the embryo that unite with the ipsilateral medial nasal process to form the upper jaw,"{""embryonic maxillary process"",""maxillary process"",""maxillary process of embryo"",""prominentia maxilaris""}","{ISBN:0-683-40008-8,MP:0010940,NCIT:C34206,EHDAA:5877,EHDAA2:0001070,EMAPA:17359,FMA:293049,http://linkedlifedata.com/resource/umls/id/C1513037,http://www.snomedbrowser.com/Codes/Details/346355001,Maxillary:prominence,UMLS:C1513037}"
-1-4FBM,2018-11-28 00:49:40.407895+00,2020-11-06 21:40:33.502879+00,https://auth.globus.org/b506963e-d274-11e5-99f0-67ee73dd4c3f,https://auth.globus.org/b506963e-d274-11e5-99f0-67ee73dd4c3f,UBERON:0001676,http://purl.obolibrary.org/obo/UBERON_0001676,occipital bone,"the bone at the lower, posterior part of the skull","{""occipital complex"",""occipital squama"",""os occipitale""}","{ISBN:0-683-40008-8,MP:0005269,NCIT:C12757,EMAPA:25112,FMA:52735,GAID:227,http://linkedlifedata.com/resource/umls/id/C0028784,http://www.snomedbrowser.com/Codes/Details/181796003,MA:0001468,MESH:D009777,Occipital:bone,OpenCyc:Mx4rwQtsiZwpEbGdrcN5Y29ycA,UMLS:C0028784}"
+1-4FD8,2018-11-28 00:49:40.407895+00:00,2020-11-06 22:03:19.113675+00:00,https://auth.globus.org/b506963e-d274-11e5-99f0-67ee73dd4c3f,https://auth.globus.org/b506963e-d274-11e5-99f0-67ee73dd4c3f,UBERON:0005868,http://purl.obolibrary.org/obo/UBERON_0005868,maxillary prominence,the paired dorsal prominences formed by bifurcation of the first pharyngeal arches in the embryo that unite with the ipsilateral medial nasal process to form the upper jaw,"{""embryonic maxillary process"",""maxillary process"",""maxillary process of embryo"",""prominentia maxilaris""}","{ISBN:0-683-40008-8,MP:0010940,NCIT:C34206,EHDAA:5877,EHDAA2:0001070,EMAPA:17359,FMA:293049,http://linkedlifedata.com/resource/umls/id/C1513037,http://www.snomedbrowser.com/Codes/Details/346355001,Maxillary:prominence,UMLS:C1513037}"
+1-4FBM,2018-11-28 00:49:40.407895+00:00,2020-11-06 21:40:33.502879+00:00,https://auth.globus.org/b506963e-d274-11e5-99f0-67ee73dd4c3f,https://auth.globus.org/b506963e-d274-11e5-99f0-67ee73dd4c3f,UBERON:0001676,http://purl.obolibrary.org/obo/UBERON_0001676,occipital bone,"the bone at the lower, posterior part of the skull","{""occipital complex"",""occipital squama"",""os occipitale""}","{ISBN:0-683-40008-8,MP:0005269,NCIT:C12757,EMAPA:25112,FMA:52735,GAID:227,http://linkedlifedata.com/resource/umls/id/C0028784,http://www.snomedbrowser.com/Codes/Details/181796003,MA:0001468,MESH:D009777,Occipital:bone,OpenCyc:Mx4rwQtsiZwpEbGdrcN5Y29ycA,UMLS:C0028784}"
 '''
     _realistic_csv_jsonarray = '''RID,RCT,RMT,RCB,RMB,id,uri,name,description,synonyms,alternate_ids
-1-4FD8,2018-11-28 00:49:40.407895+00,2020-11-06 22:03:19.113675+00,https://auth.globus.org/b506963e-d274-11e5-99f0-67ee73dd4c3f,https://auth.globus.org/b506963e-d274-11e5-99f0-67ee73dd4c3f,UBERON:0005868,http://purl.obolibrary.org/obo/UBERON_0005868,maxillary prominence,the paired dorsal prominences formed by bifurcation of the first pharyngeal arches in the embryo that unite with the ipsilateral medial nasal process to form the upper jaw,"[""embryonic maxillary process"",""maxillary process"",""maxillary process of embryo"",""prominentia maxilaris""]","[""ISBN:0-683-40008-8"",""MP:0010940"",""NCIT:C34206"",""EHDAA:5877"",""EHDAA2:0001070"",""EMAPA:17359"",""FMA:293049"",""http://linkedlifedata.com/resource/umls/id/C1513037"",""http://www.snomedbrowser.com/Codes/Details/346355001"",""Maxillary:prominence"",""UMLS:C1513037""]"
-1-4FBM,2018-11-28 00:49:40.407895+00,2020-11-06 21:40:33.502879+00,https://auth.globus.org/b506963e-d274-11e5-99f0-67ee73dd4c3f,https://auth.globus.org/b506963e-d274-11e5-99f0-67ee73dd4c3f,UBERON:0001676,http://purl.obolibrary.org/obo/UBERON_0001676,occipital bone,"the bone at the lower, posterior part of the skull","[""occipital complex"",""occipital squama"",""os occipitale""]","[""ISBN:0-683-40008-8"",""MP:0005269"",""NCIT:C12757"",""EMAPA:25112"",""FMA:52735"",""GAID:227"",""http://linkedlifedata.com/resource/umls/id/C0028784"",""http://www.snomedbrowser.com/Codes/Details/181796003"",""MA:0001468"",""MESH:D009777"",""Occipital:bone"",""OpenCyc:Mx4rwQtsiZwpEbGdrcN5Y29ycA"",""UMLS:C0028784""]"
+1-4FD8,2018-11-28 00:49:40.407895+00:00,2020-11-06 22:03:19.113675+00:00,https://auth.globus.org/b506963e-d274-11e5-99f0-67ee73dd4c3f,https://auth.globus.org/b506963e-d274-11e5-99f0-67ee73dd4c3f,UBERON:0005868,http://purl.obolibrary.org/obo/UBERON_0005868,maxillary prominence,the paired dorsal prominences formed by bifurcation of the first pharyngeal arches in the embryo that unite with the ipsilateral medial nasal process to form the upper jaw,"[""embryonic maxillary process"",""maxillary process"",""maxillary process of embryo"",""prominentia maxilaris""]","[""ISBN:0-683-40008-8"",""MP:0010940"",""NCIT:C34206"",""EHDAA:5877"",""EHDAA2:0001070"",""EMAPA:17359"",""FMA:293049"",""http://linkedlifedata.com/resource/umls/id/C1513037"",""http://www.snomedbrowser.com/Codes/Details/346355001"",""Maxillary:prominence"",""UMLS:C1513037""]"
+1-4FBM,2018-11-28 00:49:40.407895+00:00,2020-11-06 21:40:33.502879+00:00,https://auth.globus.org/b506963e-d274-11e5-99f0-67ee73dd4c3f,https://auth.globus.org/b506963e-d274-11e5-99f0-67ee73dd4c3f,UBERON:0001676,http://purl.obolibrary.org/obo/UBERON_0001676,occipital bone,"the bone at the lower, posterior part of the skull","[""occipital complex"",""occipital squama"",""os occipitale""]","[""ISBN:0-683-40008-8"",""MP:0005269"",""NCIT:C12757"",""EMAPA:25112"",""FMA:52735"",""GAID:227"",""http://linkedlifedata.com/resource/umls/id/C0028784"",""http://www.snomedbrowser.com/Codes/Details/181796003"",""MA:0001468"",""MESH:D009777"",""Occipital:bone"",""OpenCyc:Mx4rwQtsiZwpEbGdrcN5Y29ycA"",""UMLS:C0028784""]"
 '''
-    def test_csv_pgarray_realistic(self):
-        self._test_csv_generic(self._realistic_table, self._realistic_csv_pgarray, self._realistic_data)
-
-    def test_csv_jsonarray_realistic(self):
-        self._test_csv_generic(self._realistic_table, self._realistic_csv_jsonarray, self._realistic_data)
+    def test_csv_realistic(self):
+        self._test_csv_generic(self._realistic_table, self._realistic_csv_pgarray, self._realistic_csv_jsonarray, self._realistic_data)
 
     def test_json_realistic(self):
         self._test_json_generic(self._realistic_table, self._realistic_json, self._realistic_data)
@@ -949,23 +960,18 @@ class ErmrestTableDecodeTests (unittest.TestCase):
     ]
 
     _synthetic_csv_pgarray = '''text,float8,float4,int8,int4,int2,boolean,timestamptz,timestamp,date,json,jsonb,ermrest_rid,ermrest_rct,text[],float8[],float4[],int8[],int4[],int2[],boolean[],timestamptz[],timestamp[],date[],json[],jsonb[]
-foo,3.141592653589793,1000.52,9223372036854775807,2147483647,32767,True,"2020-01-01 12:34:56.678901+00:00","2020-01-01 12:34:56.678901",2020-01-01,"[null, 1, 1.0, ""one"", [2, ""two""], {""three"": 3}, ""2020-01-01 12:34:56.678901+00:00""]","[null, 1, 1.0, ""one"", [2, ""two""], {""three"": 3}, ""2020-01-01 12:34:56.678901+00:00""]",1-AAAA,"2020-01-01 12:34:56.678901+00:00","{NULL,foo,""foo\\nbar""}","{NULL,1.0,3.141592653589793}","{NULL,1000.52,-32.0}","{NULL,-9223372036854775808,-1,0,1,9223372036854775807}","{NULL,-2147483648,-1,0,1,2147483647}","{NULL,-32768,-1,0,1,32767}","{NULL,t,f}","{NULL,""2020-01-01 12:34:56.678901+00:00""}","{NULL,""2020-01-01 12:34:56.678901""}","{NULL,""2020-01-01""}","{NULL,"""",[],""{}"",1,1.0,True,one,""[null, \\""\\"", 1, 1.0, True, \\""one\\"", [2, \\""two\\""], {\\""three\\"": 3}, \\""2020-01-01 12:34:56.678901+00:00\\""]""}","{NULL,\\""\\"",[],""{}"",1,1.0,True,\\""one\\"",""[null, \\""\\"", 1, 1.0, True, \\""one\\"", [2, \\""two\\""], {\\""three\\"": 3}, \\""2020-01-01 12:34:56.678901+00:00\\""]""}"
-"",0.0,0.0,0,0,0,False,"1970-01-01 00:00:00+00:00","1970-01-01 00:00:00","1970-01-01","[]","""""",0,"1970-01-01 00:00:00+00:00","{}","{}","{}","{}","{}","{}","{}","{}","{}","{}","{}","{}"
+foo,3.141592653589793,1000.52,9223372036854775807,2147483647,32767,true,2020-01-01 12:34:56.678901+00:00,2020-01-01 12:34:56.678901,2020-01-01,"[null,1,1.0,""one"",[2,""two""],{""three"":3},""2020-01-01 12:34:56.678901+00:00""]","[null,1,1.0,""one"",[2,""two""],{""three"":3},""2020-01-01 12:34:56.678901+00:00""]",1-AAAA,2020-01-01 12:34:56.678901+00:00,"{NULL,foo,""foo\nbar""}","{NULL,1.0,3.141592653589793}","{NULL,1000.52,-32.0}","{NULL,-9223372036854775808,-1,0,1,9223372036854775807}","{NULL,-2147483648,-1,0,1,2147483647}","{NULL,-32768,-1,0,1,32767}","{NULL,true,false}","{NULL,""2020-01-01 12:34:56.678901+00:00""}","{NULL,""2020-01-01 12:34:56.678901""}","{NULL,2020-01-01}","{NULL,""\\""\\"""",[],""{}"",1,1.0,true,""\\""one\\"""",""[null,\\""\\"",1,1.0,true,\\""one\\"",[2,\\""two\\""],{\\""three\\"":3},\\""2020-01-01 12:34:56.678901+00:00\\""]""}","{NULL,""\\""\\"""",[],""{}"",1,1.0,true,""\\""one\\"""",""[null,\\""\\"",1,1.0,true,\\""one\\"",[2,\\""two\\""],{\\""three\\"":3},\\""2020-01-01 12:34:56.678901+00:00\\""]""}"
+,0.0,0.0,0,0,0,false,1970-01-01 00:00:00+00:00,1970-01-01 00:00:00,1970-01-01,[],"""""",0,1970-01-01 00:00:00+00:00,{},{},{},{},{},{},{},{},{},{},{},{}
 ,,,,,,,,,,,,,,,,,,,,,,,,,
 '''
     _synthetic_csv_jsonarray = '''text,float8,float4,int8,int4,int2,boolean,timestamptz,timestamp,date,json,jsonb,ermrest_rid,ermrest_rct,text[],float8[],float4[],int8[],int4[],int2[],boolean[],timestamptz[],timestamp[],date[],json[],jsonb[]
-foo,3.141592653589793,1000.52,9223372036854775807,2147483647,32767,True,"2020-01-01 12:34:56.678901+00:00","2020-01-01 12:34:56.678901",2020-01-01,"[null, 1, 1.0, ""one"", [2, ""two""], {""three"": 3}, ""2020-01-01 12:34:56.678901+00:00""]","[null, 1, 1.0, ""one"", [2, ""two""], {""three"": 3}, ""2020-01-01 12:34:56.678901+00:00""]",1-AAAA,"2020-01-01 12:34:56.678901+00:00","[null, ""foo"", ""foo\\nbar""]","[null, 1.0, 3.141592653589793]","[null, 1000.52, -32.0]","[null, -9223372036854775808, -1, 0, 1, 9223372036854775807]","[null, -2147483648, -1, 0, 1, 2147483647]","[null, -32768, -1, 0, 1, 32767]","[null, true, false]","[null, ""2020-01-01 12:34:56.678901+00:00""]","[null, ""2020-01-01 12:34:56.678901""]","[null, ""2020-01-01""]","[null, """", [], {}, 1, 1.0, true, ""one"", [null, """", 1, 1.0, true, ""one"", [2, ""two""], {""three"": 3}, ""2020-01-01 12:34:56.678901+00:00""]]","[null, """", [], {}, 1, 1.0, true, ""one"", [null, """", 1, 1.0, true, ""one"", [2, ""two""], {""three"": 3}, ""2020-01-01 12:34:56.678901+00:00""]]"
-,0.0,0.0,0,0,0,False,"1970-01-01 00:00:00+00:00","1970-01-01 00:00:00","1970-01-01","[]","""""",0,"1970-01-01 00:00:00+00:00","[]","[]","[]","[]","[]","[]","[]","[]","[]","[]","[]","[]"
+foo,3.141592653589793,1000.52,9223372036854775807,2147483647,32767,true,2020-01-01 12:34:56.678901+00:00,2020-01-01 12:34:56.678901,2020-01-01,"[null,1,1.0,""one"",[2,""two""],{""three"":3},""2020-01-01 12:34:56.678901+00:00""]","[null,1,1.0,""one"",[2,""two""],{""three"":3},""2020-01-01 12:34:56.678901+00:00""]",1-AAAA,2020-01-01 12:34:56.678901+00:00,"[null,""foo"",""foo\\nbar""]","[null,1.0,3.141592653589793]","[null,1000.52,-32.0]","[null,-9223372036854775808,-1,0,1,9223372036854775807]","[null,-2147483648,-1,0,1,2147483647]","[null,-32768,-1,0,1,32767]","[null,true,false]","[null,""2020-01-01 12:34:56.678901+00:00""]","[null,""2020-01-01 12:34:56.678901""]","[null,""2020-01-01""]","[null,"""",[],{},1,1.0,true,""one"",[null,"""",1,1.0,true,""one"",[2,""two""],{""three"":3},""2020-01-01 12:34:56.678901+00:00""]]","[null,"""",[],{},1,1.0,true,""one"",[null,"""",1,1.0,true,""one"",[2,""two""],{""three"":3},""2020-01-01 12:34:56.678901+00:00""]]"
+,0.0,0.0,0,0,0,false,1970-01-01 00:00:00+00:00,1970-01-01 00:00:00,1970-01-01,[],"""""",0,1970-01-01 00:00:00+00:00,[],[],[],[],[],[],[],[],[],[],[],[]
 ,,,,,,,,,,,,,,,,,,,,,,,,,
 '''
 
-    def test_csv_pgarray_synthetic(self):
-        #self._test_csv_generic(self._synthetic_table, self._synthetic_csv_pgarray, self._synthetic_data)
-        pass
-
-    def test_csv_jsonarray_synthetic(self):
-        self._test_csv_generic(self._synthetic_table, self._synthetic_csv_jsonarray, self._synthetic_data)
-        pass
+    def test_csv_synthetic(self):
+        self._test_csv_generic(self._synthetic_table, self._synthetic_csv_pgarray, self._synthetic_csv_jsonarray, self._synthetic_data)
 
     def test_json_synthetic(self):
         self._test_json_generic(self._synthetic_table, self._synthetic_json, self._synthetic_data)

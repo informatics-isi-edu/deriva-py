@@ -2313,26 +2313,37 @@ CREATE TABLE IF NOT EXISTS %(tname)s (
     def rows_pre_json(
         self,
         rows: Iterable[dict],
-        strict: bool = True,
+        columns: dict[str, Union[Type, str]] = {},
+        str_fallback: bool = False,
     ) -> Iterable[dict]:
         """Return transformed rows with typed data encoding.
 
         :param rows: Iterable of dicts representing rows.
-        :param strict: Reject unknown columns when True, else pass unmodified.
+        :param columns: A mapping of row dict column names to types.
+        :param str_fallback: Coerse unknown columns to str when true.
 
-        This is a convenience utility for encoding JSON-destined
-        values conforming to the table definition. It applies data
-        encoding based on each column type, replacing some idiomatic
-        native Python types with strings.
+        The rows iterable represents each row as a dict mapping column
+        names to values. Each value is pre-processed in anticipation
+        of eventual JSON serialization, using encoding rules specific
+        to each ERMrest column type.
 
-        When strict is True, a KeyError is raised if rows use a column
-        name not found in the table definition. Otherwise, such
-        columns are naively coerced as str(v).
+        The columns dict allows override or extended handling of row
+        dict column names. A column name can be mapped directly to a
+        Type instance or to a typename which will be resolved using
+        builtin_types[typename].
+
+        Encoding column types are determined for each row dict key by
+        the following search order:
+
+        1. If key in columns: use columns[key]
+        2. Else if key in self.columns: use self.columns[key].type
+        3. Else if str_fallback: coerce using str(value)
+        4. Else raise KeyError(key)
 
         Text, numeric, boolean, and JSON columns are passed through
-        unmodified. This wrapper provides additional encoding of
-        non-text column types into the idiomatic Python types for each
-        column type.
+        unmodified, allowing subsequent JSON serialization to handle
+        their representation. Array column types remain arrays, but
+        each element of the array will be encoded, as appropriate.
 
         NOTE: Because this is a generator which processes the input
         iterable incrementally, exceptions may occur after some rows
@@ -2340,42 +2351,60 @@ CREATE TABLE IF NOT EXISTS %(tname)s (
         raise nothing before StopIteration.
 
         """
-        converters = {}
+        if not isinstance(columns, dict):
+            raise TypeError(f"bad operand to rows_pre_json(): expected columns dict, not {columns!r}")
+
+        converters = {
+            k: _get_type("rows_pre_json", k, v).py_pre_json
+            for k, v in columns.items()
+        }
+
         for row in rows:
             for cname in row.keys():
                 if cname not in converters:
-                    if cname not in self.columns.elements:
-                        if strict:
-                            raise KeyError(cname)
-                        else:
-                            converters[cname] = lambda v: str(v)
-                    else:
+                    if cname in self.columns.elements:
                         converters[cname] = self.columns[cname].type.py_pre_json
+                    elif str_fallback:
+                        converters[cname] = lambda v: str(v)
+                    else:
+                        raise KeyError(cname)
+            #
             yield { k: converters[k](v) for k, v in row.items() }
 
     def rows_post_json(
         self,
         rows: Iterable[dict],
-        strict: bool = True,
+        columns: dict[str, Union[Type, str]] = {},
+        json_fallback: bool = False,
     ) -> Iterable[dict]:
         """Return transformed rows with typed data decoding.
 
         :param rows: Iterable of dicts representing rows obtained from JSON.
-        :param strict: Reject unknown columns when True, else pass unmodified.
+        :param columns: A mapping of row dict column names to types.
+        :param json_fallback: Assume unknown columns are JSON when true.
 
-        This is a convenience utility for decoding JSON-derived values
-        conforming to the table definition. It applies data decoding
-        based on each column type, replacing some string values with
-        idiomatic native Python types.
+        The rows iterable represents each row as a dict mapping column
+        names to values. Each value is post-processed assuming values
+        obtained from JSON deserialization, using decoding rules
+        specific to each ERMrest column type.
 
-        When strict is True, a KeyError is raised if rows use a column
-        name not found in the table definition. Otherwise, such
-        columns are processed as if they are JSON columns.
+        The columns dict allows override or extended handling of row
+        dict column names. A column name can be mapped directly to a
+        Type instance or to a typename which will be resolved using
+        builtin_types[typename].
+
+        Decoding column types are determined for each row dict key by
+        the following search order:
+
+        1. If key in columns: use columns[key]
+        2. Else if key in self.columns: use self.columns[key].type
+        3. Else if json_fallback: use builtin_types['json'] type
+        4. Else raise KeyError(key)
 
         Text, numeric, boolean, and JSON columns are passed through
-        unmodified. This wrapper provides additional decoding of
-        non-text column types into the idiomatic Python types for each
-        column type.
+        unmodified, since JSON deserialization already understood
+        their representation. Array column types remain arrays, but
+        each element of the array will be decoded, if appropriate.
 
         NOTE: Because this is a generator which processes the input
         iterable incrementally, exceptions may occur after some rows
@@ -2383,35 +2412,39 @@ CREATE TABLE IF NOT EXISTS %(tname)s (
         raise nothing before StopIteration.
 
         """
-        converters = {}
+        if not isinstance(columns, dict):
+            raise TypeError(f"bad operand to rows_post_json(): expected columns dict, not {columns!r}")
+
+        converters = {
+            k: _get_type("rows_post_json", k, v).py_post_json
+            for k, v in columns.items()
+        }
+
         for row in rows:
             for cname in row.keys():
                 if cname not in converters:
-                    if cname not in self.columns.elements:
-                        if strict:
-                            raise KeyError(cname)
-                        else:
-                            converters[cname] = builtin_types['json'].py_post_json
-                    else:
+                    if cname in self.columns.elements:
                         converters[cname] = self.columns[cname].type.py_post_json
+                    elif json_fallback:
+                        converters[cname] = builtin_types['json'].py_post_json
+                    else:
+                        raise KeyError(cname)
+            #
             yield { k: converters[k](v) for k, v in row.items() }
 
     def csv_file_decode(
         self,
         infile: io.TextIOBase,
         use_dicts: bool = True,
-        strict: bool = True,
-    ) -> Iterator[Union[list, dict]]:
+        columns: dict[str, Union[Type, str]] = {},
+        text_fallback: bool = False,
+    ) -> Iterable[Union[list, dict]]:
         """Generate rows of CSV content from input file with typed data decoding.
 
         :param infile: A readable file or file-like object.
         :param use_dicts: Produce row dicts when True, else row lists.
-        :param strict: Reject unknown columns when True, else pass unmodified.
-
-        This is a convenience wrapper around csv.reader() for decoding
-        CSV files representing data conforming to the table
-        definition. It applies data decoding based on each column
-        type.
+        :param columns: A mapping of CSV column names to types.
+        :param text_fallback: Assume unknown columns are text when true.
 
         The infile must be prepared by the caller and should be
         suitable for use with csv.reader(). The content of infile must
@@ -2426,13 +2459,18 @@ CREATE TABLE IF NOT EXISTS %(tname)s (
         results are similar to csv.reader(), producing one list per
         row including an initial header row.
 
-        When strict is True, a KeyError is raised if infile uses a
-        column name not found in the table definition. Otherwise, such
-        columns are processed as if they are text columns.
+        The columns dict allows override or extended handling of CSV
+        column names. A column name can be mapped directly to a Type
+        instance or to a typename which will be resolved using
+        builtin_types[typename].
 
-        Text columns are passed through unmodified. This wrapper
-        provides additional decoding of non-text column types into the
-        idiomatic Python types for each column type.
+        Decoding column types are determined for each CSV column name
+        n by the following search order:
+
+        1. If n in columns: use columns[n]
+        2. Else if n in self.columns: use self.columns[n].type
+        3. Else if text_fallback: use builtin_types['text'] type
+        4. Else raise KeyError(key)
 
         """
         reader = csv.reader(infile)
@@ -2446,23 +2484,25 @@ CREATE TABLE IF NOT EXISTS %(tname)s (
                 column_names = tuple(row)
                 column_count = len(column_names)
                 for cname in column_names:
-                    if cname not in self.columns.elements:
-                        if strict:
-                            raise KeyError(cname)
-                        else:
-                            column_types.append(builtin_types['text'])
+                    if cname in columns:
+                        ctype = _get_type("csv_file_decode", cname, columns[cname])
+                    elif cname in self.columns.elements:
+                        ctype = self.columns[cname].type
+                    elif text_fallback:
+                        ctype = builtin_types['text']
                     else:
-                        column_types.append(self.columns[cname].type)
+                        raise KeyError(cname)
+                    column_types.append(ctype)
                 #
                 if not use_dicts:
-                    yield column_names
+                    yield list(column_names)
                 #
                 continue
 
             # process regular data row
             if len(row) != column_count:
                 raise ValueError(f"bad infile to csv_table_decode() header has {column_count} fields, but row has {len(row)} fields")
-            column_values = []
+            column_values: list[Any] = []
             for i in range(column_count):
                 try:
                     if row[i] is "":
@@ -2480,6 +2520,86 @@ CREATE TABLE IF NOT EXISTS %(tname)s (
                 yield dict(zip(column_names, column_values))
             else:
                 yield column_values
+
+    def csv_file_encode(
+        self,
+        outfile: io.TextIOBase,
+        rows: Iterable[dict[str, Any]],
+        columns: Optional[dict[str, Union[Type, str]]] = None,
+        use_pgarrays: bool = False,
+    ) -> None:
+        """Serialize rows to CSV with typed data encoding.
+
+        :param outfile: A writable file or file-like object.
+        :param data: An iterable of dicts representing row data.
+        :param columns: An ordered mapping of output column names to types.
+        :param use_pgarrays: Serialize array columns using PostgreSQL array syntax when true, else use JSON.
+
+        The outfile must prepared by the caller and should be suitable
+        for use with csv.writer(). As stated in csv.writer()
+        documentation, outfile should be opened in newline=''
+        mode.
+
+        The rows iterable supplies a sequence of row dicts, each
+        mapping column names to Python native values. One CSV record
+        will be written per row dict. The keys present in the first
+        row dict may have an impact on the CSV output shape when the
+        columns parameter is None.
+
+        The columns dict specifies output column names and order as
+        keys. Each key maps to a Type or typename str. In the case of
+        a str, it must be found in builtin_types.
+
+        If columns is None, a default columns mapping is determined by
+        matching columns in the table definition to keys in the FIRST
+        row dict:
+
+        columns = {
+          c.name: c.type
+          for c in self.columns
+          if c.name in row1
+        }
+
+        Whether set by explicit paramter or this default logic, the
+        column names in the columns dict define the shape of the
+        output CSV. Any extra columns appearing in row dicts will be
+        ignored, and CSV columns absent from a row dict will be
+        treated as if they are present with value None.
+
+        The content written to outfile will be compliant with the CSV
+        encoding rules followed by ERMrest, with the caveat that some
+        versions of ERMrest may not understand JSON encoding for array
+        column types in CSV inputs.
+
+        """
+        writer = csv.writer(outfile)
+
+        output_cols: list[str] = []
+        output_types: list[Type] = []
+        output_ncols = -1
+
+        def build_header(row1, columns):
+            if columns is None:
+                columns = {c.name: c.type for c in self.columns if c.name in row1}
+            for k, v in list(columns.items()):
+                columns[k] = _get_type("csv_file_encode", k, v)
+            return [ list(t) for t in zip(*columns.items()) ]
+
+        for row in rows:
+            if output_ncols < 0:
+                # configure and write header row first
+                output_cols, output_types = build_header(row, columns)
+                output_ncols = len(output_cols)
+                writer.writerow(output_cols)
+            # write row data
+            def encode(i):
+                v = row.get(output_cols[i])
+                typ = output_types[i]
+                if isinstance(typ, ArrayType):
+                    return typ.py_to_text(v, use_pgarray=use_pgarrays)
+                else:
+                    return typ.py_to_text(v)
+            writer.writerow([ encode(i) for i in range(output_ncols) ])
 
     @presence_annotation(tag.immutable)
     def immutable(self): pass
@@ -3394,6 +3514,19 @@ class ForeignKey (object):
 
 builtin_types = AttrDict()
 
+def _get_type(funcname, k, v):
+    """Helper to sanitize column type dicts {k: v}"""
+    if isinstance(v, Type):
+        return v
+    elif isinstance(v, str):
+        if v in builtin_types:
+            return builtin_types[v]
+        else:
+            raise ValueError(f"bad operand to {funcname}(): columns[{k!r}]={v!r} not found in builtin_types")
+    else:
+        raise TypeError(f"bad operand to {funcname}(): expected Type or str for columns[{k!r}]={v!r}")
+
+
 def make_type(type_doc, **kwargs):
     """Find instance of Type, DomainType, or ArrayType as appropriate for type_doc.
 
@@ -3415,6 +3548,31 @@ def make_type(type_doc, **kwargs):
     else:
         return Type(type_doc, **kwargs)
 
+def _Type_value_check_sentinel(self: Type, v: Any) -> bool:
+    """Always return false.
+
+    Acts like (lambda self, v: False), but as a typed function.
+
+    """
+    return False
+
+def _Type_coerce_to_str(self: Type, v: Any) -> Optional[str]:
+    """Wrapper to apply str(v)
+
+    Acts like (lambda self, v: str(v)), but as a typed function.
+
+    """
+    return str(v)
+
+def _Type_proxy_py_type(self: Type, s: Optional[str]) -> Any:
+    """Wrapper to access py_type(s) method of given Type instance.
+
+    Acts like lambda (self, s: self.py_type(s)), but as a typed
+    function.
+
+    """
+    return self.py_type(s)
+
 class Type (object):
     """Named ERMrest column type.
 
@@ -3435,9 +3593,9 @@ class Type (object):
         self,
         type_doc: Optional[dict] = None,
         py_type: type = str,
-        value_check: Callable[[Type, Any], bool] = (lambda self, v: False),
-        to_text: Callable[[Type, Any], str] = (lambda self, v: str(v)),
-        from_text: Callable[[Type, str], Any] = (lambda self, s: self.py_type(s)),
+        value_check: Callable[[Type, Any], bool] = _Type_value_check_sentinel,
+        to_text: Callable[[Type, Any], Optional[str]] = _Type_coerce_to_str,
+        from_text: Callable[[Type, str], Any] = _Type_proxy_py_type,
         json_uses_passthrough: bool = False,
         sqlite3_type_ddl: str = 'text',
     ):
@@ -3487,7 +3645,7 @@ class Type (object):
             raise ValueError(f"bad value for ermrest typename={self.typename} value={v!r}")
         return v
 
-    def py_to_text(self, v: Any) -> str:
+    def py_to_text(self, v: Any) -> Optional[str]:
         """Convert a Python native value of this type to text representation.
 
         :param v: The Python value to convert
@@ -3496,7 +3654,7 @@ class Type (object):
             return None
         return self._to_text(self, self.py_checked(v))
 
-    def text_to_py(self, s: str) -> Any:
+    def text_to_py(self, s: Optional[str]) -> Any:
         """Convert a text representation of this type to native Python.
 
         :param s: A string containing the text representation
@@ -3725,22 +3883,24 @@ class ArrayType (Type):
 
         return v
 
-    def py_to_text(self, v: Any) -> str:
+    def py_to_text(self, v: Any, use_pgarray=False) -> Optional[str]:
         """Convert a Python native value of this type to text representation.
 
         :param v: The Python value to convert
+        :param use_pgarray: Encode to PostgreSQL array syntax when True, else JSON.
         """
         if v is None:
             return None
 
-        v = self.py_checked(v)
-        if self.base_type._json_uses_passthrough:
-            pass
+        if use_pgarray:
+            return pgarray_encode(v, lambda v: (self.base_type.py_to_text(v), False))
         else:
-            v = [ self.base_type.py_pre_json(e) for e in v ]
-        return json.dumps(v, separators=(',',':'))
+            return json.dumps(
+                [ self.base_type.py_pre_json(e) for e in self.py_checked(v) ],
+                separators=(',',':'),
+            )
 
-    def text_to_py(self, s: str) -> Any:
+    def text_to_py(self, s: Optional[str]) -> Any:
         """Convert a text representation of this type to native Python.
 
         :param s: A string containing the text representation
@@ -3795,6 +3955,15 @@ builtin_types.update({
     ]
 })
 
+def _DomainType_value_check_sentinel(self: Type, v: Any) -> bool:
+    raise NotImplementedError('DomainType._value_check() should not be invoked!')
+
+def _DomainType_to_text_sentinel(self: Type, v: Any) -> Optional[str]:
+    raise NotImplementedError('DomainType._to_text() should not be invoked!')
+
+def _DomainType_from_text_sentinel(self: Type, s: Optional[str]) -> Any:
+    raise NotImplementedError('DomainType._from_text() should not be invoked!')
+
 class DomainType (Type):
     """Named domain type.
     """
@@ -3804,12 +3973,12 @@ class DomainType (Type):
         super(DomainType, self).__init__(
             type_doc,
             # break these to test that we proxy everything to base_type
-            py_type = None,
-            value_check = (lambda self, v: False),
-            to_text = (lambda self, v: NotImplementedError()),
-            from_text = (lambda self, s: NotImplementedError()),
-            json_uses_passthrough = None,
-            sqlite3_type_ddl = None,
+            py_type = object,
+            value_check = _DomainType_value_check_sentinel,
+            to_text = _DomainType_to_text_sentinel,
+            from_text = _DomainType_from_text_sentinel,
+            json_uses_passthrough = False,
+            sqlite3_type_ddl = 'text',
         )
         self.base_type = make_type(type_doc['base_type'])
         if self.base_type.typename not in builtin_types:
@@ -3834,14 +4003,14 @@ class DomainType (Type):
         """
         return self.base_type.py_checked(v)
 
-    def py_to_text(self, v: Any) -> str:
+    def py_to_text(self, v: Any) -> Optional[str]:
         """Convert a Python native value of this type to text representation.
 
         :param v: The Python value to convert
         """
         return self.base_type.py_to_text(v)
 
-    def text_to_py(self, s: str) -> Any:
+    def text_to_py(self, s: Optional[str]) -> Any:
         """Convert a text representation of this type to native Python.
 
         :param s: A string containing the text representation
