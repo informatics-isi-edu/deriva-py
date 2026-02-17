@@ -13,6 +13,7 @@ import math
 import json
 import io
 import unittest
+from typing import Any, Sequence
 from deriva.core import DerivaServer, get_credential, ermrest_model, tag
 from deriva.core import \
     crockford_b32encode, crockford_b32decode, \
@@ -29,7 +30,7 @@ else:
 
 hostname = os.getenv("DERIVA_PY_TEST_HOSTNAME")
 
-_EMTypeTests_py_checked_cases = {
+_EMTypeTests_py_checked_cases: dict[Sequence[str], tuple[list[Any], list[Any]]] = {
     ('text', 'markdown', "longtext", "ermrest_curie", "ermrest_uri", "color_rgb_hex", "ermrest_rid", "ermrest_rcb", "ermrest_rmb"): (
         [None, '', 'foo', 'foo bar', 'foo\nbar'],
         [42, True, {}, [], set(), tuple()],
@@ -143,7 +144,7 @@ _EMTypeTests_py_checked_cases |= {
     ]
 }
 
-_EMTypeTests_text_convert_cases = {
+_EMTypeTests_text_convert_cases: dict[Sequence[str], dict[Any,Any]] = {
     ("text", "markdown", "longtext", "ermrest_curie", "ermrest_uri", "color_rgb_hex", "ermrest_rid", "ermrest_rcb", "ermrest_rmb"): {
         None: None,
         "": "",
@@ -252,7 +253,7 @@ _EMTypeTests_text_convert_cases |= {
     ]
 }
 
-_EMTypeTests_py_pre_json_cases = {
+_EMTypeTests_py_pre_json_cases: dict[Sequence[str], Sequence[list[Any]]] = {
     ("text", "markdown", "longtext", "ermrest_curie", "ermrest_uri", "color_rgb_hex", "ermrest_rid", "ermrest_rcb", "ermrest_rmb"): [
         [None, None],
         ["", ""],
@@ -418,7 +419,9 @@ class EMTypeTests (unittest.TestCase):
             ddl = typ.sqlite3_ddl()
             self.assertEqual(typ.base_type.sqlite3_ddl(), ddl)
 
-    def test_py_checked(self):
+    def test_py_checked(self) -> None:
+        typenames: Sequence[str]
+        cases: tuple[list[Any], list[Any]]
         for typenames, cases in _EMTypeTests_py_checked_cases.items():
             for typename in typenames:
                 typ = em.builtin_types[typename]
@@ -1076,7 +1079,7 @@ class ErmrestModelTests (unittest.TestCase):
         "insert": ["a"],
         "update": ["b"],
     }
-    _test_acl_bindings = {
+    _test_acl_bindings: dict[str, Any] = {
     }
     _test_annotations = {"tag1": "value1"}
 
