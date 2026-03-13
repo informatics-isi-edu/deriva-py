@@ -208,6 +208,265 @@ class TestAsyncDerivaBindingAsync(unittest.IsolatedAsyncioTestCase):
         await binding.close()
 
 
+class TestAsyncRetry(unittest.IsolatedAsyncioTestCase):
+    """Tests for retry logic in AsyncDerivaBinding."""
+
+    def _make_binding(self, **session_overrides):
+        """Create a binding with short retry backoff for fast tests."""
+        config = {
+            "retry_connect": 2,
+            "retry_read": 3,
+            "retry_backoff_factor": 0.0,  # No delay in tests
+            "retry_status_forcelist": [500, 502, 503],
+        }
+        config.update(session_overrides)
+        return AsyncDerivaBinding("https", "example.org", session_config=config)
+
+    async def test_retry_config_from_session_config(self):
+        """Retry parameters should be read from session config."""
+        binding = self._make_binding(
+            retry_connect=5,
+            retry_read=10,
+            retry_backoff_factor=2.0,
+            retry_status_forcelist=[500, 502],
+        )
+        self.assertEqual(binding._retry_connect, 5)
+        self.assertEqual(binding._retry_read, 10)
+        self.assertEqual(binding._retry_backoff_factor, 2.0)
+        self.assertEqual(binding._retry_status_forcelist, {500, 502})
+        await binding.close()
+
+    async def test_retry_defaults_match_sync(self):
+        """Default retry config should match sync DerivaBinding defaults."""
+        binding = AsyncDerivaBinding("https", "example.org")
+        self.assertEqual(binding._retry_connect, 2)
+        self.assertEqual(binding._retry_read, 4)
+        self.assertEqual(binding._retry_backoff_factor, 1.0)
+        self.assertEqual(binding._retry_status_forcelist, {500, 502, 503, 504})
+        self.assertFalse(binding._retry_on_all_methods)
+        await binding.close()
+
+    @patch.object(httpx.AsyncClient, "get")
+    async def test_get_retries_on_500(self, mock_get):
+        """GET should retry on 500 status code."""
+        fail_response = MagicMock(spec=httpx.Response)
+        fail_response.status_code = 500
+        fail_response.url = "https://example.org/test"
+        fail_response.text = "Internal Server Error"
+
+        ok_response = MagicMock(spec=httpx.Response)
+        ok_response.status_code = 200
+        ok_response.headers = {}
+
+        mock_get.side_effect = [fail_response, ok_response]
+
+        binding = self._make_binding()
+        await binding._get_client()
+
+        response = await binding.get_async("/test")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_get.call_count, 2)
+        await binding.close()
+
+    @patch.object(httpx.AsyncClient, "get")
+    async def test_get_retries_on_connect_error(self, mock_get):
+        """GET should retry on connection error."""
+        ok_response = MagicMock(spec=httpx.Response)
+        ok_response.status_code = 200
+        ok_response.headers = {}
+
+        mock_get.side_effect = [httpx.ConnectError("Connection refused"), ok_response]
+
+        binding = self._make_binding()
+        await binding._get_client()
+
+        response = await binding.get_async("/test")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_get.call_count, 2)
+        await binding.close()
+
+    @patch.object(httpx.AsyncClient, "get")
+    async def test_get_exhausts_connect_retries(self, mock_get):
+        """GET should raise after exhausting connect retries."""
+        mock_get.side_effect = httpx.ConnectError("Connection refused")
+
+        binding = self._make_binding(retry_connect=2)
+        await binding._get_client()
+
+        with self.assertRaises(httpx.ConnectError):
+            await binding.get_async("/test")
+
+        # Initial attempt + 2 retries = 3 calls
+        self.assertEqual(mock_get.call_count, 3)
+        await binding.close()
+
+    @patch.object(httpx.AsyncClient, "get")
+    async def test_get_exhausts_status_retries(self, mock_get):
+        """GET should raise after exhausting status retries."""
+        fail_response = MagicMock(spec=httpx.Response)
+        fail_response.status_code = 503
+        fail_response.url = "https://example.org/test"
+        fail_response.text = "Service Unavailable"
+
+        mock_get.return_value = fail_response
+
+        binding = self._make_binding(retry_read=2)
+        await binding._get_client()
+
+        with self.assertRaises(AsyncHTTPError) as ctx:
+            await binding.get_async("/test")
+
+        self.assertEqual(ctx.exception.status_code, 503)
+        # Initial attempt + 2 retries = 3 calls
+        self.assertEqual(mock_get.call_count, 3)
+        await binding.close()
+
+    @patch.object(httpx.AsyncClient, "get")
+    async def test_get_retries_on_read_error(self, mock_get):
+        """GET should retry on read errors."""
+        ok_response = MagicMock(spec=httpx.Response)
+        ok_response.status_code = 200
+        ok_response.headers = {}
+
+        mock_get.side_effect = [httpx.ReadError("Connection reset"), ok_response]
+
+        binding = self._make_binding()
+        await binding._get_client()
+
+        response = await binding.get_async("/test")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_get.call_count, 2)
+        await binding.close()
+
+    @patch.object(httpx.AsyncClient, "get")
+    async def test_no_retry_on_404(self, mock_get):
+        """GET should NOT retry on 404 (not in forcelist)."""
+        fail_response = MagicMock(spec=httpx.Response)
+        fail_response.status_code = 404
+        fail_response.url = "https://example.org/test"
+        fail_response.text = "Not Found"
+
+        mock_get.return_value = fail_response
+
+        binding = self._make_binding()
+        await binding._get_client()
+
+        with self.assertRaises(AsyncHTTPError) as ctx:
+            await binding.get_async("/test")
+
+        self.assertEqual(ctx.exception.status_code, 404)
+        # Should not retry — only 1 call
+        self.assertEqual(mock_get.call_count, 1)
+        await binding.close()
+
+    @patch.object(httpx.AsyncClient, "post")
+    async def test_post_not_retried_by_default(self, mock_post):
+        """POST should NOT be retried by default (not idempotent)."""
+        mock_post.side_effect = httpx.ConnectError("Connection refused")
+
+        binding = self._make_binding()
+        await binding._get_client()
+
+        with self.assertRaises(httpx.ConnectError):
+            await binding.post_async("/test", json_data={"key": "value"})
+
+        # No retry — only 1 call
+        self.assertEqual(mock_post.call_count, 1)
+        await binding.close()
+
+    @patch.object(httpx.AsyncClient, "post")
+    async def test_post_retried_when_all_methods_allowed(self, mock_post):
+        """POST should be retried when allow_retry_on_all_methods is set."""
+        ok_response = MagicMock(spec=httpx.Response)
+        ok_response.status_code = 200
+        mock_post.side_effect = [httpx.ConnectError("Connection refused"), ok_response]
+
+        binding = self._make_binding(allow_retry_on_all_methods=True)
+        await binding._get_client()
+
+        response = await binding.post_async("/test", json_data={"key": "value"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_post.call_count, 2)
+        await binding.close()
+
+    @patch.object(httpx.AsyncClient, "put")
+    async def test_put_retried_on_connect_error(self, mock_put):
+        """PUT should be retried (it's in the default safe methods)."""
+        ok_response = MagicMock(spec=httpx.Response)
+        ok_response.status_code = 200
+        mock_put.side_effect = [httpx.ConnectError("Connection refused"), ok_response]
+
+        binding = self._make_binding()
+        await binding._get_client()
+
+        response = await binding.put_async("/test", json_data={"key": "value"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_put.call_count, 2)
+        await binding.close()
+
+    @patch.object(httpx.AsyncClient, "delete")
+    async def test_delete_retried_on_connect_error(self, mock_delete):
+        """DELETE should be retried (it's in the default safe methods)."""
+        ok_response = MagicMock(spec=httpx.Response)
+        ok_response.status_code = 200
+        mock_delete.side_effect = [httpx.ConnectError("Connection refused"), ok_response]
+
+        binding = self._make_binding()
+        await binding._get_client()
+
+        response = await binding.delete_async("/test")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_delete.call_count, 2)
+        await binding.close()
+
+    @patch.object(httpx.AsyncClient, "get")
+    async def test_retry_with_backoff(self, mock_get):
+        """Retry should use exponential backoff."""
+        fail_response = MagicMock(spec=httpx.Response)
+        fail_response.status_code = 503
+        fail_response.url = "https://example.org/test"
+        fail_response.text = "Service Unavailable"
+
+        ok_response = MagicMock(spec=httpx.Response)
+        ok_response.status_code = 200
+        ok_response.headers = {}
+
+        mock_get.side_effect = [fail_response, fail_response, ok_response]
+
+        binding = self._make_binding(retry_backoff_factor=0.01)
+        await binding._get_client()
+
+        with patch("deriva.core.asyncio.async_binding.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            response = await binding.get_async("/test")
+
+        self.assertEqual(response.status_code, 200)
+        # Verify backoff: 0.01*2^0=0.01, 0.01*2^1=0.02
+        self.assertEqual(mock_sleep.call_count, 2)
+        mock_sleep.assert_any_call(0.01)
+        mock_sleep.assert_any_call(0.02)
+        await binding.close()
+
+    @patch.object(httpx.AsyncClient, "get")
+    async def test_no_retry_when_retry_disabled(self, mock_get):
+        """No retries when retry counts are 0."""
+        mock_get.side_effect = httpx.ConnectError("Connection refused")
+
+        binding = self._make_binding(retry_connect=0, retry_read=0)
+        await binding._get_client()
+
+        with self.assertRaises(httpx.ConnectError):
+            await binding.get_async("/test")
+
+        self.assertEqual(mock_get.call_count, 1)
+        await binding.close()
+
+
 @unittest.skipUnless(hostname, "Test host not specified")
 class TestAsyncDerivaBindingIntegration(unittest.IsolatedAsyncioTestCase):
     """Integration tests for AsyncDerivaBinding against real server."""
