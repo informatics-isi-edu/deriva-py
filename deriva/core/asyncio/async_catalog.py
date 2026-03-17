@@ -81,6 +81,15 @@ class AsyncErmrestCatalog(AsyncDerivaBinding):
             )
         return self._sync_catalog
 
+    def getPathBuilder(self):
+        """Get a path builder for constructing datapath queries.
+
+        Delegates to the underlying sync catalog's path builder.
+        The resulting datapath objects can be used to construct query URIs
+        that are then executed via get_async().
+        """
+        return self.sync_catalog.getPathBuilder()
+
     def _catalog_uri(self, path: str) -> str:
         """Build full catalog URI from relative path."""
         if path.startswith("/"):
