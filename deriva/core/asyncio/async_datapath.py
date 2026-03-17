@@ -358,8 +358,9 @@ async def copy_table_async(
     # Parse table spec
     schema_name, table_name = table_spec.split(":", 1)
 
-    # Get datapath for source table
-    src_path = getattr(getattr(src_wrapper.path, schema_name), table_name)
+    # Get datapath for source table (use dict access to support schema/table
+    # names that are not valid Python identifiers, e.g. 'deriva-ml')
+    src_path = src_wrapper.path.schemas[schema_name].tables[table_name]
     src_result = src_wrapper.async_result_set(src_path)
 
     # Pipeline queue
