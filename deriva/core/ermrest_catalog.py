@@ -492,6 +492,51 @@ class ErmrestCatalog(DerivaBinding):
         """
         self.get_as_file(path, destfilename, headers, callback, delete_if_empty, paged, page_size, page_sort_columns)
 
+    @staticmethod
+    def _read_last_csv_record(filepath, fieldnames):
+        """Read the last complete CSV record from a file.
+
+        Uses a chunked reverse-read strategy to find the last complete CSV
+        record without loading the entire file into memory.  Python's csv
+        module handles multi-line quoted fields (RFC 4180) correctly, so this
+        avoids the bug where a raw byte-line inside a quoted field is
+        misinterpreted as a complete record.
+
+        Args:
+            filepath: Path to the CSV file.
+            fieldnames: List of column names (the CSV header row).
+
+        Returns:
+            A dict mapping column names to values for the last record,
+            or ``{}`` if the file has no data rows.
+        """
+        chunk_size = 256 * 1024  # 256 KB — enough for most records
+        max_read = 10 * 1024 * 1024  # 10 MB cap to avoid unbounded reads
+        with open(filepath, "r", newline="", encoding="utf-8") as f:
+            f.seek(0, os.SEEK_END)
+            file_size = f.tell()
+            if file_size == 0:
+                return {}
+
+            read_so_far = 0
+            last_record = {}
+            while read_so_far < min(file_size, max_read):
+                read_so_far = min(read_so_far + chunk_size, file_size)
+                f.seek(max(file_size - read_so_far, 0))
+                tail = f.read()
+                # Parse the tail as CSV using the known header.
+                # csv.DictReader handles multi-line quoted fields correctly.
+                reader = csv.DictReader(io.StringIO(tail), fieldnames=fieldnames)
+                records = list(reader)
+                if records:
+                    last_record = records[-1]
+                    # Verify we got a valid record (RID should not be empty or
+                    # start with whitespace, which indicates a partial read)
+                    rid = last_record.get("RID", "")
+                    if rid and not rid[0].isspace():
+                        return last_record
+            return last_record
+
     def get_as_file(self,
                     path,
                     destfilename,
@@ -584,7 +629,9 @@ class ErmrestCatalog(DerivaBinding):
                         content_type = r.headers.get("Content-Type")
                         logging.debug("Transferring data from [%s] to %s" % (url, destfilename))
                         # CSV processing iterates over lines in the response, skipping the header line(s) in all but
-                        # the first page, and captures the last line of each page to determine the last record processed
+                        # the first page, and captures the last line of each page to determine the last record processed.
+                        # After writing, the last complete CSV record is found by reading back from the destination file
+                        # using Python's csv module, which correctly handles multi-line quoted fields (RFC 4180).
                         if content_type == "text/csv":
                             skip = 1
                             line_num = 0
@@ -603,8 +650,14 @@ class ErmrestCatalog(DerivaBinding):
                                 total += len(tline)
                                 last_line = tline
                             if last_line and last_line != first_line:
-                                reader = csv.DictReader([last_line.decode('utf-8')], first_line)
-                                last_line = next(reader)
+                                # Read back the last complete CSV record from the file.
+                                # We cannot rely on the last raw byte line because CSV
+                                # fields may contain embedded newlines inside quoted
+                                # values (e.g., OCR text with grid data).  Parsing the
+                                # last raw line as a record would produce an incorrect
+                                # RID for the @after() cursor, causing an infinite loop.
+                                destfile.flush()
+                                last_line = self._read_last_csv_record(destfilename, first_line)
                             first_page = False
                         # JSON-Stream processing writes the entire buffer to the destination file. The last line is
                         # captured by reverse seeking in the buffer from right before the last b'\n' newline to the next
