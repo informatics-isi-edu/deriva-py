@@ -1810,13 +1810,21 @@ class Table (object):
         # first pass: build "pure" association table parts
         # HACK: use dummy table name if we don't have one yet
         tname = table_name if table_name is not None else "dummy"
+        # Save original associates before _expand_references mutates the list
+        # (it converts (str, Table) tuples to (str, bool, Key) in-place)
+        orig_associates = list(associates)
         cdefs, fkdefs = cls._expand_references(tname, associates, [], used_names, key_column_search_order)
 
         if table_name is None:
             # use first pass results to build table_name
+            # NOTE: must use orig_associates, not associates, because
+            # _expand_references mutates tuples from (str, Table) to
+            # (str, bool, Key) — get_assoc_name expects the original form
             def get_assoc_name(assoc):
                 if isinstance(assoc, tuple):
-                    table = assoc[1]
+                    table = assoc[1] if len(assoc) == 2 else assoc[2]
+                    if isinstance(table, Key):
+                        table = table.table
                 elif isinstance(assoc, Key):
                     table = assoc.table
                 elif isinstance(assoc, Table):
@@ -1824,7 +1832,7 @@ class Table (object):
                 else:
                     raise ValueError("expected (str, Key|Table) | Key | Table, not %s" % (assoc,))
                 return table.name
-            table_name = make_id(*[ get_assoc_name(assoc) for assoc in associates ])
+            table_name = make_id(*[ get_assoc_name(assoc) for assoc in orig_associates ])
             # HACK: repeat first pass to make proper fkey def constraint names
             used_names = set()
             cdefs, fkdefs = cls._expand_references(table_name, associates, [], used_names, key_column_search_order)
