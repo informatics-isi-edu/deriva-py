@@ -32,7 +32,7 @@ client would store the credentials.
 ### List
 
 ```bash
-$ deriva-hatrac-cli --host example.org list /hatrac/
+$ deriva-hatrac-cli --host example.org ls /hatrac/
 /hatrac/path1
 /hatrac/path2
 /hatrac/path3
