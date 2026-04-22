@@ -732,9 +732,15 @@ class DerivaUpload(object):
         safe_overrides = asset_mapping.get("url_encoding_safe_overrides", {}).get("URI", "")
         self.metadata["URI_urlencoded"] = urlquote(self.metadata["URI"], safe=safe_overrides)
 
-        # 7. Check for an existing record and create a new one if necessary
+        # 7. Check for an existing record and create a new one if necessary.
+        #    If use_pre_allocated_rid is set, skip the MD5+Filename lookup
+        #    and go straight to _createFileRecordWithRid (with idempotency
+        #    pre-check).
         if not record:
-            record, result = self._getFileRecord(asset_mapping)
+            if stob(asset_mapping.get("use_pre_allocated_rid", False)):
+                record, result = self._createFileRecordWithRid(asset_mapping)
+            else:
+                record, result = self._getFileRecord(asset_mapping)
 
         # 8. Update an existing record, if necessary
         column_map = asset_mapping.get("column_map", {})
@@ -816,6 +822,46 @@ class DerivaUpload(object):
                 self._updateFileMetadata(record)
             return self.interpolateDict(self.metadata, column_map, allow_none_column_list=allow_none_col_list), record
 
+    def _createFileRecordWithRid(self, asset_mapping):
+        """Create a new record using a caller-supplied RID.
+
+        Used when asset_mapping has ``use_pre_allocated_rid: true``.
+        Skips the MD5+Filename lookup in ``_getFileRecord``; the caller
+        (via the scan-path regex) must have supplied an RID that was
+        pre-allocated from ``ERMrest_RID_Lease``.
+
+        Idempotency: if a row with the supplied RID already exists
+        (e.g., a prior upload landed the catalog row but the client
+        crashed before recording success), returns that row rather
+        than raising an RID-collision error. Callers can safely retry
+        after partial failures.
+
+        Returns:
+            Tuple of (row, record) mirroring ``_getFileRecord``'s
+            return shape.
+        """
+        column_map = asset_mapping.get("column_map", {})
+        allow_none_col_list = asset_mapping.get("allow_empty_columns_on_update", [])
+        target_table = self.metadata['target_table']
+        rid = self.metadata["RID"]
+
+        # Pre-check: does a row with this RID already exist?
+        existing = self.catalog.get("/entity/%s/RID=%s" % (target_table, urlquote(rid))).json()
+        if existing:
+            record = existing[0]
+            self._updateFileMetadata(record, no_overwrite=True)
+            return self.pruneDict(record, column_map, allow_none_col_list), record
+
+        # Fresh create — RID goes into the payload via column_map.
+        row = self.interpolateDict(self.metadata, column_map, allow_none_col_list)
+        result = self._catalogRecordCreate(target_table, row)
+        record = result[0] if result else row
+        if record:
+            self._updateFileMetadata(record)
+        return self.interpolateDict(
+            self.metadata, column_map, allow_none_column_list=allow_none_col_list
+        ), record
+
     def _urlEncodeMetadata(self, safe_overrides=None):
         urlencoded = dict()
         if not safe_overrides:
@@ -829,6 +875,16 @@ class DerivaUpload(object):
     def _initFileMetadata(self, file_path, asset_mapping, match_groupdict):
         self.metadata.clear()
         self._updateFileMetadata(match_groupdict)
+        # Fast-fail check for pre-allocated-RID asset mappings: the caller
+        # opted in via ``use_pre_allocated_rid: true`` and must supply the
+        # RID via a ``(?P<RID>...)`` named group in the file_pattern regex.
+        if stob(asset_mapping.get("use_pre_allocated_rid", False)):
+            if not self.metadata.get("RID"):
+                raise DerivaUploadConfigurationError(
+                    "Asset mapping has use_pre_allocated_rid=true but no RID "
+                    "was captured by the file_pattern regex. Ensure the pattern "
+                    "includes a (?P<RID>[A-Z0-9-]+) named group."
+                )
         self.metadata['target_table'] = self.getCatalogTable(asset_mapping, match_groupdict)
 
         self.metadata["file_name"] = self.getFileDisplayName(file_path)
