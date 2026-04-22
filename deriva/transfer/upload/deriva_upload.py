@@ -829,6 +829,16 @@ class DerivaUpload(object):
     def _initFileMetadata(self, file_path, asset_mapping, match_groupdict):
         self.metadata.clear()
         self._updateFileMetadata(match_groupdict)
+        # Fast-fail check for pre-allocated-RID asset mappings: the caller
+        # opted in via ``use_pre_allocated_rid: true`` and must supply the
+        # RID via a ``(?P<RID>...)`` named group in the file_pattern regex.
+        if stob(asset_mapping.get("use_pre_allocated_rid", False)):
+            if not self.metadata.get("RID"):
+                raise DerivaUploadConfigurationError(
+                    "Asset mapping has use_pre_allocated_rid=true but no RID "
+                    "was captured by the file_pattern regex. Ensure the pattern "
+                    "includes a (?P<RID>[A-Z0-9-]+) named group."
+                )
         self.metadata['target_table'] = self.getCatalogTable(asset_mapping, match_groupdict)
 
         self.metadata["file_name"] = self.getFileDisplayName(file_path)
