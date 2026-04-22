@@ -840,7 +840,7 @@ class DerivaUpload(object):
         rid = self.metadata["RID"]
 
         # Pre-check: does a row with this RID already exist?
-        existing = self.catalog.get("/entity/%s/RID=%s" % (target_table, rid)).json()
+        existing = self.catalog.get("/entity/%s/RID=%s" % (target_table, urlquote(rid))).json()
         if existing:
             record = existing[0]
             self._updateFileMetadata(record, no_overwrite=True)
