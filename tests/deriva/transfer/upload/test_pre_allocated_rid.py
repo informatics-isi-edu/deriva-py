@@ -147,3 +147,23 @@ def test_create_file_record_with_rid_idempotent_on_existing(uploader):
     # Return shape: (pruned dict, existing record).
     assert isinstance(record, dict)
     assert result == existing_row
+
+
+def test_flag_off_uses_existing_md5_filename_path(uploader):
+    """When flag is absent, _getFileRecord (MD5+Filename path) is used."""
+    asset_mapping = {"target_table": ["S", "T"], "column_map": {"MD5": "{md5}"}}
+    uploader.metadata = {"md5": "abc", "file_name": "f.bin", "target_table": "S:T"}
+
+    uploader._getFileRecord = MagicMock(return_value=({}, {"RID": "SERVER-RID"}))
+    uploader._createFileRecordWithRid = MagicMock()
+
+    # Simulate what _uploadAsset Step 7 will do (see task step 2).
+    from deriva.transfer.upload.deriva_upload import stob
+    if stob(asset_mapping.get("use_pre_allocated_rid", False)):
+        record, result = uploader._createFileRecordWithRid(asset_mapping)
+    else:
+        record, result = uploader._getFileRecord(asset_mapping)
+
+    uploader._getFileRecord.assert_called_once()
+    uploader._createFileRecordWithRid.assert_not_called()
+    assert result["RID"] == "SERVER-RID"
