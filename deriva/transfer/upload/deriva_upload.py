@@ -907,7 +907,9 @@ class DerivaUpload(object):
 
         # Fresh create — RID goes into the payload via column_map.
         row = self.interpolateDict(self.metadata, column_map, allow_none_col_list)
-        result = self._catalogRecordCreate(target_table, row)
+        # Bug E.2: pass nondefaults=["RID"] so ERMrest uses our pre-allocated
+        # RID (from ERMrest_RID_Lease) instead of its implicit default behavior.
+        result = self._catalogRecordCreate(target_table, row, nondefaults=["RID"])
         record = result[0] if result else row
         if record:
             self._updateFileMetadata(record)
@@ -1156,12 +1158,13 @@ class DerivaUpload(object):
 
         return defaults
 
-    def _catalogRecordCreate(self, catalog_table, row, default_columns=None):
+    def _catalogRecordCreate(self, catalog_table, row, default_columns=None, nondefaults=None):
         """
 
         :param catalog_table:
         :param row:
         :param default_columns:
+        :param nondefaults:
         :return:
         """
         if self.cancelled:
@@ -1176,6 +1179,16 @@ class DerivaUpload(object):
             if not default_columns:
                 default_columns = self._get_catalog_default_columns(row, catalog_table)
             default_param = ('?defaults=%s' % ','.join(default_columns)) if len(default_columns) > 0 else ''
+            # Bug E.2: opt out of implicit RID-is-default behavior when
+            # the caller is supplying a pre-allocated RID from
+            # ERMrest_RID_Lease. The server validates the RID against
+            # the lease table and uses the supplied value.
+            if nondefaults:
+                nondefaults_str = ','.join(nondefaults)
+                if default_param:
+                    default_param += '&nondefaults=%s' % nondefaults_str
+                else:
+                    default_param = '?nondefaults=%s' % nondefaults_str
             # for default in default_columns:
             #    row[default] = None
             create_uri = '/entity/%s%s' % (catalog_table, default_param)
