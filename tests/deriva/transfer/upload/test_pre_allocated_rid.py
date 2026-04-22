@@ -80,3 +80,70 @@ def test_init_file_metadata_passes_when_flag_absent(uploader):
     # Should not raise — legacy path doesn't require RID.
     uploader._initFileMetadata("/tmp/f.bin", asset_mapping, match_groupdict)
     assert "RID" not in uploader.metadata
+
+
+def test_create_file_record_with_rid_happy_path(uploader):
+    """No existing row with RID → _catalogRecordCreate called with RID in payload."""
+    asset_mapping = {
+        "use_pre_allocated_rid": True,
+        "column_map": {"MD5": "{md5}", "Filename": "{file_name}", "RID": "{RID}"},
+    }
+    uploader.metadata = {
+        "RID": "1-NEW",
+        "md5": "abc123",
+        "file_name": "f.bin",
+        "target_table": "S:T",
+    }
+
+    # Pre-check GET returns empty — row doesn't exist yet.
+    get_response = MagicMock()
+    get_response.json.return_value = []
+    uploader.catalog.get.return_value = get_response
+
+    # Stub _catalogRecordCreate to return a created-record shape.
+    uploader._catalogRecordCreate = MagicMock(
+        return_value=[{"RID": "1-NEW", "MD5": "abc123", "Filename": "f.bin"}]
+    )
+    uploader._updateFileMetadata = MagicMock()
+
+    record, result = uploader._createFileRecordWithRid(asset_mapping)
+
+    # Pre-check queried by RID.
+    uploader.catalog.get.assert_called_once_with("/entity/S:T/RID=1-NEW")
+    # Create called with RID in the row.
+    create_call = uploader._catalogRecordCreate.call_args
+    assert create_call[0][0] == "S:T"  # target_table
+    assert create_call[0][1]["RID"] == "1-NEW"
+    # Return shape mirrors _getFileRecord: (dict, record).
+    assert isinstance(record, dict)
+    assert result["RID"] == "1-NEW"
+
+
+def test_create_file_record_with_rid_idempotent_on_existing(uploader):
+    """RID already exists → skip create, return existing row."""
+    asset_mapping = {
+        "use_pre_allocated_rid": True,
+        "column_map": {"MD5": "{md5}", "Filename": "{file_name}", "RID": "{RID}"},
+    }
+    uploader.metadata = {
+        "RID": "1-OLD",
+        "md5": "abc123",
+        "file_name": "f.bin",
+        "target_table": "S:T",
+    }
+
+    existing_row = {"RID": "1-OLD", "MD5": "abc123", "Filename": "f.bin"}
+    get_response = MagicMock()
+    get_response.json.return_value = [existing_row]
+    uploader.catalog.get.return_value = get_response
+
+    # _catalogRecordCreate MUST NOT be called.
+    uploader._catalogRecordCreate = MagicMock()
+    uploader._updateFileMetadata = MagicMock()
+
+    record, result = uploader._createFileRecordWithRid(asset_mapping)
+
+    uploader._catalogRecordCreate.assert_not_called()
+    # Return shape: (pruned dict, existing record).
+    assert isinstance(record, dict)
+    assert result == existing_row
