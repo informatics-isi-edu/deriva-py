@@ -732,9 +732,15 @@ class DerivaUpload(object):
         safe_overrides = asset_mapping.get("url_encoding_safe_overrides", {}).get("URI", "")
         self.metadata["URI_urlencoded"] = urlquote(self.metadata["URI"], safe=safe_overrides)
 
-        # 7. Check for an existing record and create a new one if necessary
+        # 7. Check for an existing record and create a new one if necessary.
+        #    If use_pre_allocated_rid is set, skip the MD5+Filename lookup
+        #    and go straight to _createFileRecordWithRid (with idempotency
+        #    pre-check).
         if not record:
-            record, result = self._getFileRecord(asset_mapping)
+            if stob(asset_mapping.get("use_pre_allocated_rid", False)):
+                record, result = self._createFileRecordWithRid(asset_mapping)
+            else:
+                record, result = self._getFileRecord(asset_mapping)
 
         # 8. Update an existing record, if necessary
         column_map = asset_mapping.get("column_map", {})
