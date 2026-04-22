@@ -111,10 +111,12 @@ def test_create_file_record_with_rid_happy_path(uploader):
     uploader.catalog.get.assert_called_once_with(
         "/entity/S:T/MD5=abc123&Filename=f.bin"
     )
-    # Create called with RID in the row.
+    # Create called with RID in the row AND nondefaults=["RID"] to opt out
+    # of ERMrest's implicit RID-is-default behavior.
     create_call = uploader._catalogRecordCreate.call_args
     assert create_call[0][0] == "S:T"
     assert create_call[0][1]["RID"] == "1-NEW"
+    assert create_call.kwargs.get("nondefaults") == ["RID"]
     # Return shape mirrors _getFileRecord: (dict, record).
     assert isinstance(record, dict)
     assert result["RID"] == "1-NEW"
