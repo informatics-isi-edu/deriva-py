@@ -816,6 +816,46 @@ class DerivaUpload(object):
                 self._updateFileMetadata(record)
             return self.interpolateDict(self.metadata, column_map, allow_none_column_list=allow_none_col_list), record
 
+    def _createFileRecordWithRid(self, asset_mapping):
+        """Create a new record using a caller-supplied RID.
+
+        Used when asset_mapping has ``use_pre_allocated_rid: true``.
+        Skips the MD5+Filename lookup in ``_getFileRecord``; the caller
+        (via the scan-path regex) must have supplied an RID that was
+        pre-allocated from ``ERMrest_RID_Lease``.
+
+        Idempotency: if a row with the supplied RID already exists
+        (e.g., a prior upload landed the catalog row but the client
+        crashed before recording success), returns that row rather
+        than raising an RID-collision error. Callers can safely retry
+        after partial failures.
+
+        Returns:
+            Tuple of (row, record) mirroring ``_getFileRecord``'s
+            return shape.
+        """
+        column_map = asset_mapping.get("column_map", {})
+        allow_none_col_list = asset_mapping.get("allow_empty_columns_on_update", [])
+        target_table = self.metadata['target_table']
+        rid = self.metadata["RID"]
+
+        # Pre-check: does a row with this RID already exist?
+        existing = self.catalog.get("/entity/%s/RID=%s" % (target_table, rid)).json()
+        if existing:
+            record = existing[0]
+            self._updateFileMetadata(record, no_overwrite=True)
+            return self.pruneDict(record, column_map, allow_none_col_list), record
+
+        # Fresh create — RID goes into the payload via column_map.
+        row = self.interpolateDict(self.metadata, column_map, allow_none_col_list)
+        result = self._catalogRecordCreate(target_table, row)
+        record = result[0] if result else row
+        if record:
+            self._updateFileMetadata(record)
+        return self.interpolateDict(
+            self.metadata, column_map, allow_none_column_list=allow_none_col_list
+        ), record
+
     def _urlEncodeMetadata(self, safe_overrides=None):
         urlencoded = dict()
         if not safe_overrides:
