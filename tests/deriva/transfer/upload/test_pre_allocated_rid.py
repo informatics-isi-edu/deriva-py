@@ -26,6 +26,11 @@ def uploader():
     inst.identity = {"id": "anon", "display_name": "a", "full_name": "A", "email": "a@b"}
     inst.processor_output = {}
     inst.cancelled = False
+    # Satisfy __del__ -> cleanupTransferState on GC, which would otherwise
+    # raise AttributeError and make pytest 9 escalate the warning to an error.
+    inst.transfer_state_fh = None
+    inst.transfer_state = {}
+    inst.transfer_state_locks = {}
     return inst
 
 
