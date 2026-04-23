@@ -150,21 +150,20 @@ def test_create_file_record_with_rid_idempotent_matching_rid(uploader):
     assert result == existing_row
 
 
-def test_create_file_record_with_rid_raises_on_rid_mismatch(uploader):
-    """Existing row with DIFFERENT RID → raise DerivaUploadCatalogCreateError."""
+def test_create_file_record_with_rid_raises_on_rid_mismatch_when_strict(uploader):
+    """Existing row with different RID + strict annotation set → raise."""
     from deriva.transfer.upload.deriva_upload import DerivaUploadCatalogCreateError
     asset_mapping = {
         "use_pre_allocated_rid": True,
         "column_map": {"MD5": "{md5}", "Filename": "{file_name}", "RID": "{RID}"},
     }
     uploader.metadata = {
-        "RID": "1-CALLER",  # pre-leased by caller
+        "RID": "1-CALLER",
         "md5": "abc123",
         "file_name": "f.bin",
         "target_table": "S:T",
     }
 
-    # Existing row has the same MD5+Filename but a DIFFERENT RID.
     existing_row = {"RID": "1-EXISTING", "MD5": "abc123", "Filename": "f.bin"}
     get_response = MagicMock()
     get_response.json.return_value = [existing_row]
@@ -172,13 +171,108 @@ def test_create_file_record_with_rid_raises_on_rid_mismatch(uploader):
 
     uploader._catalogRecordCreate = MagicMock()
 
+    # Set the strict annotation on the mocked table.
+    table_obj = MagicMock()
+    table_obj.annotations = {
+        "tag:isrd.isi.edu,2026:strict-preallocated-rid": {"strict": True}
+    }
+    schema_obj = MagicMock()
+    schema_obj.tables = {"T": table_obj}
+    catalog_model = MagicMock()
+    catalog_model.schemas = {"S": schema_obj}
+    uploader.catalog_model = catalog_model
+    uploader.catalog.splitQualifiedCatalogName = MagicMock(return_value=("S", "T"))
+
     with pytest.raises(DerivaUploadCatalogCreateError) as ei:
         uploader._createFileRecordWithRid(asset_mapping)
     msg = str(ei.value)
     assert "1-CALLER" in msg
     assert "1-EXISTING" in msg
     assert "f.bin" in msg
-    # Create MUST NOT be called.
+    uploader._catalogRecordCreate.assert_not_called()
+
+
+def test_create_file_record_with_rid_soft_mode_adopts_existing_rid(uploader):
+    """Existing row with different RID + annotation absent → soft fallback.
+
+    Returns the existing row's RID and updates self.metadata['RID'] so
+    downstream processing sees the final RID.
+    """
+    asset_mapping = {
+        "use_pre_allocated_rid": True,
+        "column_map": {"MD5": "{md5}", "Filename": "{file_name}", "RID": "{RID}"},
+    }
+    uploader.metadata = {
+        "RID": "1-CALLER",
+        "md5": "abc123",
+        "file_name": "f.bin",
+        "target_table": "S:T",
+    }
+
+    existing_row = {"RID": "1-EXISTING", "MD5": "abc123", "Filename": "f.bin"}
+    get_response = MagicMock()
+    get_response.json.return_value = [existing_row]
+    uploader.catalog.get.return_value = get_response
+
+    uploader._catalogRecordCreate = MagicMock()
+    uploader._updateFileMetadata = MagicMock()
+
+    # Table has NO strict annotation → soft mode.
+    table_obj = MagicMock()
+    table_obj.annotations = {}
+    schema_obj = MagicMock()
+    schema_obj.tables = {"T": table_obj}
+    catalog_model = MagicMock()
+    catalog_model.schemas = {"S": schema_obj}
+    uploader.catalog_model = catalog_model
+    uploader.catalog.splitQualifiedCatalogName = MagicMock(return_value=("S", "T"))
+
+    record, result = uploader._createFileRecordWithRid(asset_mapping)
+
+    # Soft mode: adopt the existing row's RID.
+    assert uploader.metadata["RID"] == "1-EXISTING"
+    assert result == existing_row
+    # No create attempt.
+    uploader._catalogRecordCreate.assert_not_called()
+
+
+def test_create_file_record_with_rid_soft_mode_when_strict_false(uploader):
+    """Annotation present with strict=false → treated the same as absent."""
+    asset_mapping = {
+        "use_pre_allocated_rid": True,
+        "column_map": {"MD5": "{md5}", "Filename": "{file_name}", "RID": "{RID}"},
+    }
+    uploader.metadata = {
+        "RID": "1-CALLER",
+        "md5": "abc123",
+        "file_name": "f.bin",
+        "target_table": "S:T",
+    }
+
+    existing_row = {"RID": "1-EXISTING", "MD5": "abc123", "Filename": "f.bin"}
+    get_response = MagicMock()
+    get_response.json.return_value = [existing_row]
+    uploader.catalog.get.return_value = get_response
+
+    uploader._catalogRecordCreate = MagicMock()
+    uploader._updateFileMetadata = MagicMock()
+
+    # strict=false is the same as absent.
+    table_obj = MagicMock()
+    table_obj.annotations = {
+        "tag:isrd.isi.edu,2026:strict-preallocated-rid": {"strict": False}
+    }
+    schema_obj = MagicMock()
+    schema_obj.tables = {"T": table_obj}
+    catalog_model = MagicMock()
+    catalog_model.schemas = {"S": schema_obj}
+    uploader.catalog_model = catalog_model
+    uploader.catalog.splitQualifiedCatalogName = MagicMock(return_value=("S", "T"))
+
+    record, result = uploader._createFileRecordWithRid(asset_mapping)
+
+    assert uploader.metadata["RID"] == "1-EXISTING"
+    assert result == existing_row
     uploader._catalogRecordCreate.assert_not_called()
 
 
