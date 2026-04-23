@@ -873,18 +873,30 @@ class DerivaUpload(object):
         if existing:
             record = existing[0]
             existing_rid = record.get("RID")
-            if existing_rid != caller_rid:
+            if existing_rid == caller_rid:
+                # Matching RID — idempotent return.
+                self._updateFileMetadata(record, no_overwrite=True)
+                return self.pruneDict(record, column_map, allow_none_col_list), record
+
+            # RID mismatch — check the table's strict-preallocated-rid
+            # annotation. If set, the caller asserted that any RID
+            # divergence is an error. Otherwise, soft fallback: adopt
+            # the existing row's RID (legacy _getFileRecord semantics).
+            if self._is_strict_preallocated_rid(target_table):
                 raise DerivaUploadCatalogCreateError(
                     "Pre-allocated RID %r cannot be used for file %r: "
                     "the catalog already has a row for this MD5+Filename "
-                    "with RID %r. Silently substituting the existing RID "
-                    "would break any FK reference the caller captured "
-                    "at lease-time. Either re-lease this asset with the "
+                    "with RID %r. The target table has "
+                    "tag:isrd.isi.edu,2026:strict-preallocated-rid set, "
+                    "so silently substituting the existing RID would "
+                    "break FK references the caller captured at "
+                    "lease-time. Either re-lease this asset with the "
                     "existing RID, or reconcile the catalog state." % (
                         caller_rid, file_name, existing_rid,
                     )
                 )
-            # Matching RID — idempotent return.
+            # Soft mode (default): adopt the existing row's RID.
+            self.metadata["RID"] = existing_rid
             self._updateFileMetadata(record, no_overwrite=True)
             return self.pruneDict(record, column_map, allow_none_col_list), record
 
@@ -899,6 +911,32 @@ class DerivaUpload(object):
         return self.interpolateDict(
             self.metadata, column_map, allow_none_column_list=allow_none_col_list
         ), record
+
+    def _is_strict_preallocated_rid(self, target_table):
+        """Return True if the table has the strict-preallocated-rid annotation.
+
+        Looks up the table's annotation via the lazily-loaded
+        ``catalog_model``. The annotation
+        ``tag:isrd.isi.edu,2026:strict-preallocated-rid`` with value
+        ``{"strict": true}`` opts the table into strict mode — RID
+        mismatches between caller-supplied pre-allocated RIDs and
+        existing catalog rows raise an error rather than falling back
+        to the existing row's RID.
+
+        Annotation absent or ``{"strict": false}`` → soft mode.
+        """
+        from deriva.core.utils.core_utils import tag as _tag
+        if not self.catalog_model:
+            self.catalog_model = self.catalog.getCatalogModel()
+        schema_name, table_name = self.catalog.splitQualifiedCatalogName(target_table)
+        schema_obj = self.catalog_model.schemas.get(schema_name)
+        if not schema_obj:
+            return False
+        table_obj = schema_obj.tables.get(table_name)
+        if not table_obj:
+            return False
+        anno = table_obj.annotations.get(_tag.strict_preallocated_rid, {})
+        return bool(anno.get("strict", False)) if isinstance(anno, dict) else False
 
     def _urlEncodeMetadata(self, safe_overrides=None):
         urlencoded = dict()
