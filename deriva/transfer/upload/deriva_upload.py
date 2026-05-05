@@ -659,6 +659,17 @@ class DerivaUpload(object):
 
     def _uploadAsset(self, file_path, asset_mapping, match_groupdict, callback=None):
 
+        # 0. Configuration validation: defer_record_creation is incompatible
+        #    with mid-run UPDATE because deferred mode skips the existing-record
+        #    GET that drift detection requires.
+        if stob(asset_mapping.get("defer_record_creation", False)) and asset_mapping.get("record_update_template"):
+            raise DerivaUploadConfigurationError(
+                "defer_record_creation: true is incompatible with "
+                "record_update_template — deferred mode does not perform "
+                "the per-file record GET that drift detection requires. "
+                "Either drop record_update_template or do not defer."
+            )
+
         # 1. Populate initial file metadata from directory scan pattern matches
         self._initFileMetadata(file_path, asset_mapping, match_groupdict)
 

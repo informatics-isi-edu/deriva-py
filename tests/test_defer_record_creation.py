@@ -125,3 +125,26 @@ def test_defer_record_creation_default_unchanged(uploader, tmp_path):
 
     # Default path called the existing record creator
     mock_create.assert_called_once()
+
+
+def test_defer_record_creation_incompatible_with_update_template(uploader, tmp_path):
+    """Setting both flags must raise DerivaUploadConfigurationError."""
+    from deriva.transfer.upload.deriva_upload import DerivaUploadConfigurationError
+
+    f = tmp_path / "test.txt"
+    f.write_bytes(b"hello")
+
+    asset_mapping = {
+        "asset_type": "file",
+        "target_table": "S:T",
+        "checksum_types": ["md5"],
+        "column_map": {"MD5": "{md5}", "Filename": "{file_name}", "RID": "{RID}"},
+        "hatrac_options": {},
+        "hatrac_templates": {"hatrac_uri": "/hatrac/T/{md5}.{file_name}"},
+        "defer_record_creation": True,
+        "record_update_template": "/some/template",
+    }
+    match_groupdict = {"RID": "R-AAA"}
+
+    with pytest.raises(DerivaUploadConfigurationError, match="defer_record_creation"):
+        uploader._uploadAsset(str(f), asset_mapping, match_groupdict)
