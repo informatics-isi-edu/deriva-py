@@ -732,6 +732,26 @@ class DerivaUpload(object):
         safe_overrides = asset_mapping.get("url_encoding_safe_overrides", {}).get("URI", "")
         self.metadata["URI_urlencoded"] = urlquote(self.metadata["URI"], safe=safe_overrides)
 
+        # 7a. Deferred record creation: caller will batch-insert rows
+        #     after uploadFiles() returns. Skips steps 7-8 (record GET,
+        #     optional UPDATE). Post-processors still run with no
+        #     record context.
+        if stob(asset_mapping.get("defer_record_creation", False)):
+            self._execute_processors(
+                file_path, asset_mapping, match_groupdict,
+                processor_list=POST_PROCESSORS_KEY,
+            )
+            deferred_row = self.interpolateDict(
+                self.metadata,
+                asset_mapping.get("column_map", {}),
+                allow_none_column_list=asset_mapping.get(
+                    "allow_empty_columns_on_update", []),
+            )
+            return {
+                "_deferred_row": deferred_row,
+                "_target_table": self.metadata["target_table"],
+            }
+
         # 7. Check for an existing record and create a new one if necessary.
         #    If use_pre_allocated_rid is set, skip the MD5+Filename lookup
         #    and go straight to _createFileRecordWithRid (with idempotency
