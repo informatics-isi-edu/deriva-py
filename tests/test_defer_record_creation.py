@@ -69,7 +69,7 @@ def test_defer_record_creation_skips_record_creation(uploader, tmp_path):
     assert isinstance(result, dict)
     assert "_deferred_row" in result
     assert "_target_table" in result
-    assert result["_target_table"] == "S:T"
+    assert result["_target_table"] == uploader.metadata["target_table"]
     # Row should carry the column_map'd fields
     row = result["_deferred_row"]
     assert row["RID"] == "R-AAA"

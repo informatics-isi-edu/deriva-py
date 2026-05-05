@@ -737,10 +737,7 @@ class DerivaUpload(object):
         #     optional UPDATE). Post-processors still run with no
         #     record context.
         if stob(asset_mapping.get("defer_record_creation", False)):
-            self._execute_processors(
-                file_path, asset_mapping, match_groupdict,
-                processor_list=POST_PROCESSORS_KEY,
-            )
+            self._execute_processors(file_path, asset_mapping, match_groupdict, processor_list=POST_PROCESSORS_KEY)
             deferred_row = self.interpolateDict(
                 self.metadata,
                 asset_mapping.get("column_map", {}),
