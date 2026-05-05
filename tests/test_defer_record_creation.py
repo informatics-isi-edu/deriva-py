@@ -127,12 +127,9 @@ def test_defer_record_creation_default_unchanged(uploader, tmp_path):
     mock_create.assert_called_once()
 
 
-def test_defer_record_creation_incompatible_with_update_template(uploader, tmp_path):
+def test_defer_record_creation_incompatible_with_update_template(uploader):
     """Setting both flags must raise DerivaUploadConfigurationError."""
     from deriva.transfer.upload.deriva_upload import DerivaUploadConfigurationError
-
-    f = tmp_path / "test.txt"
-    f.write_bytes(b"hello")
 
     asset_mapping = {
         "asset_type": "file",
@@ -147,4 +144,4 @@ def test_defer_record_creation_incompatible_with_update_template(uploader, tmp_p
     match_groupdict = {"RID": "R-AAA"}
 
     with pytest.raises(DerivaUploadConfigurationError, match="defer_record_creation"):
-        uploader._uploadAsset(str(f), asset_mapping, match_groupdict)
+        uploader._uploadAsset("/dev/null", asset_mapping, match_groupdict)

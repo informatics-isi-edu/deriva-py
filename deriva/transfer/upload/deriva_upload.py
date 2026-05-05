@@ -665,7 +665,7 @@ class DerivaUpload(object):
         if stob(asset_mapping.get("defer_record_creation", False)) and asset_mapping.get("record_update_template"):
             raise DerivaUploadConfigurationError(
                 "defer_record_creation: true is incompatible with "
-                "record_update_template — deferred mode does not perform "
+                "record_update_template -- deferred mode does not perform "
                 "the per-file record GET that drift detection requires. "
                 "Either drop record_update_template or do not defer."
             )
