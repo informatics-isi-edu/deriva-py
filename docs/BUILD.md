@@ -4,14 +4,25 @@ In order to build the _deriva-py_ documentation with `sphinx`, the prerequisite 
 ### Prerequisites
 1. Install `pandoc` for Jupyter Notebook conversion support. Follow the instructions for your platform [here](http://pandoc.org/installing.html).
 2. If necessary, clone the _deriva-py_ source code from GitHub ([here](https://github.com/informatics-isi-edu/deriva-py)) and `cd` into the source code root directory, `deriva-py`.
-3. Install `deriva-py` in `user` mode via `pip` and include `requirements_dev.txt` via the following command:
+3. From the source code root directory, install `deriva-py` along with the documentation dependencies. Either tool works — use whichever you have (`uv` is not required).
+
+    Using `pip` (in an activated virtual environment):
     ```
-    pip3 install --user -r requirements_dev.txt .
+    pip install -e ".[docs]"
+    ```
+
+    Or, using `uv`:
+    ```
+    uv sync --extra docs
     ```
 
 ### Build
 1. `cd ./docs`
-2. `make clean html`
+2. Build the HTML pages. If you installed with `pip`, run `make` directly in the activated environment; if you installed with `uv`, prefix it with `uv run`:
+    ```
+    make clean html        # pip / activated venv
+    uv run make clean html # uv
+    ```
 
 ### Output
 The output may have warnings but should not terminate with any errors. It should look something like this (warnings removed for brevity):

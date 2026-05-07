@@ -1,3 +1,99 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "deriva"
+description = "Python APIs and CLIs (Command-Line Interfaces) for the DERIVA platform."
+readme = "README.md"
+license = { text = "Apache 2.0" }
+requires-python = ">=3.12"
+authors = [
+    { name = "USC Information Sciences Institute, Informatics Systems Research Division", email = "isrd-support@isi.edu" },
+]
+maintainers = [
+    { name = "USC Information Sciences Institute, Informatics Systems Research Division", email = "isrd-support@isi.edu" },
+]
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "packaging",
+    "requests",
+    "pika",
+    "urllib3>=1.26.20,<3",
+    "portalocker>=1.2.1",
+    # bdbag 1.9.0-dev2 carries the pattern-based `allow_redirects_with_token`
+    # policy (fair-research/bdbag commit d467557e) needed to forward the bearer
+    # token to Hatrac but strip it on the S3 presigned-URL redirect. It is not
+    # yet on PyPI, so it is sourced directly from the GitHub branch via a
+    # PEP 508 direct reference. This form is understood by BOTH pip and uv, so
+    # `pip install .` and `uv sync` resolve it identically — uv is not required.
+    # (Drop the direct ref for a plain `bdbag>=1.9.0` once 1.9.0 ships on PyPI.)
+    "bdbag @ git+https://github.com/fair-research/bdbag.git@1.9.0-dev",
+    "globus_sdk>=3,<4",
+    "fair-research-login>=0.3.1",
+    "fair-identifiers-client>=0.5.1",
+    "jsonschema>=3.1",
+    # Required at runtime on Python 3.12+ because `fair-identifiers-client`
+    # imports `distutils.version.LooseVersion` at module load. `distutils`
+    # was removed from the stdlib in 3.12; setuptools ships a vendored copy
+    # under the same import path. Drop this once fair-identifiers-client
+    # publishes a release without the distutils dependency.
+    "setuptools",
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/informatics-isi-edu/deriva-py"
+
+[project.scripts]
+deriva-upload-cli = "deriva.transfer.upload.__main__:main"
+deriva-download-cli = "deriva.transfer.download.__main__:main"
+deriva-export-cli = "deriva.transfer.download.deriva_export:main"
+deriva-catalog-cli = "deriva.core.catalog_cli:main"
+deriva-hatrac-cli = "deriva.core.hatrac_cli:main"
+deriva-acl-config = "deriva.config.acl_config:main"
+deriva-annotation-config = "deriva.config.annotation_config:main"
+deriva-annotation-dump = "deriva.config.dump_catalog_annotations:main"
+deriva-annotation-rollback = "deriva.config.rollback_annotation:main"
+deriva-annotation-validate = "deriva.config.annotation_validate:main"
+deriva-sitemap-cli = "deriva.seo.sitemap_cli:main"
+deriva-backup-cli = "deriva.transfer.backup.__main__:main"
+deriva-restore-cli = "deriva.transfer.restore.__main__:main"
+deriva-globus-auth-utils = "deriva.core.utils.globus_auth_utils:main"
+deriva-credenza-auth-utils = "deriva.core.utils.credenza_auth_utils:main"
+
+[project.optional-dependencies]
+docs = [
+    "docutils==0.14",
+    "recommonmark==0.4.0",
+    "sphinx==1.8.5",
+    "sphinx-autobuild",
+    "sphinx-markdown-tables",
+    "sphinx-rtd-theme",
+    "nbsphinx",
+    "ipykernel",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
+
+[tool.setuptools.packages.find]
+exclude = ["tests*"]
+
+[tool.setuptools.package-data]
+"deriva.config" = ["examples/*.json"]
+"deriva.core" = ["schemas/*.schema.json"]
+
+[tool.setuptools.dynamic]
+version = { attr = "deriva.core.__version__" }
