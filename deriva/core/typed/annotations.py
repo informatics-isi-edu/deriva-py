@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from deriva.core.typed.types import TemplateEngine, DisplayContext, FacetUxMode
+from deriva.core.typed.types import Aggregate, TemplateEngine, DisplayContext, FacetUxMode
 
 
 # Re-export the tag constants for convenience
@@ -503,7 +503,7 @@ class PseudoColumn:
         source: Source entry (column or path).
         sourcekey: Reference to a source definition by key.
         entity: Whether this is an entity-mode column.
-        aggregate: Aggregation function (min, max, cnt, cnt_d, array, array_d).
+        aggregate: Aggregation function (Aggregate enum).
         self_link: Whether to show a self-link.
         markdown_name: Display name with markdown.
         comment: Comment or tooltip (False to hide).
@@ -513,7 +513,7 @@ class PseudoColumn:
     source: SourceEntry | None = None
     sourcekey: str | None = None
     entity: bool | None = None
-    aggregate: Literal["min", "max", "cnt", "cnt_d", "array", "array_d"] | None = None
+    aggregate: Aggregate | None = None
     self_link: bool | None = None
     markdown_name: str | None = None
     comment: str | Literal[False] | None = None
@@ -547,11 +547,15 @@ class PseudoColumn:
         if "source" in d:
             source = SourceEntry.from_dict(d["source"])
 
+        aggregate = None
+        if d.get("aggregate") is not None:
+            aggregate = Aggregate(d["aggregate"])
+
         return cls(
             source=source,
             sourcekey=d.get("sourcekey"),
             entity=d.get("entity"),
-            aggregate=d.get("aggregate"),
+            aggregate=aggregate,
             self_link=d.get("self_link"),
             markdown_name=d.get("markdown_name"),
             comment=d.get("comment"),
@@ -802,7 +806,7 @@ class SourceDefinition:
 
     source: SourceEntry
     entity: bool | None = None
-    aggregate: Literal["min", "max", "cnt", "cnt_d", "array", "array_d"] | None = None
+    aggregate: Aggregate | None = None
     markdown_name: str | None = None
     comment: str | Literal[False] | None = None
     display: dict[str, Any] | None = None
@@ -825,10 +829,14 @@ class SourceDefinition:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> SourceDefinition:
         """Create from dictionary representation."""
+        aggregate = None
+        if d.get("aggregate") is not None:
+            aggregate = Aggregate(d["aggregate"])
+
         return cls(
             source=SourceEntry.from_dict(d["source"]),
             entity=d.get("entity"),
-            aggregate=d.get("aggregate"),
+            aggregate=aggregate,
             markdown_name=d.get("markdown_name"),
             comment=d.get("comment"),
             display=d.get("display"),
