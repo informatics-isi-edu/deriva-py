@@ -47,6 +47,7 @@ def _minimal_schema(snaptime: str = "2026-01-01T00:00:00") -> dict[str, Any]:
                     "Subject": {
                         "schema_name": "demo",
                         "table_name": "Subject",
+                        "kind": "table",
                         "column_definitions": [
                             {
                                 "name": "RID",
@@ -271,6 +272,7 @@ def _asset_schema(snaptime: str = "2026-01-01T00:00:00") -> dict[str, Any]:
                     "Image": {
                         "schema_name": "demo",
                         "table_name": "Image",
+                        "kind": "table",
                         "column_definitions": [
                             {
                                 "name": "RID",
