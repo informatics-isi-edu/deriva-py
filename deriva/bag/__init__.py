@@ -78,6 +78,7 @@ from deriva.bag.sqlite_helpers import (
 )
 from deriva.bag.traversal import (
     AssetMode,
+    ContentConflictStrategy,
     DanglingFKStrategy,
     FKTraversalPolicy,
     VocabExport,
@@ -126,6 +127,7 @@ __all__ = [
     "ensure_schema_meta",
     # Traversal
     "AssetMode",
+    "ContentConflictStrategy",
     "DanglingFKStrategy",
     "FKTraversalPolicy",
     "VocabExport",

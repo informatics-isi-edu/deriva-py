@@ -42,6 +42,7 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -53,9 +54,34 @@ from deriva.bag.loader import ForeignKeyOrderer
 from deriva.bag.traversal import (
     DEFAULT_EXCLUDE_SCHEMAS,
     AssetMode,
+    ContentConflictStrategy,
     DanglingFKStrategy,
     FKTraversalPolicy,
 )
+
+
+class _TableClass(StrEnum):
+    """How :class:`BagCatalogLoader` should treat each in-scope table.
+
+    Determined at the start of the load by :meth:`_classify_table`
+    from the bag's schema model:
+
+    - ``VOCABULARY``: table looks like a controlled vocabulary
+      (has the canonical ``ID``/``URI``/``Name``/``Description``/
+      ``Synonyms`` columns per
+      :meth:`~deriva.core.ermrest_model.Table.is_vocabulary`).
+      Reconciled by ``Name`` against the destination; existing rows
+      contribute a source-RID → destination-RID entry to the
+      loader's remap so child rows can be rewritten.
+    - ``CONTENT``: every other in-scope table. Inserted by RID;
+      collisions resolved per ``policy.content_on_conflict``.
+
+    System schemas and out-of-bag schemas are filtered out earlier
+    (by :meth:`_table_in_scope`) and never reach the classifier.
+    """
+
+    VOCABULARY = "vocabulary"
+    CONTENT = "content"
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +116,17 @@ class TableLoadStats:
     assets_deduped: int = 0
     """Asset files that already existed in the destination Hatrac
     with a matching MD5; bytes not transferred."""
+
+    rows_matched_by_name: int = 0
+    """Vocabulary rows that already existed on the destination
+    (matched by ``Name``); the bag's source RID was remapped to the
+    destination's RID for any child rows that reference it.
+    Always zero for non-vocabulary tables."""
+
+    rows_skipped_on_conflict: int = 0
+    """Content rows whose RID already existed on the destination,
+    skipped per ``policy.content_on_conflict='skip_by_rid'``.
+    Always zero with ``FAIL`` (which raises instead)."""
 
 
 @dataclass
@@ -198,6 +235,14 @@ class BagCatalogLoader:
         # mode is incompatible.
         self.policy.validate_with_bag_state(holey=self.holey)
 
+        # RID remap: source-catalog RID → destination-catalog RID,
+        # keyed by (schema, table). Populated as vocabulary rows are
+        # reconciled (match-by-name); consumed during content-row
+        # insertion to rewrite FK columns that reference vocab rows.
+        # Identity entries are recorded too so callers can introspect
+        # which vocab rows survived as-is. See ADR-0001.
+        self._rid_remap: dict[tuple[str, str], dict[str, str]] = {}
+
     @staticmethod
     def _infer_schemas_from_bag(bag_path: Path) -> list[str]:
         """Peek at the bag's schema.json and return loadable schemas.
@@ -297,6 +342,20 @@ class BagCatalogLoader:
             return False
         return True
 
+    def _classify_table(self, table: DerivaTable) -> _TableClass:
+        """Decide whether a table is reconciled by name or by RID.
+
+        See :class:`_TableClass` for the policy. Vocabulary detection
+        delegates to
+        :meth:`deriva.core.ermrest_model.Table.is_vocabulary`, which
+        checks for the canonical vocab column shape (``ID``/``URI``/
+        ``Name``/``Description``/``Synonyms``). Everything else is
+        ``CONTENT``.
+        """
+        if table.is_vocabulary():
+            return _TableClass.VOCABULARY
+        return _TableClass.CONTENT
+
     # ------------------------------------------------------------------
     # Per-table load
     # ------------------------------------------------------------------
@@ -304,19 +363,12 @@ class BagCatalogLoader:
     async def _load_table(self, table: DerivaTable) -> TableLoadStats:
         """Load one table: rows + (if asset) bytes.
 
-        Rows pass through :meth:`_apply_dangling_fk_strategy` so
-        dangling FK references get caught and handled per policy.
-        Asset bytes are delegated to the upload recipe via
-        :meth:`_upload_asset_row` when ``asset_mode`` is non-
-        ``ROWS_ONLY``.
+        Dispatches to a vocabulary or content path based on
+        :meth:`_classify_table`. Both paths still apply the
+        :class:`DanglingFKStrategy` from the policy.
         """
         qname = f"{table.schema.name}.{table.name}"
         stats = TableLoadStats(table=qname)
-
-        # Asset tables get special handling — even though the
-        # rows themselves are inserted into the catalog like any
-        # other rows, each row may also entail a Hatrac upload.
-        is_asset = table.is_asset()
 
         # Pull every row for this table out of the bag's SQLite
         # mirror. The mirror was populated from the bag's CSVs at
@@ -333,24 +385,27 @@ class BagCatalogLoader:
         if not rows:
             return stats
 
-        # Apply dangling-FK strategy before the insert. Rows with
-        # missing parents are either dropped (DELETE), patched
-        # (NULLIFY), or cause us to bail (FAIL).
+        # Apply dangling-FK strategy before any other handling.
+        # Rows with missing parents are either dropped (DELETE),
+        # patched (NULLIFY), or cause us to bail (FAIL).
         rows, skipped, nullified = self._apply_dangling_fk_strategy(
             table, rows
         )
         stats.rows_skipped_orphan = skipped
         stats.rows_nullified_orphan = nullified
 
-        if rows:
-            # ERMrest's bulk insert: POST /entity/{schema}:{table}
-            # with the row payload. We use ?nondefaults=RID,RCT,RCB
-            # so caller-supplied RIDs survive — the bag's RIDs are
-            # authoritative.
-            inserted = await self._insert_rows(table, rows)
-            stats.rows_inserted = inserted
+        if not rows:
+            return stats
 
-        if is_asset and self.policy.asset_mode != AssetMode.ROWS_ONLY:
+        if self._classify_table(table) == _TableClass.VOCABULARY:
+            await self._load_vocabulary_table(table, rows, stats)
+        else:
+            await self._load_content_table(table, rows, stats)
+
+        if (
+            table.is_asset()
+            and self.policy.asset_mode != AssetMode.ROWS_ONLY
+        ):
             # Upload asset bytes. For UPLOAD_IF_MISSING the upload
             # recipe checks Hatrac via HEAD and skips bytes when
             # MD5 matches; we count those skips for the report.
@@ -359,6 +414,191 @@ class BagCatalogLoader:
             stats.assets_deduped = deduped
 
         return stats
+
+    # ------------------------------------------------------------------
+    # Vocabulary path (match-by-name + RID remap)
+    # ------------------------------------------------------------------
+
+    async def _load_vocabulary_table(
+        self,
+        table: DerivaTable,
+        rows: list[dict[str, Any]],
+        stats: TableLoadStats,
+    ) -> None:
+        """Reconcile a vocabulary table by ``Name``.
+
+        For each bag row:
+
+        - If the destination already has a row with the same ``Name``,
+          record ``src_rid → dst_rid`` in the loader's remap table
+          (so child rows that reference this vocab entry get
+          rewritten to the destination's RID at insert time). The
+          bag row is **not** inserted — the destination already has
+          authoritative content for it.
+        - Otherwise, insert the bag row (with its source RID
+          preserved via ``?nondefaults=RID,RCT,RCB``). Record an
+          identity remap entry so downstream lookups still find the
+          RID.
+
+        Vocabularies are the one place where the source and
+        destination can hold the **same logical term** under
+        different RIDs — every other table class is RID-stable
+        across the clone. See ADR-0001 for the design rationale.
+        """
+        schema_name = table.schema.name
+        existing_by_name = await self._fetch_existing_vocab_by_name(
+            schema_name, table.name
+        )
+
+        new_rows: list[dict[str, Any]] = []
+        remap = self._rid_remap.setdefault((schema_name, table.name), {})
+        for row in rows:
+            src_rid = row.get("RID")
+            name = row.get("Name")
+            if name is None or src_rid is None:
+                # Defensive: a vocab row should always have both.
+                # Treat as a new row and let ERMrest's insert path
+                # surface any constraint violation.
+                new_rows.append(row)
+                continue
+            dst_rid = existing_by_name.get(name)
+            if dst_rid is not None:
+                remap[src_rid] = dst_rid
+                stats.rows_matched_by_name += 1
+            else:
+                # Mark source RID as authoritative for itself; the
+                # insert preserves the RID, so the identity entry
+                # makes the remap lookup uniform for child rows.
+                remap[src_rid] = src_rid
+                new_rows.append(row)
+
+        if new_rows:
+            inserted = await self._insert_rows(table, new_rows)
+            stats.rows_inserted = inserted
+
+    async def _fetch_existing_vocab_by_name(
+        self, schema_name: str, table_name: str
+    ) -> dict[str, str]:
+        """Return ``{Name: RID}`` for every existing row in the table.
+
+        One GET to ``/attributegroup/{schema}:{table}/Name;RID`` covers
+        the whole table — vocabularies are small enough that pagination
+        isn't worth the round trips.
+        """
+        path = (
+            f"/attributegroup/"
+            f"{schema_name}:{table_name}/Name;RID"
+        )
+
+        def _do_get() -> list[dict[str, Any]]:
+            response = self.catalog.get(path)
+            response.raise_for_status()
+            return response.json()
+
+        rows = await asyncio.to_thread(_do_get)
+        return {row["Name"]: row["RID"] for row in rows if row.get("Name")}
+
+    # ------------------------------------------------------------------
+    # Content path (RID-stable + conflict policy)
+    # ------------------------------------------------------------------
+
+    async def _load_content_table(
+        self,
+        table: DerivaTable,
+        rows: list[dict[str, Any]],
+        stats: TableLoadStats,
+    ) -> None:
+        """Insert a content table's rows, applying the RID remap.
+
+        Before posting, every row's FK columns that reference a
+        vocabulary table get rewritten through the loader's
+        remap (e.g., ``Dataset.Dataset_Type`` switches from the
+        source-catalog vocab RID to the destination's).
+
+        Conflict handling on RID collision is per
+        ``policy.content_on_conflict``:
+
+        - ``FAIL``: a 409 from ERMrest propagates to the caller as
+          an :class:`HTTPError`. Default.
+        - ``SKIP_BY_RID``: existing destination RIDs are filtered out
+          of the payload before POST. The number of skipped rows is
+          recorded as ``rows_skipped_on_conflict``.
+        """
+        rewritten = [self._rewrite_fks(table, row) for row in rows]
+
+        if (
+            self.policy.content_on_conflict
+            == ContentConflictStrategy.SKIP_BY_RID
+        ):
+            existing_rids = await self._fetch_existing_rids(
+                table.schema.name, table.name
+            )
+            kept: list[dict[str, Any]] = []
+            for row in rewritten:
+                if row.get("RID") in existing_rids:
+                    stats.rows_skipped_on_conflict += 1
+                else:
+                    kept.append(row)
+            rewritten = kept
+
+        if not rewritten:
+            return
+
+        inserted = await self._insert_rows(table, rewritten)
+        stats.rows_inserted = inserted
+
+    def _rewrite_fks(
+        self, table: DerivaTable, row: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Translate FK columns that reference remapped parents.
+
+        For each single-column FK on ``table`` whose target table
+        has an entry in :attr:`_rid_remap`, replace the row's FK
+        value with the destination-catalog RID. Rows are mutated
+        on a shallow-copied dict so the bag's in-memory rows stay
+        clean (asset-upload code may want the originals).
+        """
+        if not self._rid_remap:
+            return row
+        out = dict(row)
+        for fk in table.foreign_keys:
+            if len(fk.foreign_key_columns) != 1:
+                # Composite FKs into vocabularies are vanishingly
+                # rare in deriva-ml-shaped catalogs; punt.
+                continue
+            src_col = fk.foreign_key_columns[0].name
+            tgt_table = fk.pk_table
+            remap = self._rid_remap.get(
+                (tgt_table.schema.name, tgt_table.name)
+            )
+            if not remap:
+                continue
+            src_value = out.get(src_col)
+            if src_value is None:
+                continue
+            if src_value in remap:
+                out[src_col] = remap[src_value]
+        return out
+
+    async def _fetch_existing_rids(
+        self, schema_name: str, table_name: str
+    ) -> set[str]:
+        """Return every RID currently present in ``schema.table``.
+
+        Used by the ``SKIP_BY_RID`` content-conflict path to filter
+        the insert payload. For tables with very large row counts
+        this is one pass through the destination — that's fine for
+        the resume-a-partial-load use case.
+        """
+        path = f"/attribute/{schema_name}:{table_name}/RID"
+
+        def _do_get() -> list[dict[str, Any]]:
+            response = self.catalog.get(path)
+            response.raise_for_status()
+            return response.json()
+
+        rows = await asyncio.to_thread(_do_get)
+        return {row["RID"] for row in rows if row.get("RID")}
 
     def _apply_dangling_fk_strategy(
         self,

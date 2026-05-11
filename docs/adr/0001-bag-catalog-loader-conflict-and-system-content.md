@@ -1,7 +1,7 @@
 # ADR-0001: BagCatalogLoader — conflict handling and system content
 
 Date: 2026-05-11
-Status: Proposed
+Status: Accepted
 
 ## Context
 
@@ -196,10 +196,26 @@ work this ADR opens.
 - Asset-mode rewrites beyond the current `ROWS_ONLY` /
   `UPLOAD_IF_MISSING` / `UPLOAD_FORCE` trio.
 
-## Status: Proposed
+## Status: Accepted
 
-This ADR captures the diagnostic findings from the
-`clone_via_bag` end-to-end run. The seven fixes have landed in the
-deriva-py `fix/bag-system-schema-filter` branch (with unit tests). The
-conflict-policy work itself is tracked separately and gates the
-`xfail` removal on `deriva-ml`'s `clone_via_bag` integration tests.
+The seven prerequisite fixes landed in deriva-py#213 alongside this
+ADR's first revision. The conflict-policy rewrite itself landed in
+the present commit:
+
+- New `ContentConflictStrategy` enum (`FAIL` | `SKIP_BY_RID`) on
+  `FKTraversalPolicy`.
+- `BagCatalogLoader._classify_table` distinguishes vocabulary from
+  content tables via the existing
+  `Table.is_vocabulary()` predicate.
+- Vocabulary tables go through `_load_vocabulary_table`: fetch
+  destination's `{Name: RID}`, record `src_rid → dst_rid` in the
+  loader's RID-remap table for every matched row, insert the rest.
+- Content tables go through `_load_content_table`: rewrite FK
+  columns whose targets are in the remap, then POST. With
+  `SKIP_BY_RID`, the loader first fetches the destination's
+  existing RIDs and filters the payload.
+- Two new `TableLoadStats` fields: `rows_matched_by_name` and
+  `rows_skipped_on_conflict`.
+
+deriva-ml's `clone_via_bag` integration tests are unblocked; the
+xfail markers there can be removed.
