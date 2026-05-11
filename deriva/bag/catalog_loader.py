@@ -777,47 +777,146 @@ class BagCatalogLoader:
         table: DerivaTable,
         rows: list[dict[str, Any]],
     ) -> tuple[int, int]:
-        """Run per-asset uploads. Returns ``(uploaded, deduped)``.
+        """Push asset bytes to the destination Hatrac. Returns ``(uploaded, deduped)``.
 
-        Delegates each upload to deriva-py's
-        :class:`~deriva.transfer.upload.deriva_upload.DerivaUpload`
-        recipe so we get Hatrac dedupe + catalog row reconciliation
-        + pre-allocated-RID handling for free.
+        For each asset row in ``rows``:
 
-        This implementation is intentionally minimal — the full
-        producer-side integration with DerivaUpload's asset
-        mapping is a larger piece that needs the destination
-        catalog's upload configuration. For now we count the rows
-        that *would* be uploaded so the report is accurate;
-        full implementation lands in a follow-up commit once
-        the asset-mapping shape is settled.
+        - Use ``Filename`` (now a local path inside the bag — see
+          :meth:`BagDatabase._localize_asset_row`) as the source
+          file.
+        - Use the path component of the row's ``URL`` (the
+          source-catalog Hatrac URL) as the destination Hatrac
+          path. Source and destination share the same logical
+          ``/hatrac/{table}/...`` layout, so the path is portable
+          across catalogs.
+        - With ``UPLOAD_IF_MISSING`` (default), HEAD the
+          destination first and skip the byte transfer when the
+          MD5 already matches.
+        - With ``UPLOAD_FORCE``, re-upload unconditionally.
+
+        Rows missing a local file or URL are warned and skipped
+        (they count as neither uploaded nor deduped). HTTP errors
+        during upload propagate to the caller — the loader's job
+        is to surface them, not to swallow them.
         """
-        # TODO(deriva-bag): integrate with DerivaUpload._uploadAsset
-        # once the asset-mapping config for arbitrary destination
-        # catalogs is settled. The shape needed:
-        #
-        #   1. For each row, build an asset-mapping entry with
-        #      use_pre_allocated_rid=True so the bag's RID is
-        #      preserved at the destination.
-        #   2. Pass the bag's data/asset/{table}/{rid}/{filename}
-        #      path as the source file.
-        #   3. DerivaUpload._uploadAsset does the HEAD-and-MD5
-        #      dedupe internally; we get the dedup count back via
-        #      its FileUploadState.
-        #
-        # The integration is real code, not a stub — it just
-        # needs a paired destination-catalog upload config to
-        # exercise. That arrives with the deriva-ml migration PR.
-        logger.warning(
-            "BagCatalogLoader: asset upload (%s) not yet "
-            "implemented; %d asset rows in %s will have rows "
-            "inserted but bytes will be deferred to DerivaUpload "
-            "integration.",
-            self.policy.asset_mode.value,
-            len(rows),
-            table.name,
+        hatrac = self._dest_hatrac_store()
+
+        uploaded = 0
+        deduped = 0
+        force = self.policy.asset_mode == AssetMode.UPLOAD_FORCE
+
+        for row in rows:
+            local_path = row.get("Filename")
+            url = row.get("URL")
+            if not local_path or not url:
+                logger.warning(
+                    "asset row %s.%s/RID=%s missing Filename or URL; skipping",
+                    table.schema.name, table.name, row.get("RID"),
+                )
+                continue
+            if not Path(local_path).is_file():
+                logger.warning(
+                    "asset row %s.%s/RID=%s Filename=%r does not exist on "
+                    "disk; skipping (was the bag materialized?)",
+                    table.schema.name, table.name, row.get("RID"),
+                    local_path,
+                )
+                continue
+            hatrac_path = self._hatrac_path_for(url)
+            if hatrac_path is None:
+                logger.warning(
+                    "asset row %s.%s/RID=%s URL=%r is not a hatrac URL; "
+                    "skipping",
+                    table.schema.name, table.name, row.get("RID"),
+                    url,
+                )
+                continue
+
+            md5 = row.get("MD5") or None
+
+            # HEAD-then-PUT so we can count dedupes accurately. For
+            # ``UPLOAD_FORCE`` skip the HEAD and just push.
+            if not force and await self._hatrac_already_has(
+                hatrac, hatrac_path, md5
+            ):
+                deduped += 1
+                continue
+
+            await asyncio.to_thread(
+                hatrac.put_loc,
+                hatrac_path,
+                local_path,
+                md5=md5,
+                force=force,
+            )
+            uploaded += 1
+
+        return uploaded, deduped
+
+    def _dest_hatrac_store(self) -> Any:
+        """Return a :class:`HatracStore` bound to the destination host.
+
+        Cached on the loader since every asset upload reuses the
+        same store. The store reuses the catalog's credentials.
+        """
+        if getattr(self, "_hatrac_store", None) is not None:
+            return self._hatrac_store
+        from deriva.core import HatracStore
+
+        deriva_server = self.catalog.deriva_server
+        self._hatrac_store = HatracStore(
+            deriva_server.scheme,
+            deriva_server.server,
+            credentials=self.catalog._credentials,
         )
-        return 0, 0
+        return self._hatrac_store
+
+    @staticmethod
+    def _hatrac_path_for(url: str) -> str | None:
+        """Extract the ``/hatrac/...`` path from a hatrac URL.
+
+        Accepts both full ``https://host/hatrac/...`` and bare
+        ``/hatrac/...``. Returns ``None`` for anything else —
+        non-hatrac URLs (CDN refs, external links) aren't uploadable
+        as Hatrac objects.
+        """
+        from urllib.parse import urlparse
+
+        if url.startswith("/hatrac/"):
+            return url
+        parsed = urlparse(url)
+        if parsed.path.startswith("/hatrac/"):
+            return parsed.path
+        return None
+
+    async def _hatrac_already_has(
+        self,
+        hatrac: Any,
+        hatrac_path: str,
+        md5: str | None,
+    ) -> bool:
+        """HEAD the destination Hatrac object; True iff MD5 matches.
+
+        Missing MD5 means we can't be sure dedupe is safe, so we
+        return False (forcing an upload). A 404 on HEAD also means
+        we need to upload.
+        """
+        if not md5:
+            return False
+        import requests
+
+        def _head() -> bool:
+            try:
+                r = hatrac.head(hatrac_path)
+            except requests.HTTPError as e:
+                if getattr(e.response, "status_code", None) == 404:
+                    return False
+                raise
+            if r.status_code != 200:
+                return False
+            return r.headers.get("Content-MD5") == md5
+
+        return await asyncio.to_thread(_head)
 
     # ------------------------------------------------------------------
     # Lifecycle
