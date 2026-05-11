@@ -287,6 +287,60 @@ class ForeignKeyOrderer:
                 )
         return tables
 
+    def find_cycles(self) -> list[list[str]]:
+        """Find every FK dependency cycle in the configured schemas.
+
+        DFS-based cycle detection over the full FK graph. Each
+        cycle is returned as a list of qualified table keys
+        (``schema.table``) starting and ending at the same node
+        (e.g. ``["A", "B", "A"]``). The result may contain
+        overlapping cycles when the graph has multiple interlocking
+        cycles.
+
+        Useful for diagnostics — :meth:`get_insertion_order`
+        handles cycles automatically by breaking edges, but
+        callers who want to *see* the cycles (to fix them in the
+        source schema, or to log them) can call this directly.
+
+        Returns:
+            A list of cycles. Empty list if the FK graph is a DAG.
+
+        Example:
+            >>> # Given a schema where A → B → A is a cycle:
+            >>> orderer.find_cycles()                # doctest: +SKIP
+            [['demo.A', 'demo.B', 'demo.A']]
+        """
+        graph = self._build_dependency_graph()
+        cycles: list[list[str]] = []
+
+        visited: set[str] = set()
+        rec_stack: set[str] = set()
+        path: list[str] = []
+
+        def dfs(node: str) -> bool:
+            visited.add(node)
+            rec_stack.add(node)
+            path.append(node)
+            for neighbor in graph.get(node, set()):
+                if neighbor not in visited:
+                    if dfs(neighbor):
+                        return True
+                elif neighbor in rec_stack:
+                    # The cycle is the path slice from the
+                    # neighbor's first appearance to here, plus
+                    # the neighbor again to close the loop.
+                    idx = path.index(neighbor)
+                    cycles.append(path[idx:] + [neighbor])
+            path.pop()
+            rec_stack.remove(node)
+            return False
+
+        for node in graph:
+            if node not in visited:
+                dfs(node)
+
+        return cycles
+
 
 # =============================================================================
 # Sink protocol + implementations

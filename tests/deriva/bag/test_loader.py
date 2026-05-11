@@ -169,6 +169,13 @@ def test_orderer_validate_finds_violation() -> None:
     assert len(violations) == 1
 
 
+def test_orderer_find_cycles_returns_empty_for_dag() -> None:
+    """find_cycles returns [] when the FK graph is a DAG."""
+    model = _model_with_fk()
+    orderer = ForeignKeyOrderer(model, ["demo"])
+    assert orderer.find_cycles() == []
+
+
 # ---------------------------------------------------------------------------
 # DataLoader + SQLiteSink (default sink)
 # ---------------------------------------------------------------------------
