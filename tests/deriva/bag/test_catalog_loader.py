@@ -528,3 +528,354 @@ def test_coerce_pg_array_passthrough_plain_string() -> None:
     non-array column passes its value through unchanged.
     """
     assert BagCatalogLoader._coerce_pg_array("plain") == "plain"
+
+
+# ---------------------------------------------------------------------------
+# Conflict policy: vocabulary match-by-name + content conflict
+# (deriva-py#214 / ADR-0001)
+# ---------------------------------------------------------------------------
+
+
+def _build_vocab_bag(tmp_path: Path) -> Path:
+    """Build a bag with one vocabulary table + one content table.
+
+    Shapes:
+
+    * ``demo.Color`` — a vocabulary table (canonical vocab columns).
+    * ``demo.Widget`` — a content table with a single-column FK to
+      ``demo.Color`` so the RID-remap propagation can be exercised.
+    """
+    cache_key = "vocab_bag"
+    bag = tmp_path / cache_key / "bag"
+    (bag / "data" / "demo").mkdir(parents=True)
+
+    doc = {
+        "snaptime": "2026-01-01T00:00:00",
+        "schemas": {
+            "demo": {
+                "schema_name": "demo",
+                "tables": {
+                    "Color": {
+                        "schema_name": "demo",
+                        "table_name": "Color",
+                        "kind": "table",
+                        "column_definitions": [
+                            {
+                                "name": "RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "ID",
+                                "type": {"typename": "ermrest_curie"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "URI",
+                                "type": {"typename": "ermrest_uri"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "Name",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "Description",
+                                "type": {"typename": "markdown"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "Synonyms",
+                                "type": {
+                                    "typename": "text[]",
+                                    "is_array": True,
+                                    "base_type": {"typename": "text"},
+                                },
+                                "nullok": True,
+                                "default": None,
+                                "comment": None,
+                            },
+                        ],
+                        "keys": [
+                            {
+                                "names": [["demo", "Color_RID_key"]],
+                                "unique_columns": ["RID"],
+                            },
+                            {
+                                "names": [["demo", "Color_Name_key"]],
+                                "unique_columns": ["Name"],
+                            },
+                        ],
+                        "foreign_keys": [],
+                    },
+                    "Widget": {
+                        "schema_name": "demo",
+                        "table_name": "Widget",
+                        "kind": "table",
+                        "column_definitions": [
+                            {
+                                "name": "RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "Color",
+                                "type": {"typename": "text"},
+                                "nullok": True,
+                                "default": None,
+                                "comment": None,
+                            },
+                        ],
+                        "keys": [
+                            {
+                                "names": [["demo", "Widget_RID_key"]],
+                                "unique_columns": ["RID"],
+                            }
+                        ],
+                        "foreign_keys": [
+                            {
+                                "names": [
+                                    ["demo", "Widget_Color_fkey"]
+                                ],
+                                "foreign_key_columns": [
+                                    {
+                                        "schema_name": "demo",
+                                        "table_name": "Widget",
+                                        "column_name": "Color",
+                                    }
+                                ],
+                                "referenced_columns": [
+                                    {
+                                        "schema_name": "demo",
+                                        "table_name": "Color",
+                                        "column_name": "RID",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                },
+            }
+        },
+    }
+    (bag / "data" / "schema.json").write_text(json.dumps(doc))
+    with (bag / "data" / "demo" / "Color.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(
+            ["RID", "ID", "URI", "Name", "Description", "Synonyms"]
+        )
+        w.writerow(
+            ["C-SRC-RED", "demo:1", "/id/1", "Red", "Red color", "{}"]
+        )
+        w.writerow(
+            ["C-SRC-BLUE", "demo:2", "/id/2", "Blue", "Blue color", "{}"]
+        )
+    with (bag / "data" / "demo" / "Widget.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["RID", "Color"])
+        w.writerow(["W1", "C-SRC-RED"])
+        w.writerow(["W2", "C-SRC-BLUE"])
+    return bag
+
+
+def test_classify_table_detects_vocabulary(tmp_path: Path) -> None:
+    """A vocab-shaped table is reported as ``VOCABULARY``; others as ``CONTENT``."""
+    from deriva.bag.catalog_loader import _TableClass
+
+    bag = _build_vocab_bag(tmp_path)
+    loader = BagCatalogLoader(
+        catalog=_mock_catalog(),
+        bag=bag,
+        database_dir=tmp_path / "db",
+    )
+    try:
+        color = loader.bag_db.model.schemas["demo"].tables["Color"]
+        widget = loader.bag_db.model.schemas["demo"].tables["Widget"]
+        assert loader._classify_table(color) == _TableClass.VOCABULARY
+        assert loader._classify_table(widget) == _TableClass.CONTENT
+    finally:
+        loader.dispose()
+
+
+def test_vocab_load_matches_by_name_and_records_remap(tmp_path: Path) -> None:
+    """Existing destination rows match by ``Name``; RID remap is recorded."""
+    bag = _build_vocab_bag(tmp_path)
+
+    # Mock catalog: destination already has a "Red" row at a *different* RID.
+    catalog = _mock_catalog()
+
+    def _get(path: str, **_: Any):
+        assert "Color" in path  # only the vocab fetch is expected here
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        resp.json.return_value = [
+            {"Name": "Red", "RID": "C-DST-RED"},
+            # Blue is absent on the destination — must be inserted.
+        ]
+        return resp
+
+    insert_payloads: list[list[dict[str, Any]]] = []
+
+    def _post(path: str, **kwargs: Any):
+        insert_payloads.append(kwargs["json"])
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        return resp
+
+    catalog.get = _get
+    catalog.post = _post
+
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=FKTraversalPolicy(asset_mode=AssetMode.ROWS_ONLY),
+        database_dir=tmp_path / "db",
+    )
+    try:
+        report = loader.run()
+    finally:
+        loader.dispose()
+
+    color_stats = report.table_stats["demo.Color"]
+    assert color_stats.rows_matched_by_name == 1  # "Red" matched
+    assert color_stats.rows_inserted == 1  # "Blue" inserted
+
+    # Remap has Red → destination RID, Blue → identity.
+    remap = loader._rid_remap[("demo", "Color")]
+    assert remap["C-SRC-RED"] == "C-DST-RED"
+    assert remap["C-SRC-BLUE"] == "C-SRC-BLUE"
+
+    # Widget rows were POSTed with their Color FK rewritten:
+    # W1 → Color=C-DST-RED (remapped), W2 → Color=C-SRC-BLUE (identity).
+    widget_inserts = [
+        p
+        for p in insert_payloads
+        if any(
+            r.get("RID") in {"W1", "W2"}
+            for r in (p if isinstance(p, list) else [])
+        )
+    ]
+    assert widget_inserts, "expected Widget rows to be posted"
+    widget_rows = widget_inserts[0]
+    by_rid = {r["RID"]: r for r in widget_rows}
+    assert by_rid["W1"]["Color"] == "C-DST-RED"
+    assert by_rid["W2"]["Color"] == "C-SRC-BLUE"
+
+
+def test_content_conflict_fail_propagates(tmp_path: Path) -> None:
+    """Default content_on_conflict=FAIL surfaces the 409 from ERMrest.
+
+    The loader doesn't catch the HTTPError; the caller sees a clear
+    raise from the POST and can decide how to recover (typically by
+    re-running with SKIP_BY_RID).
+    """
+    import requests
+
+    bag = _build_vocab_bag(tmp_path)
+    catalog = _mock_catalog()
+
+    def _get(path: str, **_: Any):
+        # Vocab fetch returns empty so Color rows are both inserts;
+        # we want Widget to be the one that 409s.
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        resp.json.return_value = []
+        return resp
+
+    def _post(path: str, **_: Any):
+        # Simulate a 409 on Widget insert.
+        if "Widget" in path:
+            err = requests.HTTPError("409 Conflict")
+            err.response = MagicMock(status_code=409)
+            resp = MagicMock()
+            resp.raise_for_status.side_effect = err
+            return resp
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        return resp
+
+    catalog.get = _get
+    catalog.post = _post
+
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=FKTraversalPolicy(asset_mode=AssetMode.ROWS_ONLY),
+        database_dir=tmp_path / "db",
+    )
+    try:
+        with pytest.raises(requests.HTTPError):
+            loader.run()
+    finally:
+        loader.dispose()
+
+
+def test_content_conflict_skip_by_rid_filters_existing(
+    tmp_path: Path,
+) -> None:
+    """SKIP_BY_RID filters out rows whose RID is already on the destination."""
+    from deriva.bag.traversal import ContentConflictStrategy
+
+    bag = _build_vocab_bag(tmp_path)
+    catalog = _mock_catalog()
+
+    def _get(path: str, **_: Any):
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        if "Color" in path and "Name" in path:
+            resp.json.return_value = []  # vocab is empty
+        elif "Widget" in path:
+            # Destination already has W1; W2 is new.
+            resp.json.return_value = [{"RID": "W1"}]
+        else:
+            resp.json.return_value = []
+        return resp
+
+    posted: list[dict[str, Any]] = []
+
+    def _post(path: str, **kwargs: Any):
+        posted.append({"path": path, "json": kwargs["json"]})
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        return resp
+
+    catalog.get = _get
+    catalog.post = _post
+
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=FKTraversalPolicy(
+            asset_mode=AssetMode.ROWS_ONLY,
+            content_on_conflict=ContentConflictStrategy.SKIP_BY_RID,
+        ),
+        database_dir=tmp_path / "db",
+    )
+    try:
+        report = loader.run()
+    finally:
+        loader.dispose()
+
+    widget_stats = report.table_stats["demo.Widget"]
+    assert widget_stats.rows_skipped_on_conflict == 1
+    assert widget_stats.rows_inserted == 1
+
+    widget_post = next(p for p in posted if "Widget" in p["path"])
+    widget_rids = {r["RID"] for r in widget_post["json"]}
+    assert widget_rids == {"W2"}, (
+        "SKIP_BY_RID should drop W1 (already on destination) but "
+        f"send W2; got {widget_rids!r}"
+    )

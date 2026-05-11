@@ -125,6 +125,37 @@ class DanglingFKStrategy(StrEnum):
     NULLIFY = "nullify"
 
 
+class ContentConflictStrategy(StrEnum):
+    """How the loader resolves RID collisions on **content** tables.
+
+    Content tables (everything that isn't a vocabulary table or a
+    system schema) are addressed by RID end-to-end. The destination
+    is expected to be empty for these tables; a colliding RID means
+    one of two things, and the strategy lets the caller declare
+    which:
+
+    - ``FAIL``: abort on any content RID collision. **Default.**
+      The destination already had a row at our RID, which usually
+      means a prior partial load; re-running blindly would mask
+      data loss. Conservative.
+    - ``SKIP_BY_RID``: silently skip rows whose RID already exists
+      on the destination. The explicit "I know there's a partial
+      load, keep going" signal — used for resumable loads.
+
+    Vocabulary tables have their own conflict policy
+    (:class:`~deriva.bag.catalog_loader.BagCatalogLoader`'s
+    match-by-name + RID remap path); this strategy does **not**
+    apply to them.
+
+    Per ADR-0001, the default of ``FAIL`` matches the precondition
+    that a destination prepared via ``create_ml_catalog`` has the
+    schema and system vocabulary, but the data tables are empty.
+    """
+
+    FAIL = "fail"
+    SKIP_BY_RID = "skip_by_rid"
+
+
 # =============================================================================
 # FKTraversalPolicy
 # =============================================================================
@@ -174,6 +205,11 @@ class FKTraversalPolicy(BaseModel):
         dangling_fk_strategy: How the loader resolves orphan
             rows. See :class:`DanglingFKStrategy`. Default
             ``FAIL``.
+        content_on_conflict: How the loader resolves RID collisions
+            on **content** tables (non-vocabulary, non-system).
+            See :class:`ContentConflictStrategy`. Default ``FAIL``.
+            Vocabulary tables use match-by-name regardless of this
+            setting.
 
     Example:
         >>> # Default — works for any producer case.
@@ -208,6 +244,7 @@ class FKTraversalPolicy(BaseModel):
     vocab_export: VocabExport = VocabExport.REFERENCED_ONLY
     asset_mode: AssetMode = AssetMode.UPLOAD_IF_MISSING
     dangling_fk_strategy: DanglingFKStrategy = DanglingFKStrategy.FAIL
+    content_on_conflict: ContentConflictStrategy = ContentConflictStrategy.FAIL
 
     @field_validator("max_depth")
     @classmethod
@@ -253,6 +290,7 @@ class FKTraversalPolicy(BaseModel):
 
 __all__ = [
     "AssetMode",
+    "ContentConflictStrategy",
     "DanglingFKStrategy",
     "DEFAULT_EXCLUDE_SCHEMAS",
     "FKTraversalPolicy",
