@@ -257,6 +257,140 @@ def test_bag_database_rejects_newer_schema_version(
 
 
 # ---------------------------------------------------------------------------
+# FK-safe CSV load order
+# ---------------------------------------------------------------------------
+
+
+def _two_table_fk_schema() -> dict[str, Any]:
+    """Schema for a Parent → Child FK pair.
+
+    ``Child`` comes alphabetically before ``Parent`` so a filesystem
+    walk loads the child CSV first — which would fail with a
+    ``FOREIGN KEY constraint failed`` if the loader doesn't honor
+    FK dependency order.
+    """
+    return {
+        "snaptime": "2026-01-01T00:00:00",
+        "schemas": {
+            "demo": {
+                "schema_name": "demo",
+                "tables": {
+                    "Parent": {
+                        "schema_name": "demo",
+                        "table_name": "Parent",
+                        "kind": "table",
+                        "column_definitions": [
+                            {
+                                "name": "RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                        ],
+                        "keys": [
+                            {
+                                "names": [["demo", "Parent_RID_key"]],
+                                "unique_columns": ["RID"],
+                            }
+                        ],
+                        "foreign_keys": [],
+                    },
+                    "Child": {
+                        "schema_name": "demo",
+                        "table_name": "Child",
+                        "kind": "table",
+                        "column_definitions": [
+                            {
+                                "name": "RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "Parent_RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                        ],
+                        "keys": [
+                            {
+                                "names": [["demo", "Child_RID_key"]],
+                                "unique_columns": ["RID"],
+                            }
+                        ],
+                        "foreign_keys": [
+                            {
+                                "names": [["demo", "Child_Parent_fkey"]],
+                                "foreign_key_columns": [
+                                    {
+                                        "schema_name": "demo",
+                                        "table_name": "Child",
+                                        "column_name": "Parent_RID",
+                                    }
+                                ],
+                                "referenced_columns": [
+                                    {
+                                        "schema_name": "demo",
+                                        "table_name": "Parent",
+                                        "column_name": "RID",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                },
+            }
+        },
+    }
+
+
+def test_bag_database_loads_child_after_parent(tmp_path: Path) -> None:
+    """CSV ingestion respects FK dependency order.
+
+    Without FK-aware ordering, ``Child.csv`` (which sorts before
+    ``Parent.csv`` in filesystem order) would be ingested first
+    and trigger ``sqlite3.IntegrityError: FOREIGN KEY constraint
+    failed`` because the parent row hasn't landed yet. The loader
+    must reorder using
+    :class:`~deriva.bag.loader.ForeignKeyOrderer`.
+    """
+    bag = tmp_path / "fk_bag" / "bag"
+    (bag / "data" / "demo").mkdir(parents=True)
+    (bag / "data" / "schema.json").write_text(
+        json.dumps(_two_table_fk_schema())
+    )
+
+    # Parent CSV — sorts after Child alphabetically.
+    with (bag / "data" / "demo" / "Parent.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["RID"])
+        w.writerow(["P1"])
+        w.writerow(["P2"])
+
+    # Child CSV — sorts before Parent alphabetically.
+    with (bag / "data" / "demo" / "Child.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["RID", "Parent_RID"])
+        w.writerow(["C1", "P1"])
+        w.writerow(["C2", "P2"])
+
+    db_dir = tmp_path / "db"
+    with BagDatabase(bag, db_dir, ["demo"]) as db:
+        parents = list(db.get_table_contents("Parent"))
+        children = list(db.get_table_contents("Child"))
+
+    assert {r["RID"] for r in parents} == {"P1", "P2"}
+    assert {(r["RID"], r["Parent_RID"]) for r in children} == {
+        ("C1", "P1"),
+        ("C2", "P2"),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Asset / fetch.txt integration
 # ---------------------------------------------------------------------------
 
