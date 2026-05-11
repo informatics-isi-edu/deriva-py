@@ -5,16 +5,15 @@ moving catalog content across boundaries via BDBags. Every supported
 data-movement operation factors through a bag:
 
 - **Catalog → bag** (slice, dataset export, clone): write a bag from a
-  live ERMrest catalog using :class:`CatalogBagBuilder` (forthcoming).
+  live ERMrest catalog using :class:`CatalogBagBuilder`.
 - **In-memory → bag** (programmatic build, end-of-execution upload):
   write a bag from caller-supplied data or a local SQLite database
-  using :class:`BagBuilder` (forthcoming).
+  using :class:`BagBuilder`.
 - **Bag → catalog** (clone destination, dataset re-import,
   end-of-execution commit): load a bag into a destination ERMrest
-  catalog using :class:`BagCatalogLoader` (forthcoming).
+  catalog using :class:`BagCatalogLoader`.
 - **Bag → SQLAlchemy** (consumption): open a bag as a SQLAlchemy ORM
-  using :class:`BagDatabase` (forthcoming, lifted from
-  :mod:`deriva.core.bag_database`).
+  using :class:`BagDatabase`.
 
 All bags conform to the **deriva-bag profile**, a BagIt Profile JSON
 document hosted under :mod:`deriva.bag.profiles`. The profile declares
@@ -32,15 +31,102 @@ all are normalized to ``MetaData`` via :mod:`deriva.bag.schema_io`.
 
 See ADR-0006 (``docs/adr/0006-bag-oriented-data-movement.md`` in the
 deriva-ml repository) for the full design rationale.
-
-This module is built incrementally; the foundation pieces
-(:mod:`~deriva.bag.profile`, :mod:`~deriva.bag.sqlite_helpers`, the
-profile JSON document) land first. Producer classes
-(:class:`BagBuilder`, :class:`CatalogBagBuilder`,
-:class:`BagCatalogLoader`) and the consumer-side move of
-:class:`BagDatabase` follow in subsequent commits.
 """
 
 from __future__ import annotations
 
-__all__: list[str] = []
+from deriva.bag.anchors import (
+    Anchor,
+    AnchorKind,
+    PathAnchor,
+    RIDAnchor,
+    TableAnchor,
+)
+from deriva.bag.builder import BagBuilder
+from deriva.bag.cache_index import BagCacheIndex
+from deriva.bag.catalog_builder import CatalogBagBuilder
+from deriva.bag.catalog_loader import (
+    BagCatalogLoader,
+    LoadReport,
+    TableLoadStats,
+)
+from deriva.bag.database import BagDatabase
+from deriva.bag.loader import (
+    CSVSink,
+    DataLoader,
+    ForeignKeyOrderer,
+    Sink,
+    SQLiteSink,
+)
+from deriva.bag.profile import (
+    BAG_SCHEMA_VERSION,
+    BAGIT_PROFILE_IDENTIFIER,
+)
+from deriva.bag.schema import SchemaBuilder, SchemaORM
+from deriva.bag.sources import (
+    BagDataSource,
+    CatalogDataSource,
+    DataFrameDataSource,
+    DataSource,
+    IterableDataSource,
+    LocalDBDataSource,
+)
+from deriva.bag.sqlite_helpers import (
+    SchemaVersionError,
+    create_wal_engine,
+    ensure_schema_meta,
+)
+from deriva.bag.traversal import (
+    AssetMode,
+    DanglingFKStrategy,
+    FKTraversalPolicy,
+    VocabExport,
+)
+
+__all__ = [
+    # Anchors
+    "Anchor",
+    "AnchorKind",
+    "PathAnchor",
+    "RIDAnchor",
+    "TableAnchor",
+    # Producers
+    "BagBuilder",
+    "CatalogBagBuilder",
+    # Loader
+    "BagCatalogLoader",
+    "LoadReport",
+    "TableLoadStats",
+    # Consumer
+    "BagDatabase",
+    # Cache
+    "BagCacheIndex",
+    # Loader primitives
+    "CSVSink",
+    "DataLoader",
+    "ForeignKeyOrderer",
+    "Sink",
+    "SQLiteSink",
+    # Schema
+    "SchemaBuilder",
+    "SchemaORM",
+    # Sources
+    "BagDataSource",
+    "CatalogDataSource",
+    "DataFrameDataSource",
+    "DataSource",
+    "IterableDataSource",
+    "LocalDBDataSource",
+    # Profile constants
+    "BAG_SCHEMA_VERSION",
+    "BAGIT_PROFILE_IDENTIFIER",
+    # SQLite helpers
+    "SchemaVersionError",
+    "create_wal_engine",
+    "ensure_schema_meta",
+    # Traversal
+    "AssetMode",
+    "DanglingFKStrategy",
+    "FKTraversalPolicy",
+    "VocabExport",
+]
