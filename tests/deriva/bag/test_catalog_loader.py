@@ -879,3 +879,226 @@ def test_content_conflict_skip_by_rid_filters_existing(
         "SKIP_BY_RID should drop W1 (already on destination) but "
         f"send W2; got {widget_rids!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Hatrac URL → path extraction
+# ---------------------------------------------------------------------------
+
+
+def test_hatrac_path_for_full_url() -> None:
+    """Full https URL → path-only form."""
+    assert (
+        BagCatalogLoader._hatrac_path_for(
+            "https://example.org/hatrac/Image/abc.png"
+        )
+        == "/hatrac/Image/abc.png"
+    )
+
+
+def test_hatrac_path_for_bare_path() -> None:
+    """Already-bare hatrac path passes through unchanged."""
+    assert (
+        BagCatalogLoader._hatrac_path_for("/hatrac/Image/abc.png")
+        == "/hatrac/Image/abc.png"
+    )
+
+
+def test_hatrac_path_for_non_hatrac_returns_none() -> None:
+    """A non-hatrac URL is unrecognized — callers warn and skip."""
+    assert (
+        BagCatalogLoader._hatrac_path_for(
+            "https://cdn.example.org/img.png"
+        )
+        is None
+    )
+    assert BagCatalogLoader._hatrac_path_for("/other/img.png") is None
+
+
+# ---------------------------------------------------------------------------
+# Asset upload — dedupe + force semantics
+# ---------------------------------------------------------------------------
+
+
+def _build_asset_only_bag(tmp_path: Path) -> Path:
+    """Build a bag with one asset table and one row referencing a local file."""
+    bag = tmp_path / "asset_only" / "bag"
+    (bag / "data" / "demo").mkdir(parents=True)
+    (bag / "data" / "asset" / "Image" / "I1").mkdir(parents=True)
+    local_asset = bag / "data" / "asset" / "Image" / "I1" / "img.png"
+    local_asset.write_bytes(b"\x89PNG\r\n\x1a\n...")
+
+    doc = {
+        "snaptime": "2026-01-01T00:00:00",
+        "schemas": {
+            "demo": {
+                "schema_name": "demo",
+                "tables": {
+                    "Image": {
+                        "schema_name": "demo",
+                        "table_name": "Image",
+                        "kind": "table",
+                        "column_definitions": [
+                            {"name": "RID", "type": {"typename": "text"}, "nullok": False, "default": None, "comment": None},
+                            {"name": "Filename", "type": {"typename": "text"}, "nullok": True, "default": None, "comment": None},
+                            {"name": "URL", "type": {"typename": "text"}, "nullok": True, "default": None, "comment": None},
+                            {"name": "Length", "type": {"typename": "int8"}, "nullok": True, "default": None, "comment": None},
+                            {"name": "MD5", "type": {"typename": "text"}, "nullok": True, "default": None, "comment": None},
+                            {"name": "Description", "type": {"typename": "markdown"}, "nullok": True, "default": None, "comment": None},
+                        ],
+                        "keys": [{"names": [["demo", "Image_RID_key"]], "unique_columns": ["RID"]}],
+                        "foreign_keys": [],
+                    },
+                },
+            }
+        },
+    }
+    (bag / "data" / "schema.json").write_text(json.dumps(doc))
+    with (bag / "data" / "demo" / "Image.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["RID", "Filename", "URL", "Length", "MD5", "Description"])
+        w.writerow(
+            [
+                "I1",
+                str(local_asset),  # local path already populated
+                "https://src.example.org/hatrac/Image/img.png",
+                "8",
+                "deadbeef",  # md5 (fake, but the test mocks the HEAD)
+                "img",
+            ]
+        )
+    return bag
+
+
+def test_upload_assets_dedupe_skips_when_md5_matches(tmp_path: Path) -> None:
+    """``UPLOAD_IF_MISSING`` skips bytes when destination MD5 matches."""
+    import asyncio
+
+    bag = _build_asset_only_bag(tmp_path)
+    catalog = _mock_catalog()
+    hatrac = MagicMock()
+    head_resp = MagicMock()
+    head_resp.status_code = 200
+    head_resp.headers = {"Content-MD5": "deadbeef"}
+    hatrac.head.return_value = head_resp
+
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=FKTraversalPolicy(asset_mode=AssetMode.UPLOAD_IF_MISSING),
+        database_dir=tmp_path / "db",
+    )
+    loader._hatrac_store = hatrac  # bypass real construction
+    try:
+        image = loader.bag_db.model.schemas["demo"].tables["Image"]
+        rows = list(loader.bag_db.get_table_contents("Image"))
+        uploaded, deduped = asyncio.run(
+            loader._upload_assets(image, rows)
+        )
+    finally:
+        loader.dispose()
+
+    assert uploaded == 0
+    assert deduped == 1
+    hatrac.put_loc.assert_not_called()
+    hatrac.head.assert_called_once_with("/hatrac/Image/img.png")
+
+
+def test_upload_assets_uploads_when_md5_differs(tmp_path: Path) -> None:
+    """``UPLOAD_IF_MISSING`` pushes bytes when destination MD5 differs."""
+    import asyncio
+
+    bag = _build_asset_only_bag(tmp_path)
+    catalog = _mock_catalog()
+    hatrac = MagicMock()
+    head_resp = MagicMock()
+    head_resp.status_code = 200
+    head_resp.headers = {"Content-MD5": "different_md5"}
+    hatrac.head.return_value = head_resp
+
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=FKTraversalPolicy(asset_mode=AssetMode.UPLOAD_IF_MISSING),
+        database_dir=tmp_path / "db",
+    )
+    loader._hatrac_store = hatrac
+    try:
+        image = loader.bag_db.model.schemas["demo"].tables["Image"]
+        rows = list(loader.bag_db.get_table_contents("Image"))
+        uploaded, deduped = asyncio.run(
+            loader._upload_assets(image, rows)
+        )
+    finally:
+        loader.dispose()
+
+    assert uploaded == 1
+    assert deduped == 0
+    hatrac.put_loc.assert_called_once()
+    # The destination Hatrac path is the source URL's path component.
+    args, kwargs = hatrac.put_loc.call_args
+    assert args[0] == "/hatrac/Image/img.png"
+    assert kwargs.get("md5") == "deadbeef"
+    assert kwargs.get("force") is False
+
+
+def test_upload_assets_force_bypasses_head(tmp_path: Path) -> None:
+    """``UPLOAD_FORCE`` skips the HEAD and pushes unconditionally."""
+    import asyncio
+
+    bag = _build_asset_only_bag(tmp_path)
+    catalog = _mock_catalog()
+    hatrac = MagicMock()
+
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=FKTraversalPolicy(asset_mode=AssetMode.UPLOAD_FORCE),
+        database_dir=tmp_path / "db",
+    )
+    loader._hatrac_store = hatrac
+    try:
+        image = loader.bag_db.model.schemas["demo"].tables["Image"]
+        rows = list(loader.bag_db.get_table_contents("Image"))
+        uploaded, deduped = asyncio.run(
+            loader._upload_assets(image, rows)
+        )
+    finally:
+        loader.dispose()
+
+    assert uploaded == 1
+    assert deduped == 0
+    hatrac.head.assert_not_called()
+    _args, kwargs = hatrac.put_loc.call_args
+    assert kwargs.get("force") is True
+
+
+def test_upload_assets_skips_missing_local_file(tmp_path: Path) -> None:
+    """Rows whose Filename doesn't exist on disk are warned and skipped."""
+    import asyncio
+
+    bag = _build_asset_only_bag(tmp_path)
+    # Remove the local file so the row points at nothing.
+    (bag / "data" / "asset" / "Image" / "I1" / "img.png").unlink()
+
+    catalog = _mock_catalog()
+    hatrac = MagicMock()
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=FKTraversalPolicy(asset_mode=AssetMode.UPLOAD_IF_MISSING),
+        database_dir=tmp_path / "db",
+    )
+    loader._hatrac_store = hatrac
+    try:
+        image = loader.bag_db.model.schemas["demo"].tables["Image"]
+        rows = list(loader.bag_db.get_table_contents("Image"))
+        uploaded, deduped = asyncio.run(
+            loader._upload_assets(image, rows)
+        )
+    finally:
+        loader.dispose()
+
+    assert uploaded == 0
+    assert deduped == 0
+    hatrac.put_loc.assert_not_called()
