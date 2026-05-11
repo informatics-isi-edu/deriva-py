@@ -897,19 +897,37 @@ class ErmrestCatalog(DerivaBinding):
             return (sname, tname, prune_parts(c.prejson()))
 
         def check_column_compatibility(src, dst):
-            """Check compatibility of source and destination column definitions."""
+            """Check compatibility of source and destination column definitions.
+
+            Type and nullability mismatches are real schema
+            incompatibilities — the clone can't proceed. Default
+            mismatches are softer: they only affect rows the
+            destination might generate on its own, and
+            ``clone_catalog`` always carries explicit values for
+            every copied row. We log defaults that differ instead of
+            failing — typically these are CURIE templates baked
+            with the source catalog's project name (e.g.,
+            ``"src-name:{RID}"`` vs ``"dst-name:{RID}"``), which are
+            both correct for their respective catalogs.
+            """
             def error(fieldname, sv, dv):
                 return ValueError("Source/dest column %s mismatch %s != %s for %s:%s:%s" % (
                     fieldname,
                     sv, dv,
-                    src.sname, src.tname, src.name
+                    src.table.schema.name, src.table.name, src.name
                 ))
             if src.type.typename != dst.type.typename:
                 raise error("type", src.type.typename, dst.type.typename)
             if src.nullok != dst.nullok:
                 raise error("nullok", src.nullok, dst.nullok)
             if src.default != dst.default:
-                raise error("default", src.default, dst.default)
+                logging.warning(
+                    "Source/dest column default differs for %s:%s:%s "
+                    "(src=%r, dst=%r); proceeding (clone copies explicit "
+                    "values for every row)",
+                    src.table.schema.name, src.table.name, src.name,
+                    src.default, dst.default,
+                )
 
         def copy_kdef(k):
             return (sname, tname, prune_parts(k.prejson()))
