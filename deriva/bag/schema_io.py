@@ -456,6 +456,14 @@ def metadata_to_ermrest_json(metadata: MetaData) -> dict[str, Any]:
         schemas[schema_name]["tables"][sql_table.name] = {
             "schema_name": schema_name,
             "table_name": sql_table.name,
+            # ERMrest's Model parser expects ``kind`` to identify
+            # whether the table is a real table or a view. Without
+            # it, ForeignKey.digest_referenced_columns falls into a
+            # broken branch that tries to write into
+            # ``model._fkeys`` (an attribute that doesn't exist on
+            # the Model class). Stamping ``"table"`` keeps the
+            # round-trip safe.
+            "kind": "table",
             "column_definitions": column_definitions,
             "keys": keys,
             "foreign_keys": foreign_keys,
