@@ -62,16 +62,19 @@ from deriva.bag.profile import (
     BAGIT_PROFILE_IDENTIFIER,
     write_provenance,
 )
-from deriva.bag.traversal import FKTraversalPolicy, VocabExport
+from deriva.bag.traversal import (
+    DEFAULT_EXCLUDE_SCHEMAS,
+    FKTraversalPolicy,
+    VocabExport,
+)
 
 logger = logging.getLogger(__name__)
 
 
-#: System schemas the walker always excludes, on top of whatever
-#: the policy specifies.
-_SYSTEM_SCHEMAS: frozenset[str] = frozenset(
-    {"public", "_acl_admin", "WWW"}
-)
+#: Backwards-compat alias for the canonical default-exclude set.
+#: New code should import :data:`DEFAULT_EXCLUDE_SCHEMAS` from
+#: :mod:`deriva.bag.traversal` directly.
+_SYSTEM_SCHEMAS = DEFAULT_EXCLUDE_SCHEMAS
 
 
 class CatalogBagBuilder:

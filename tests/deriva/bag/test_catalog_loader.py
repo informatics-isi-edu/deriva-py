@@ -95,6 +95,40 @@ def _mock_catalog(catalog_id: str = "42") -> MagicMock:
 
 
 # ---------------------------------------------------------------------------
+# Schema inference
+# ---------------------------------------------------------------------------
+
+
+def test_infer_schemas_skips_system_schemas(tmp_path: Path) -> None:
+    """``public`` / ``WWW`` / ``_acl_admin`` are filtered from the result.
+
+    The catalog builder's export engine snapshots the *entire*
+    source-catalog model into ``schema.json``, including ERMrest's
+    structural schemas that carry no user data. Loading them
+    upstream of automap produces classes with no usable primary
+    key, which crashes the cross-schema FK loop in
+    ``BagDatabase._create_tables``. The loader must drop them at
+    the inference step so the database layer never sees them.
+    """
+    bag = _write_minimal_bag(tmp_path)
+    schema_file = bag / "data" / "schema.json"
+    doc = json.loads(schema_file.read_text())
+    # Inject the structural schemas the export engine would carry.
+    for sys_schema in ("public", "WWW", "_acl_admin"):
+        doc["schemas"][sys_schema] = {
+            "schema_name": sys_schema,
+            "tables": {},
+        }
+    schema_file.write_text(json.dumps(doc))
+
+    schemas = BagCatalogLoader._infer_schemas_from_bag(bag)
+    assert "demo" in schemas
+    assert "public" not in schemas
+    assert "WWW" not in schemas
+    assert "_acl_admin" not in schemas
+
+
+# ---------------------------------------------------------------------------
 # Bag-state inference
 # ---------------------------------------------------------------------------
 
@@ -451,3 +485,46 @@ def test_table_load_stats_defaults() -> None:
     assert s.rows_nullified_orphan == 0
     assert s.assets_uploaded == 0
     assert s.assets_deduped == 0
+
+
+# ---------------------------------------------------------------------------
+# PostgreSQL array-literal coercion
+# ---------------------------------------------------------------------------
+
+
+def test_coerce_pg_array_empty() -> None:
+    """``{}`` is the wire form for an empty array."""
+    assert BagCatalogLoader._coerce_pg_array("{}") == []
+
+
+def test_coerce_pg_array_strings() -> None:
+    """``{a,b,c}`` becomes a list of strings."""
+    assert BagCatalogLoader._coerce_pg_array("{a,b,c}") == [
+        "a",
+        "b",
+        "c",
+    ]
+
+
+def test_coerce_pg_array_quoted() -> None:
+    """Quoted elements have their wrapping quotes stripped."""
+    assert BagCatalogLoader._coerce_pg_array('{"a","b"}') == [
+        "a",
+        "b",
+    ]
+
+
+def test_coerce_pg_array_passthrough_non_string() -> None:
+    """Non-string values (already-decoded lists, ``None``) pass through."""
+    assert BagCatalogLoader._coerce_pg_array(None) is None
+    assert BagCatalogLoader._coerce_pg_array([1, 2]) == [1, 2]
+
+
+def test_coerce_pg_array_passthrough_plain_string() -> None:
+    """A plain text value that isn't braced is returned as-is.
+
+    Necessary because the column-coercion loop is keyed on the
+    column's array-ness in the schema, not on the value shape; a
+    non-array column passes its value through unchanged.
+    """
+    assert BagCatalogLoader._coerce_pg_array("plain") == "plain"

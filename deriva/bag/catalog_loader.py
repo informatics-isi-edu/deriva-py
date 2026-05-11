@@ -51,6 +51,7 @@ from deriva.core.ermrest_model import Table as DerivaTable
 from deriva.bag.database import BagDatabase
 from deriva.bag.loader import ForeignKeyOrderer
 from deriva.bag.traversal import (
+    DEFAULT_EXCLUDE_SCHEMAS,
     AssetMode,
     DanglingFKStrategy,
     FKTraversalPolicy,
@@ -199,13 +200,30 @@ class BagCatalogLoader:
 
     @staticmethod
     def _infer_schemas_from_bag(bag_path: Path) -> list[str]:
-        """Peek at the bag's schema.json and return the schemas it declares."""
+        """Peek at the bag's schema.json and return loadable schemas.
+
+        The export engine serializes the *entire* source catalog
+        model into ``schema.json``, including ERMrest's structural
+        schemas (``public``, ``WWW``, ``_acl_admin``). The walker
+        skips those tables when building the bag, so they carry no
+        data, but their schema sections are still present. Loading
+        them produces SQLAlchemy automap classes with no usable
+        primary key — which then crashes the cross-schema FK loop
+        with ``'NoneType' has no attribute '__table__'``.
+
+        Filter the system schemas out here so the loader only ever
+        sees user-content schemas.
+        """
         schema_file = bag_path / "data" / "schema.json"
         if not schema_file.exists():
             return []
         with schema_file.open() as f:
             doc = json.load(f)
-        return list(doc.get("schemas", {}).keys())
+        return [
+            name
+            for name in doc.get("schemas", {})
+            if name not in DEFAULT_EXCLUDE_SCHEMAS
+        ]
 
     def _is_holey(self) -> bool:
         """Return True if the bag has unresolved fetch.txt entries."""
@@ -362,11 +380,20 @@ class BagCatalogLoader:
         # column (or composite); for the simple single-column
         # case we look up the parent's RIDs in the bag.
         parent_rids: dict[str, set[str]] = {}
+        bag_schemas = set(self.bag_db.schemas)
         for fk in table.foreign_keys:
             if not fk.foreign_key_columns:
                 continue
             fk_col = fk.foreign_key_columns[0].name
             pk_table = fk.pk_table
+            # FKs into out-of-bag schemas (e.g., the system FKs on
+            # ``RCB``/``RMB`` that point at ``public.ERMrest_Client``)
+            # can never be validated from the bag alone — the parent
+            # rows live outside the bag's scope. Treat them as
+            # always-valid; the destination catalog will resolve
+            # them on its own when the rows land.
+            if pk_table.schema.name not in bag_schemas:
+                continue
             try:
                 parent_rows = list(
                     self.bag_db.get_table_contents(pk_table.name)
@@ -433,6 +460,31 @@ class BagCatalogLoader:
 
         return survivors, skipped, nullified
 
+    @staticmethod
+    def _coerce_pg_array(value: Any) -> Any:
+        """Convert a PostgreSQL CSV array literal into a JSON array.
+
+        Bag CSVs preserve ``text[]`` / ``int[]`` etc. as PostgreSQL's
+        literal-array form (``{}``, ``{a,b}``, ``{1,2,3}``). ERMrest's
+        JSON ingest expects real arrays; sending the literal triggers
+        ``cannot call json_array_elements_text on a scalar`` on the
+        server side. Coerce here so callers see normal Python lists.
+
+        Defensive about non-string and already-decoded inputs — pass
+        them through unchanged.
+        """
+        if value is None or not isinstance(value, str):
+            return value
+        if not (value.startswith("{") and value.endswith("}")):
+            return value
+        inner = value[1:-1]
+        if not inner:
+            return []
+        # Naive split is fine for the common case (text[] of simple
+        # identifiers, int[] of digits). Embedded commas in quoted
+        # strings aren't produced by the current bag walker.
+        return [part.strip().strip('"') for part in inner.split(",")]
+
     async def _insert_rows(
         self,
         table: DerivaTable,
@@ -447,13 +499,28 @@ class BagCatalogLoader:
         loader can be embedded in async pipelines without
         blocking the event loop.
         """
-        # Use ``defaults`` to exclude system columns so the
-        # destination catalog generates RCT/RCB/RMT itself but
-        # accepts our RID. RIDs are the bag's authoritative
-        # identifier — without them, FK references inside the
-        # bag would break against the destination.
+        # Preserve provenance for creation (RID, RCT, RCB) and let
+        # the destination set modification (RMT, RMB) on insert.
+        # This matches deriva-py's canonical catalog-clone paths
+        # (``ErmrestCatalog.clone_catalog`` and ``asyncio/clone.py``):
+        # creation timestamps and user are real audit data worth
+        # preserving; modification timestamps would be overwritten
+        # on the very next update anyway.
         qname = f"{table.schema.name}:{table.name}"
-        url = f"/entity/{qname}?nondefaults=RID"
+        url = f"/entity/{qname}?nondefaults=RID,RCT,RCB"
+
+        # Coerce array-typed columns from PostgreSQL literal form
+        # (``{a,b}``) into real JSON arrays for the wire.
+        array_cols = [
+            c.name
+            for c in table.column_definitions
+            if getattr(c.type, "is_array", False)
+        ]
+        if array_cols:
+            for row in rows:
+                for col in array_cols:
+                    if col in row:
+                        row[col] = self._coerce_pg_array(row[col])
 
         def _do_insert() -> int:
             response = self.catalog.post(url, json=rows)

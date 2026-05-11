@@ -3347,11 +3347,10 @@ class DomainType (Type):
         return self.base_type.sqlite3_ddl()
 
 class ArrayType (Type):
-    """Named domain type.
-    """
+    """Named array type."""
     def __init__(self, type_doc):
         super(ArrayType, self).__init__(type_doc)
-        is_array = True
+        self.is_array = True
         self.base_type = make_type(type_doc['base_type'])
 
     def prejson(self, prune=True):

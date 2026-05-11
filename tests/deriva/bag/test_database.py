@@ -257,6 +257,140 @@ def test_bag_database_rejects_newer_schema_version(
 
 
 # ---------------------------------------------------------------------------
+# FK-safe CSV load order
+# ---------------------------------------------------------------------------
+
+
+def _two_table_fk_schema() -> dict[str, Any]:
+    """Schema for a Parent → Child FK pair.
+
+    ``Child`` comes alphabetically before ``Parent`` so a filesystem
+    walk loads the child CSV first — which would fail with a
+    ``FOREIGN KEY constraint failed`` if the loader doesn't honor
+    FK dependency order.
+    """
+    return {
+        "snaptime": "2026-01-01T00:00:00",
+        "schemas": {
+            "demo": {
+                "schema_name": "demo",
+                "tables": {
+                    "Parent": {
+                        "schema_name": "demo",
+                        "table_name": "Parent",
+                        "kind": "table",
+                        "column_definitions": [
+                            {
+                                "name": "RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                        ],
+                        "keys": [
+                            {
+                                "names": [["demo", "Parent_RID_key"]],
+                                "unique_columns": ["RID"],
+                            }
+                        ],
+                        "foreign_keys": [],
+                    },
+                    "Child": {
+                        "schema_name": "demo",
+                        "table_name": "Child",
+                        "kind": "table",
+                        "column_definitions": [
+                            {
+                                "name": "RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "Parent_RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                        ],
+                        "keys": [
+                            {
+                                "names": [["demo", "Child_RID_key"]],
+                                "unique_columns": ["RID"],
+                            }
+                        ],
+                        "foreign_keys": [
+                            {
+                                "names": [["demo", "Child_Parent_fkey"]],
+                                "foreign_key_columns": [
+                                    {
+                                        "schema_name": "demo",
+                                        "table_name": "Child",
+                                        "column_name": "Parent_RID",
+                                    }
+                                ],
+                                "referenced_columns": [
+                                    {
+                                        "schema_name": "demo",
+                                        "table_name": "Parent",
+                                        "column_name": "RID",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                },
+            }
+        },
+    }
+
+
+def test_bag_database_loads_child_after_parent(tmp_path: Path) -> None:
+    """CSV ingestion respects FK dependency order.
+
+    Without FK-aware ordering, ``Child.csv`` (which sorts before
+    ``Parent.csv`` in filesystem order) would be ingested first
+    and trigger ``sqlite3.IntegrityError: FOREIGN KEY constraint
+    failed`` because the parent row hasn't landed yet. The loader
+    must reorder using
+    :class:`~deriva.bag.loader.ForeignKeyOrderer`.
+    """
+    bag = tmp_path / "fk_bag" / "bag"
+    (bag / "data" / "demo").mkdir(parents=True)
+    (bag / "data" / "schema.json").write_text(
+        json.dumps(_two_table_fk_schema())
+    )
+
+    # Parent CSV — sorts after Child alphabetically.
+    with (bag / "data" / "demo" / "Parent.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["RID"])
+        w.writerow(["P1"])
+        w.writerow(["P2"])
+
+    # Child CSV — sorts before Parent alphabetically.
+    with (bag / "data" / "demo" / "Child.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["RID", "Parent_RID"])
+        w.writerow(["C1", "P1"])
+        w.writerow(["C2", "P2"])
+
+    db_dir = tmp_path / "db"
+    with BagDatabase(bag, db_dir, ["demo"]) as db:
+        parents = list(db.get_table_contents("Parent"))
+        children = list(db.get_table_contents("Child"))
+
+    assert {r["RID"] for r in parents} == {"P1", "P2"}
+    assert {(r["RID"], r["Parent_RID"]) for r in children} == {
+        ("C1", "P1"),
+        ("C2", "P2"),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Asset / fetch.txt integration
 # ---------------------------------------------------------------------------
 
@@ -331,17 +465,50 @@ def _asset_schema(snaptime: str = "2026-01-01T00:00:00") -> dict[str, Any]:
     }
 
 
-@pytest.mark.xfail(
-    reason=(
-        "Pre-existing bug in BagDatabase._localize_asset_row: the fetch-map "
-        "is keyed by urlparse(url).path (just the path portion of the URL), "
-        "but the lookup compares against the full URL from the row. This "
-        "test pins the intended behavior so the bug can't regress further; "
-        "the fix is out-of-scope for the move commit and will land in a "
-        "follow-up. Once fixed, remove the xfail."
-    ),
-    strict=True,
-)
+def test_bag_database_localizes_asset_urls_path_only_form(tmp_path: Path) -> None:
+    """The fetch-map matches when the row carries a path-only URL.
+
+    ERMrest sometimes stores asset URLs as path-only (``/hatrac/...``)
+    rather than full URLs; the localization must still hit. The
+    asset map is keyed by both the full URL and the URL's path, so
+    either shape works.
+    """
+    cache_key = "asset_path_only"
+    bag = tmp_path / cache_key / "bag"
+    (bag / "data" / "demo").mkdir(parents=True)
+    (bag / "data" / "schema.json").write_text(json.dumps(_asset_schema()))
+
+    # Row carries a path-only URL.
+    with (bag / "data" / "demo" / "Image.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["RID", "Filename", "URL", "Length", "MD5", "Description"])
+        w.writerow(
+            [
+                "I2",
+                "remote2.png",
+                "/hatrac/img2.png",
+                "2048",
+                "def456",
+                "img2",
+            ]
+        )
+
+    local_path = "data/asset/Image/I2/img2.png"
+    (bag / "data" / "asset" / "Image" / "I2").mkdir(parents=True)
+    (bag / local_path).write_bytes(b"\x89PNG\r\n\x1a\n...")
+    # fetch.txt records the full URL; the asset map must also match
+    # when the row's URL is just the path.
+    (bag / "fetch.txt").write_text(
+        f"https://example.com/hatrac/img2.png\t2048\t{local_path}\n"
+    )
+
+    db_dir = tmp_path / "db"
+    with BagDatabase(bag, db_dir, ["demo"]) as db:
+        rows = list(db.get_table_contents("Image"))
+    assert len(rows) == 1
+    assert rows[0]["Filename"] == f"{bag}/{local_path}"
+
+
 def test_bag_database_localizes_asset_urls(tmp_path: Path) -> None:
     """When fetch.txt maps a URL to a local file, the row's Filename column
     gets rewritten to the local path on load."""

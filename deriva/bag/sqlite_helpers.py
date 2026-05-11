@@ -281,22 +281,34 @@ def ensure_schema_meta(engine: Engine, expected_version: int) -> int:
                 ")"
             )
         )
-        # Check for an existing version first. Do not insert if a
-        # version already exists; INSERT-OR-IGNORE wouldn't catch the
-        # case where the existing PK is different from ours (a stale
-        # ``ensure_schema_meta(engine, expected_version=2)`` against a
-        # db written by ``ensure_schema_meta(engine, expected_version=1)``
-        # would otherwise accumulate a row at v2).
         existing = conn.execute(
             text(f"SELECT MAX(version) FROM {SCHEMA_META_TABLE}")
         ).scalar()
+
         if existing is None:
+            # First-create path. Multiple threads can race here:
+            # both see an empty table and both attempt the INSERT.
+            # ``INSERT OR IGNORE`` makes the second one a no-op
+            # rather than raising ``IntegrityError`` on the PK
+            # conflict. We then re-read MAX so every thread agrees
+            # on the same answer.
             conn.execute(
-                text(f"INSERT INTO {SCHEMA_META_TABLE}(version) VALUES (:v)"),
+                text(
+                    f"INSERT OR IGNORE INTO {SCHEMA_META_TABLE}(version) "
+                    "VALUES (:v)"
+                ),
                 {"v": expected_version},
             )
             conn.commit()
-            return expected_version
+            existing = conn.execute(
+                text(f"SELECT MAX(version) FROM {SCHEMA_META_TABLE}")
+            ).scalar()
+            if existing is None:
+                # Defensive: table got dropped under us. Fall back to
+                # the value we tried to write.
+                return expected_version
+            return int(existing)
+
         if existing > expected_version:
             raise SchemaVersionError(
                 f"Database schema version {existing} is newer than "

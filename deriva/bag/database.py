@@ -413,10 +413,16 @@ class BagDatabase:
     def _build_asset_map(self) -> dict[str, str]:
         """Build a map from remote URLs to local file paths using fetch.txt.
 
+        The map is keyed by **both** the full URL and the URL's path
+        component. CSV rows typically carry whichever form the
+        catalog stored — sometimes a full ``https://hatrac.../foo``,
+        sometimes a relative ``/hatrac/...`` — and we want
+        :meth:`_localize_asset_row` to hit on either.
+
         Returns:
-            Dictionary mapping URL paths to local file paths.
+            Dictionary mapping URL (or URL path) to local file path.
         """
-        fetch_map = {}
+        fetch_map: dict[str, str] = {}
         fetch_file = self.bag_path / "fetch.txt"
 
         if not fetch_file.exists():
@@ -429,9 +435,13 @@ class BagDatabase:
                     # Rows in fetch.txt are tab-separated: URL, size, local_path
                     fields = row.split("\t")
                     if len(fields) >= 3:
+                        full_url = fields[0]
                         local_file = fields[2].replace("\n", "")
                         local_path = f"{self.bag_path}/{local_file}"
-                        fetch_map[urlparse(fields[0]).path] = local_path
+                        # Map both the full URL and the path-only form
+                        # so callers hit whichever shape the row carries.
+                        fetch_map[full_url] = local_path
+                        fetch_map[urlparse(full_url).path] = local_path
         except Exception as e:
             logger.warning(f"Error reading fetch.txt: {e}")
 
@@ -481,21 +491,124 @@ class BagDatabase:
         return tuple(row)
 
     def _load_data(self) -> None:
-        """Load CSV data files into the SQLite database."""
+        """Load CSV data files into the SQLite database in FK-safe order.
+
+        Two intertwined concerns shaped this implementation:
+
+        1. **Filesystem-walk order is unstable.** ``rglob`` routinely
+           hands back ``ClinicalRecord_Observation.csv`` before
+           ``Observation.csv``, so we use
+           :class:`~deriva.bag.loader.ForeignKeyOrderer` to compute
+           a parent-before-child ordering across every CSV in scope.
+
+        2. **The bag may legitimately ship dangling FK refs.** The
+           bag is a *transport* of whatever rows the producer chose
+           to include: an anchor-scoped walk picks a Dataset RID
+           and the FK neighborhood the producer decided to fetch,
+           which can leave Dataset_Version rows whose Dataset
+           reference is outside the chosen slice. SQLite's
+           ``foreign_keys=ON`` would refuse to load those rows;
+           that's the wrong stance for a snapshot. Authoritative FK
+           validation happens later, when
+           :class:`~deriva.bag.catalog_loader.BagCatalogLoader`
+           writes the rows into the destination catalog and applies
+           the policy's :class:`~deriva.bag.traversal.DanglingFKStrategy`.
+
+        So we keep ``foreign_keys=ON`` everywhere else (good safety
+        rail for the synthetic-bag unit tests and any well-formed
+        bag) but turn it OFF for the duration of the load itself.
+        After the load completes, the connection's pragma reverts
+        to ON via :func:`create_wal_engine`'s connect hook.
+        """
         data_path = self.bag_path / "data"
         asset_map = self._build_asset_map()
 
+        # Index the bag's CSVs by qualified table name so we can
+        # walk them in the order ForeignKeyOrderer dictates.
+        csv_by_qualified: dict[str, Path] = {}
         for csv_file in data_path.rglob("*.csv"):
-            table_name = csv_file.stem
-            schema_name = self._get_table_schema(table_name)
-
+            schema_name = self._get_table_schema(csv_file.stem)
             if schema_name is None:
-                logger.debug(f"Skipping {table_name} - not in configured schemas")
+                logger.debug(
+                    "Skipping %s - not in configured schemas",
+                    csv_file.stem,
+                )
                 continue
+            csv_by_qualified[f"{schema_name}.{csv_file.stem}"] = csv_file
 
-            sql_table = self.metadata.tables.get(f"{schema_name}.{table_name}")
+        if not csv_by_qualified:
+            return
+
+        # Local import: ``loader`` imports from this module via
+        # ``schema``, so the top-level cycle is real.
+        from deriva.bag.loader import ForeignKeyOrderer
+
+        orderer = ForeignKeyOrderer(self.model, list(self.schemas))
+        ordered_tables = orderer.get_insertion_order(
+            list(csv_by_qualified), handle_cycles=True
+        )
+
+        # Single transaction with FK enforcement disabled — see
+        # the docstring for the rationale.
+        #
+        # ``foreign_keys`` is a connection-scoped pragma; SQLite
+        # only honors changes outside a transaction. SQLAlchemy 2.x
+        # autobegins on the first statement, which collides with
+        # PRAGMA. Drop to a raw DBAPI handle for the load so we can
+        # control begin/commit ourselves around the PRAGMA toggles.
+        raw_conn = self.engine.raw_connection()
+        try:
+            cur = raw_conn.cursor()
+            cur.execute("PRAGMA foreign_keys = OFF")
+            cur.execute("BEGIN")
+            cur.close()
+            try:
+                # Reuse SQLAlchemy's Connection wrapper for the
+                # inserts so we still get parameter handling and
+                # dialect-aware SQL. ``connection`` argument binds
+                # to the existing DBAPI handle without checking out
+                # a fresh one from the pool.
+                from sqlalchemy.engine import Connection
+
+                conn = Connection(self.engine, connection=raw_conn)
+                self._insert_rows_in_order(
+                    conn,
+                    ordered_tables,
+                    csv_by_qualified,
+                    asset_map,
+                )
+                raw_conn.commit()
+            except BaseException:
+                raw_conn.rollback()
+                raise
+            cur = raw_conn.cursor()
+            cur.execute("PRAGMA foreign_keys = ON")
+            cur.close()
+        finally:
+            raw_conn.close()
+
+    def _insert_rows_in_order(
+        self,
+        conn: "Connection",
+        ordered_tables: list[DerivaTable],
+        csv_by_qualified: dict[str, Path],
+        asset_map: dict[str, str],
+    ) -> None:
+        """Insert each CSV's rows into its mirror table.
+
+        Extracted from :meth:`_load_data` so the FK-pragma restore
+        can wrap the body in ``try/finally`` cleanly.
+        """
+        for table in ordered_tables:
+            qualified = f"{table.schema.name}.{table.name}"
+            csv_file = csv_by_qualified.get(qualified)
+            if csv_file is None:
+                continue
+            sql_table = self.metadata.tables.get(qualified)
             if sql_table is None:
-                logger.warning(f"Table {schema_name}.{table_name} not found in metadata")
+                logger.warning(
+                    "Table %s not found in metadata", qualified
+                )
                 continue
 
             with csv_file.open(newline="") as csvfile:
@@ -504,7 +617,7 @@ class BagDatabase:
 
                 # Get asset column indexes if this is an asset table
                 asset_indexes = None
-                if self._is_asset_table(table_name):
+                if self._is_asset_table(table.name):
                     try:
                         asset_indexes = (
                             column_names.index("Filename"),
@@ -513,17 +626,20 @@ class BagDatabase:
                     except ValueError:
                         pass
 
-                # Load data
-                with self.engine.begin() as conn:
-                    rows = [
-                        self._localize_asset_row(list(row), asset_indexes, asset_map)
-                        for row in csv_reader
-                    ]
-                    if rows:
-                        conn.execute(
-                            sqlite_insert(sql_table).on_conflict_do_nothing(),
-                            [dict(zip(column_names, row)) for row in rows],
-                        )
+                rows = [
+                    self._localize_asset_row(
+                        list(row), asset_indexes, asset_map
+                    )
+                    for row in csv_reader
+                ]
+                if rows:
+                    conn.execute(
+                        sqlite_insert(sql_table).on_conflict_do_nothing(),
+                        [
+                            dict(zip(column_names, row))
+                            for row in rows
+                        ],
+                    )
 
     def dispose(self) -> None:
         """Dispose of SQLAlchemy resources.
