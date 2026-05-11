@@ -465,17 +465,50 @@ def _asset_schema(snaptime: str = "2026-01-01T00:00:00") -> dict[str, Any]:
     }
 
 
-@pytest.mark.xfail(
-    reason=(
-        "Pre-existing bug in BagDatabase._localize_asset_row: the fetch-map "
-        "is keyed by urlparse(url).path (just the path portion of the URL), "
-        "but the lookup compares against the full URL from the row. This "
-        "test pins the intended behavior so the bug can't regress further; "
-        "the fix is out-of-scope for the move commit and will land in a "
-        "follow-up. Once fixed, remove the xfail."
-    ),
-    strict=True,
-)
+def test_bag_database_localizes_asset_urls_path_only_form(tmp_path: Path) -> None:
+    """The fetch-map matches when the row carries a path-only URL.
+
+    ERMrest sometimes stores asset URLs as path-only (``/hatrac/...``)
+    rather than full URLs; the localization must still hit. The
+    asset map is keyed by both the full URL and the URL's path, so
+    either shape works.
+    """
+    cache_key = "asset_path_only"
+    bag = tmp_path / cache_key / "bag"
+    (bag / "data" / "demo").mkdir(parents=True)
+    (bag / "data" / "schema.json").write_text(json.dumps(_asset_schema()))
+
+    # Row carries a path-only URL.
+    with (bag / "data" / "demo" / "Image.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["RID", "Filename", "URL", "Length", "MD5", "Description"])
+        w.writerow(
+            [
+                "I2",
+                "remote2.png",
+                "/hatrac/img2.png",
+                "2048",
+                "def456",
+                "img2",
+            ]
+        )
+
+    local_path = "data/asset/Image/I2/img2.png"
+    (bag / "data" / "asset" / "Image" / "I2").mkdir(parents=True)
+    (bag / local_path).write_bytes(b"\x89PNG\r\n\x1a\n...")
+    # fetch.txt records the full URL; the asset map must also match
+    # when the row's URL is just the path.
+    (bag / "fetch.txt").write_text(
+        f"https://example.com/hatrac/img2.png\t2048\t{local_path}\n"
+    )
+
+    db_dir = tmp_path / "db"
+    with BagDatabase(bag, db_dir, ["demo"]) as db:
+        rows = list(db.get_table_contents("Image"))
+    assert len(rows) == 1
+    assert rows[0]["Filename"] == f"{bag}/{local_path}"
+
+
 def test_bag_database_localizes_asset_urls(tmp_path: Path) -> None:
     """When fetch.txt maps a URL to a local file, the row's Filename column
     gets rewritten to the local path on load."""

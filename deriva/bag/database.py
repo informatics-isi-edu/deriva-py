@@ -413,10 +413,16 @@ class BagDatabase:
     def _build_asset_map(self) -> dict[str, str]:
         """Build a map from remote URLs to local file paths using fetch.txt.
 
+        The map is keyed by **both** the full URL and the URL's path
+        component. CSV rows typically carry whichever form the
+        catalog stored — sometimes a full ``https://hatrac.../foo``,
+        sometimes a relative ``/hatrac/...`` — and we want
+        :meth:`_localize_asset_row` to hit on either.
+
         Returns:
-            Dictionary mapping URL paths to local file paths.
+            Dictionary mapping URL (or URL path) to local file path.
         """
-        fetch_map = {}
+        fetch_map: dict[str, str] = {}
         fetch_file = self.bag_path / "fetch.txt"
 
         if not fetch_file.exists():
@@ -429,9 +435,13 @@ class BagDatabase:
                     # Rows in fetch.txt are tab-separated: URL, size, local_path
                     fields = row.split("\t")
                     if len(fields) >= 3:
+                        full_url = fields[0]
                         local_file = fields[2].replace("\n", "")
                         local_path = f"{self.bag_path}/{local_file}"
-                        fetch_map[urlparse(fields[0]).path] = local_path
+                        # Map both the full URL and the path-only form
+                        # so callers hit whichever shape the row carries.
+                        fetch_map[full_url] = local_path
+                        fetch_map[urlparse(full_url).path] = local_path
         except Exception as e:
             logger.warning(f"Error reading fetch.txt: {e}")
 
