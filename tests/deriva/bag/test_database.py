@@ -557,13 +557,24 @@ def test_bag_database_localizes_asset_urls_path_only_form(tmp_path: Path) -> Non
     db_dir = tmp_path / "db"
     with BagDatabase(bag, db_dir, ["demo"]) as db:
         rows = list(db.get_table_contents("Image"))
-    assert len(rows) == 1
-    assert rows[0]["Filename"] == f"{bag}/{local_path}"
+        # ``Filename`` is preserved verbatim from the source CSV
+        # — what the destination catalog stores after a load.
+        assert rows[0]["Filename"] == "remote2.png"
+        # ``resolve_asset_local_path`` finds the bag-local bytes
+        # for ``_upload_assets`` via ``fetch.txt``.
+        assert db.resolve_asset_local_path("Image", rows[0]) == (
+            f"{bag}/{local_path}"
+        )
 
 
 def test_bag_database_localizes_asset_urls(tmp_path: Path) -> None:
-    """When fetch.txt maps a URL to a local file, the row's Filename column
-    gets rewritten to the local path on load."""
+    """``resolve_asset_local_path`` finds bytes via ``fetch.txt``.
+
+    The bag's ``Filename`` column is preserved verbatim through
+    to the destination catalog; the bag-local path is resolved
+    on demand at upload time by
+    :meth:`BagDatabase.resolve_asset_local_path`.
+    """
     cache_key = "asset_xyz"
     bag = tmp_path / cache_key / "bag"
     (bag / "data" / "demo").mkdir(parents=True)
@@ -596,9 +607,12 @@ def test_bag_database_localizes_asset_urls(tmp_path: Path) -> None:
     db_dir = tmp_path / "db"
     with BagDatabase(bag, db_dir, ["demo"]) as db:
         rows = list(db.get_table_contents("Image"))
-    assert len(rows) == 1
-    # Filename should now point at the localized path inside the bag.
-    assert rows[0]["Filename"] == f"{bag}/{local_path}"
+        # Filename column is the catalog-facing value, untouched.
+        assert rows[0]["Filename"] == "remote.png"
+        # The on-disk bytes are still findable via the side channel.
+        assert db.resolve_asset_local_path("Image", rows[0]) == (
+            f"{bag}/{local_path}"
+        )
 
 
 def test_bag_database_localizes_embedded_asset_without_fetch_txt(
@@ -609,15 +623,8 @@ def test_bag_database_localizes_embedded_asset_without_fetch_txt(
     Constructive bags built by :meth:`BagBuilder.add_asset` write
     asset bytes directly to the profile-standard path without
     populating ``fetch.txt`` (no remote source URL to reference).
-    The localization must still find these files so the loader's
-    ``_upload_assets`` step can PUT bytes from the bag-local
-    location.
-
-    Without this fallback, end-of-execution commit (which builds
-    bags constructively rather than from a download) would have
-    ``Filename`` columns still holding the bare filename, the
-    upload step's ``Path(local_path).is_file()`` check would fail,
-    and bytes would never reach Hatrac.
+    :meth:`BagDatabase.resolve_asset_local_path` must still find
+    these so the loader's ``_upload_assets`` can PUT bytes.
     """
     cache_key = "embedded_asset"
     bag = tmp_path / cache_key / "bag"
@@ -651,7 +658,10 @@ def test_bag_database_localizes_embedded_asset_without_fetch_txt(
     db_dir = tmp_path / "db"
     with BagDatabase(bag, db_dir, ["demo"]) as db:
         rows = list(db.get_table_contents("Image"))
-    assert len(rows) == 1
-    # Filename rewritten to the embedded-asset path even though
-    # there's no fetch.txt entry.
-    assert rows[0]["Filename"] == str(embedded_path)
+        # Filename stays at the catalog-facing value.
+        assert rows[0]["Filename"] == "embedded.bin"
+        # Resolution finds the embedded-asset path on demand.
+        assert (
+            db.resolve_asset_local_path("Image", rows[0])
+            == str(embedded_path)
+        )
