@@ -725,6 +725,27 @@ class BagCatalogLoader:
         # strings aren't produced by the current bag walker.
         return [part.strip().strip('"') for part in inner.split(",")]
 
+    @staticmethod
+    def _coerce_datetimes(row: dict[str, Any]) -> dict[str, Any]:
+        """Convert ``datetime.date`` / ``datetime.datetime`` values to ISO strings.
+
+        SQLite-mirror rows come back with Python date/datetime
+        objects (via :class:`deriva.bag.database.StringToDate` and
+        :class:`StringToDateTime`). :func:`json.dumps` can't
+        serialize those directly, and ERMrest expects ISO-8601
+        text on the wire. Walk the row, replace each date/datetime
+        with its ``isoformat()`` string, and leave other types
+        alone.
+
+        Returns a new dict so the caller's input isn't mutated.
+        """
+        import datetime
+
+        return {
+            k: (v.isoformat() if isinstance(v, (datetime.date, datetime.datetime)) else v)
+            for k, v in row.items()
+        }
+
     async def _insert_rows(
         self,
         table: DerivaTable,
@@ -761,6 +782,14 @@ class BagCatalogLoader:
                 for col in array_cols:
                     if col in row:
                         row[col] = self._coerce_pg_array(row[col])
+
+        # Coerce date/datetime values back to ISO strings. The bag's
+        # SQLite mirror returns Python ``datetime.date`` /
+        # ``datetime.datetime`` objects via the type decorators in
+        # :mod:`deriva.bag.database` (``StringToDate`` /
+        # ``StringToDateTime``); ``json.dumps`` can't serialize those
+        # directly and ERMrest expects ISO strings on the wire.
+        rows = [self._coerce_datetimes(r) for r in rows]
 
         def _do_insert() -> int:
             response = self.catalog.post(url, json=rows)
@@ -873,21 +902,37 @@ class BagCatalogLoader:
 
     @staticmethod
     def _hatrac_path_for(url: str) -> str | None:
-        """Extract the ``/hatrac/...`` path from a hatrac URL.
+        """Extract the unversioned ``/hatrac/...`` path from a hatrac URL.
 
-        Accepts both full ``https://host/hatrac/...`` and bare
-        ``/hatrac/...``. Returns ``None`` for anything else —
-        non-hatrac URLs (CDN refs, external links) aren't uploadable
-        as Hatrac objects.
+        Accepts full ``https://host/hatrac/...`` and bare
+        ``/hatrac/...``. Versioned URLs (with a trailing
+        ``:VERSIONID``) get stripped to the base path — Hatrac
+        assigns versions on PUT, and uploading directly to a
+        versioned URL returns ``405 Method Not Allowed``. The
+        source's version is preserved in the catalog row's
+        ``URL`` column, but the upload target is the unversioned
+        name.
+
+        Returns ``None`` for anything else — non-hatrac URLs (CDN
+        refs, external links) aren't uploadable as Hatrac objects.
         """
         from urllib.parse import urlparse
 
         if url.startswith("/hatrac/"):
-            return url
-        parsed = urlparse(url)
-        if parsed.path.startswith("/hatrac/"):
-            return parsed.path
-        return None
+            path = url
+        else:
+            parsed = urlparse(url)
+            if not parsed.path.startswith("/hatrac/"):
+                return None
+            path = parsed.path
+        # Strip the ``:VERSIONID`` suffix if present. Versioned
+        # objects can't be written to directly; the unversioned
+        # parent path is the upload target.
+        version_sep = path.rfind(":")
+        last_slash = path.rfind("/")
+        if version_sep > last_slash:
+            path = path[:version_sep]
+        return path
 
     async def _hatrac_already_has(
         self,

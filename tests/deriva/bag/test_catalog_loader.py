@@ -915,6 +915,83 @@ def test_hatrac_path_for_non_hatrac_returns_none() -> None:
     assert BagCatalogLoader._hatrac_path_for("/other/img.png") is None
 
 
+def test_hatrac_path_for_strips_version_suffix() -> None:
+    """Versioned ``...:VERSIONID`` URLs strip to the unversioned base.
+
+    Hatrac assigns versions on PUT; trying to write to a versioned
+    URL returns ``405 Method Not Allowed``. The source catalog's
+    row carries the versioned URL (so consumers can fetch the
+    exact version), but the upload target must be the unversioned
+    name.
+    """
+    full = (
+        "https://example.org/hatrac/"
+        "Execution_Metadata/abc.json:D3EG6MCLC7Y7KDONCTVUB5EEKU"
+    )
+    assert (
+        BagCatalogLoader._hatrac_path_for(full)
+        == "/hatrac/Execution_Metadata/abc.json"
+    )
+    bare = "/hatrac/Image/I1/img.png:VERSION1"
+    assert (
+        BagCatalogLoader._hatrac_path_for(bare)
+        == "/hatrac/Image/I1/img.png"
+    )
+
+
+def test_hatrac_path_for_keeps_colon_in_path() -> None:
+    """A ``:`` in a *directory* component is not a version separator.
+
+    The version separator is the *last* colon and it must come
+    *after* the last slash. A colon embedded earlier in the path
+    (in a directory name) is left alone.
+    """
+    assert (
+        BagCatalogLoader._hatrac_path_for(
+            "/hatrac/some:dir/file.png"
+        )
+        == "/hatrac/some:dir/file.png"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Date/datetime coercion for JSON serialization
+# ---------------------------------------------------------------------------
+
+
+def test_coerce_datetimes_handles_date_and_datetime() -> None:
+    """``datetime.date`` and ``datetime.datetime`` become ISO strings."""
+    import datetime
+
+    row = {
+        "RID": "A1",
+        "the_date": datetime.date(2026, 5, 11),
+        "the_datetime": datetime.datetime(
+            2026, 5, 11, 14, 30, 0
+        ),
+        "plain_text": "hello",
+        "an_int": 42,
+        "none_val": None,
+    }
+    coerced = BagCatalogLoader._coerce_datetimes(row)
+    assert coerced["RID"] == "A1"
+    assert coerced["the_date"] == "2026-05-11"
+    assert coerced["the_datetime"] == "2026-05-11T14:30:00"
+    assert coerced["plain_text"] == "hello"
+    assert coerced["an_int"] == 42
+    assert coerced["none_val"] is None
+
+
+def test_coerce_datetimes_does_not_mutate_input() -> None:
+    """The caller's row dict is left untouched."""
+    import datetime
+
+    row = {"RID": "A1", "d": datetime.date(2026, 5, 11)}
+    BagCatalogLoader._coerce_datetimes(row)
+    # Original still has the date object.
+    assert isinstance(row["d"], datetime.date)
+
+
 # ---------------------------------------------------------------------------
 # Asset upload — dedupe + force semantics
 # ---------------------------------------------------------------------------
