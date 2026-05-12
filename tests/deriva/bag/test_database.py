@@ -599,3 +599,59 @@ def test_bag_database_localizes_asset_urls(tmp_path: Path) -> None:
     assert len(rows) == 1
     # Filename should now point at the localized path inside the bag.
     assert rows[0]["Filename"] == f"{bag}/{local_path}"
+
+
+def test_bag_database_localizes_embedded_asset_without_fetch_txt(
+    tmp_path: Path,
+) -> None:
+    """Embedded-asset fallback: ``data/asset/{table}/{rid}/{filename}``.
+
+    Constructive bags built by :meth:`BagBuilder.add_asset` write
+    asset bytes directly to the profile-standard path without
+    populating ``fetch.txt`` (no remote source URL to reference).
+    The localization must still find these files so the loader's
+    ``_upload_assets`` step can PUT bytes from the bag-local
+    location.
+
+    Without this fallback, end-of-execution commit (which builds
+    bags constructively rather than from a download) would have
+    ``Filename`` columns still holding the bare filename, the
+    upload step's ``Path(local_path).is_file()`` check would fail,
+    and bytes would never reach Hatrac.
+    """
+    cache_key = "embedded_asset"
+    bag = tmp_path / cache_key / "bag"
+    (bag / "data" / "demo").mkdir(parents=True)
+    (bag / "data" / "schema.json").write_text(json.dumps(_asset_schema()))
+
+    # Row carries the bare filename (what BagBuilder.add_asset
+    # writes to the CSV — the filename in the bag's asset path is
+    # the same).
+    with (bag / "data" / "demo" / "Image.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["RID", "Filename", "URL", "Length", "MD5", "Description"])
+        w.writerow(
+            [
+                "I3",
+                "embedded.bin",
+                "/hatrac/Image/abc123.embedded.bin",
+                "13",
+                "abc123",
+                "embedded",
+            ]
+        )
+
+    # Asset bytes live at the profile-standard embedded path.
+    # No fetch.txt.
+    embedded_dir = bag / "data" / "asset" / "Image" / "I3"
+    embedded_dir.mkdir(parents=True)
+    embedded_path = embedded_dir / "embedded.bin"
+    embedded_path.write_bytes(b"embedded bag")
+
+    db_dir = tmp_path / "db"
+    with BagDatabase(bag, db_dir, ["demo"]) as db:
+        rows = list(db.get_table_contents("Image"))
+    assert len(rows) == 1
+    # Filename rewritten to the embedded-asset path even though
+    # there's no fetch.txt entry.
+    assert rows[0]["Filename"] == str(embedded_path)

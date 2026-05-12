@@ -469,25 +469,84 @@ class BagDatabase:
         row: list,
         asset_indexes: tuple[int, int] | None,
         asset_map: dict[str, str],
+        table_name: str | None = None,
+        rid_index: int | None = None,
     ) -> tuple:
-        """Replace URL with local path in asset table row.
+        """Replace ``Filename`` with the bag-local path for an asset row.
+
+        Two lookup strategies, tried in order:
+
+        1. ``asset_map`` — populated from the bag's ``fetch.txt``
+           remote-file manifest (URL → local path). This is the
+           clone/MINID path: ``CatalogBagBuilder`` emits
+           ``fetch.txt`` entries, ``bdb.materialize`` downloads
+           the bytes to those paths, and the map carries the
+           result.
+
+        2. ``data/asset/{table}/{rid}/{filename_from_url}`` — the
+           profile-standard embedded-asset path that
+           :meth:`BagBuilder.add_asset` writes to. Constructive bags
+           (no ``fetch.txt``) populate this directory directly with
+           copies or hardlinks; the loader's ``_upload_assets``
+           step needs the local path to PUT bytes to the
+           destination Hatrac.
 
         Args:
             row: List of column values.
-            asset_indexes: (filename_index, url_index) or None if not asset table.
-            asset_map: URL to local path mapping.
+            asset_indexes: ``(filename_index, url_index)`` or
+                ``None`` if not an asset table.
+            asset_map: URL → local path mapping from
+                :meth:`_build_asset_map`.
+            table_name: Asset table name. Used together with
+                ``rid_index`` to construct the embedded-asset
+                fallback path. Caller passes ``None`` when running
+                a code path that doesn't know either; the fallback
+                lookup is skipped.
+            rid_index: Index of the ``RID`` column in ``row``.
+                Required for the embedded-asset fallback.
 
         Returns:
             Tuple of updated column values.
         """
-        if asset_indexes:
-            file_column, url_column = asset_indexes
-            url = row[url_column]
-            if url and url in asset_map:
-                row[file_column] = asset_map[url]
-            elif url:
-                # Keep original if not in map
-                pass
+        if not asset_indexes:
+            return tuple(row)
+
+        file_column, url_column = asset_indexes
+        url = row[url_column]
+        if not url:
+            return tuple(row)
+
+        # Strategy 1: fetch.txt-based remote-file manifest.
+        if url in asset_map:
+            row[file_column] = asset_map[url]
+            return tuple(row)
+
+        # Strategy 2: embedded-asset path. The bag-relative
+        # location is ``data/asset/{table}/{rid}/{filename}``;
+        # the filename comes off the URL's path so this works
+        # whether the URL is a full ``https://.../foo.bin`` or a
+        # bare ``/hatrac/.../foo.bin``.
+        if table_name is None or rid_index is None:
+            return tuple(row)
+
+        rid = row[rid_index]
+        if not rid:
+            return tuple(row)
+
+        # The CSV's Filename column carries the bare filename at
+        # the time of bag-build (it's what BagBuilder.add_asset
+        # used as the destination name). Use that as the embedded
+        # asset's filename.
+        embedded = (
+            self.bag_path
+            / "data"
+            / "asset"
+            / table_name
+            / rid
+            / row[file_column]
+        )
+        if embedded.is_file():
+            row[file_column] = str(embedded)
         return tuple(row)
 
     def _load_data(self) -> None:
@@ -650,20 +709,31 @@ class BagDatabase:
             csv_reader = reader(csvfile)
             column_names = next(csv_reader)
 
-            # Get asset column indexes if this is an asset table
+            # Get asset column indexes if this is an asset table.
+            # ``rid_index`` is needed for the embedded-asset
+            # fallback path inside ``_localize_asset_row``; it
+            # constructs ``data/asset/{table}/{rid}/{filename}`` for
+            # bags built by :meth:`BagBuilder.add_asset` (no
+            # fetch.txt — bytes live at the profile-standard path).
             asset_indexes = None
+            rid_index: int | None = None
             if self._is_asset_table(table.name):
                 try:
                     asset_indexes = (
                         column_names.index("Filename"),
                         column_names.index("URL"),
                     )
+                    rid_index = column_names.index("RID")
                 except ValueError:
                     pass
 
             rows = [
                 self._localize_asset_row(
-                    list(row), asset_indexes, asset_map
+                    list(row),
+                    asset_indexes,
+                    asset_map,
+                    table_name=table.name,
+                    rid_index=rid_index,
                 )
                 for row in csv_reader
             ]
