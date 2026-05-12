@@ -196,6 +196,18 @@ class FKTraversalPolicy(BaseModel):
             ``{(schema, table), ...}`` tuples. Useful for
             domain-specific filtering (e.g., dataset associations
             for element types with no members).
+        terminal_tables: Tables the walker enters but does **not**
+            exit, as ``{(schema, table), ...}`` tuples. The
+            walker emits rows for the table (so other rows' FKs
+            into it resolve at load time) but does not follow
+            its outbound or inbound FKs to discover further
+            tables. Same semantics as vocabulary tables, applied
+            to non-vocab "provenance" tables that aggregate
+            cross-anchor state — e.g. ``Execution`` and
+            ``Workflow`` in the deriva-ml schema, where walking
+            *through* them pulls in unrelated anchor scopes via
+            shared rows. Empty by default; callers opt in based
+            on schema-domain knowledge.
         max_depth: Maximum FK hops from the anchor set. ``None``
             (default) means unbounded.
         vocab_export: How vocabularies are exported. See
@@ -240,6 +252,7 @@ class FKTraversalPolicy(BaseModel):
         default_factory=lambda: set(DEFAULT_EXCLUDE_SCHEMAS)
     )
     exclude_tables: set[tuple[str, str]] = Field(default_factory=set)
+    terminal_tables: set[tuple[str, str]] = Field(default_factory=set)
     max_depth: int | None = None
     vocab_export: VocabExport = VocabExport.REFERENCED_ONLY
     asset_mode: AssetMode = AssetMode.UPLOAD_IF_MISSING

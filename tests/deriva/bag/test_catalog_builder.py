@@ -745,6 +745,131 @@ def test_spec_multipath_emits_one_processor_per_fk_route(
     assert len(image_fetches) == 0
 
 
+def test_terminal_table_enters_but_does_not_exit(tmp_path: Path) -> None:
+    """A table listed in ``policy.terminal_tables`` halts FK traversal.
+
+    Topology::
+
+        Subject ─── Subject_Health ─── Execution ─── Image_Quality ─── Image
+
+    Without ``terminal_tables``, a Subject anchor walks all the way
+    to Image — and through Execution's other ``*_Execution``
+    inbound FKs it would over-fetch (Image_Quality rows from
+    Executions belonging to other Subjects). The fix: declare
+    Execution as terminal. The walker still reaches Execution
+    (so the slice has the provenance row for the Subject's
+    health record), but stops there — Image_Quality and Image
+    don't get walked through Execution.
+    """
+    sub = _make_mock_table("demo", "Subject")
+    sh = _make_mock_table("demo", "Subject_Health")
+    exe = _make_mock_table("demo", "Execution")
+    iq = _make_mock_table("demo", "Image_Quality")
+    img = _make_mock_table("demo", "Image")
+
+    sh_to_sub = _fk_mock(src_table=sh, pk_table=sub)
+    sh_to_exe = _fk_mock(src_table=sh, pk_table=exe)
+    iq_to_exe = _fk_mock(src_table=iq, pk_table=exe)
+    iq_to_img = _fk_mock(src_table=iq, pk_table=img)
+
+    sub.referenced_by = [sh_to_sub]
+    sh.foreign_keys = [sh_to_sub, sh_to_exe]
+    exe.referenced_by = [sh_to_exe, iq_to_exe]
+    iq.foreign_keys = [iq_to_exe, iq_to_img]
+    img.referenced_by = [iq_to_img]
+
+    model = _make_mock_model(
+        {
+            "demo": {
+                "Subject": sub,
+                "Subject_Health": sh,
+                "Execution": exe,
+                "Image_Quality": iq,
+                "Image": img,
+            }
+        }
+    )
+    catalog = _make_mock_catalog(model)
+    cb = CatalogBagBuilder(
+        catalog=catalog,
+        anchors=[RIDAnchor(table="Subject", rids=["4AE"])],
+        output_dir=tmp_path,
+        policy=FKTraversalPolicy(
+            terminal_tables={("demo", "Execution")},
+        ),
+    )
+    cb._validate_anchors = lambda: None
+    cb._compute_reached_tables()
+
+    reached = {f"{s}.{t}" for s, t in cb._reached_tables}
+    # The terminal table itself IS in the slice (its rows ship in
+    # the bag for FK resolution at load time).
+    assert "demo.Subject" in reached
+    assert "demo.Subject_Health" in reached
+    assert "demo.Execution" in reached
+    # But the walker does NOT cross Execution to discover further
+    # tables via its other FKs.
+    assert "demo.Image_Quality" not in reached, reached
+    assert "demo.Image" not in reached, reached
+
+
+def test_terminal_table_query_path_terminates_at_table(
+    tmp_path: Path,
+) -> None:
+    """The CSV processor for a terminal table ends *at* the table.
+
+    Verifies the export-spec side: the query path for a terminal
+    table is anchored-and-joined-to it, not joined-through it.
+    The bag's Execution.csv will carry rows reachable from the
+    Subject anchor via the Subject_Health → Execution path,
+    nothing further.
+    """
+    sub = _make_mock_table("demo", "Subject")
+    sh = _make_mock_table("demo", "Subject_Health")
+    exe = _make_mock_table("demo", "Execution")
+
+    sh_to_sub = _fk_mock(src_table=sh, pk_table=sub)
+    sh_to_exe = _fk_mock(src_table=sh, pk_table=exe)
+    sub.referenced_by = [sh_to_sub]
+    sh.foreign_keys = [sh_to_sub, sh_to_exe]
+    exe.referenced_by = [sh_to_exe]
+
+    model = _make_mock_model(
+        {
+            "demo": {
+                "Subject": sub,
+                "Subject_Health": sh,
+                "Execution": exe,
+            }
+        }
+    )
+    catalog = _make_mock_catalog(model)
+    cb = CatalogBagBuilder(
+        catalog=catalog,
+        anchors=[RIDAnchor(table="Subject", rids=["4AE"])],
+        output_dir=tmp_path,
+        policy=FKTraversalPolicy(
+            terminal_tables={("demo", "Execution")},
+        ),
+    )
+    cb._validate_anchors = lambda: None
+    cb._compute_reached_tables()
+    spec = cb._build_export_spec()
+
+    exe_procs = [
+        p
+        for p in spec["catalog"]["query_processors"]
+        if p["processor"] == "csv"
+        and p["processor_params"]["output_path"].endswith("/Execution")
+    ]
+    assert len(exe_procs) >= 1
+    # Each Execution processor ends at ``demo:Execution`` — no
+    # join continues past it.
+    for p in exe_procs:
+        qpath = p["processor_params"]["query_path"]
+        assert qpath.endswith("/demo:Execution"), qpath
+
+
 # ---------------------------------------------------------------------------
 # Resolve helpers
 # ---------------------------------------------------------------------------
