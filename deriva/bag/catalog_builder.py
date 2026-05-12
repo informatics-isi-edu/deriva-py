@@ -389,24 +389,35 @@ class CatalogBagBuilder:
                 continue
 
             table = model.schemas[schema_name].tables[table_name]
-            # Terminal tables: traverse INTO but not OUT.
-            # - Vocabulary tables (detected by canonical column
-            #   shape) are always terminal: following inbound FKs
-            #   from a vocab term would chase every row in the
-            #   catalog that uses it.
-            # - Tables in :attr:`FKTraversalPolicy.terminal_tables`
-            #   get the same treatment. Used for "provenance" tables
-            #   like ``Execution`` that aggregate cross-anchor state
-            #   — walking *through* them mixes anchor scopes via
-            #   shared rows. Rows still land in the slice (other
-            #   rows' FKs into the terminal table resolve) but the
-            #   walker doesn't fan out from them.
-            if table.is_vocabulary():
+            is_vocab = table.is_vocabulary()
+            is_terminal = (
+                schema_name, table_name
+            ) in self.policy.terminal_tables
+            # Vocab tables are fully terminal — vocab terms are
+            # leaf nodes that don't reference further entities;
+            # the canonical vocab columns (ID/URI/Name/...) carry
+            # no outbound FKs in practice. Inbound FKs from a vocab
+            # term would chase every row in the catalog that uses
+            # it, so we don't follow those either.
+            if is_vocab:
                 continue
-            if (schema_name, table_name) in self.policy.terminal_tables:
-                continue
-
-            # Outbound: FKs we declare to other tables.
+            # Non-vocab terminal tables (declared via
+            # :attr:`FKTraversalPolicy.terminal_tables`) follow
+            # OUTBOUND FKs but not INBOUND ones.
+            #
+            # - **Outbound** (``table.foreign_keys``) = FKs the
+            #   terminal table itself declares to other tables.
+            #   These must be followed so the rows it references
+            #   land in the slice. Example: ``Execution.Workflow``
+            #   must resolve, so the walker continues to Workflow
+            #   from each in-slice Execution row.
+            # - **Inbound** (``table.referenced_by``) = FKs other
+            #   tables declare AT the terminal table. Following
+            #   these is what aggregates cross-anchor state: from
+            #   Execution, inbound goes to every ``*_Execution``
+            #   association, and from there to every other anchor
+            #   scope sharing the Execution. That's the over-fetch
+            #   the terminal-tables rule exists to prevent.
             for fk in table.foreign_keys:
                 self._enqueue_if_in_scope_with_path(
                     fk.pk_table,
@@ -417,7 +428,9 @@ class CatalogBagBuilder:
                     path_set,
                     max_paths,
                 )
-            # Inbound: FKs other tables declare to us.
+            if is_terminal:
+                # Block inbound for terminal tables.
+                continue
             for fk in table.referenced_by:
                 self._enqueue_if_in_scope_with_path(
                     fk.table,
