@@ -525,7 +525,15 @@ class BagDatabase:
 
         # Index the bag's CSVs by qualified table name so we can
         # walk them in the order ForeignKeyOrderer dictates.
-        csv_by_qualified: dict[str, Path] = {}
+        #
+        # A producer that emits one CSV per FK path to a target
+        # table (the multi-path emission pattern; see
+        # CatalogBagBuilder) will deposit several files for the
+        # same logical table at different ``output_path``s.
+        # Group them so the load step unions rows across paths
+        # — RID dedup happens at the SQLite insert layer via
+        # ``ON CONFLICT DO NOTHING``.
+        csv_by_qualified: dict[str, list[Path]] = {}
         for csv_file in data_path.rglob("*.csv"):
             schema_name = self._get_table_schema(csv_file.stem)
             if schema_name is None:
@@ -534,7 +542,9 @@ class BagDatabase:
                     csv_file.stem,
                 )
                 continue
-            csv_by_qualified[f"{schema_name}.{csv_file.stem}"] = csv_file
+            csv_by_qualified.setdefault(
+                f"{schema_name}.{csv_file.stem}", []
+            ).append(csv_file)
 
         if not csv_by_qualified:
             return
@@ -591,18 +601,25 @@ class BagDatabase:
         self,
         conn: "Connection",
         ordered_tables: list[DerivaTable],
-        csv_by_qualified: dict[str, Path],
+        csv_by_qualified: dict[str, list[Path]],
         asset_map: dict[str, str],
     ) -> None:
         """Insert each CSV's rows into its mirror table.
 
         Extracted from :meth:`_load_data` so the FK-pragma restore
         can wrap the body in ``try/finally`` cleanly.
+
+        When a producer emits multiple CSVs for the same table
+        (one per FK path; see :class:`CatalogBagBuilder` multi-
+        path emission), the files are loaded sequentially in
+        ``sorted`` order — RID dedup happens at the SQLite
+        layer via ``ON CONFLICT DO NOTHING``. Sorting keeps
+        load order deterministic across filesystems.
         """
         for table in ordered_tables:
             qualified = f"{table.schema.name}.{table.name}"
-            csv_file = csv_by_qualified.get(qualified)
-            if csv_file is None:
+            csv_files = csv_by_qualified.get(qualified)
+            if not csv_files:
                 continue
             sql_table = self.metadata.tables.get(qualified)
             if sql_table is None:
@@ -611,35 +628,53 @@ class BagDatabase:
                 )
                 continue
 
-            with csv_file.open(newline="") as csvfile:
-                csv_reader = reader(csvfile)
-                column_names = next(csv_reader)
+            for csv_file in sorted(csv_files):
+                self._insert_csv(
+                    conn, table, sql_table, csv_file, asset_map
+                )
 
-                # Get asset column indexes if this is an asset table
-                asset_indexes = None
-                if self._is_asset_table(table.name):
-                    try:
-                        asset_indexes = (
-                            column_names.index("Filename"),
-                            column_names.index("URL"),
-                        )
-                    except ValueError:
-                        pass
+    def _insert_csv(
+        self,
+        conn: "Connection",
+        table: DerivaTable,
+        sql_table: SQLTable,
+        csv_file: Path,
+        asset_map: dict[str, str],
+    ) -> None:
+        """Load one CSV into ``sql_table``.
 
-                rows = [
-                    self._localize_asset_row(
-                        list(row), asset_indexes, asset_map
+        Factored out of :meth:`_insert_rows_in_order` so the
+        multi-CSV-per-table loop has a clean per-file unit.
+        """
+        with csv_file.open(newline="") as csvfile:
+            csv_reader = reader(csvfile)
+            column_names = next(csv_reader)
+
+            # Get asset column indexes if this is an asset table
+            asset_indexes = None
+            if self._is_asset_table(table.name):
+                try:
+                    asset_indexes = (
+                        column_names.index("Filename"),
+                        column_names.index("URL"),
                     )
-                    for row in csv_reader
-                ]
-                if rows:
-                    conn.execute(
-                        sqlite_insert(sql_table).on_conflict_do_nothing(),
-                        [
-                            dict(zip(column_names, row))
-                            for row in rows
-                        ],
-                    )
+                except ValueError:
+                    pass
+
+            rows = [
+                self._localize_asset_row(
+                    list(row), asset_indexes, asset_map
+                )
+                for row in csv_reader
+            ]
+            if rows:
+                conn.execute(
+                    sqlite_insert(sql_table).on_conflict_do_nothing(),
+                    [
+                        dict(zip(column_names, row))
+                        for row in rows
+                    ],
+                )
 
     def dispose(self) -> None:
         """Dispose of SQLAlchemy resources.
