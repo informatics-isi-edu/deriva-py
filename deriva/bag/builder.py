@@ -699,11 +699,52 @@ class BagBuilder:
         )
 
     def _make_bdbag(self) -> None:
-        """Invoke ``bdb.make_bag`` to add manifest scaffolding."""
+        """Invoke ``bdb.make_bag`` to add manifest scaffolding.
+
+        Pre-condition: :meth:`_write_pending_rows` and
+        :meth:`_write_schema_json` have already populated
+        ``output_dir/data/`` with the bag payload. Asset bytes are
+        either embedded under ``output_dir/data/asset/`` (via
+        :meth:`add_asset`) or referenced in the remote-file
+        manifest (via :meth:`add_asset_reference`).
+
+        The trick: ``bdb.make_bag`` treats the path as a fresh
+        directory when there's no ``bagit.txt`` and moves
+        everything into ``data/``. Since we already wrote to
+        ``data/``, that would produce a doubly-nested
+        ``data/data/`` layout. To trigger bdbag's update-existing
+        path instead, write a minimal ``bagit.txt`` first so
+        bdbag's :class:`BDBag` constructor detects an existing
+        bag. The update path then regenerates manifests in place
+        without reshuffling the payload tree.
+        """
         # Local import — bdbag is a non-trivial dependency, and
         # callers using ``finalize(make_bdbag=False)`` shouldn't
         # have to install it.
         from bdbag import bdbag_api as bdb
+
+        # Minimal bagit.txt sufficient for ``BDBag(path)`` to
+        # parse as an existing bag. The full content is rewritten
+        # by ``bdb.make_bag``'s update path.
+        bagit_txt = self.output_dir / "bagit.txt"
+        if not bagit_txt.exists():
+            bagit_txt.write_text(
+                "BagIt-Version: 0.97\nTag-File-Character-Encoding: UTF-8\n"
+            )
+        # bag-info.txt: required by bagit.Bag's open path. Empty
+        # is fine — bdbag's update path will populate it with the
+        # metadata we pass and the standard Bagging-Date etc.
+        # fields.
+        bag_info_txt = self.output_dir / "bag-info.txt"
+        if not bag_info_txt.exists():
+            bag_info_txt.write_text("")
+        # Manifest stubs so the update path treats the payload as
+        # already present. Empty files force a full recompute,
+        # which is exactly what we want for newly-constructed bags.
+        for algo in ("md5", "sha256"):
+            manifest = self.output_dir / f"manifest-{algo}.txt"
+            if not manifest.exists():
+                manifest.write_text("")
 
         remote_manifest_path = self._write_remote_manifest_if_any()
 

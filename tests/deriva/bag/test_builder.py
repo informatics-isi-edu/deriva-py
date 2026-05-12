@@ -530,3 +530,47 @@ def test_builder_finalize_archive(tmp_path: Path) -> None:
     bb = BagBuilder(metadata=_two_table_metadata(), output_dir=out)
     bb.finalize(make_bdbag=False, archive=True)
     assert (tmp_path / "bag.zip").is_file()
+
+
+def test_builder_finalize_make_bdbag_preserves_data_layout(
+    tmp_path: Path,
+) -> None:
+    """``make_bdbag=True`` adds scaffolding without doubly-nesting ``data/``.
+
+    bdbag's ``make_bag(update=False)`` path moves *everything* in
+    the directory into a fresh ``data/``. BagBuilder writes
+    ``data/schema.json``, ``data/{schema}/...csv``, and
+    ``data/asset/{table}/{rid}/{filename}`` directly, so naively
+    letting bdbag run its create path produces ``data/data/...``.
+    The fix: pre-seed minimal ``bagit.txt``, ``bag-info.txt``,
+    and ``manifest-*.txt`` so bdbag detects the directory as an
+    existing bag and runs the update path (which doesn't move
+    files around).
+
+    This test pins the layout — if anything regresses, the bag's
+    schema.json moves to the wrong place and the downstream
+    loader can't find it.
+    """
+    src = tmp_path / "src.bin"
+    src.write_bytes(b"asset bytes\n")
+    out = tmp_path / "bag"
+    with BagBuilder(metadata=_two_table_metadata(), output_dir=out) as bb:
+        bb.add_row("Subject", {"RID": "S1", "Name": "Alice"})
+        bb.add_asset("Image", "I1", src)
+        bb.finalize(make_bdbag=True)
+
+    # Schema.json lands at data/schema.json — NOT data/data/schema.json.
+    assert (out / "data" / "schema.json").is_file()
+    assert not (out / "data" / "data" / "schema.json").exists(), (
+        "bdbag's create path moved everything into data/data/"
+    )
+    # Asset bytes land at data/asset/Image/I1/src.bin.
+    assert (
+        out / "data" / "asset" / "Image" / "I1" / "src.bin"
+    ).is_file()
+    # CSV lands at data/demo/Subject.csv.
+    assert (out / "data" / "demo" / "Subject.csv").is_file()
+    # bagit scaffolding is at the bag root.
+    assert (out / "bagit.txt").is_file()
+    assert (out / "bag-info.txt").is_file()
+    assert (out / "manifest-md5.txt").is_file()
