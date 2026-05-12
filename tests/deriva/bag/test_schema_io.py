@@ -243,6 +243,136 @@ def test_ermrest_json_to_metadata_relaxes_non_pk_not_null() -> None:
     assert cols["Name"].info["nullok"] is True
 
 
+def test_ermrest_json_to_metadata_preserves_column_annotations() -> None:
+    """Column-level ERMrest annotations land on ``col.info["annotations"]``.
+
+    The bag's downstream consumers (e.g.
+    :meth:`Table.is_asset`) rely on column annotations like
+    ``tag.asset`` to recognize asset tables. Without preserving
+    annotations through the json → metadata path, every
+    round-tripped schema doc loses those tags and asset tables
+    look like ordinary content tables.
+    """
+    asset_tag = "tag:isrd.isi.edu,2017:asset"
+    doc = {
+        "snaptime": "2026-01-01T00:00:00",
+        "schemas": {
+            "demo": {
+                "schema_name": "demo",
+                "tables": {
+                    "Image": {
+                        "schema_name": "demo",
+                        "table_name": "Image",
+                        "kind": "table",
+                        "column_definitions": [
+                            {
+                                "name": "RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "URL",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": "Asset URL",
+                                "annotations": {asset_tag: {}},
+                            },
+                        ],
+                        "keys": [
+                            {
+                                "names": [["demo", "Image_RID_key"]],
+                                "unique_columns": ["RID"],
+                            }
+                        ],
+                        "foreign_keys": [],
+                    }
+                },
+            }
+        },
+    }
+    md = ermrest_json_to_metadata(doc)
+    cols = {c.name: c for c in md.tables["demo.Image"].columns}
+    # URL column carries the tag.asset annotation in its info.
+    assert cols["URL"].info["annotations"] == {asset_tag: {}}
+    # Column without an ``annotations`` key in the source has no
+    # annotations in info either.
+    assert "annotations" not in cols["RID"].info
+
+
+def test_ermrest_json_to_metadata_roundtrip_preserves_annotations() -> None:
+    """A json → metadata → json round-trip preserves column annotations.
+
+    The downstream model parser (``Model.fromfile``) needs the
+    annotations to be present in the document to populate
+    ``column.annotations``. Without this round-trip, asset
+    columns in a constructed bag's schema.json wouldn't carry
+    ``tag.asset`` and consumers would miscategorize the table.
+    """
+    from deriva.bag.schema_io import metadata_to_ermrest_json
+
+    asset_tag = "tag:isrd.isi.edu,2017:asset"
+    doc = {
+        "snaptime": "2026-01-01T00:00:00",
+        "schemas": {
+            "demo": {
+                "schema_name": "demo",
+                "annotations": {"tag:demo,2026:purpose": "test"},
+                "tables": {
+                    "Image": {
+                        "schema_name": "demo",
+                        "table_name": "Image",
+                        "kind": "table",
+                        "annotations": {"tag:demo,2026:role": "asset"},
+                        "column_definitions": [
+                            {
+                                "name": "RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "URL",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": "Asset URL",
+                                "annotations": {asset_tag: {}},
+                            },
+                        ],
+                        "keys": [
+                            {
+                                "names": [["demo", "Image_RID_key"]],
+                                "unique_columns": ["RID"],
+                            }
+                        ],
+                        "foreign_keys": [],
+                    }
+                },
+            }
+        },
+    }
+    md = ermrest_json_to_metadata(doc)
+    out = metadata_to_ermrest_json(md)
+    # snaptime preserved.
+    assert out["snaptime"] == "2026-01-01T00:00:00"
+    # Schema-level annotation preserved.
+    assert out["schemas"]["demo"]["annotations"] == {
+        "tag:demo,2026:purpose": "test"
+    }
+    # Table-level annotation preserved.
+    out_image = out["schemas"]["demo"]["tables"]["Image"]
+    assert out_image["annotations"] == {"tag:demo,2026:role": "asset"}
+    # Column-level annotation preserved.
+    out_cols = {c["name"]: c for c in out_image["column_definitions"]}
+    assert out_cols["URL"]["annotations"] == {asset_tag: {}}
+    # Column without source annotations doesn't get an empty dict.
+    assert "annotations" not in out_cols["RID"]
+
+
 def test_ermrest_json_to_metadata_roundtrip_preserves_nullok() -> None:
     """``metadata_to_ermrest_json`` reads ``nullok`` from ``col.info``.
 

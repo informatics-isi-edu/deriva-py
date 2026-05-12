@@ -250,6 +250,26 @@ def ermrest_json_to_metadata(
     all_schemas = schema_dict.get("schemas", {})
     selected = list(all_schemas.keys()) if schemas is None else schemas
 
+    # Stash document-level metadata that has no SQLAlchemy
+    # equivalent (snaptime, per-schema annotations / ACLs) on
+    # ``MetaData.info`` so the write path can emit it back. Each
+    # selected ERMrest schema gets its own info bucket keyed by
+    # schema name.
+    metadata.info["snaptime"] = schema_dict.get("snaptime")
+    schema_meta: dict[str, dict[str, Any]] = {}
+    for schema_name in selected:
+        if schema_name not in all_schemas:
+            continue
+        schema = all_schemas[schema_name]
+        bucket: dict[str, Any] = {}
+        for key in ("annotations", "acls", "acl_bindings", "comment"):
+            if key in schema:
+                bucket[key] = schema[key]
+        if bucket:
+            schema_meta[schema_name] = bucket
+    if schema_meta:
+        metadata.info["schemas"] = schema_meta
+
     # We build the FK-target map up front so columns can be born
     # with their ForeignKey constraints attached. Attaching FKs
     # post-hoc (via ``column.foreign_keys.add(...)``) doesn't bind
@@ -327,6 +347,24 @@ def ermrest_json_to_metadata(
                 # ``nullok`` is preserved in ``info["nullok"]`` so
                 # round-trips through :func:`metadata_to_ermrest_json`
                 # carry the original constraint back out.
+                # ``info`` carries metadata the SQLAlchemy column
+                # type can't represent natively but which the
+                # ERMrest JSON round-trip needs:
+                # - ``nullok``: the catalog's authoritative
+                #   not-null flag (separate from the relaxed
+                #   ``nullable`` we use in the mirror; see
+                #   :func:`metadata_to_ermrest_json` for the
+                #   read-back logic).
+                # - ``annotations``, ``acls``, ``acl_bindings``:
+                #   ERMrest-specific column-level metadata.
+                #   Stashed here so consumers like
+                #   :meth:`Table.is_asset` (which looks for
+                #   ``tag.asset`` on the URL column) see them
+                #   after a json → metadata → json round-trip.
+                col_info: dict[str, Any] = {"nullok": nullok}
+                for key in ("annotations", "acls", "acl_bindings"):
+                    if key in col_def:
+                        col_info[key] = col_def[key]
                 col = SQLColumn(
                     col_def["name"],
                     sql_type_cls(),
@@ -335,12 +373,22 @@ def ermrest_json_to_metadata(
                     primary_key=is_pk,
                     default=col_def.get("default"),
                     comment=col_def.get("comment"),
-                    info={"nullok": nullok},
+                    info=col_info,
                 )
                 columns.append(col)
 
+            # Stash table-level annotations / ACLs on the SQLAlchemy
+            # ``Table.info`` so the write path can emit them.
+            table_info: dict[str, Any] = {}
+            for key in ("annotations", "acls", "acl_bindings", "comment"):
+                if key in table_def:
+                    table_info[key] = table_def[key]
             sql_table = SQLTable(
-                table_name, metadata, *columns, schema=schema_name
+                table_name,
+                metadata,
+                *columns,
+                schema=schema_name,
+                info=table_info,
             )
 
             # Non-RID unique constraints.
@@ -377,16 +425,21 @@ def metadata_to_ermrest_json(metadata: MetaData) -> dict[str, Any]:
     Returns:
         A JSON-serializable dict.
 
+    Annotations, ACLs, and comments round-trip when the metadata
+    came from :func:`ermrest_json_to_metadata`: that function
+    stashes those values on ``info`` (column-level on
+    ``col.info``, table-level on ``Table.info``, document- and
+    schema-level on ``MetaData.info``). Metadata built directly
+    via SQLAlchemy without going through the reader emits an
+    annotation-less, ACL-less JSON document — the same behavior
+    as before this support was added.
+
     Limitations:
-        - ``snaptime`` is set to ``None`` (constructive bags have no
-          source-catalog snapshot). Callers that want a real
-          snaptime stamp can post-process the dict.
-        - Annotations and ACLs are not propagated. SQLAlchemy
-          columns can carry ``info={...}`` but the mapping to
-          ERMrest annotations is application-specific; we keep this
-          function generic. Round-trippers needing annotations should
-          go through :func:`ermrest_model_to_metadata` instead
-          (live model preserves them) or post-process the output.
+        - ``snaptime`` defaults to ``None`` unless the source went
+          through :func:`ermrest_json_to_metadata` (which stashes
+          the source's snaptime on ``metadata.info``). Constructive
+          bags built directly via SQLAlchemy have no source
+          snapshot.
     """
     # Bucket tables by schema name.
     schemas: dict[str, dict[str, Any]] = {}
@@ -416,17 +469,23 @@ def metadata_to_ermrest_json(metadata: MetaData) -> dict[str, Any]:
                 nullok = bool(col.info["nullok"])
             else:
                 nullok = bool(col.nullable)
-            column_definitions.append(
-                {
-                    "name": col.name,
-                    "type": {
-                        "typename": sql_type_to_ermrest_name(col.type),
-                    },
-                    "nullok": nullok,
-                    "default": _serialize_default(col),
-                    "comment": col.comment,
-                }
-            )
+            col_doc: dict[str, Any] = {
+                "name": col.name,
+                "type": {
+                    "typename": sql_type_to_ermrest_name(col.type),
+                },
+                "nullok": nullok,
+                "default": _serialize_default(col),
+                "comment": col.comment,
+            }
+            # Propagate ERMrest-specific metadata stashed by the
+            # reader (annotations, ACLs, ACL bindings). Missing
+            # keys mean the metadata didn't come through the
+            # reader and there's nothing to emit.
+            for key in ("annotations", "acls", "acl_bindings"):
+                if col.info and key in col.info:
+                    col_doc[key] = col.info[key]
+            column_definitions.append(col_doc)
 
         keys: list[dict[str, Any]] = []
         # Primary key (typically RID).
@@ -482,7 +541,7 @@ def metadata_to_ermrest_json(metadata: MetaData) -> dict[str, Any]:
                     }
                 )
 
-        schemas[schema_name]["tables"][sql_table.name] = {
+        table_doc: dict[str, Any] = {
             "schema_name": schema_name,
             "table_name": sql_table.name,
             # ERMrest's Model parser expects ``kind`` to identify
@@ -497,11 +556,27 @@ def metadata_to_ermrest_json(metadata: MetaData) -> dict[str, Any]:
             "keys": keys,
             "foreign_keys": foreign_keys,
         }
+        # Propagate table-level ERMrest metadata stashed by the
+        # reader. Missing keys mean the table didn't come through
+        # the reader (or the source doc didn't carry them).
+        for key in ("annotations", "acls", "acl_bindings", "comment"):
+            if sql_table.info and key in sql_table.info:
+                table_doc[key] = sql_table.info[key]
+        schemas[schema_name]["tables"][sql_table.name] = table_doc
+
+    # Stamp per-schema metadata (annotations, ACLs, comment) that the
+    # reader stashed on ``metadata.info["schemas"][schema_name]``.
+    schema_meta = (metadata.info or {}).get("schemas", {})
+    for schema_name, bucket in schema_meta.items():
+        if schema_name in schemas:
+            for key, value in bucket.items():
+                schemas[schema_name][key] = value
 
     return {
-        # No source catalog → no real snaptime. Callers that built a
-        # bag from a live catalog can overwrite this.
-        "snaptime": None,
+        # If the metadata went through ``ermrest_json_to_metadata``,
+        # the source's snaptime is on ``metadata.info``; otherwise
+        # None for constructive bags.
+        "snaptime": (metadata.info or {}).get("snaptime"),
         "schemas": schemas,
     }
 
