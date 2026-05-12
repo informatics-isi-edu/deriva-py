@@ -301,6 +301,18 @@ def ermrest_json_to_metadata(
                 # matching SchemaBuilder._is_key_column. Other unique
                 # keys become UniqueConstraints below.
                 is_pk = col_def["name"] == "RID"
+                # The metadata produced here drives in-memory bag
+                # staging (``BagBuilder``'s pending-rows writer
+                # uses it). Non-PK columns are relaxed to nullable
+                # so rows that *will* have server-set defaults at
+                # the destination (``RCT``, ``RCB``, ``RMT``,
+                # ``RMB``) can land in the bag without violating
+                # the local mirror's NOT-NULL — same rule
+                # ``SchemaBuilder._create_tables`` applies for the
+                # on-disk SQLite mirror that backs already-built
+                # bags. The destination ERMrest endpoint is the
+                # authoritative validator at insert time.
+                mirror_nullable = True if not is_pk else nullok
                 col_args: list[Any] = []
                 # If this column is the source of an FK, hand the
                 # ForeignKey in as a positional argument so it's
@@ -310,17 +322,22 @@ def ermrest_json_to_metadata(
                 )
                 if target is not None:
                     col_args.append(ForeignKey(target))
-                columns.append(
-                    SQLColumn(
-                        col_def["name"],
-                        sql_type_cls(),
-                        *col_args,
-                        nullable=nullok,
-                        primary_key=is_pk,
-                        default=col_def.get("default"),
-                        comment=col_def.get("comment"),
-                    )
+                # The mirror's ``nullable`` is relaxed for staging
+                # (see comment above), but the catalog's authoritative
+                # ``nullok`` is preserved in ``info["nullok"]`` so
+                # round-trips through :func:`metadata_to_ermrest_json`
+                # carry the original constraint back out.
+                col = SQLColumn(
+                    col_def["name"],
+                    sql_type_cls(),
+                    *col_args,
+                    nullable=mirror_nullable,
+                    primary_key=is_pk,
+                    default=col_def.get("default"),
+                    comment=col_def.get("comment"),
+                    info={"nullok": nullok},
                 )
+                columns.append(col)
 
             sql_table = SQLTable(
                 table_name, metadata, *columns, schema=schema_name
@@ -387,13 +404,25 @@ def metadata_to_ermrest_json(metadata: MetaData) -> dict[str, Any]:
         )
         column_definitions: list[dict[str, Any]] = []
         for col in sql_table.columns:
+            # ``ermrest_json_to_metadata`` relaxes non-PK columns to
+            # nullable in the mirror but preserves the catalog's
+            # authoritative ``nullok`` in ``col.info``. Prefer the
+            # stashed value so a round-trip through this function
+            # carries the original constraint forward; fall back to
+            # the SQLAlchemy ``nullable`` flag for callers that
+            # never went through ``ermrest_json_to_metadata`` (in
+            # which case the two values are the same anyway).
+            if col.info and "nullok" in col.info:
+                nullok = bool(col.info["nullok"])
+            else:
+                nullok = bool(col.nullable)
             column_definitions.append(
                 {
                     "name": col.name,
                     "type": {
                         "typename": sql_type_to_ermrest_name(col.type),
                     },
-                    "nullok": bool(col.nullable),
+                    "nullok": nullok,
                     "default": _serialize_default(col),
                     "comment": col.comment,
                 }
