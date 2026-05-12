@@ -390,6 +390,58 @@ def test_bag_database_loads_child_after_parent(tmp_path: Path) -> None:
     }
 
 
+def test_bag_database_unions_multipath_csvs(tmp_path: Path) -> None:
+    """Multi-path emission: two CSVs for the same table land
+    side-by-side under different output_paths and the loader
+    unions their rows.
+
+    Producers like :class:`CatalogBagBuilder` can emit one CSV
+    per FK path to a target table (e.g., ``Dataset/Subject/Subject_Image/Image.csv``
+    and ``Dataset/Dataset_Image/Image.csv``). The bag's data
+    directory then contains multiple files with the same stem
+    at different paths. The loader must read **every** such
+    file and union the rows; RID collisions are resolved by
+    SQLite's ``ON CONFLICT DO NOTHING``.
+
+    Without the union, ``rglob`` order picks one file and rows
+    that live only in the other path silently disappear.
+    """
+    bag = tmp_path / "multipath_bag" / "bag"
+    (bag / "data" / "demo" / "PathA").mkdir(parents=True)
+    (bag / "data" / "demo" / "PathB").mkdir(parents=True)
+    (bag / "data" / "schema.json").write_text(
+        json.dumps(_two_table_fk_schema())
+    )
+
+    # Parent CSV under PathA — supplies P1, P2 plus an overlapping P3.
+    with (bag / "data" / "demo" / "PathA" / "Parent.csv").open(
+        "w", newline=""
+    ) as f:
+        w = csv.writer(f)
+        w.writerow(["RID"])
+        w.writerow(["P1"])
+        w.writerow(["P2"])
+        w.writerow(["P3"])
+
+    # Parent CSV under PathB — supplies P3 (dup), P4, P5.
+    with (bag / "data" / "demo" / "PathB" / "Parent.csv").open(
+        "w", newline=""
+    ) as f:
+        w = csv.writer(f)
+        w.writerow(["RID"])
+        w.writerow(["P3"])
+        w.writerow(["P4"])
+        w.writerow(["P5"])
+
+    db_dir = tmp_path / "db"
+    with BagDatabase(bag, db_dir, ["demo"]) as db:
+        parents = list(db.get_table_contents("Parent"))
+
+    # Union of both CSVs, with the duplicate P3 resolved by
+    # ``ON CONFLICT DO NOTHING``.
+    assert {r["RID"] for r in parents} == {"P1", "P2", "P3", "P4", "P5"}
+
+
 # ---------------------------------------------------------------------------
 # Asset / fetch.txt integration
 # ---------------------------------------------------------------------------
