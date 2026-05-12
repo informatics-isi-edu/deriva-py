@@ -292,10 +292,35 @@ class BagCatalogLoader:
     def run(self) -> LoadReport:
         """Synchronously load the bag and return the :class:`LoadReport`.
 
-        Thin wrapper around :meth:`arun`. Callers in already-async
-        contexts should call ``arun`` directly to avoid the
-        nested-loop overhead.
+        Thin wrapper around :meth:`arun`. Detects whether the caller
+        is already inside a running event loop — that's the common
+        case in Jupyter/papermill kernels, where the kernel itself
+        owns the main-thread loop — and re-enters it via
+        :mod:`nest_asyncio`. Outside a loop, falls back to
+        :func:`asyncio.run`.
+
+        Callers in already-async contexts should call :meth:`arun`
+        directly to avoid the nested-loop overhead.
+
+        Raises:
+            ImportError: only when running inside a notebook kernel
+                **and** :mod:`nest_asyncio` is not installed.
+                ``nest_asyncio`` is a runtime soft dependency — the
+                bag-loader is import-safe without it; the cost only
+                appears for in-notebook callers.
         """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop and loop.is_running():
+            # Notebook context: re-enter the active loop.
+            # ``nest_asyncio`` is imported lazily so the module
+            # stays importable without it.
+            import nest_asyncio
+
+            nest_asyncio.apply()
+            return loop.run_until_complete(self.arun())
         return asyncio.run(self.arun())
 
     async def arun(self) -> LoadReport:
