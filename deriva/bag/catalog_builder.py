@@ -144,8 +144,20 @@ class CatalogBagBuilder:
         # :class:`TableAnchor` (the whole-table anchor), the path
         # is recorded but the query is left unfiltered — every row
         # is in scope by construction.
+        #
+        # ``_table_paths`` records the *first* (BFS-shortest) path
+        # discovered per target; ``_table_path_set`` records every
+        # path discovered, so :meth:`_build_export_spec` can emit
+        # one query_processor per FK route. Multi-path emission is
+        # required when the BFS-shortest path goes through a table
+        # that has no rows for the slice (e.g.,
+        # Dataset → Dataset_File → File → Image when the actual
+        # Image rows live on Dataset → Subject → Image).
         self._table_paths: dict[
             tuple[str, str], list[tuple[str, str]]
+        ] = {}
+        self._table_path_set: dict[
+            tuple[str, str], list[tuple[tuple[str, str], ...]]
         ] = {}
         # Anchor-table set: which entries in ``_table_paths`` are
         # themselves anchors (vs. reached via the FK walk). The
@@ -324,16 +336,32 @@ class CatalogBagBuilder:
 
         model = self._get_model()
 
-        # Track per-anchor scope: each anchor seeds its own walk,
-        # but they share the visited set so we don't double-walk.
-        # The path recorded for a reached table is the first one
-        # discovered (BFS-shortest from one of the anchors).
+        # Walk strategy:
+        #
+        # - The queue carries one (table, path) entry per FK route
+        #   we've discovered to that table. We dequeue *all* routes
+        #   to a given table even when the table itself is already
+        #   in ``reached_tables`` — that's the whole point of
+        #   multi-path emission. The simple-path guard in
+        #   :meth:`_enqueue_if_in_scope_with_path` (drops a path
+        #   that would re-enter a table it already visits) prevents
+        #   infinite walks on cycles.
+        # - ``paths`` records the BFS-shortest path discovered per
+        #   reached table (backwards-compat with single-path callers).
+        # - ``path_set`` records every distinct simple path
+        #   discovered per reached table so
+        #   :meth:`_build_export_spec` can emit one query_processor
+        #   per FK route. Bounded by ``max_paths`` to keep the spec
+        #   finite on densely-connected catalogs.
         queue: deque[
-            tuple[str, str, int, list[tuple[str, str]]]
+            tuple[str, str, int, tuple[tuple[str, str], ...]]
         ] = deque()
-        visited: set[tuple[str, str]] = set()
+        reached: set[tuple[str, str]] = set()
         anchor_tables: set[tuple[str, str]] = set()
         paths: dict[tuple[str, str], list[tuple[str, str]]] = {}
+        path_set: dict[
+            tuple[str, str], list[tuple[tuple[str, str], ...]]
+        ] = {}
 
         for anchor in self.anchors:
             schema_name, table_name = self._resolve_table(
@@ -343,15 +371,18 @@ class CatalogBagBuilder:
             anchor_tables.add(key)
             if key not in paths:
                 paths[key] = [key]
-            queue.append((schema_name, table_name, 0, paths[key]))
+            path_set.setdefault(key, [])
+            anchor_path: tuple[tuple[str, str], ...] = (key,)
+            if anchor_path not in path_set[key]:
+                path_set[key].append(anchor_path)
+            queue.append((schema_name, table_name, 0, anchor_path))
 
         max_depth = self.policy.max_depth
+        max_paths = self._max_paths_per_table()
         while queue:
             schema_name, table_name, depth, current_path = queue.popleft()
             key = (schema_name, table_name)
-            if key in visited:
-                continue
-            visited.add(key)
+            reached.add(key)
 
             # Depth bound (None = unbounded).
             if max_depth is not None and depth >= max_depth:
@@ -372,8 +403,9 @@ class CatalogBagBuilder:
                     depth + 1,
                     current_path,
                     queue,
-                    visited,
                     paths,
+                    path_set,
+                    max_paths,
                 )
             # Inbound: FKs other tables declare to us.
             for fk in table.referenced_by:
@@ -382,35 +414,55 @@ class CatalogBagBuilder:
                     depth + 1,
                     current_path,
                     queue,
-                    visited,
                     paths,
+                    path_set,
+                    max_paths,
                 )
 
-        self._reached_tables = visited
+        self._reached_tables = reached
         self._anchor_tables = anchor_tables
         self._table_paths = paths
+        self._table_path_set = path_set
+
+    def _max_paths_per_table(self) -> int:
+        """Cap on distinct FK paths emitted per target table.
+
+        Multi-path emission walks every simple route; densely
+        connected schemas (m FKs between n tables) can in theory
+        produce many. The cap is a finiteness guard, not a tuning
+        knob — in practice every catalog we've seen tops out at
+        2–3 paths to any given table. The default is generous so
+        the cap is never the explanation for missing rows.
+        """
+        return 16
 
     def _enqueue_if_in_scope_with_path(
         self,
         table: DerivaTable,
         depth: int,
-        prefix_path: list[tuple[str, str]],
-        queue: "deque[tuple[str, str, int, list[tuple[str, str]]]]",
-        visited: set[tuple[str, str]],
+        prefix_path: tuple[tuple[str, str], ...],
+        queue: "deque[tuple[str, str, int, tuple[tuple[str, str], ...]]]",
         paths: dict[tuple[str, str], list[tuple[str, str]]],
+        path_set: dict[
+            tuple[str, str], list[tuple[tuple[str, str], ...]]
+        ],
+        max_paths: int,
     ) -> None:
         """Queue a candidate with its FK-path prefix, if policy allows.
 
-        Records the FK path the *first* time this table is seen
-        (BFS-shortest). Subsequent paths to the same table are
-        ignored — we already have a usable scope and ERMrest has
-        deterministic join semantics either way.
+        Records the BFS-shortest path on first sight (in ``paths``)
+        plus every distinct simple path discovered (in ``path_set``,
+        bounded by ``max_paths``). The caller's BFS still gates
+        the *expansion* of each table by ``visited``; this helper
+        only records the route the walk arrived by.
+
+        Cycles are guarded by the simple-path test (``key in
+        prefix_path``): a path that would re-enter a table it
+        already visits is dropped.
         """
         schema_name = table.schema.name
         table_name = table.name
         key = (schema_name, table_name)
-        if key in visited:
-            return
         if self._is_excluded_schema(schema_name):
             return
         if self._is_excluded_table(schema_name, table_name):
@@ -420,9 +472,31 @@ class CatalogBagBuilder:
             and schema_name not in self.policy.schemas
         ):
             return
+        if key in prefix_path:
+            # Simple-path guard: don't walk back into a table we've
+            # already used on this path. ERMrest joins on natural
+            # FK relationships and the same join twice would be a
+            # loop in the query.
+            return
+        candidate_path: tuple[tuple[str, str], ...] = prefix_path + (key,)
         if key not in paths:
-            paths[key] = list(prefix_path) + [key]
-        queue.append((schema_name, table_name, depth, paths[key]))
+            paths[key] = list(candidate_path)
+        bucket = path_set.setdefault(key, [])
+        if candidate_path in bucket:
+            # We've already enqueued this exact path; the dequeue
+            # will walk its descendants once. Re-enqueueing would
+            # do redundant work.
+            return
+        if len(bucket) >= max_paths:
+            # Path budget exhausted; record the new path is dropped
+            # rather than silently emitting an over-large spec.
+            logger.debug(
+                "max_paths=%d reached for %s.%s; dropping path %s",
+                max_paths, schema_name, table_name, candidate_path,
+            )
+            return
+        bucket.append(candidate_path)
+        queue.append((schema_name, table_name, depth, candidate_path))
 
     def _is_excluded_schema(self, schema_name: str) -> bool:
         return (
@@ -488,43 +562,74 @@ class CatalogBagBuilder:
 
         for schema_name, table_name in sorted(self._reached_tables):
             table_obj = model.schemas[schema_name].tables[table_name]
-            dest = f"{schema_name}/{table_name}"
+            key = (schema_name, table_name)
 
             # Vocabulary tables with ``vocab_export == FULL`` get
             # the unfiltered ``/entity/{schema}:{table}`` query —
             # the full controlled vocabulary regardless of which
             # terms the slice happens to reference. This is what
             # a clone-style consumer wants: every FK reference into
-            # a vocab table must resolve at the destination, and
-            # the BFS-shortest path the walker discovered may not
-            # be the same path the actual rows use. The
-            # ``REFERENCED_ONLY`` default keeps the slice tight
-            # (only terms the slice cites land in the bag).
+            # a vocab table must resolve at the destination. One
+            # processor, no per-path branching.
             is_vocab_full = (
                 table_obj.is_vocabulary()
                 and self.policy.vocab_export == VocabExport.FULL
             )
             if is_vocab_full:
-                qpath = f"/entity/{schema_name}:{table_name}"
-            else:
-                qpath = self._table_query_path(
-                    schema_name, table_name, anchor_rid_filter
+                query_processors.append(
+                    {
+                        "processor": "csv",
+                        "processor_params": {
+                            "query_path": (
+                                f"/entity/{schema_name}:{table_name}"
+                            ),
+                            "output_path": (
+                                f"{schema_name}/{table_name}"
+                            ),
+                            "paged_query": True,
+                        },
+                    }
                 )
-
-            query_processors.append(
-                {
-                    "processor": "csv",
-                    "processor_params": {
-                        "query_path": qpath,
-                        "output_path": dest,
-                        "paged_query": True,
-                    },
-                }
-            )
+            else:
+                # Non-vocab (or REFERENCED_ONLY vocab): emit one
+                # processor per FK path discovered by the walker.
+                # The bag's loader (BagDatabase._load_data) reads
+                # every file that resolves to ``{schema}.{table}``
+                # and unions rows by RID — see deriva/bag/database.py.
+                #
+                # ``output_path`` carries the path's table chain so
+                # multi-path CSVs land at distinct on-disk locations
+                # under ``data/{schema}/``. The loader's index is
+                # keyed by CSV stem only, so a per-route subdirectory
+                # is the natural separator.
+                for fk_path in self._fk_paths_for(key):
+                    qpath = self._table_query_path(
+                        schema_name,
+                        table_name,
+                        anchor_rid_filter,
+                        fk_path,
+                    )
+                    dest = self._output_path_for(
+                        schema_name, table_name, fk_path
+                    )
+                    query_processors.append(
+                        {
+                            "processor": "csv",
+                            "processor_params": {
+                                "query_path": qpath,
+                                "output_path": dest,
+                                "paged_query": True,
+                            },
+                        }
+                    )
             if table_obj.is_asset():
                 # The engine's ``fetch`` processor reads URL/length/
                 # filename/md5 columns from each asset row and
                 # downloads the bytes to the templated output_path.
+                # One fetch processor per table is enough — assets
+                # are addressed by RID at the destination so the
+                # rows the multi-path CSVs landed already carry
+                # everything ``fetch`` needs.
                 query_processors.append(
                     {
                         "processor": "fetch",
@@ -594,11 +699,52 @@ class CatalogBagBuilder:
             for key, rids in filters.items()
         }
 
+    def _fk_paths_for(
+        self, key: tuple[str, str]
+    ) -> list[tuple[tuple[str, str], ...]]:
+        """Return the FK paths the walker discovered to ``key``.
+
+        Falls back to ``[(key,)]`` for callers (mainly tests) that
+        invoke export-spec generation without having recorded any
+        paths — produces the legacy single-path full-table query.
+        """
+        bucket = self._table_path_set.get(key)
+        if bucket:
+            return bucket
+        # Fall back to the BFS-shortest path or the table itself.
+        fallback = self._table_paths.get(key)
+        if fallback:
+            return [tuple(fallback)]
+        return [(key,)]
+
+    @staticmethod
+    def _output_path_for(
+        schema_name: str,
+        table_name: str,
+        fk_path: tuple[tuple[str, str], ...],
+    ) -> str:
+        """Build a per-path on-disk subdirectory under ``data/``.
+
+        Single-element paths (anchor tables) land at
+        ``{schema}/{table}``; multi-element paths land at
+        ``{schema}/{p1}_..._{pn-1}/{table}`` so two routes to the
+        same target table land in distinct files. The bag DB's
+        loader keys by CSV stem (``{table}.csv``), so per-route
+        subdirectories are enough to keep file paths unique.
+        """
+        if len(fk_path) <= 1:
+            return f"{schema_name}/{table_name}"
+        intermediate = "_".join(
+            seg_table for _seg_schema, seg_table in fk_path[:-1]
+        )
+        return f"{schema_name}/{intermediate}/{table_name}"
+
     def _table_query_path(
         self,
         schema_name: str,
         table_name: str,
         anchor_filters: dict[tuple[str, str], list[str]],
+        fk_path: tuple[tuple[str, str], ...] | None = None,
     ) -> str:
         """Build the ERMrest query path for a reached table.
 
@@ -612,7 +758,7 @@ class CatalogBagBuilder:
         3. **Non-anchor table reached via the FK walk.** Build a
            chained ERMrest path that scopes the rows to those
            reachable from the anchor's filter through the FK path
-           BFS discovered:
+           the caller specifies:
            ``/entity/{anchor}/RID=any(...)/{step2}/{step3}/...``.
            ERMrest's natural-FK join semantics handle the joins.
 
@@ -623,12 +769,14 @@ class CatalogBagBuilder:
         on the rows whose parents aren't in the slice.
         """
         key = (schema_name, table_name)
-        path = self._table_paths.get(key, [key])
+        if fk_path is None:
+            fk_path = tuple(self._table_paths.get(key, [key]))
 
         # Case 1/2: this *is* an anchor table. Use the existing
         # anchor-RID filter (or fall back to the full-table query
-        # for TableAnchor / non-RID anchors).
-        if key in self._anchor_tables:
+        # for TableAnchor / non-RID anchors). Path length 1 means
+        # the caller supplied just the anchor itself.
+        if key in self._anchor_tables and len(fk_path) <= 1:
             rids = anchor_filters.get(key)
             if rids:
                 joined = ",".join(rids)
@@ -644,7 +792,7 @@ class CatalogBagBuilder:
         # is a RIDAnchor/PathAnchor); subsequent segments are
         # bare ``{schema}:{table}`` joins that ERMrest resolves via
         # the natural FK relationship.
-        anchor_key = path[0]
+        anchor_key = fk_path[0]
         anchor_schema, anchor_table = anchor_key
         rids = anchor_filters.get(anchor_key)
         if rids:
@@ -657,7 +805,7 @@ class CatalogBagBuilder:
             head = f"/entity/{anchor_schema}:{anchor_table}"
         # Append the rest of the path (skipping the anchor itself).
         tail = "".join(
-            f"/{seg_schema}:{seg_table}" for seg_schema, seg_table in path[1:]
+            f"/{seg_schema}:{seg_table}" for seg_schema, seg_table in fk_path[1:]
         )
         return head + tail
 

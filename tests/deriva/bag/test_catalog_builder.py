@@ -370,8 +370,12 @@ def test_spec_includes_csv_processor_for_each_reached_table(
     output_paths = {
         p["processor_params"]["output_path"] for p in csv_procs
     }
+    # Anchor table A: direct ``{schema}/{table}`` dest.
+    # Non-anchor table B (reached via FK from A): per-route dest
+    # ``{schema}/{intermediate-chain}/{table}``. The chain is the
+    # path's tables minus the terminal, joined by ``_``.
     assert "demo/A" in output_paths
-    assert "demo/B" in output_paths
+    assert "demo/A/B" in output_paths
 
 
 def test_spec_includes_fetch_processor_for_asset_table(
@@ -469,11 +473,13 @@ def test_spec_rid_anchor_chains_path_to_fk_reachable_tables(
         == "/entity/demo:Dataset/RID=any(5HE)"
     )
     # Dataset_Version chains through Dataset, restricting to rows
-    # that reference the anchored Dataset RID.
+    # that reference the anchored Dataset RID. Per-route dest:
+    # ``{schema}/{intermediate-chain}/{table}`` — intermediate chain
+    # is just "Dataset" since the path is Dataset → Dataset_Version.
     assert (
-        by_output["demo/Dataset_Version"]["processor_params"][
-            "query_path"
-        ]
+        by_output["demo/Dataset/Dataset_Version"][
+            "processor_params"
+        ]["query_path"]
         == "/entity/demo:Dataset/RID=any(5HE)/demo:Dataset_Version"
     )
 
@@ -521,9 +527,14 @@ def test_spec_rid_anchor_chains_through_intermediate_table(
         for p in spec["catalog"]["query_processors"]
         if p["processor"] == "csv"
     }
-    # BFS: Dataset → Dataset_Image → Image.
+    # BFS: Dataset → Dataset_Image → Image. Per-route dest path:
+    # ``{schema}/{intermediate-chain}/{table}`` with the chain
+    # ``Dataset_Dataset_Image`` (the path's tables minus the
+    # terminal, joined by ``_``).
     assert (
-        by_output["demo/Image"]["processor_params"]["query_path"]
+        by_output["demo/Dataset_Dataset_Image/Image"][
+            "processor_params"
+        ]["query_path"]
         == "/entity/demo:Dataset/RID=any(5HE)/demo:Dataset_Image/demo:Image"
     )
 
@@ -616,6 +627,122 @@ def test_spec_vocab_referenced_only_emits_single_processor(
         p["processor_params"]["output_path"] for p in csv_procs
     ]
     assert output_paths.count("demo/Species") == 1
+
+
+def test_spec_multipath_emits_one_processor_per_fk_route(
+    tmp_path: Path,
+) -> None:
+    """A target table reachable via two FK routes gets two csv processors.
+
+    Topology::
+
+        Dataset ─── Dataset_Image ──┐
+            │                       │
+            └── Dataset_Subject ─── Subject ─── Subject_Image ─── Image
+
+    From a Dataset anchor, ``Image`` is reachable two ways:
+
+    1. Dataset → Dataset_Image → Image (short route).
+    2. Dataset → Dataset_Subject → Subject → Subject_Image → Image
+       (long route).
+
+    Only one of these routes carries rows in any given catalog
+    (Dataset_Image vs Subject_Image association tables are
+    mutually exclusive deployments in practice), but the builder
+    can't tell up front. Emitting both lets the loader union
+    whatever rows each path produces, with RID dedup at insert
+    time. The BFS-shortest-only approach silently drops rows
+    that live only on the long route.
+    """
+    ds = _make_mock_table("demo", "Dataset")
+    di = _make_mock_table("demo", "Dataset_Image")
+    ds_sub = _make_mock_table("demo", "Dataset_Subject")
+    sub = _make_mock_table("demo", "Subject")
+    si = _make_mock_table("demo", "Subject_Image")
+    img = _make_mock_table("demo", "Image")
+
+    di_to_ds = _fk_mock(src_table=di, pk_table=ds)
+    di_to_img = _fk_mock(src_table=di, pk_table=img)
+    dssub_to_ds = _fk_mock(src_table=ds_sub, pk_table=ds)
+    dssub_to_sub = _fk_mock(src_table=ds_sub, pk_table=sub)
+    si_to_sub = _fk_mock(src_table=si, pk_table=sub)
+    si_to_img = _fk_mock(src_table=si, pk_table=img)
+
+    ds.referenced_by = [di_to_ds, dssub_to_ds]
+    di.foreign_keys = [di_to_ds, di_to_img]
+    ds_sub.foreign_keys = [dssub_to_ds, dssub_to_sub]
+    sub.referenced_by = [dssub_to_sub, si_to_sub]
+    si.foreign_keys = [si_to_sub, si_to_img]
+    img.referenced_by = [di_to_img, si_to_img]
+
+    model = _make_mock_model(
+        {
+            "demo": {
+                "Dataset": ds,
+                "Dataset_Image": di,
+                "Dataset_Subject": ds_sub,
+                "Subject": sub,
+                "Subject_Image": si,
+                "Image": img,
+            }
+        }
+    )
+    catalog = _make_mock_catalog(model)
+    cb = CatalogBagBuilder(
+        catalog=catalog,
+        anchors=[RIDAnchor(table="Dataset", rids=["5HE"])],
+        output_dir=tmp_path,
+    )
+    cb._validate_anchors = lambda: None
+    cb._compute_reached_tables()
+    spec = cb._build_export_spec()
+
+    # Count csv processors whose ``output_path`` ends in ``/Image``.
+    # Two FK routes → two processors, each at a distinct on-disk
+    # location.
+    image_procs = [
+        p
+        for p in spec["catalog"]["query_processors"]
+        if p["processor"] == "csv"
+        and p["processor_params"]["output_path"].endswith("/Image")
+    ]
+    assert len(image_procs) == 2, [
+        p["processor_params"]["output_path"] for p in image_procs
+    ]
+    query_paths = {
+        p["processor_params"]["query_path"] for p in image_procs
+    }
+    # Short route.
+    assert (
+        "/entity/demo:Dataset/RID=any(5HE)/demo:Dataset_Image/demo:Image"
+        in query_paths
+    )
+    # Long route through Subject.
+    assert (
+        "/entity/demo:Dataset/RID=any(5HE)"
+        "/demo:Dataset_Subject/demo:Subject"
+        "/demo:Subject_Image/demo:Image"
+        in query_paths
+    )
+
+    # Asset fetch processors are not per-path: one ``fetch`` per
+    # asset table is sufficient because each fetch addresses by
+    # asset RID and any RID landed by either CSV processor is
+    # fetchable.
+    fetch_procs = [
+        p
+        for p in spec["catalog"]["query_processors"]
+        if p["processor"] == "fetch"
+    ]
+    image_fetches = [
+        p
+        for p in fetch_procs
+        if "Image" in p["processor_params"]["output_path"]
+    ]
+    # (Image isn't marked is_asset in this fixture so 0 is expected;
+    # the assertion is that we don't accidentally emit per-path
+    # fetch processors.)
+    assert len(image_fetches) == 0
 
 
 # ---------------------------------------------------------------------------
