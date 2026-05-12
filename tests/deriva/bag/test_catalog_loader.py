@@ -600,6 +600,120 @@ def test_insert_rows_preserve_provenance_false_sends_only_rid(
     )
 
 
+def test_insert_rows_preserve_provenance_false_strips_system_columns(
+    tmp_path: Path,
+) -> None:
+    """``preserve_provenance=False`` strips RCT/RCB/RMT/RMB from the JSON body.
+
+    Bag CSVs serialize NULL as ``""`` (CSV has no NULL sentinel).
+    ERMrest rejects ``""`` for the timestamp ``RCT`` / ``RMT``
+    columns and the FK-typed ``RCB`` / ``RMB`` columns with a
+    400 ``invalid input syntax`` error. Stripping these columns
+    from the row dict entirely (relying on the server's defaults
+    to populate them) is the symmetrical counterpart of the
+    ``nondefaults=RID`` URL — the wire-format contract for
+    commit-style inserts.
+    """
+    import asyncio as _asyncio
+
+    bag = _build_fk_bag(tmp_path)
+    catalog = _mock_catalog()
+    response = MagicMock()
+    response.json.return_value = [{"RID": "I1"}]
+    catalog.post.return_value = response
+
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=FKTraversalPolicy(preserve_provenance=False),
+        database_dir=tmp_path / "db",
+    )
+    try:
+        _asyncio.run(
+            loader._insert_rows(
+                _make_fake_table(),
+                [
+                    {
+                        "RID": "I1",
+                        "Filename": "a.bin",
+                        # System columns the bag carries as empty
+                        # strings from its CSV — must be stripped
+                        # before reaching ERMrest.
+                        "RCT": "",
+                        "RCB": "",
+                        "RMT": "",
+                        "RMB": "",
+                    }
+                ],
+            )
+        )
+    finally:
+        loader.dispose()
+
+    # The JSON body posted to ERMrest excludes the system columns.
+    posted_rows = catalog.post.call_args.kwargs.get("json") or (
+        catalog.post.call_args[1].get("json")
+    )
+    assert posted_rows is not None, catalog.post.call_args
+    row = posted_rows[0]
+    assert "RID" in row
+    assert "Filename" in row
+    for col in ("RCT", "RCB", "RMT", "RMB"):
+        assert col not in row, (
+            f"system column {col} should have been stripped under "
+            f"preserve_provenance=False; got {row}"
+        )
+
+
+def test_insert_rows_preserve_provenance_true_keeps_system_columns(
+    tmp_path: Path,
+) -> None:
+    """Clone semantics keep RCT/RCB in the JSON body verbatim.
+
+    Backward-compat guard: the strip behavior is opt-in via
+    ``preserve_provenance=False``. Default callers see the
+    bag's audit data ride through.
+    """
+    import asyncio as _asyncio
+
+    bag = _build_fk_bag(tmp_path)
+    catalog = _mock_catalog()
+    response = MagicMock()
+    response.json.return_value = [{"RID": "I1"}]
+    catalog.post.return_value = response
+
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=FKTraversalPolicy(),  # preserve_provenance=True default
+        database_dir=tmp_path / "db",
+    )
+    try:
+        _asyncio.run(
+            loader._insert_rows(
+                _make_fake_table(),
+                [
+                    {
+                        "RID": "I1",
+                        "Filename": "a.bin",
+                        "RCT": "2026-01-01T00:00:00+00:00",
+                        "RCB": "https://idp/user1",
+                    }
+                ],
+            )
+        )
+    finally:
+        loader.dispose()
+
+    posted_rows = catalog.post.call_args.kwargs.get("json") or (
+        catalog.post.call_args[1].get("json")
+    )
+    row = posted_rows[0]
+    # Audit data preserved verbatim.
+    assert row["RCT"] == "2026-01-01T00:00:00+00:00"
+    assert row["RCB"] == "https://idp/user1"
+
+
 # ---------------------------------------------------------------------------
 # Report shape
 # ---------------------------------------------------------------------------
