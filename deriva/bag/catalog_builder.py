@@ -208,39 +208,42 @@ class CatalogBagBuilder:
     def _validate_anchors(self) -> None:
         """Fail-fast on RIDAnchor RIDs that don't exist in the catalog.
 
-        Issues one ``?RID=in(...)`` query per ``RIDAnchor`` table,
-        comparing the returned RIDs against the anchor's claimed
-        list. Missing RIDs raise with the list of misses.
+        Issues one ``?RID=any(...)`` query per ``RIDAnchor`` table
+        directly against ERMrest (the datapath ``_ColumnWrapper``
+        doesn't expose ``in_``), comparing the returned RIDs
+        against the anchor's claimed list. Missing RIDs raise
+        with the list of misses.
 
         :class:`TableAnchor` and :class:`PathAnchor` are not
         validated here — TableAnchor is permissive of empty
         tables; PathAnchor's empty result is warned but allowed
         at walk time.
         """
-        pb = self.catalog.getPathBuilder()
+        from urllib.parse import quote as urlquote
+
         model = self._get_model()
         for anchor in self.anchors:
             if anchor.kind != AnchorKind.RID:
                 continue
             assert isinstance(anchor, RIDAnchor)
-            # Resolve the table → (schema, table) so we can build
-            # a pb path. We accept bare table names (deriva-ml
-            # tradition) and try each candidate schema.
+            # Resolve the table → (schema, table). We accept bare
+            # table names (deriva-ml tradition) and try each
+            # candidate schema.
             schema_name, table_name = self._resolve_table(
                 model, anchor.table
             )
-            entity_path = pb.schemas[schema_name].tables[table_name]
-            # filter().fetch() with the RID in-set returns just
-            # the RIDs that actually exist.
+            # ERMrest's ``RID=any(v1,v2,...)`` filter returns just
+            # the RIDs that actually exist. One query per anchor.
+            rid_list = ",".join(urlquote(r) for r in anchor.rids)
+            path = (
+                f"/attribute/{schema_name}:{table_name}"
+                f"/RID=any({rid_list})/RID"
+            )
             try:
-                results = list(
-                    entity_path.filter(
-                        entity_path.RID == anchor.rids[0]
-                        if len(anchor.rids) == 1
-                        else entity_path.RID.in_(anchor.rids)
-                    ).attributes(entity_path.RID).fetch()
-                )
-            except Exception as e:  # pragma: no cover - network path
+                response = self.catalog.get(path)
+                response.raise_for_status()
+                results = response.json()
+            except Exception as e:
                 # If the catalog query fails for reasons unrelated
                 # to anchor correctness (auth, network), surface
                 # the error rather than masking it as "anchors
@@ -251,7 +254,7 @@ class CatalogBagBuilder:
                     e,
                 )
                 raise
-            found = {r["RID"] for r in results}
+            found = {r["RID"] for r in results if r.get("RID")}
             missing = [rid for rid in anchor.rids if rid not in found]
             if missing:
                 raise ValueError(
