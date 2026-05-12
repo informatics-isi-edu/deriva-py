@@ -1039,20 +1039,31 @@ class BagCatalogLoader:
         force = self.policy.asset_mode == AssetMode.UPLOAD_FORCE
 
         for row in rows:
-            local_path = row.get("Filename")
             url = row.get("URL")
-            if not local_path or not url:
+            if not url:
                 logger.warning(
-                    "asset row %s.%s/RID=%s missing Filename or URL; skipping",
+                    "asset row %s.%s/RID=%s missing URL; skipping",
                     table.schema.name, table.name, row.get("RID"),
                 )
                 continue
-            if not Path(local_path).is_file():
+            # Resolve the bag-local path on demand. The row's
+            # ``Filename`` column holds the catalog-facing name
+            # (which gets inserted verbatim); the actual on-disk
+            # bytes live elsewhere — either where ``fetch.txt``
+            # placed them (clone bags) or at the profile-standard
+            # embedded-asset path (constructive bags). The bag
+            # database knows both layouts.
+            local_path = self.bag_db.resolve_asset_local_path(
+                table.name, row
+            )
+            if not local_path:
                 logger.warning(
-                    "asset row %s.%s/RID=%s Filename=%r does not exist on "
-                    "disk; skipping (was the bag materialized?)",
+                    "asset row %s.%s/RID=%s has no bytes available in the "
+                    "bag (no fetch.txt match for URL=%r and no embedded "
+                    "asset at data/asset/%s/%s/%s); skipping byte upload",
                     table.schema.name, table.name, row.get("RID"),
-                    local_path,
+                    url, table.name, row.get("RID"),
+                    row.get("Filename"),
                 )
                 continue
             hatrac_path = self._hatrac_path_for(url)
