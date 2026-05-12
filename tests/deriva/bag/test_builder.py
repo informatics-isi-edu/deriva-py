@@ -574,3 +574,47 @@ def test_builder_finalize_make_bdbag_preserves_data_layout(
     assert (out / "bagit.txt").is_file()
     assert (out / "bag-info.txt").is_file()
     assert (out / "manifest-md5.txt").is_file()
+
+
+# =============================================================================
+# hatrac_url_for — canonical asset URL builder
+# =============================================================================
+
+
+def test_hatrac_url_for_canonical_shape():
+    """The helper produces ``/hatrac/{table}/{md5}.{filename}``.
+
+    This is the convention the upload pipeline + bag-commit path
+    both follow when writing an asset row's ``URL`` column.
+    """
+    from deriva.bag.builder import hatrac_url_for
+
+    url = hatrac_url_for("Image", "abc123", "scan.png")
+    assert url == "/hatrac/Image/abc123.scan.png"
+
+
+def test_hatrac_url_for_preserves_filename_dots():
+    """Filenames with multiple dots (e.g. ``uv.lock``) round-trip cleanly.
+
+    The convention puts the MD5 first and the filename second,
+    joined by ``.``. A filename like ``uv.lock`` has its own
+    internal dot — the helper must preserve it so the upload's
+    content-disposition reconstructs the original name.
+    """
+    from deriva.bag.builder import hatrac_url_for
+
+    url = hatrac_url_for("Execution_Metadata", "deadbeef", "uv.lock")
+    assert url == "/hatrac/Execution_Metadata/deadbeef.uv.lock"
+
+
+def test_hatrac_url_for_table_with_underscores():
+    """Asset-table names with underscores aren't quoted/escaped.
+
+    The path is built positionally; no URL-encoding is applied to
+    the table name. Tables named ``Execution_Asset``, ``Image_File``
+    etc. should pass through unchanged.
+    """
+    from deriva.bag.builder import hatrac_url_for
+
+    url = hatrac_url_for("Execution_Asset", "abc", "f.txt")
+    assert url == "/hatrac/Execution_Asset/abc.f.txt"
