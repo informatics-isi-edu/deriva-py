@@ -221,6 +221,165 @@ def test_builder_add_assets_bulk(tmp_path: Path) -> None:
         ).is_file()
 
 
+def test_builder_add_asset_link_mode_hardlinks_source(tmp_path: Path) -> None:
+    """``link=True`` hardlinks the source instead of copying.
+
+    Used by transient-staging callers (e.g. ``commit_execution``) that
+    want the bag layout but don't pay for an extra disk copy. The
+    bag's directory entry points at the same inode as the source —
+    zero bytes duplicated. bagit sees a regular file (which it is, by
+    every filesystem-level definition); the safety model is satisfied
+    because the link lives inside the bag tree.
+    """
+    src = tmp_path / "src.bin"
+    src.write_bytes(b"original bytes")
+    out = tmp_path / "bag"
+    bb = BagBuilder(metadata=_two_table_metadata(), output_dir=out)
+    bb.add_asset("Image", "I1", src, link=True)
+    bb.finalize(make_bdbag=False)
+
+    dest = out / "data" / "asset" / "Image" / "I1" / "src.bin"
+    assert dest.is_file()
+    # Hardlink — not a symlink, but shares an inode with source.
+    assert not dest.is_symlink(), f"hardlink mode must not symlink: {dest}"
+    assert dest.stat().st_ino == src.stat().st_ino, (
+        f"hardlink should share an inode with source"
+    )
+    assert dest.read_bytes() == b"original bytes"
+
+
+def test_builder_add_asset_link_mode_survives_source_deletion(
+    tmp_path: Path,
+) -> None:
+    """Hardlinks keep the file alive after the source is unlinked.
+
+    Important for the ``commit_execution`` workflow: post-upload
+    cleanup may remove the flat asset storage, but the bag has
+    already been consumed by the loader. The hardlinked bag entry
+    behaves like a normal file even after the original directory
+    entry is gone — relevant if any post-finalize step still needs
+    to read from the bag.
+    """
+    src = tmp_path / "src.bin"
+    src.write_bytes(b"keep me alive")
+    out = tmp_path / "bag"
+    bb = BagBuilder(metadata=_two_table_metadata(), output_dir=out)
+    bb.add_asset("Image", "I1", src, link=True)
+    bb.finalize(make_bdbag=False)
+
+    dest = out / "data" / "asset" / "Image" / "I1" / "src.bin"
+    src.unlink()  # remove the original directory entry
+    # Hardlink keeps the data alive — same inode, different name.
+    assert dest.is_file()
+    assert dest.read_bytes() == b"keep me alive"
+
+
+def test_builder_add_asset_link_mode_passes_bagit_validation(
+    tmp_path: Path,
+) -> None:
+    """Hardlinked bag passes ``bdb.make_bag`` validation.
+
+    bagit's ``_validate_bag_contents`` rejects manifest entries that
+    resolve outside the bag root for security reasons. Symlinks
+    pointing at external storage fail this check. Hardlinks live
+    inside the bag tree as ordinary directory entries; bagit sees
+    nothing unusual. This test pins that behavior — if a future
+    refactor switches to symlinks, ``make_bdbag=True`` will start
+    raising ``bagit.BagError("... is unsafe")`` and this test will
+    surface it.
+    """
+    src = tmp_path / "src.txt"
+    src.write_bytes(b"hello bagit\n")
+    out = tmp_path / "bag"
+    bb = BagBuilder(metadata=_two_table_metadata(), output_dir=out)
+    bb.add_asset("Image", "I1", src, link=True)
+    # make_bdbag=True invokes bagit's full validation.
+    bb.finalize(make_bdbag=True)
+
+    # If we got here, validation passed. Spot-check the manifest:
+    manifest = (out / "manifest-md5.txt").read_text()
+    assert "asset/Image/I1/src.txt" in manifest
+
+
+def test_builder_add_asset_link_mode_md5_matches_content(
+    tmp_path: Path,
+) -> None:
+    """The bag's MD5 manifest digest equals MD5 of the source content.
+
+    Hardlinks share storage, so ``hashlib`` reading the bag entry
+    digests the exact same bytes as the source. This pins the
+    contract: the manifest is authoritative for the file content
+    regardless of whether the storage came from a copy or a link.
+    """
+    import hashlib
+
+    src = tmp_path / "src.txt"
+    content = b"hello world\n"
+    src.write_bytes(content)
+    expected_md5 = hashlib.md5(content).hexdigest()
+
+    out = tmp_path / "bag"
+    bb = BagBuilder(metadata=_two_table_metadata(), output_dir=out)
+    bb.add_asset("Image", "I1", src, link=True)
+    bb.finalize(make_bdbag=True)
+
+    manifest = (out / "manifest-md5.txt").read_text()
+    asset_lines = [
+        line for line in manifest.splitlines()
+        if "asset/Image/I1/src.txt" in line
+    ]
+    assert len(asset_lines) == 1, manifest
+    digest = asset_lines[0].split()[0]
+    assert digest == expected_md5
+
+
+def test_builder_add_asset_link_mode_default_is_copy(tmp_path: Path) -> None:
+    """Without ``link=True``, ``add_asset`` still copies the file.
+
+    Backward compatibility: existing callers (clone-via-bag,
+    constructive bag-building tests) get the copy semantics they've
+    always had. Hardlinks are opt-in for transient-staging callers.
+    """
+    src = tmp_path / "src.bin"
+    src.write_bytes(b"content")
+    out = tmp_path / "bag"
+    bb = BagBuilder(metadata=_two_table_metadata(), output_dir=out)
+    bb.add_asset("Image", "I1", src)  # link= defaults to False
+    bb.finalize(make_bdbag=False)
+
+    dest = out / "data" / "asset" / "Image" / "I1" / "src.bin"
+    assert dest.is_file()
+    # Copy mode: different inode (independent storage).
+    assert dest.stat().st_ino != src.stat().st_ino
+
+
+def test_builder_add_assets_bulk_link_mode(tmp_path: Path) -> None:
+    """``add_assets(..., link=True)`` propagates the flag to each call.
+
+    Bulk loop just delegates to per-asset ``add_asset(link=...)``;
+    this test pins the propagation so a future refactor can't drop
+    the kwarg.
+    """
+    sources: dict[str, Path] = {}
+    for rid in ("I1", "I2"):
+        p = tmp_path / f"{rid}.bin"
+        p.write_bytes(rid.encode())
+        sources[rid] = p
+
+    out = tmp_path / "bag"
+    bb = BagBuilder(metadata=_two_table_metadata(), output_dir=out)
+    bb.add_assets("Image", sources, link=True)
+    bb.finalize(make_bdbag=False)
+
+    for rid in ("I1", "I2"):
+        src = sources[rid]
+        dest = (
+            out / "data" / "asset" / "Image" / rid / f"{rid}.bin"
+        )
+        # Hardlinked — shares inode with source.
+        assert dest.stat().st_ino == src.stat().st_ino
+
+
 def test_builder_add_asset_reference_records_entry(tmp_path: Path) -> None:
     bb = BagBuilder(
         metadata=_two_table_metadata(),

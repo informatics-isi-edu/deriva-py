@@ -57,6 +57,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import shutil
 from contextlib import ExitStack
 from pathlib import Path
@@ -309,22 +310,51 @@ class BagBuilder:
         source_path: Path,
         *,
         filename: str | None = None,
+        link: bool = False,
     ) -> None:
-        """Copy an asset file into the bag at the profile-standard path.
+        """Embed an asset file into the bag at the profile-standard path.
 
         The destination is
         ``{output_dir}/data/asset/{table}/{rid}/{filename}``,
         where ``filename`` defaults to the source file's name.
 
+        Two storage modes:
+
+        - ``link=False`` (default): copy the file (``shutil.copy2``).
+          The bag is self-contained — it can be archived
+          (zipped/tarred), moved to another machine, or kept on
+          disk after the source files are deleted. Pays 1× disk
+          and 1× I/O at ``add_asset`` time.
+        - ``link=True``: create a **hard link** (``os.link``) from
+          the source file to the bag location. The directory entry
+          inside the bag points at the same inode as the source —
+          zero bytes copied, zero I/O. bagit sees a regular file
+          with valid content; MD5 manifest is correct. The link
+          keeps the file alive even if the source is unlinked
+          (useful when post-upload cleanup removes the flat
+          asset storage). Falls back to copy when the source and
+          bag are on different filesystems (``OSError`` with
+          ``errno.EXDEV``).
+
+          Symlinks are deliberately not used: bagit's
+          ``_validate_bag_contents`` rejects manifest entries that
+          resolve outside the bag root for security reasons.
+          Hardlinks live inside the bag as regular files, so
+          bagit's safety model is satisfied while the bytes still
+          live on disk only once.
+
+          Use this mode when the bag is short-lived in-process
+          staging that wants the bag layout but doesn't need to
+          be archived to a different machine.
+
         Args:
             table: Asset table name (e.g., ``"Image"``).
             rid: RID of the asset row this file belongs to.
-            source_path: Path to the file on local disk. The
-                file is copied into the bag eagerly so the bag
-                can be archived without depending on the source
-                still being present.
+            source_path: Path to the file on local disk.
             filename: Override the destination filename. Defaults
                 to ``source_path.name``.
+            link: If ``True``, hardlink the source file instead of
+                copying. Defaults to ``False`` (copy).
 
         Raises:
             FileNotFoundError: If ``source_path`` doesn't exist.
@@ -356,7 +386,27 @@ class BagBuilder:
             return
 
         dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source_path, dest)
+        if link:
+            try:
+                # Hardlink: same inode, zero bytes duplicated.
+                # bagit treats the dest as a regular file (it is —
+                # just sharing storage with the source).
+                os.link(source_path, dest)
+            except OSError as e:
+                # EXDEV (Invalid cross-device link) — source and
+                # bag on different filesystems. Fall back to copy.
+                import errno
+                if e.errno != errno.EXDEV:
+                    raise
+                logger.warning(
+                    "Cross-filesystem hardlink failed for %s -> %s; "
+                    "falling back to copy. To preserve link semantics, "
+                    "put the bag on the same filesystem as the source.",
+                    source_path, dest,
+                )
+                shutil.copy2(source_path, dest)
+        else:
+            shutil.copy2(source_path, dest)
         # Record the asset so finalize() can compute the bag's
         # checksum manifests correctly. MD5 is deferred until
         # finalize to keep add_asset fast in tight loops.
@@ -374,6 +424,7 @@ class BagBuilder:
         mapping: dict[str, Path],
         *,
         filenames: dict[str, str] | None = None,
+        link: bool = False,
     ) -> int:
         """Bulk-add assets for one table.
 
@@ -383,6 +434,8 @@ class BagBuilder:
             filenames: Optional ``{rid: filename, ...}`` overriding
                 each asset's destination filename. RIDs absent
                 from this dict default to the source path's name.
+            link: If ``True``, symlink each source file instead of
+                copying. See :meth:`add_asset` for the trade-offs.
 
         Returns:
             Number of assets added.
@@ -395,6 +448,7 @@ class BagBuilder:
                 rid,
                 Path(source),
                 filename=filenames.get(rid),
+                link=link,
             )
         return len(mapping)
 
