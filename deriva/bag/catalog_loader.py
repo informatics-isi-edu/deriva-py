@@ -385,6 +385,15 @@ class BagCatalogLoader:
         if not rows:
             return stats
 
+        # Normalize empty-string nullable values to ``None``. The
+        # bag's CSVs serialize NULL as the empty string (BDBag/CSV
+        # convention); SQLite preserves the empty string verbatim,
+        # which then trips the dangling-FK check ("'' not in
+        # parent {...}") and produces ERMrest 400s on insert.
+        # Convert at the row boundary so downstream code sees real
+        # ``None`` for unset FKs.
+        rows = [self._coerce_empty_to_null(table, row) for row in rows]
+
         # Apply dangling-FK strategy before any other handling.
         # Rows with missing parents are either dropped (DELETE),
         # patched (NULLIFY), or cause us to bail (FAIL).
@@ -724,6 +733,36 @@ class BagCatalogLoader:
         # identifiers, int[] of digits). Embedded commas in quoted
         # strings aren't produced by the current bag walker.
         return [part.strip().strip('"') for part in inner.split(",")]
+
+    @staticmethod
+    def _coerce_empty_to_null(
+        table: DerivaTable, row: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Convert empty-string values on nullable columns to ``None``.
+
+        The bag's CSVs serialize NULL as the empty string (BDBag/CSV
+        convention has no native NULL sentinel). SQLite preserves
+        the empty string; downstream consumers — the dangling-FK
+        check, ERMrest's JSON ingest, the vocab match-by-name path
+        — all expect real ``None`` for unset values. Coerce at the
+        row boundary so we don't have to special-case the empty
+        string in every consumer.
+
+        Only columns that are declared nullable in the schema are
+        coerced; an empty string on a NOT-NULL column is left alone
+        (and will fail ERMrest's validation, which is the right
+        behavior — it signals a real data problem).
+        """
+        nullable_cols = {
+            c.name for c in table.column_definitions if c.nullok
+        }
+        if not nullable_cols:
+            return row
+        out = dict(row)
+        for col in nullable_cols:
+            if col in out and out[col] == "":
+                out[col] = None
+        return out
 
     @staticmethod
     def _coerce_datetimes(row: dict[str, Any]) -> dict[str, Any]:
