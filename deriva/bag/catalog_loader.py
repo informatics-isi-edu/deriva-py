@@ -953,15 +953,26 @@ class BagCatalogLoader:
         loader can be embedded in async pipelines without
         blocking the event loop.
         """
-        # Preserve provenance for creation (RID, RCT, RCB) and let
-        # the destination set modification (RMT, RMB) on insert.
-        # This matches deriva-py's canonical catalog-clone paths
-        # (``ErmrestCatalog.clone_catalog`` and ``asyncio/clone.py``):
-        # creation timestamps and user are real audit data worth
-        # preserving; modification timestamps would be overwritten
-        # on the very next update anyway.
+        # Two insert modes, picked by ``policy.preserve_provenance``:
+        #
+        # - **True** (default — clone semantics): preserve creation
+        #   provenance from the bag's source catalog by passing
+        #   ``?nondefaults=RID,RCT,RCB``. Matches the canonical
+        #   clone paths (``ErmrestCatalog.clone_catalog``,
+        #   ``asyncio/clone.py``). Audit data from the source is
+        #   real history worth keeping; modification timestamps
+        #   would be overwritten on the next update anyway.
+        # - **False** (commit semantics): only ``RID`` is preserved;
+        #   ``RCT`` / ``RCB`` get server-set values. Required when
+        #   the bag carries newly-minted rows the destination is
+        #   generating — e.g. end-of-execution commit. Without
+        #   this, NULL ``RCB`` violates the
+        #   ``{Table}_RCB_fkey → public.ERMrest_Client`` constraint.
         qname = f"{table.schema.name}:{table.name}"
-        url = f"/entity/{qname}?nondefaults=RID,RCT,RCB"
+        if self.policy.preserve_provenance:
+            url = f"/entity/{qname}?nondefaults=RID,RCT,RCB"
+        else:
+            url = f"/entity/{qname}?nondefaults=RID"
 
         # Coerce array-typed columns from PostgreSQL literal form
         # (``{a,b}``) into real JSON arrays for the wire.

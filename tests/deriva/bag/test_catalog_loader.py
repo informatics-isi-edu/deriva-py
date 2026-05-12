@@ -498,6 +498,109 @@ def test_dangling_fk_strategy_preserve_short_circuits(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# preserve_provenance — nondefaults URL shape
+# ---------------------------------------------------------------------------
+
+
+def _make_fake_table() -> MagicMock:
+    """Minimal DerivaTable mock that satisfies ``_insert_rows``.
+
+    We only need ``schema.name``, ``name``, and a column list with
+    no array-typed columns (the wire serializer special-cases
+    those). Everything else routes through ``catalog.post``, which
+    is what the test inspects.
+    """
+    table = MagicMock(name="Table[demo.Image]")
+    table.name = "Image"
+    table.schema = MagicMock()
+    table.schema.name = "demo"
+    table.column_definitions = []
+    return table
+
+
+def test_insert_rows_preserve_provenance_default_sends_rct_rcb(
+    tmp_path: Path,
+) -> None:
+    """Default ``preserve_provenance=True`` sends ``RID,RCT,RCB`` in nondefaults.
+
+    Clone semantics: the bag's source audit columns are real
+    history worth keeping at the destination. The wire URL
+    explicitly opts those columns out of ERMrest's default-fill.
+    """
+    import asyncio as _asyncio
+
+    bag = _build_fk_bag(tmp_path)
+    catalog = _mock_catalog()
+    response = MagicMock()
+    response.json.return_value = [{"RID": "I1"}]
+    catalog.post.return_value = response
+
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=FKTraversalPolicy(),  # preserve_provenance default = True
+        database_dir=tmp_path / "db",
+    )
+    try:
+        _asyncio.run(
+            loader._insert_rows(
+                _make_fake_table(),
+                [{"RID": "I1", "Filename": "a.bin"}],
+            )
+        )
+    finally:
+        loader.dispose()
+
+    # The URL ERMrest received carries all three audit columns.
+    posted_url = catalog.post.call_args[0][0]
+    assert posted_url == "/entity/demo:Image?nondefaults=RID,RCT,RCB", (
+        posted_url
+    )
+
+
+def test_insert_rows_preserve_provenance_false_sends_only_rid(
+    tmp_path: Path,
+) -> None:
+    """``preserve_provenance=False`` sends only ``RID`` in nondefaults.
+
+    Commit semantics: the bag carries newly-minted rows. Only
+    ``RID`` is preserved (the caller leased it ahead of time);
+    ``RCT`` and ``RCB`` get the destination's current-timestamp /
+    current-user defaults. Without this, NULL ``RCB`` would
+    violate the ``{Table}_RCB_fkey`` FK constraint at insert
+    time.
+    """
+    import asyncio as _asyncio
+
+    bag = _build_fk_bag(tmp_path)
+    catalog = _mock_catalog()
+    response = MagicMock()
+    response.json.return_value = [{"RID": "I1"}]
+    catalog.post.return_value = response
+
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=FKTraversalPolicy(preserve_provenance=False),
+        database_dir=tmp_path / "db",
+    )
+    try:
+        _asyncio.run(
+            loader._insert_rows(
+                _make_fake_table(),
+                [{"RID": "I1", "Filename": "a.bin"}],
+            )
+        )
+    finally:
+        loader.dispose()
+
+    posted_url = catalog.post.call_args[0][0]
+    assert posted_url == "/entity/demo:Image?nondefaults=RID", (
+        posted_url
+    )
+
+
+# ---------------------------------------------------------------------------
 # Report shape
 # ---------------------------------------------------------------------------
 
