@@ -389,11 +389,21 @@ class CatalogBagBuilder:
                 continue
 
             table = model.schemas[schema_name].tables[table_name]
-            # Vocab tables: don't follow FKs back out of them.
-            # We pulled in their referenced terms by getting here;
-            # following inbound FKs from them would chase every
-            # row that references this vocab.
+            # Terminal tables: traverse INTO but not OUT.
+            # - Vocabulary tables (detected by canonical column
+            #   shape) are always terminal: following inbound FKs
+            #   from a vocab term would chase every row in the
+            #   catalog that uses it.
+            # - Tables in :attr:`FKTraversalPolicy.terminal_tables`
+            #   get the same treatment. Used for "provenance" tables
+            #   like ``Execution`` that aggregate cross-anchor state
+            #   — walking *through* them mixes anchor scopes via
+            #   shared rows. Rows still land in the slice (other
+            #   rows' FKs into the terminal table resolve) but the
+            #   walker doesn't fan out from them.
             if table.is_vocabulary():
+                continue
+            if (schema_name, table_name) in self.policy.terminal_tables:
                 continue
 
             # Outbound: FKs we declare to other tables.
