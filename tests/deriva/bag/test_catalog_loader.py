@@ -1235,3 +1235,188 @@ def test_coerce_empty_to_null_does_not_mutate_input() -> None:
     row = {"opt": ""}
     BagCatalogLoader._coerce_empty_to_null(table, row)
     assert row["opt"] == ""
+
+
+# ---------------------------------------------------------------------------
+# FK cycle: two-phase insert with deferred FK columns
+# ---------------------------------------------------------------------------
+
+
+def _build_cycle_bag(
+    tmp_path: Path,
+    *,
+    cycle_col_nullable: bool = True,
+) -> Path:
+    """Bag with a two-way ``Dataset ↔ Dataset_Version`` FK cycle.
+
+    Both FKs reference RID. By default the cycle-cut columns are
+    nullable, mirroring deriva-ml's design intent. Pass
+    ``cycle_col_nullable=False`` to exercise the loader's
+    fail-fast guard.
+    """
+    bag = tmp_path / "cycle_bag" / "bag"
+    (bag / "data" / "demo").mkdir(parents=True)
+
+    nullok = cycle_col_nullable
+    doc = {
+        "snaptime": "2026-01-01T00:00:00",
+        "schemas": {
+            "demo": {
+                "schema_name": "demo",
+                "tables": {
+                    "Dataset": {
+                        "schema_name": "demo",
+                        "table_name": "Dataset",
+                        "kind": "table",
+                        "column_definitions": [
+                            {"name": "RID", "type": {"typename": "text"}, "nullok": False, "default": None, "comment": None},
+                            {"name": "Version", "type": {"typename": "text"}, "nullok": nullok, "default": None, "comment": None},
+                        ],
+                        "keys": [{"names": [["demo", "Dataset_RID_key"]], "unique_columns": ["RID"]}],
+                        "foreign_keys": [
+                            {
+                                "names": [["demo", "Dataset_Version_fkey"]],
+                                "foreign_key_columns": [{"schema_name": "demo", "table_name": "Dataset", "column_name": "Version"}],
+                                "referenced_columns": [{"schema_name": "demo", "table_name": "Dataset_Version", "column_name": "RID"}],
+                            }
+                        ],
+                    },
+                    "Dataset_Version": {
+                        "schema_name": "demo",
+                        "table_name": "Dataset_Version",
+                        "kind": "table",
+                        "column_definitions": [
+                            {"name": "RID", "type": {"typename": "text"}, "nullok": False, "default": None, "comment": None},
+                            {"name": "Dataset", "type": {"typename": "text"}, "nullok": nullok, "default": None, "comment": None},
+                        ],
+                        "keys": [{"names": [["demo", "Dataset_Version_RID_key"]], "unique_columns": ["RID"]}],
+                        "foreign_keys": [
+                            {
+                                "names": [["demo", "Dataset_Version_Dataset_fkey"]],
+                                "foreign_key_columns": [{"schema_name": "demo", "table_name": "Dataset_Version", "column_name": "Dataset"}],
+                                "referenced_columns": [{"schema_name": "demo", "table_name": "Dataset", "column_name": "RID"}],
+                            }
+                        ],
+                    },
+                },
+            }
+        },
+    }
+    (bag / "data" / "schema.json").write_text(json.dumps(doc))
+    with (bag / "data" / "demo" / "Dataset.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["RID", "Version"])
+        w.writerow(["D1", "DV1"])
+    with (bag / "data" / "demo" / "Dataset_Version.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["RID", "Dataset"])
+        w.writerow(["DV1", "D1"])
+    return bag
+
+
+def test_loader_raises_when_cycle_fk_is_not_null(tmp_path: Path) -> None:
+    """An FK cycle on a NOT-NULL column must fail-fast.
+
+    Two-phase insert nulls the deferred FK on first-pass and
+    patches it after. That can't satisfy a NOT-NULL constraint
+    on the cycle column, so the loader raises before any rows
+    are sent rather than letting ERMrest reject the insert.
+    """
+    bag = _build_cycle_bag(tmp_path, cycle_col_nullable=False)
+    loader = BagCatalogLoader(
+        catalog=_mock_catalog(),
+        bag=bag,
+        policy=FKTraversalPolicy(asset_mode=AssetMode.ROWS_ONLY),
+        database_dir=tmp_path / "db",
+    )
+    try:
+        with pytest.raises(ValueError, match="NOT NULL"):
+            loader.run()
+    finally:
+        loader.dispose()
+
+
+def test_loader_defers_cycle_fks_and_patches_in_second_pass(
+    tmp_path: Path,
+) -> None:
+    """Cycle FKs are nulled on insert and PUT in the second pass.
+
+    The two-way ``Dataset ↔ Dataset_Version`` cycle forces the
+    orderer to drop one edge. On first-pass insert, the dropped
+    edge's FK column must be sent as NULL (the target row hasn't
+    landed yet); after every table is inserted, the loader PUTs
+    the original values via ``/attributegroup/RID;col``.
+    """
+    bag = _build_cycle_bag(tmp_path, cycle_col_nullable=True)
+    catalog = _mock_catalog()
+
+    posted: list[dict[str, Any]] = []
+    put_calls: list[dict[str, Any]] = []
+
+    def _get(path: str, **_: Any):
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        resp.json.return_value = []  # destination is empty
+        return resp
+
+    def _post(path: str, **kwargs: Any):
+        posted.append({"path": path, "json": kwargs["json"]})
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        return resp
+
+    def _put(path: str, **kwargs: Any):
+        put_calls.append({"path": path, "json": kwargs["json"]})
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        return resp
+
+    catalog.get = _get
+    catalog.post = _post
+    catalog.put = _put
+
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=FKTraversalPolicy(asset_mode=AssetMode.ROWS_ONLY),
+        database_dir=tmp_path / "db",
+    )
+    try:
+        loader.run()
+    finally:
+        loader.dispose()
+
+    # The cycle-cut FK column was nulled on the first-pass insert.
+    # Exactly one of (Dataset.Version, Dataset_Version.Dataset) is
+    # deferred — the orderer picks which.
+    insert_targets = {p["path"] for p in posted}
+    assert any("Dataset" in t for t in insert_targets)
+
+    # At least one of the inserted rows must have its cycle FK as
+    # None (the dropped edge).
+    deferred_seen = False
+    for entry in posted:
+        for row in entry["json"]:
+            if (
+                "Dataset_Version" in entry["path"]
+                and row.get("Dataset") is None
+            ) or (
+                "Dataset" in entry["path"]
+                and "Dataset_Version" not in entry["path"]
+                and row.get("Version") is None
+            ):
+                deferred_seen = True
+    assert deferred_seen, (
+        "Expected at least one cycle FK to be deferred to NULL on "
+        f"first-pass insert; saw payloads: {posted!r}"
+    )
+
+    # Second pass: a PUT to /attributegroup/{table}/RID;{col} for
+    # the deferred column. Restoring the original value.
+    assert put_calls, "Expected at least one second-pass PUT"
+    for call in put_calls:
+        assert "/attributegroup/" in call["path"]
+        # Each row in the PUT payload must include RID + the
+        # deferred column.
+        for row in call["json"]:
+            assert "RID" in row
