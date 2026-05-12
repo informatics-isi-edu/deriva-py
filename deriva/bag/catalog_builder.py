@@ -135,6 +135,24 @@ class CatalogBagBuilder:
         self._model: Any | None = None
         self._spec: dict[str, Any] | None = None
         self._reached_tables: set[tuple[str, str]] = set()
+        # Per-table FK path from an anchor. Each value is the
+        # ordered list of ``(schema, table)`` segments starting at
+        # the anchor's table and ending at the reached table. Used
+        # by :meth:`_table_query_path` to scope a non-anchor
+        # table's query to "rows reachable from the anchor via this
+        # FK path". When a table is reached from a
+        # :class:`TableAnchor` (the whole-table anchor), the path
+        # is recorded but the query is left unfiltered — every row
+        # is in scope by construction.
+        self._table_paths: dict[
+            tuple[str, str], list[tuple[str, str]]
+        ] = {}
+        # Anchor-table set: which entries in ``_table_paths`` are
+        # themselves anchors (vs. reached via the FK walk). The
+        # anchor table's query is RID-filtered (or full-table for
+        # ``TableAnchor``); everything else's query chains through
+        # the path.
+        self._anchor_tables: set[tuple[str, str]] = set()
 
     # ------------------------------------------------------------------
     # Public API
@@ -288,22 +306,45 @@ class CatalogBagBuilder:
         except for vocabulary tables, which are entered but not
         exited — preventing the Subject → Species →
         every-other-Subject explosion.
+
+        Records two side outputs in addition to ``_reached_tables``:
+
+        * :attr:`_anchor_tables` — the anchor-set tables themselves.
+        * :attr:`_table_paths` — the FK-walk path from the *first*
+          anchor that reached each table. Used by
+          :meth:`_table_query_path` to scope each non-anchor table's
+          query to rows reachable via that FK path. BFS guarantees
+          the recorded path is one of the shortest, which is what
+          we want for an anchor-scoped slice.
         """
+        from collections import deque
+
         model = self._get_model()
 
-        # Start with the anchored tables themselves.
-        frontier: set[tuple[str, str, int]] = set()  # (schema, table, depth)
+        # Track per-anchor scope: each anchor seeds its own walk,
+        # but they share the visited set so we don't double-walk.
+        # The path recorded for a reached table is the first one
+        # discovered (BFS-shortest from one of the anchors).
+        queue: deque[
+            tuple[str, str, int, list[tuple[str, str]]]
+        ] = deque()
         visited: set[tuple[str, str]] = set()
+        anchor_tables: set[tuple[str, str]] = set()
+        paths: dict[tuple[str, str], list[tuple[str, str]]] = {}
+
         for anchor in self.anchors:
             schema_name, table_name = self._resolve_table(
                 model, anchor.table
             )
-            frontier.add((schema_name, table_name, 0))
+            key = (schema_name, table_name)
+            anchor_tables.add(key)
+            if key not in paths:
+                paths[key] = [key]
+            queue.append((schema_name, table_name, 0, paths[key]))
 
         max_depth = self.policy.max_depth
-        while frontier:
-            current = frontier.pop()
-            schema_name, table_name, depth = current
+        while queue:
+            schema_name, table_name, depth, current_path = queue.popleft()
             key = (schema_name, table_name)
             if key in visited:
                 continue
@@ -323,35 +364,45 @@ class CatalogBagBuilder:
 
             # Outbound: FKs we declare to other tables.
             for fk in table.foreign_keys:
-                pk_table = fk.pk_table
-                self._enqueue_if_in_scope(
-                    pk_table,
+                self._enqueue_if_in_scope_with_path(
+                    fk.pk_table,
                     depth + 1,
-                    frontier,
+                    current_path,
+                    queue,
                     visited,
+                    paths,
                 )
-            # Inbound: FKs other tables declare to us. Skip if we
-            # are a vocab (vocabs don't propagate outward — see
-            # above), but we already returned in that case.
+            # Inbound: FKs other tables declare to us.
             for fk in table.referenced_by:
-                src_table = fk.table
-                self._enqueue_if_in_scope(
-                    src_table,
+                self._enqueue_if_in_scope_with_path(
+                    fk.table,
                     depth + 1,
-                    frontier,
+                    current_path,
+                    queue,
                     visited,
+                    paths,
                 )
 
         self._reached_tables = visited
+        self._anchor_tables = anchor_tables
+        self._table_paths = paths
 
-    def _enqueue_if_in_scope(
+    def _enqueue_if_in_scope_with_path(
         self,
         table: DerivaTable,
         depth: int,
-        frontier: set[tuple[str, str, int]],
+        prefix_path: list[tuple[str, str]],
+        queue: "deque[tuple[str, str, int, list[tuple[str, str]]]]",
         visited: set[tuple[str, str]],
+        paths: dict[tuple[str, str], list[tuple[str, str]]],
     ) -> None:
-        """Add a candidate table to the BFS frontier if policy allows."""
+        """Queue a candidate with its FK-path prefix, if policy allows.
+
+        Records the FK path the *first* time this table is seen
+        (BFS-shortest). Subsequent paths to the same table are
+        ignored — we already have a usable scope and ERMrest has
+        deterministic join semantics either way.
+        """
         schema_name = table.schema.name
         table_name = table.name
         key = (schema_name, table_name)
@@ -366,7 +417,9 @@ class CatalogBagBuilder:
             and schema_name not in self.policy.schemas
         ):
             return
-        frontier.add((schema_name, table_name, depth))
+        if key not in paths:
+            paths[key] = list(prefix_path) + [key]
+        queue.append((schema_name, table_name, depth, paths[key]))
 
     def _is_excluded_schema(self, schema_name: str) -> bool:
         return (
@@ -553,21 +606,64 @@ class CatalogBagBuilder:
     ) -> str:
         """Build the ERMrest query path for a reached table.
 
-        - Anchored tables: filter by RID in the anchor list.
-        - Other tables: fetch every row (the catalog's row-level
-          policies decide what the caller sees).
+        Three cases:
+
+        1. **Anchor table with a RID/Path filter.** Filter by RID
+           list against the anchor's table directly:
+           ``/entity/{schema}:{table}/RID=any(rid1,rid2,...)``.
+        2. **Anchor table with no filter (TableAnchor).** Fetch
+           every row: ``/entity/{schema}:{table}``.
+        3. **Non-anchor table reached via the FK walk.** Build a
+           chained ERMrest path that scopes the rows to those
+           reachable from the anchor's filter through the FK path
+           BFS discovered:
+           ``/entity/{anchor}/RID=any(...)/{step2}/{step3}/...``.
+           ERMrest's natural-FK join semantics handle the joins.
+
+        Case (3) is the one that prevents anchor-scoped slices from
+        over-fetching. Without it, a single Dataset RID anchor pulls
+        every Dataset_Version row (regardless of which Dataset they
+        reference) and the loader's dangling-FK strategy then fires
+        on the rows whose parents aren't in the slice.
         """
-        rids = anchor_filters.get((schema_name, table_name))
+        key = (schema_name, table_name)
+        path = self._table_paths.get(key, [key])
+
+        # Case 1/2: this *is* an anchor table. Use the existing
+        # anchor-RID filter (or fall back to the full-table query
+        # for TableAnchor / non-RID anchors).
+        if key in self._anchor_tables:
+            rids = anchor_filters.get(key)
+            if rids:
+                joined = ",".join(rids)
+                return (
+                    f"/entity/{schema_name}:{table_name}"
+                    f"/RID=any({joined})"
+                )
+            return f"/entity/{schema_name}:{table_name}"
+
+        # Case 3: this table was reached via the FK walk from one
+        # of the anchor tables. Build a chained path. The first
+        # segment carries the anchor's RID filter (when the anchor
+        # is a RIDAnchor/PathAnchor); subsequent segments are
+        # bare ``{schema}:{table}`` joins that ERMrest resolves via
+        # the natural FK relationship.
+        anchor_key = path[0]
+        anchor_schema, anchor_table = anchor_key
+        rids = anchor_filters.get(anchor_key)
         if rids:
-            # ERMrest accepts ``filter=RID=v1;RID=v2;...`` and the
-            # cleaner ``RID=any(v1,v2,...)``. ``any(...)`` is more
-            # explicit; use it.
             joined = ",".join(rids)
-            return (
-                f"/entity/{schema_name}:{table_name}"
+            head = (
+                f"/entity/{anchor_schema}:{anchor_table}"
                 f"/RID=any({joined})"
             )
-        return f"/entity/{schema_name}:{table_name}"
+        else:
+            head = f"/entity/{anchor_schema}:{anchor_table}"
+        # Append the rest of the path (skipping the anchor itself).
+        tail = "".join(
+            f"/{seg_schema}:{seg_table}" for seg_schema, seg_table in path[1:]
+        )
+        return head + tail
 
     # ------------------------------------------------------------------
     # Export-engine driver
