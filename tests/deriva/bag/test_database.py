@@ -143,6 +143,90 @@ def test_bag_database_converts_types(minimal_bag: Path, tmp_path: Path) -> None:
     assert ages["Bob"] is None
 
 
+def test_bag_database_relaxes_non_pk_not_null(tmp_path: Path) -> None:
+    """Non-PK columns are nullable in the mirror regardless of catalog NOT-NULL.
+
+    The SQLite mirror is *staging* — it holds rows the bag wants
+    to ship to the destination, not a fidelity copy of catalog
+    constraints. Rows that *will* have server-set defaults at the
+    destination (``RCT``, ``RCB``, ``RMT``, ``RMB``) need to land
+    in the mirror without violating its local NOT-NULL. The
+    destination's ERMrest endpoint is the authoritative validator
+    at insert time.
+
+    This test pins the rule for ``BagDatabase`` — the on-disk
+    SQLite mirror that backs already-built bags. Companion to
+    the same rule in ``SchemaBuilder._create_tables`` and
+    ``ermrest_json_to_metadata`` (PRs #234 / #235).
+    """
+    bag = tmp_path / "rct_bag" / "bag"
+    (bag / "data" / "demo").mkdir(parents=True)
+    doc = {
+        "snaptime": "2026-01-01T00:00:00",
+        "schemas": {
+            "demo": {
+                "schema_name": "demo",
+                "tables": {
+                    "T": {
+                        "schema_name": "demo",
+                        "table_name": "T",
+                        "kind": "table",
+                        "column_definitions": [
+                            {
+                                "name": "RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "RCT",
+                                "type": {"typename": "timestamptz"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "Name",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                        ],
+                        "keys": [
+                            {
+                                "names": [["demo", "T_RID_key"]],
+                                "unique_columns": ["RID"],
+                            }
+                        ],
+                        "foreign_keys": [],
+                    }
+                },
+            }
+        },
+    }
+    (bag / "data" / "schema.json").write_text(json.dumps(doc))
+    # Empty CSV — the test is about column nullability, not row
+    # contents.
+    with (bag / "data" / "demo" / "T.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["RID", "RCT", "Name"])
+
+    db_dir = tmp_path / "db"
+    with BagDatabase(bag, db_dir, ["demo"]) as db:
+        t = db.metadata.tables["demo.T"]
+        cols = {c.name: c for c in t.columns}
+    # PK column keeps its NOT-NULL constraint (real
+    # row-construction-bug detector).
+    assert not cols["RID"].nullable
+    # Non-PK NOT-NULL columns are relaxed to nullable so rows
+    # missing them (legitimately, because the destination will
+    # supply server-set defaults) can land in the mirror.
+    assert cols["RCT"].nullable
+    assert cols["Name"].nullable
+
+
 def test_bag_database_orm_class_query(minimal_bag: Path, tmp_path: Path) -> None:
     """The automap-built ORM class is queryable via SQLAlchemy."""
     db_dir = tmp_path / "db"
