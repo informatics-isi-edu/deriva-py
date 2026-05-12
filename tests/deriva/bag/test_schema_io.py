@@ -302,6 +302,73 @@ def test_ermrest_json_to_metadata_preserves_column_annotations() -> None:
     assert "annotations" not in cols["RID"].info
 
 
+def test_ermrest_json_to_metadata_roundtrip_preserves_int8() -> None:
+    """``int8`` round-trips losslessly via the stashed ERMrest typename.
+
+    Multiple ERMrest types map to one SQLAlchemy type
+    (``int2``/``int4``/``int8`` all map to ``StringToInteger``),
+    so a naive write path would round-trip them all as ``int4``.
+    :meth:`Table.is_asset` exact-matches ``int8`` for the
+    ``Length`` column — losing the distinction mis-classifies
+    asset tables.
+    """
+    from deriva.bag.schema_io import metadata_to_ermrest_json
+
+    doc = {
+        "snaptime": "2026-01-01T00:00:00",
+        "schemas": {
+            "demo": {
+                "schema_name": "demo",
+                "tables": {
+                    "T": {
+                        "schema_name": "demo",
+                        "table_name": "T",
+                        "kind": "table",
+                        "column_definitions": [
+                            {
+                                "name": "RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "Length",
+                                "type": {"typename": "int8"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "Small",
+                                "type": {"typename": "int2"},
+                                "nullok": True,
+                                "default": None,
+                                "comment": None,
+                            },
+                        ],
+                        "keys": [
+                            {
+                                "names": [["demo", "T_RID_key"]],
+                                "unique_columns": ["RID"],
+                            }
+                        ],
+                        "foreign_keys": [],
+                    }
+                },
+            }
+        },
+    }
+    md = ermrest_json_to_metadata(doc)
+    out = metadata_to_ermrest_json(md)
+    out_cols = {
+        c["name"]: c
+        for c in out["schemas"]["demo"]["tables"]["T"]["column_definitions"]
+    }
+    assert out_cols["Length"]["type"]["typename"] == "int8"
+    assert out_cols["Small"]["type"]["typename"] == "int2"
+
+
 def test_ermrest_json_to_metadata_roundtrip_preserves_annotations() -> None:
     """A json → metadata → json round-trip preserves column annotations.
 

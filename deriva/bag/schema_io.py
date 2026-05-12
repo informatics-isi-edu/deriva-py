@@ -355,13 +355,27 @@ def ermrest_json_to_metadata(
                 #   ``nullable`` we use in the mirror; see
                 #   :func:`metadata_to_ermrest_json` for the
                 #   read-back logic).
+                # - ``ermrest_typename``: the original ERMrest
+                #   typename. Several ERMrest types
+                #   (``int2``/``int4``/``int8`` → ``Integer``,
+                #   ``timestamptz`` and ``timestamp`` →
+                #   ``StringToDateTime``, etc.) map to one
+                #   SQLAlchemy type, so a metadata → json
+                #   round-trip without this stash would lose the
+                #   distinction. Consumers like
+                #   :meth:`Table.is_asset` exact-match the
+                #   typename, so ``int8`` rounded down to ``int4``
+                #   would mis-classify asset tables.
                 # - ``annotations``, ``acls``, ``acl_bindings``:
                 #   ERMrest-specific column-level metadata.
                 #   Stashed here so consumers like
                 #   :meth:`Table.is_asset` (which looks for
                 #   ``tag.asset`` on the URL column) see them
                 #   after a json → metadata → json round-trip.
-                col_info: dict[str, Any] = {"nullok": nullok}
+                col_info: dict[str, Any] = {
+                    "nullok": nullok,
+                    "ermrest_typename": ermrest_type,
+                }
                 for key in ("annotations", "acls", "acl_bindings"):
                     if key in col_def:
                         col_info[key] = col_def[key]
@@ -469,10 +483,19 @@ def metadata_to_ermrest_json(metadata: MetaData) -> dict[str, Any]:
                 nullok = bool(col.info["nullok"])
             else:
                 nullok = bool(col.nullable)
+            # Prefer the stashed ERMrest typename so a round-trip
+            # preserves the source's int2/int4/int8 distinction
+            # (and similar). Fall back to the SQLAlchemy → ERMrest
+            # mapping for callers that built the metadata
+            # directly (no info stash).
+            if col.info and "ermrest_typename" in col.info:
+                typename = col.info["ermrest_typename"]
+            else:
+                typename = sql_type_to_ermrest_name(col.type)
             col_doc: dict[str, Any] = {
                 "name": col.name,
                 "type": {
-                    "typename": sql_type_to_ermrest_name(col.type),
+                    "typename": typename,
                 },
                 "nullok": nullok,
                 "default": _serialize_default(col),
