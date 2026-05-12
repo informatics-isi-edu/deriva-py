@@ -171,6 +171,165 @@ def test_schemabuilder_propagates_fks(tmp_path: Path) -> None:
         orm.dispose()
 
 
+def _build_cross_schema_model_with_hyphen(
+    snaptime: str = "2026-01-01T00:00:00",
+) -> Model:
+    """Two schemas, one hyphenated, with a cross-schema FK.
+
+    Topology::
+
+        deriva-ml.Type ─── test-schema.Image.Type
+
+    Both schema names contain a hyphen (matching deriva-ml's
+    ``deriva-ml`` and the demo catalog's ``test-schema``) so the
+    SchemaBuilder's name-folding pass has to apply
+    ``replace("-", "_")`` consistently at both the table-creation
+    site and the cross-schema FK lookup site.
+    """
+    doc = {
+        "snaptime": snaptime,
+        "schemas": {
+            "deriva-ml": {
+                "schema_name": "deriva-ml",
+                "tables": {
+                    "Type": {
+                        "schema_name": "deriva-ml",
+                        "table_name": "Type",
+                        "kind": "table",
+                        "column_definitions": [
+                            {
+                                "name": "RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "Name",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                        ],
+                        "keys": [
+                            {
+                                "names": [
+                                    ["deriva-ml", "Type_RID_key"]
+                                ],
+                                "unique_columns": ["RID"],
+                            },
+                            {
+                                "names": [
+                                    ["deriva-ml", "Type_Name_key"]
+                                ],
+                                "unique_columns": ["Name"],
+                            },
+                        ],
+                        "foreign_keys": [],
+                    },
+                },
+            },
+            "test-schema": {
+                "schema_name": "test-schema",
+                "tables": {
+                    "Image": {
+                        "schema_name": "test-schema",
+                        "table_name": "Image",
+                        "kind": "table",
+                        "column_definitions": [
+                            {
+                                "name": "RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "Type",
+                                "type": {"typename": "text"},
+                                "nullok": True,
+                                "default": None,
+                                "comment": None,
+                            },
+                        ],
+                        "keys": [
+                            {
+                                "names": [
+                                    ["test-schema", "Image_RID_key"]
+                                ],
+                                "unique_columns": ["RID"],
+                            }
+                        ],
+                        "foreign_keys": [
+                            {
+                                "names": [
+                                    [
+                                        "test-schema",
+                                        "Image_Type_fkey",
+                                    ]
+                                ],
+                                "foreign_key_columns": [
+                                    {
+                                        "schema_name": "test-schema",
+                                        "table_name": "Image",
+                                        "column_name": "Type",
+                                    }
+                                ],
+                                "referenced_columns": [
+                                    {
+                                        "schema_name": "deriva-ml",
+                                        "table_name": "Type",
+                                        "column_name": "Name",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                },
+            },
+        },
+    }
+    import json
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".json", delete=False
+    ) as f:
+        json.dump(doc, f)
+        path = f.name
+    return Model.fromfile("file-system", path)
+
+
+def test_schemabuilder_in_memory_resolves_cross_schema_fk_with_hyphen() -> None:
+    """In-memory build with hyphenated schemas wires the cross-schema FK.
+
+    The build folds schema names into table names via underscore
+    AND applies ``replace("-", "_")`` so SQLAlchemy gets valid
+    identifiers. The cross-schema FK wiring step has to apply the
+    same transform when looking up the source/target tables —
+    otherwise lookup of ``test-schema_Image`` fails because the
+    table was stored as ``test_schema_Image``.
+    """
+    model = _build_cross_schema_model_with_hyphen()
+    # Build does not raise — the cross-schema FK wiring resolved
+    # both endpoints.
+    builder = SchemaBuilder(
+        model,
+        ["deriva-ml", "test-schema"],
+        database_path=":memory:",
+    )
+    orm = builder.build()
+    try:
+        names = orm.list_tables()
+        # Hyphenated names land as underscore-normalized in
+        # in-memory mode.
+        assert "test_schema_Image" in names
+        assert "deriva_ml_Type" in names
+    finally:
+        orm.dispose()
+
+
 def test_schemabuilder_uses_wal_engine(tmp_path: Path) -> None:
     """File-based builds use the WAL-pragma engine."""
     model = _build_model()
