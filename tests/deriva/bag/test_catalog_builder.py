@@ -420,6 +420,114 @@ def test_spec_rid_anchor_filters_table(tmp_path: Path) -> None:
     assert "any(S1,S2)" in qpath
 
 
+def test_spec_rid_anchor_chains_path_to_fk_reachable_tables(
+    tmp_path: Path,
+) -> None:
+    """Non-anchor tables reached via FK chain their path from the anchor.
+
+    Without this scoping, a single-RID anchor pulls every row of
+    every reached table — which produces dangling FKs when the
+    reached rows reference rows outside the anchor's slice.
+    The chained path delegates the join to ERMrest, which handles
+    natural-FK joins between segments.
+
+    Topology: ``Dataset → Dataset_Version`` (Dataset_Version has an
+    FK to Dataset). Anchoring at a single Dataset RID, the
+    Dataset_Version query should chain through Dataset so only
+    Dataset_Versions referencing the anchored Dataset land in the
+    bag.
+    """
+    ds = _make_mock_table("demo", "Dataset")
+    dv = _make_mock_table("demo", "Dataset_Version")
+    # Dataset_Version → Dataset FK. From Dataset's perspective this
+    # is inbound (Dataset.referenced_by).
+    fk = _fk_mock(src_table=dv, pk_table=ds)
+    ds.referenced_by = [fk]
+    dv.foreign_keys = [fk]
+
+    model = _make_mock_model(
+        {"demo": {"Dataset": ds, "Dataset_Version": dv}}
+    )
+    catalog = _make_mock_catalog(model)
+    cb = CatalogBagBuilder(
+        catalog=catalog,
+        anchors=[RIDAnchor(table="Dataset", rids=["5HE"])],
+        output_dir=tmp_path,
+    )
+    cb._validate_anchors = lambda: None  # bypass catalog HEAD
+    cb._compute_reached_tables()
+    spec = cb._build_export_spec()
+
+    by_output = {
+        p["processor_params"]["output_path"]: p
+        for p in spec["catalog"]["query_processors"]
+        if p["processor"] == "csv"
+    }
+    # The anchored Dataset gets the standard RID filter.
+    assert (
+        by_output["demo/Dataset"]["processor_params"]["query_path"]
+        == "/entity/demo:Dataset/RID=any(5HE)"
+    )
+    # Dataset_Version chains through Dataset, restricting to rows
+    # that reference the anchored Dataset RID.
+    assert (
+        by_output["demo/Dataset_Version"]["processor_params"][
+            "query_path"
+        ]
+        == "/entity/demo:Dataset/RID=any(5HE)/demo:Dataset_Version"
+    )
+
+
+def test_spec_rid_anchor_chains_through_intermediate_table(
+    tmp_path: Path,
+) -> None:
+    """A three-table chain produces a three-segment ERMrest path.
+
+    Topology: ``Dataset → Dataset_Image → Image``. Each step is an
+    FK. Anchoring at a Dataset RID, the Image query should chain
+    through Dataset_Image, so only Images that are members of the
+    anchored Dataset (via Dataset_Image) land in the bag.
+    """
+    ds = _make_mock_table("demo", "Dataset")
+    di = _make_mock_table("demo", "Dataset_Image")
+    img = _make_mock_table("demo", "Image")
+    di_to_ds = _fk_mock(src_table=di, pk_table=ds)
+    di_to_img = _fk_mock(src_table=di, pk_table=img)
+    ds.referenced_by = [di_to_ds]
+    di.foreign_keys = [di_to_ds, di_to_img]
+    img.referenced_by = [di_to_img]
+
+    model = _make_mock_model(
+        {
+            "demo": {
+                "Dataset": ds,
+                "Dataset_Image": di,
+                "Image": img,
+            }
+        }
+    )
+    catalog = _make_mock_catalog(model)
+    cb = CatalogBagBuilder(
+        catalog=catalog,
+        anchors=[RIDAnchor(table="Dataset", rids=["5HE"])],
+        output_dir=tmp_path,
+    )
+    cb._validate_anchors = lambda: None
+    cb._compute_reached_tables()
+    spec = cb._build_export_spec()
+
+    by_output = {
+        p["processor_params"]["output_path"]: p
+        for p in spec["catalog"]["query_processors"]
+        if p["processor"] == "csv"
+    }
+    # BFS: Dataset → Dataset_Image → Image.
+    assert (
+        by_output["demo/Image"]["processor_params"]["query_path"]
+        == "/entity/demo:Dataset/RID=any(5HE)/demo:Dataset_Image/demo:Image"
+    )
+
+
 def test_spec_table_anchor_no_filter(tmp_path: Path) -> None:
     """TableAnchor: query path is unfiltered ``/entity/...``."""
     s = _make_mock_table("demo", "Subject")
