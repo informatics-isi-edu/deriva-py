@@ -330,6 +330,93 @@ def test_schemabuilder_in_memory_resolves_cross_schema_fk_with_hyphen() -> None:
         orm.dispose()
 
 
+def test_schemabuilder_non_pk_columns_nullable_in_mirror(
+    tmp_path: Path,
+) -> None:
+    """Non-PK columns are nullable in the SQLite mirror regardless of catalog NOT-NULL.
+
+    The bag's SQLite mirror is **staging**, not a fidelity copy
+    of the destination catalog. Rows landing there may legitimately
+    lack values for columns the destination will server-default
+    (``RCT``, ``RCB``, etc.) — those columns are NOT NULL with a
+    server-side default at the catalog, but the mirror has no
+    way to compute the default and shouldn't reject the row.
+
+    This test pins the rule: every non-PK column in the mirror
+    must be nullable. The RID PK keeps the NOT-NULL constraint
+    so accidental row-construction bugs surface immediately.
+    """
+    from sqlalchemy import Column as SQLColumnRef
+    from sqlalchemy import MetaData as SQLMetadataRef
+    from sqlalchemy import String as SQLStringRef
+    from sqlalchemy import Table as SQLTableRef  # noqa: F401
+
+    # Build a model where two columns are NOT NULL in the
+    # catalog: RID (the PK) and Name (a regular content column).
+    doc = {
+        "snaptime": "2026-01-01T00:00:00",
+        "schemas": {
+            "demo": {
+                "schema_name": "demo",
+                "tables": {
+                    "T": {
+                        "schema_name": "demo",
+                        "table_name": "T",
+                        "kind": "table",
+                        "column_definitions": [
+                            {
+                                "name": "RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "Name",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                        ],
+                        "keys": [
+                            {
+                                "names": [["demo", "T_RID_key"]],
+                                "unique_columns": ["RID"],
+                            }
+                        ],
+                        "foreign_keys": [],
+                    },
+                },
+            }
+        },
+    }
+    import json
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".json", delete=False
+    ) as f:
+        json.dump(doc, f)
+        path = f.name
+    model = Model.fromfile("file-system", path)
+
+    builder = SchemaBuilder(model, ["demo"], database_path=tmp_path)
+    orm = builder.build()
+    try:
+        t = orm.find_table("demo.T")
+        cols = {c.name: c for c in t.columns}
+        # PK: NOT NULL preserved.
+        assert not cols["RID"].nullable
+        # Non-PK with catalog NOT-NULL: relaxed in the mirror.
+        assert cols["Name"].nullable, (
+            "non-PK columns must be nullable in the mirror so rows "
+            "that will be server-defaulted at the destination can land"
+        )
+    finally:
+        orm.dispose()
+
+
 def test_schemabuilder_uses_wal_engine(tmp_path: Path) -> None:
     """File-based builds use the WAL-pragma engine."""
     model = _build_model()

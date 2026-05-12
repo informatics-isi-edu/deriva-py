@@ -770,13 +770,24 @@ class SchemaBuilder:
                 database_columns: list[SQLColumn] = []
 
                 for c in table.columns:
+                    # The SQLite mirror is *staging* — it holds
+                    # rows the bag wants to ship to the
+                    # destination catalog, not a fidelity copy of
+                    # the catalog's constraints. Make every non-PK
+                    # column nullable so rows that *will* have
+                    # server-set defaults (``RCT``, ``RCB``, etc.)
+                    # at the destination can land in the mirror
+                    # without violating its local NOT-NULL. The
+                    # destination's ERMrest endpoint is the
+                    # authoritative validator at insert time.
+                    is_pk = self._is_key_column(c, table)
                     database_column = SQLColumn(
                         name=c.name,
                         type_=self._sql_type(c.type),
                         comment=c.comment,
                         default=c.default,
-                        primary_key=self._is_key_column(c, table),
-                        nullable=c.nullok,
+                        primary_key=is_pk,
+                        nullable=c.nullok if is_pk else True,
                     )
                     database_columns.append(database_column)
 
