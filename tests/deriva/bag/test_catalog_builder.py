@@ -552,9 +552,17 @@ def test_spec_table_anchor_no_filter(tmp_path: Path) -> None:
     )
 
 
-def test_spec_vocab_full_export_emits_extra_processor(
+def test_spec_vocab_full_export_uses_unfiltered_query(
     tmp_path: Path,
 ) -> None:
+    """``vocab_export=FULL``: one unfiltered processor for the vocab.
+
+    Previously the builder emitted **two** processors with the same
+    ``output_path`` (FK-bounded + unfiltered), which the export
+    engine resolved unpredictably. The fix: one processor per
+    vocab, switched on the policy — ``FULL`` → ``/entity/{vocab}``,
+    ``REFERENCED_ONLY`` → FK-chained path.
+    """
     species = _make_mock_table(
         "demo", "Species", is_vocabulary=True
     )
@@ -573,14 +581,13 @@ def test_spec_vocab_full_export_emits_extra_processor(
         p
         for p in spec["catalog"]["query_processors"]
         if p["processor"] == "csv"
+        and p["processor_params"]["output_path"] == "demo/Species"
     ]
-    # One processor for the FK-bounded query (which for a vocab
-    # we're treating as anchor-filtered) plus one for the full
-    # vocab export = 2.
-    output_paths = [
-        p["processor_params"]["output_path"] for p in csv_procs
-    ]
-    assert output_paths.count("demo/Species") == 2
+    assert len(csv_procs) == 1
+    assert (
+        csv_procs[0]["processor_params"]["query_path"]
+        == "/entity/demo:Species"
+    )
 
 
 def test_spec_vocab_referenced_only_emits_single_processor(

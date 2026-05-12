@@ -485,13 +485,29 @@ class CatalogBagBuilder:
 
         for schema_name, table_name in sorted(self._reached_tables):
             table_obj = model.schemas[schema_name].tables[table_name]
-            # Asset tables get an extra ``fetch`` processor that
-            # downloads the bytes to data/asset/{table}/{rid}/...
-            # alongside their row CSV.
-            qpath = self._table_query_path(
-                schema_name, table_name, anchor_rid_filter
-            )
             dest = f"{schema_name}/{table_name}"
+
+            # Vocabulary tables with ``vocab_export == FULL`` get
+            # the unfiltered ``/entity/{schema}:{table}`` query —
+            # the full controlled vocabulary regardless of which
+            # terms the slice happens to reference. This is what
+            # a clone-style consumer wants: every FK reference into
+            # a vocab table must resolve at the destination, and
+            # the BFS-shortest path the walker discovered may not
+            # be the same path the actual rows use. The
+            # ``REFERENCED_ONLY`` default keeps the slice tight
+            # (only terms the slice cites land in the bag).
+            is_vocab_full = (
+                table_obj.is_vocabulary()
+                and self.policy.vocab_export == VocabExport.FULL
+            )
+            if is_vocab_full:
+                qpath = f"/entity/{schema_name}:{table_name}"
+            else:
+                qpath = self._table_query_path(
+                    schema_name, table_name, anchor_rid_filter
+                )
+
             query_processors.append(
                 {
                     "processor": "csv",
@@ -519,29 +535,6 @@ class CatalogBagBuilder:
                             "output_path": (
                                 f"asset/{{asset_rid}}/{table_name}"
                             ),
-                        },
-                    }
-                )
-
-            # vocab_export=FULL: emit a standalone CSV of every
-            # term in the vocab, separate from the FK-bounded
-            # query above. CatalogGraph._export_vocabulary today
-            # does this for dataset bags.
-            if (
-                table_obj.is_vocabulary()
-                and self.policy.vocab_export == VocabExport.FULL
-            ):
-                query_processors.append(
-                    {
-                        "processor": "csv",
-                        "processor_params": {
-                            "query_path": (
-                                f"/entity/{schema_name}:{table_name}"
-                            ),
-                            "output_path": (
-                                f"{schema_name}/{table_name}"
-                            ),
-                            "paged_query": True,
                         },
                     }
                 )

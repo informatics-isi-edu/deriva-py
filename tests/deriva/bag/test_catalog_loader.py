@@ -1179,3 +1179,59 @@ def test_upload_assets_skips_missing_local_file(tmp_path: Path) -> None:
     assert uploaded == 0
     assert deduped == 0
     hatrac.put_loc.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Empty-string → NULL coercion on nullable columns
+# ---------------------------------------------------------------------------
+
+
+def _table_with_columns(*specs: tuple[str, bool]) -> Any:
+    """Build a Table-shaped MagicMock from ``(name, nullable)`` pairs."""
+    table = MagicMock()
+    cols = []
+    for name, nullable in specs:
+        col = MagicMock()
+        col.name = name
+        col.nullok = nullable
+        cols.append(col)
+    table.column_definitions = cols
+    return table
+
+
+def test_coerce_empty_to_null_nullable_empty_string() -> None:
+    """``''`` on a nullable column becomes ``None``."""
+    table = _table_with_columns(
+        ("RID", False), ("optional_fk", True)
+    )
+    row = {"RID": "A1", "optional_fk": ""}
+    result = BagCatalogLoader._coerce_empty_to_null(table, row)
+    assert result["optional_fk"] is None
+
+
+def test_coerce_empty_to_null_skips_non_null_columns() -> None:
+    """``''`` on a NOT-NULL column is left alone (real data error)."""
+    table = _table_with_columns(
+        ("RID", False), ("required_col", False)
+    )
+    row = {"RID": "A1", "required_col": ""}
+    result = BagCatalogLoader._coerce_empty_to_null(table, row)
+    assert result["required_col"] == ""
+
+
+def test_coerce_empty_to_null_leaves_real_values() -> None:
+    """Non-empty values pass through unchanged."""
+    table = _table_with_columns(
+        ("RID", False), ("optional", True)
+    )
+    row = {"RID": "A1", "optional": "value"}
+    result = BagCatalogLoader._coerce_empty_to_null(table, row)
+    assert result == {"RID": "A1", "optional": "value"}
+
+
+def test_coerce_empty_to_null_does_not_mutate_input() -> None:
+    """Caller's row dict is preserved."""
+    table = _table_with_columns(("opt", True))
+    row = {"opt": ""}
+    BagCatalogLoader._coerce_empty_to_null(table, row)
+    assert row["opt"] == ""
