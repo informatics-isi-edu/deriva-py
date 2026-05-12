@@ -973,6 +973,22 @@ class BagCatalogLoader:
             url = f"/entity/{qname}?nondefaults=RID,RCT,RCB"
         else:
             url = f"/entity/{qname}?nondefaults=RID"
+            # Commit semantics: strip RCT/RCB/RMT/RMB from the row
+            # dict entirely. The bag built them via
+            # ``BagBuilder.add_row`` from a row that didn't supply
+            # these system columns, so they're either absent
+            # (already fine) or empty strings (the bag's SQLite
+            # mirror serializes NULL as ``""`` via CSV — and
+            # ERMrest rejects empty strings for timestamp /
+            # ERMrest_Client columns with a 400). Removing them
+            # lets the server's defaults populate ``RCT`` (now())
+            # and ``RCB`` (current user) at insert time, which is
+            # the whole point of ``preserve_provenance=False``.
+            _SYSTEM_COLUMNS = ("RCT", "RCB", "RMT", "RMB")
+            rows = [
+                {k: v for k, v in row.items() if k not in _SYSTEM_COLUMNS}
+                for row in rows
+            ]
 
         # Coerce array-typed columns from PostgreSQL literal form
         # (``{a,b}``) into real JSON arrays for the wire.
