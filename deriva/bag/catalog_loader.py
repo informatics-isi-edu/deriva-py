@@ -322,12 +322,130 @@ class BagCatalogLoader:
         ]
         ordered = orderer.get_insertion_order(tables_in_scope)
 
+        # FK cycles get one edge dropped by the orderer to make a
+        # topological sort possible. Those dropped FKs can't be
+        # satisfied at insert time (the target row hasn't landed
+        # yet), so we defer them: insert each affected row with
+        # the FK column set to NULL, then patch it in a second
+        # pass after all tables are loaded.
+        #
+        # Pre-flight: a deferred FK column must be nullable. If
+        # any cycle-cut FK is on a NOT-NULL column we can't satisfy
+        # both ordering and the constraint — raise so the caller
+        # knows the bag can't be loaded as-is.
+        self._init_cycle_deferred_state(orderer)
+
         for table in ordered:
             stats = await self._load_table(table)
             qname = f"{table.schema.name}.{table.name}"
             report.table_stats[qname] = stats
 
+        # Second pass: patch the deferred-FK columns we nulled
+        # during insert. Skipped if no cycles were broken.
+        if self._deferred_fk_values:
+            await self._apply_deferred_fk_updates()
+
         return report
+
+    def _init_cycle_deferred_state(
+        self, orderer: ForeignKeyOrderer
+    ) -> None:
+        """Initialize the deferred-FK state from the orderer.
+
+        After ``get_insertion_order`` runs, the orderer can tell us
+        which FK edges it dropped to break cycles. We translate
+        those into per-table sets of FK column names — those
+        columns will be sent as NULL on first-pass insert and
+        patched in :meth:`_apply_deferred_fk_updates` after every
+        table has landed.
+
+        Raises:
+            ValueError: If any cycle-cut FK is on a NOT-NULL
+                column. We can't satisfy both the insertion order
+                (which requires the FK be deferrable) and the
+                constraint (which forbids NULL), so the caller
+                must adjust the schema or the bag.
+        """
+        # ``{(schema, table): {col1, col2, ...}}`` — columns to
+        # null on insert and patch later.
+        self._deferred_fk_cols: dict[
+            tuple[str, str], set[str]
+        ] = {}
+        # ``{(schema, table): {rid: {col: value, ...}}}`` — the
+        # values we deferred, keyed by the bag's RID, populated
+        # during ``_load_content_table``.
+        self._deferred_fk_values: dict[
+            tuple[str, str], dict[str, dict[str, Any]]
+        ] = {}
+
+        non_nullable_violations: list[str] = []
+        for dep_table, fk in orderer.cycle_broken_edges():
+            key = (dep_table.schema.name, dep_table.name)
+            cols = self._deferred_fk_cols.setdefault(key, set())
+            for fk_col in fk.foreign_key_columns:
+                if not fk_col.nullok:
+                    non_nullable_violations.append(
+                        f"{dep_table.schema.name}.{dep_table.name}."
+                        f"{fk_col.name}"
+                    )
+                cols.add(fk_col.name)
+
+        if non_nullable_violations:
+            raise ValueError(
+                "BagCatalogLoader cannot load this bag: an FK in a "
+                "cycle must be deferred to second-pass PUT, but the "
+                "FK column is declared NOT NULL — first-pass insert "
+                "would fail. Affected column(s): "
+                + ", ".join(sorted(non_nullable_violations))
+                + ". Either make the column nullable in the schema "
+                "or remove the cycle on the source side."
+            )
+
+    async def _apply_deferred_fk_updates(self) -> None:
+        """Second pass: PUT each row's deferred FK column values.
+
+        For every ``(schema, table)`` that had cycle-cut FKs, walk
+        the saved ``{rid: {col: value}}`` map and issue one PUT
+        per row to fill in the columns that were sent as NULL on
+        the first-pass insert.
+
+        ERMrest's ``/attributegroup/{schema}:{table}/RID;col1,col2``
+        endpoint accepts a JSON array of update rows, each
+        carrying the keying column (``RID``) plus the target
+        columns. Using PUT-by-attributegroup (rather than
+        ``/entity/`` PUT) avoids re-sending every column on the
+        row.
+        """
+        for (
+            schema_name,
+            table_name,
+        ), per_row in self._deferred_fk_values.items():
+            if not per_row:
+                continue
+            cols = sorted(
+                self._deferred_fk_cols[(schema_name, table_name)]
+            )
+            payload: list[dict[str, Any]] = []
+            for rid, col_values in per_row.items():
+                row: dict[str, Any] = {"RID": rid}
+                for col in cols:
+                    # Some rows may not have a value for every
+                    # deferred column (sparse). Omit those — ERMrest
+                    # leaves the column at its previous value.
+                    if col in col_values:
+                        row[col] = col_values[col]
+                payload.append(row)
+
+            url = (
+                f"/attributegroup/{schema_name}:{table_name}"
+                f"/RID;{','.join(cols)}"
+            )
+
+            def _do_put(payload=payload, url=url) -> None:
+                response = self.catalog.put(url, json=payload)
+                response.raise_for_status()
+
+            await asyncio.to_thread(_do_put)
 
     def _table_in_scope(self, schema_name: str, table_name: str) -> bool:
         """Apply policy.exclude_schemas/exclude_tables/schemas filter."""
@@ -534,6 +652,27 @@ class BagCatalogLoader:
           recorded as ``rows_skipped_on_conflict``.
         """
         rewritten = [self._rewrite_fks(table, row) for row in rows]
+
+        # If this table has FK columns that the orderer dropped to
+        # break a cycle, those columns can't be sent on insert
+        # (the target row hasn't landed yet). Save the values so
+        # ``_apply_deferred_fk_updates`` can patch them in the
+        # second pass, then null them in the insert payload.
+        key = (table.schema.name, table.name)
+        deferred_cols = self._deferred_fk_cols.get(key)
+        if deferred_cols:
+            per_row = self._deferred_fk_values.setdefault(key, {})
+            for row in rewritten:
+                rid = row.get("RID")
+                if rid is None:
+                    continue
+                stash: dict[str, Any] = {}
+                for col in deferred_cols:
+                    if col in row and row[col] is not None:
+                        stash[col] = row[col]
+                        row[col] = None
+                if stash:
+                    per_row[rid] = stash
 
         if (
             self.policy.content_on_conflict

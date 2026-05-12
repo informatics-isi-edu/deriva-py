@@ -176,6 +176,100 @@ def test_orderer_find_cycles_returns_empty_for_dag() -> None:
     assert orderer.find_cycles() == []
 
 
+def _model_with_two_way_cycle(
+    snaptime: str = "2026-01-01T00:00:00",
+) -> Model:
+    """Two tables with FKs in both directions.
+
+    ``Dataset`` has FK ``Version → Dataset_Version.RID`` (nullable).
+    ``Dataset_Version`` has FK ``Dataset → Dataset.RID`` (nullable).
+    Mirrors the deriva-ml topology that motivated this feature.
+    """
+    doc = {
+        "snaptime": snaptime,
+        "schemas": {
+            "demo": {
+                "schema_name": "demo",
+                "tables": {
+                    "Dataset": {
+                        "schema_name": "demo",
+                        "table_name": "Dataset",
+                        "kind": "table",
+                        "column_definitions": [
+                            {"name": "RID", "type": {"typename": "text"}, "nullok": False, "default": None, "comment": None},
+                            {"name": "Version", "type": {"typename": "text"}, "nullok": True, "default": None, "comment": None},
+                        ],
+                        "keys": [{"names": [["demo", "Dataset_RID_key"]], "unique_columns": ["RID"]}],
+                        "foreign_keys": [
+                            {
+                                "names": [["demo", "Dataset_Version_fkey"]],
+                                "foreign_key_columns": [{"schema_name": "demo", "table_name": "Dataset", "column_name": "Version"}],
+                                "referenced_columns": [{"schema_name": "demo", "table_name": "Dataset_Version", "column_name": "RID"}],
+                            }
+                        ],
+                    },
+                    "Dataset_Version": {
+                        "schema_name": "demo",
+                        "table_name": "Dataset_Version",
+                        "kind": "table",
+                        "column_definitions": [
+                            {"name": "RID", "type": {"typename": "text"}, "nullok": False, "default": None, "comment": None},
+                            {"name": "Dataset", "type": {"typename": "text"}, "nullok": True, "default": None, "comment": None},
+                        ],
+                        "keys": [{"names": [["demo", "Dataset_Version_RID_key"]], "unique_columns": ["RID"]}],
+                        "foreign_keys": [
+                            {
+                                "names": [["demo", "Dataset_Version_Dataset_fkey"]],
+                                "foreign_key_columns": [{"schema_name": "demo", "table_name": "Dataset_Version", "column_name": "Dataset"}],
+                                "referenced_columns": [{"schema_name": "demo", "table_name": "Dataset", "column_name": "RID"}],
+                            }
+                        ],
+                    },
+                },
+            }
+        },
+    }
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".json", delete=False
+    ) as f:
+        json.dump(doc, f)
+        path = f.name
+    return Model.fromfile("file-system", path)
+
+
+def test_orderer_cycle_broken_edges_reports_dropped_fk() -> None:
+    """``cycle_broken_edges`` returns the FKs the orderer dropped.
+
+    Two-way cycle ``Dataset ↔ Dataset_Version``: the orderer must
+    drop exactly one edge to topologically sort. After
+    ``get_insertion_order``, the orderer exposes that edge as
+    ``(dependent_table, foreign_key)``. The caller uses this to
+    defer the FK column on first-pass insert.
+    """
+    model = _model_with_two_way_cycle()
+    orderer = ForeignKeyOrderer(model, ["demo"])
+    _ = orderer.get_insertion_order(
+        ["Dataset", "Dataset_Version"], handle_cycles=True
+    )
+    broken = orderer.cycle_broken_edges()
+    assert len(broken) >= 1
+    # Each entry is (dependent_table, foreign_key). The dropped FK
+    # must be on one of the two cycle tables, and its target must
+    # be the other.
+    for dep_table, fk in broken:
+        assert dep_table.name in {"Dataset", "Dataset_Version"}
+        assert fk.pk_table.name in {"Dataset", "Dataset_Version"}
+        assert dep_table.name != fk.pk_table.name
+
+
+def test_orderer_cycle_broken_edges_empty_for_dag() -> None:
+    """No cycles → no broken edges, even after sort runs."""
+    model = _model_with_fk()
+    orderer = ForeignKeyOrderer(model, ["demo"])
+    _ = orderer.get_insertion_order(handle_cycles=True)
+    assert orderer.cycle_broken_edges() == []
+
+
 # ---------------------------------------------------------------------------
 # DataLoader + SQLiteSink (default sink)
 # ---------------------------------------------------------------------------

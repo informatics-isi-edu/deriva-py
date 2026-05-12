@@ -75,6 +75,17 @@ class ForeignKeyOrderer:
         # so callers can pass either form into get_insertion_order.
         self._table_cache: dict[str, DerivaTable] = {}
         self._build_table_cache()
+        # Edges the orderer dropped while breaking cycles, populated
+        # by ``_break_cycles_and_sort``. Each entry is
+        # ``(dependent_table_qname, dropped_dependency_qname)`` —
+        # i.e., ``dependent`` had an FK to ``dropped_dep`` that the
+        # sort removed to make a topological order possible.
+        #
+        # Callers reading this for two-phase insert (load with the
+        # cycle edge's FK nulled, then patch in a second pass) can
+        # use :meth:`cycle_broken_edges` to introspect the list
+        # after :meth:`get_insertion_order` runs.
+        self._cycle_broken_edges: list[tuple[str, str]] = []
 
     def _build_table_cache(self) -> None:
         """Index every in-scope table under both qualified and bare names."""
@@ -228,12 +239,21 @@ class ForeignKeyOrderer:
                 node = cycle[-1]
                 if node in graph and dep_node in graph[node]:
                     graph[node].remove(dep_node)
+                    # ``node`` had an FK to ``dep_node`` (because
+                    # ``dep_node in graph[node]`` means node depends
+                    # on dep_node, i.e. node has an FK pointing at
+                    # dep_node). Record that for callers doing
+                    # two-phase load.
+                    self._cycle_broken_edges.append((node, dep_node))
                     edge_removed = True
             if not edge_removed:
                 for i in range(len(cycle) - 1):
                     dep_node, node = cycle[i], cycle[i + 1]
                     if node in graph and dep_node in graph[node]:
                         graph[node].remove(dep_node)
+                        self._cycle_broken_edges.append(
+                            (node, dep_node)
+                        )
                         edge_removed = True
                         break
 
@@ -242,6 +262,43 @@ class ForeignKeyOrderer:
             return list(ts.static_order())
         except CycleError as e:
             return self._break_cycles_and_sort(graph, e, _depth + 1)
+
+    def cycle_broken_edges(self) -> list[tuple[DerivaTable, "DerivaForeignKey"]]:
+        """Return the FK edges that were dropped to break cycles.
+
+        Each entry is ``(dependent_table, foreign_key)`` — the
+        ``foreign_key`` that was on ``dependent_table`` and that the
+        orderer cut to make a topological sort possible.
+
+        Callers doing a two-phase insert use this to know which FK
+        columns must be sent as ``NULL`` on the first-pass insert
+        (the cycle's pre-existing target row isn't there yet) and
+        then patched in a second-pass ``PUT``. See
+        :class:`~deriva.bag.catalog_loader.BagCatalogLoader` for the
+        consumer.
+
+        The list is empty until :meth:`get_insertion_order` has
+        run (and remains empty if no cycles were detected). Multiple
+        edges may be dropped if there were multiple distinct cycles.
+        """
+        from deriva.core.ermrest_model import ForeignKey as DerivaForeignKey
+
+        out: list[tuple[DerivaTable, DerivaForeignKey]] = []
+        for dependent_qname, dropped_dep_qname in self._cycle_broken_edges:
+            dependent_table = self._table_cache.get(dependent_qname)
+            dropped_target = self._table_cache.get(dropped_dep_qname)
+            if dependent_table is None or dropped_target is None:
+                continue
+            # Find the FK on ``dependent_table`` whose pk_table is
+            # ``dropped_target``. There may be more than one in
+            # principle; we yield each one.
+            for fk in dependent_table.foreign_keys:
+                if (
+                    fk.pk_table.schema.name == dropped_target.schema.name
+                    and fk.pk_table.name == dropped_target.name
+                ):
+                    out.append((dependent_table, fk))
+        return out
 
     def validate_insertion_order(
         self,
