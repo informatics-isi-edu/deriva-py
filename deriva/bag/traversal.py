@@ -233,6 +233,20 @@ class FKTraversalPolicy(BaseModel):
             See :class:`ContentConflictStrategy`. Default ``FAIL``.
             Vocabulary tables use match-by-name regardless of this
             setting.
+        preserve_provenance: Whether to preserve the bag's source
+            audit columns (``RCT`` creation time, ``RCB`` creating
+            user) at insert time. ``True`` (default) sends the bag
+            row's values verbatim using ERMrest's
+            ``?nondefaults=RID,RCT,RCB`` — the clone-style
+            semantics where audit data from the source catalog is
+            real history worth keeping. Set ``False`` when the bag
+            carries *new* rows the destination is generating
+            (e.g. end-of-execution commit): only ``RID`` is
+            preserved, ``RCT`` and ``RCB`` are server-defaulted to
+            the current timestamp and the current user. Without
+            this, new rows whose bag carries no ``RCB`` value get
+            sent with NULL ``RCB`` and ERMrest rejects them with
+            ``Image_RCB_fkey`` constraint failures.
 
     Example:
         >>> # Default — works for any producer case.
@@ -269,6 +283,7 @@ class FKTraversalPolicy(BaseModel):
     asset_mode: AssetMode = AssetMode.UPLOAD_IF_MISSING
     dangling_fk_strategy: DanglingFKStrategy = DanglingFKStrategy.FAIL
     content_on_conflict: ContentConflictStrategy = ContentConflictStrategy.FAIL
+    preserve_provenance: bool = True
 
     @field_validator("max_depth")
     @classmethod
