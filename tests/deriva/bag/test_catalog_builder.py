@@ -745,36 +745,48 @@ def test_spec_multipath_emits_one_processor_per_fk_route(
     assert len(image_fetches) == 0
 
 
-def test_terminal_table_enters_but_does_not_exit(tmp_path: Path) -> None:
-    """A table listed in ``policy.terminal_tables`` halts FK traversal.
+def test_terminal_table_blocks_inbound_but_follows_outbound(
+    tmp_path: Path,
+) -> None:
+    """A table in ``policy.terminal_tables`` is asymmetric:
+    OUTBOUND FKs (refs the table declares) are followed so the
+    rows it references land in the slice; INBOUND FKs (refs
+    declared at the table by others) are blocked so the slice
+    doesn't aggregate cross-anchor state.
 
     Topology::
 
+        Workflow ────────────┐
+                             │  (Execution.Workflow FK)
         Subject ─── Subject_Health ─── Execution ─── Image_Quality ─── Image
 
-    Without ``terminal_tables``, a Subject anchor walks all the way
-    to Image — and through Execution's other ``*_Execution``
-    inbound FKs it would over-fetch (Image_Quality rows from
-    Executions belonging to other Subjects). The fix: declare
-    Execution as terminal. The walker still reaches Execution
-    (so the slice has the provenance row for the Subject's
-    health record), but stops there — Image_Quality and Image
-    don't get walked through Execution.
+    Subject anchor with Execution terminal:
+    - Subject, Subject_Health, Execution reached (Subject's
+      provenance lands).
+    - Workflow reached too — outbound from Execution: an
+      Execution row's Workflow FK must resolve at load.
+    - Image_Quality and Image NOT reached — inbound from
+      Execution would over-fetch Quality rows belonging to
+      Executions of other Subjects.
     """
     sub = _make_mock_table("demo", "Subject")
     sh = _make_mock_table("demo", "Subject_Health")
     exe = _make_mock_table("demo", "Execution")
+    wf = _make_mock_table("demo", "Workflow")
     iq = _make_mock_table("demo", "Image_Quality")
     img = _make_mock_table("demo", "Image")
 
     sh_to_sub = _fk_mock(src_table=sh, pk_table=sub)
     sh_to_exe = _fk_mock(src_table=sh, pk_table=exe)
+    exe_to_wf = _fk_mock(src_table=exe, pk_table=wf)
     iq_to_exe = _fk_mock(src_table=iq, pk_table=exe)
     iq_to_img = _fk_mock(src_table=iq, pk_table=img)
 
     sub.referenced_by = [sh_to_sub]
     sh.foreign_keys = [sh_to_sub, sh_to_exe]
+    exe.foreign_keys = [exe_to_wf]
     exe.referenced_by = [sh_to_exe, iq_to_exe]
+    wf.referenced_by = [exe_to_wf]
     iq.foreign_keys = [iq_to_exe, iq_to_img]
     img.referenced_by = [iq_to_img]
 
@@ -784,6 +796,7 @@ def test_terminal_table_enters_but_does_not_exit(tmp_path: Path) -> None:
                 "Subject": sub,
                 "Subject_Health": sh,
                 "Execution": exe,
+                "Workflow": wf,
                 "Image_Quality": iq,
                 "Image": img,
             }
@@ -802,13 +815,17 @@ def test_terminal_table_enters_but_does_not_exit(tmp_path: Path) -> None:
     cb._compute_reached_tables()
 
     reached = {f"{s}.{t}" for s, t in cb._reached_tables}
-    # The terminal table itself IS in the slice (its rows ship in
-    # the bag for FK resolution at load time).
+    # The terminal table itself IS in the slice (provenance row
+    # for the Subject's health record).
     assert "demo.Subject" in reached
     assert "demo.Subject_Health" in reached
     assert "demo.Execution" in reached
-    # But the walker does NOT cross Execution to discover further
-    # tables via its other FKs.
+    # OUTBOUND from Execution still followed — Execution.Workflow
+    # FK must resolve, so Workflow lands in the slice.
+    assert "demo.Workflow" in reached, reached
+    # INBOUND to Execution blocked — Image_Quality and Image
+    # are reachable only via inbound FKs from Execution, so they
+    # stay out of the slice.
     assert "demo.Image_Quality" not in reached, reached
     assert "demo.Image" not in reached, reached
 
