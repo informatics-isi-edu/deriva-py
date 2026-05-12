@@ -742,11 +742,22 @@ class SchemaBuilder:
             return col_name[:-3] if col_name.lower().endswith("_id") else col_name
 
         def make_table_name(schema_name: str, table_name: str) -> str:
-            """Compute the SQLAlchemy table name for a (schema, table)."""
+            """Compute the SQLAlchemy table name for a (schema, table).
+
+            In-memory mode folds the schema into a single SQLAlchemy
+            table name and applies ``replace("-", "_")`` so schemas
+            like ``test-schema`` (hyphenated) produce valid Python
+            identifiers — the same transform the table-creation
+            site does. Without this, a cross-schema FK lookup of
+            ``test-schema_Image_Asset_Type`` misses the actually-
+            stored ``test_schema_Image_Asset_Type``.
+            """
             if self._use_schemas:
                 return f"{schema_name}.{table_name}"
-            # In-memory: fold schema into the name.
-            return f"{schema_name}_{table_name}"
+            # In-memory: fold schema into the name and normalise
+            # hyphens. Must match the transform applied to the
+            # SQLTable name at creation time (a few lines below).
+            return f"{schema_name}_{table_name}".replace("-", "_")
 
         database_tables: list[SQLTable] = []
 
