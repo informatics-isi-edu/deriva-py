@@ -170,6 +170,151 @@ def test_ermrest_json_to_metadata_filters_schemas() -> None:
     assert len(md.tables) == 0
 
 
+def test_ermrest_json_to_metadata_relaxes_non_pk_not_null() -> None:
+    """Non-PK columns with catalog ``nullok=False`` are nullable in the mirror.
+
+    The mirror is staging — it holds rows the bag wants to ship to
+    the destination catalog, not a fidelity copy of the catalog's
+    constraints. Rows that *will* have server-set defaults at the
+    destination (``RCT``, ``RCB``, ``RMT``, ``RMB``) need to land
+    in the mirror without violating its local NOT-NULL. The
+    destination's ERMrest endpoint is the authoritative validator
+    at insert time.
+    """
+    doc = {
+        "snaptime": "2026-01-01T00:00:00",
+        "schemas": {
+            "demo": {
+                "schema_name": "demo",
+                "tables": {
+                    "T": {
+                        "schema_name": "demo",
+                        "table_name": "T",
+                        "kind": "table",
+                        "column_definitions": [
+                            {
+                                "name": "RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "RCT",
+                                "type": {"typename": "timestamptz"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "Name",
+                                "type": {"typename": "text"},
+                                "nullok": True,
+                                "default": None,
+                                "comment": None,
+                            },
+                        ],
+                        "keys": [
+                            {
+                                "names": [["demo", "T_RID_key"]],
+                                "unique_columns": ["RID"],
+                            }
+                        ],
+                        "foreign_keys": [],
+                    }
+                },
+            }
+        },
+    }
+    md = ermrest_json_to_metadata(doc)
+    cols = {c.name: c for c in md.tables["demo.T"].columns}
+    # PK NOT-NULL preserved (catches accidental row-construction
+    # bugs at the mirror layer).
+    assert not cols["RID"].nullable
+    # Non-PK NOT-NULL relaxed — would have been a NOT NULL
+    # ``RCT`` in the mirror without this rule.
+    assert cols["RCT"].nullable
+    assert cols["Name"].nullable
+    # The catalog's authoritative nullok is preserved on
+    # ``col.info`` so ``metadata_to_ermrest_json`` can round-trip
+    # it back out.
+    assert cols["RID"].info["nullok"] is False
+    assert cols["RCT"].info["nullok"] is False
+    assert cols["Name"].info["nullok"] is True
+
+
+def test_ermrest_json_to_metadata_roundtrip_preserves_nullok() -> None:
+    """``metadata_to_ermrest_json`` reads ``nullok`` from ``col.info``.
+
+    Without this, a round-trip
+    ``ermrest_json_to_metadata`` → ``metadata_to_ermrest_json``
+    would lose the catalog's authoritative ``nullok=False`` for
+    non-PK NOT-NULL columns (since the mirror relaxes them to
+    nullable). Reading from ``col.info["nullok"]`` instead of
+    ``col.nullable`` keeps the round-trip honest.
+    """
+    from deriva.bag.schema_io import metadata_to_ermrest_json
+
+    doc = {
+        "snaptime": "2026-01-01T00:00:00",
+        "schemas": {
+            "demo": {
+                "schema_name": "demo",
+                "tables": {
+                    "T": {
+                        "schema_name": "demo",
+                        "table_name": "T",
+                        "kind": "table",
+                        "column_definitions": [
+                            {
+                                "name": "RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "RCT",
+                                "type": {"typename": "timestamptz"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "Name",
+                                "type": {"typename": "text"},
+                                "nullok": True,
+                                "default": None,
+                                "comment": None,
+                            },
+                        ],
+                        "keys": [
+                            {
+                                "names": [["demo", "T_RID_key"]],
+                                "unique_columns": ["RID"],
+                            }
+                        ],
+                        "foreign_keys": [],
+                    }
+                },
+            }
+        },
+    }
+    md = ermrest_json_to_metadata(doc)
+    round_tripped = metadata_to_ermrest_json(md)
+    out_cols = {
+        c["name"]: c
+        for c in round_tripped["schemas"]["demo"]["tables"]["T"][
+            "column_definitions"
+        ]
+    }
+    # Round-trip preserves the catalog's original nullok flags,
+    # even though the mirror relaxed non-PK NOT-NULL to nullable.
+    assert out_cols["RID"]["nullok"] is False
+    assert out_cols["RCT"]["nullok"] is False
+    assert out_cols["Name"]["nullok"] is True
+
+
 # ---------------------------------------------------------------------------
 # MetaData → ERMrest JSON
 # ---------------------------------------------------------------------------
