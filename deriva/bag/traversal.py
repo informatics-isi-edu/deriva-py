@@ -113,6 +113,16 @@ class DanglingFKStrategy(StrEnum):
     - ``NULLIFY``: set the dangling FK column to ``NULL`` (only
       legal when the column is nullable). The row stays; only
       the broken reference disappears.
+    - ``PRESERVE``: skip the bag-side parent-row check entirely
+      and trust the destination catalog's FK constraint to be
+      authoritative. Bag rows are sent verbatim; if the
+      destination doesn't have the referenced parent, ERMrest's
+      insert-time FK check fires (HTTP 409). Use when the bag
+      legitimately references parents that exist at the
+      destination but were never in the bag — e.g., the
+      end-of-execution upload, where output Image rows reference
+      Subject parents that were created in an earlier execution
+      and already live in the destination catalog.
 
     Detection happens at *bag-read time* in
     :class:`BagDatabase`; application happens at *load time* in
@@ -123,6 +133,7 @@ class DanglingFKStrategy(StrEnum):
     FAIL = "fail"
     DELETE = "delete"
     NULLIFY = "nullify"
+    PRESERVE = "preserve"
 
 
 class ContentConflictStrategy(StrEnum):

@@ -762,7 +762,22 @@ class BagCatalogLoader:
         - ``DELETE`` — drop offending rows from the survivor list.
         - ``NULLIFY`` — set the dangling FK column to ``None`` (if
           the column is nullable) and keep the row.
+        - ``PRESERVE`` — short-circuit; trust the destination
+          catalog's FK constraint. No bag-side validation, no
+          counter updates. Use when the bag deliberately ships
+          rows whose FK parents live at the destination but
+          aren't in the bag (e.g. the end-of-execution upload).
         """
+        # PRESERVE skips the whole bag-side check. The destination
+        # catalog's FK constraint is the authority; if a parent row
+        # is missing there, ERMrest's insert will fail with HTTP 409
+        # — the real error surfaces unfiltered. Returning ``rows``
+        # verbatim with zero counters matches the "no orphans found"
+        # success path so callers don't need to special-case the
+        # report numbers.
+        if self.policy.dangling_fk_strategy == DanglingFKStrategy.PRESERVE:
+            return rows, 0, 0
+
         # Build the set of valid parent RIDs per FK column once.
         # Each table.foreign_keys element points at a single
         # column (or composite); for the simple single-column

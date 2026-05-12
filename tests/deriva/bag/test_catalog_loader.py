@@ -453,6 +453,50 @@ def test_dangling_fk_strategy_nullify_keeps_row(tmp_path: Path) -> None:
         loader.dispose()
 
 
+def test_dangling_fk_strategy_preserve_short_circuits(tmp_path: Path) -> None:
+    """``PRESERVE`` skips the bag-side check; rows pass through verbatim.
+
+    Use case: end-of-execution commit. The bag ships Image rows
+    that reference Subject FKs already at the destination (Subjects
+    were created in an earlier execution). The bag never carried
+    those Subject rows, so a bag-side check would flag them as
+    dangling. ``PRESERVE`` trusts the destination catalog's FK
+    constraint to be authoritative — the rows go in, and if a
+    parent is genuinely missing the load fails with ERMrest's
+    real HTTP 409 unfiltered.
+    """
+    bag = _build_fk_bag(tmp_path)
+    db_dir = tmp_path / "db"
+    loader = BagCatalogLoader(
+        catalog=_mock_catalog(),
+        bag=bag,
+        policy=FKTraversalPolicy(
+            asset_mode=AssetMode.ROWS_ONLY,
+            dangling_fk_strategy=DanglingFKStrategy.PRESERVE,
+        ),
+        database_dir=db_dir,
+    )
+    try:
+        image = loader.bag_db.model.schemas["demo"].tables["Image"]
+        rows_in = [
+            {"RID": "I1", "Subject": "S1"},  # parent in bag
+            {"RID": "I2", "Subject": "S2"},  # parent NOT in bag
+        ]
+        survivors, skipped, nullified = (
+            loader._apply_dangling_fk_strategy(image, rows_in)
+        )
+        # Verbatim pass-through — no rows dropped, no FK nulled.
+        assert survivors == rows_in
+        assert skipped == 0
+        assert nullified == 0
+        # The S2 reference is preserved as-is; ERMrest will be the
+        # authority at insert time.
+        i2 = [r for r in survivors if r["RID"] == "I2"][0]
+        assert i2["Subject"] == "S2"
+    finally:
+        loader.dispose()
+
+
 # ---------------------------------------------------------------------------
 # Report shape
 # ---------------------------------------------------------------------------
