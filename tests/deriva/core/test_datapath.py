@@ -608,6 +608,32 @@ class DatapathTests (unittest.TestCase):
         ).entities()
         self.assertEqual(len(results), 1)
 
+    def test_filter_in_multi_value(self):
+        """``column.in_([v0, v1, v2])`` matches all three rows in one request."""
+        names = [TEST_EXP_NAME_FORMAT.format(i) for i in (0, 1, 2)]
+        results = self.experiment.filter(
+            self.experiment.column_definitions['Name'].in_(names)
+        ).entities()
+        self.assertEqual(len(results), 3)
+
+    def test_filter_in_single_value_collapses_to_eq(self):
+        """One-element ``in_`` produces a plain equality predicate."""
+        target = TEST_EXP_NAME_FORMAT.format(0)
+        results = self.experiment.filter(
+            self.experiment.column_definitions['Name'].in_([target])
+        ).entities()
+        self.assertEqual(len(results), 1)
+
+    def test_filter_in_rejects_empty(self):
+        """Empty iterable is a caller bug, not silent no-match."""
+        with self.assertRaises(ValueError):
+            self.experiment.column_definitions['Name'].in_([])
+
+    def test_filter_in_rejects_none(self):
+        """NULL via ``in_`` is ambiguous; require ``eq(None)`` for that."""
+        with self.assertRaises(TypeError):
+            self.experiment.column_definitions['Name'].in_(["a", None, "b"])
+
     @unittest.skipUnless(TEST_EXP_MAX >= 3, "this test was designed for at least 3 elements in the test set")
     def test_fitler_w_quantifier(self):
         int_args = [0, int(TEST_EXP_MAX/2), TEST_EXP_MAX-1, TEST_EXP_MAX*2]
@@ -887,6 +913,89 @@ class DatapathTests (unittest.TestCase):
         self.assertIsInstance(results[0]['Experiment_Project Investigator_Project_Num_fkey'], list)
         self.assertIsInstance(results[0]['Experiment_Project Investigator_Project_Num_fkey'][0], dict)
         self.assertIn('RID', results[0]['Experiment_Project Investigator_Project_Num_fkey'][0])
+
+
+class InPredicateConstructionTests(unittest.TestCase):
+    """Unit tests for ``_ColumnWrapper.in_`` — no live catalog needed.
+
+    Exercises the predicate-construction shape so we have coverage
+    even when ``DERIVA_PY_TEST_HOSTNAME`` isn't set. Each test
+    constructs a tiny ``_ColumnWrapper`` over mocks and inspects
+    the predicate object the call returns.
+    """
+
+    def _make_column_wrapper(self, name="Name"):
+        from unittest.mock import MagicMock
+        from deriva.core.datapath import _ColumnWrapper
+
+        table = MagicMock()
+        table._fqname = "demo:Experiment"
+        table._uname = "Experiment"
+        column = MagicMock()
+        column.name = name
+        return _ColumnWrapper(table, column)
+
+    def test_in_multi_value_returns_disjunction(self):
+        """N>1 values produce a disjunction of N equality predicates."""
+        from deriva.core.datapath import (
+            _ComparisonPredicate,
+            _DisjunctionPredicate,
+        )
+
+        col = self._make_column_wrapper()
+        pred = col.in_(["a", "b", "c"])
+        self.assertIsInstance(pred, _DisjunctionPredicate)
+        # Three operands, each an equality predicate.
+        self.assertEqual(len(pred._operands), 3)
+        for operand, expected in zip(pred._operands, ["a", "b", "c"]):
+            self.assertIsInstance(operand, _ComparisonPredicate)
+            self.assertEqual(operand._op, "=")
+            self.assertEqual(operand._rop, expected)
+
+    def test_in_single_value_collapses_to_eq(self):
+        """One value → plain equality predicate, no disjunction overhead."""
+        from deriva.core.datapath import (
+            _ComparisonPredicate,
+            _DisjunctionPredicate,
+        )
+
+        col = self._make_column_wrapper()
+        pred = col.in_(["only"])
+        self.assertIsInstance(pred, _ComparisonPredicate)
+        self.assertNotIsInstance(pred, _DisjunctionPredicate)
+        self.assertEqual(pred._op, "=")
+        self.assertEqual(pred._rop, "only")
+
+    def test_in_empty_raises(self):
+        """Empty iterable is rejected (no 'always false' filter in ERMrest)."""
+        col = self._make_column_wrapper()
+        with self.assertRaises(ValueError):
+            col.in_([])
+
+    def test_in_with_none_raises(self):
+        """``None`` in the value list is rejected — use ``eq(None)`` for NULL."""
+        col = self._make_column_wrapper()
+        with self.assertRaises(TypeError):
+            col.in_(["a", None, "b"])
+
+    def test_in_accepts_generators(self):
+        """Generators / iterators are exhausted into a list internally."""
+        from deriva.core.datapath import _DisjunctionPredicate
+
+        col = self._make_column_wrapper()
+        pred = col.in_(str(i) for i in range(3))
+        self.assertIsInstance(pred, _DisjunctionPredicate)
+        self.assertEqual(len(pred._operands), 3)
+
+    def test_in_url_fragment_is_semicolon_joined(self):
+        """The disjunction stringifies to ERMrest's ``;``-joined OR form."""
+        col = self._make_column_wrapper()
+        pred = col.in_(["a", "b"])
+        # ``_DisjunctionPredicate.__str__`` joins operands with ';'
+        # and wraps each in parens — the ERMrest OR-filter format.
+        self.assertIn(";", str(pred))
+        self.assertIn("a", str(pred))
+        self.assertIn("b", str(pred))
 
 
 if __name__ == '__main__':
