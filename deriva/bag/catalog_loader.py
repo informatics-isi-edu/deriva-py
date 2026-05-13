@@ -727,6 +727,20 @@ class BagCatalogLoader:
             schema_name, table.name, match_cols
         )
 
+        # FK rewrite is applied **up front**, before the match-key
+        # is computed. ``match_by_columns`` is commonly set on
+        # association tables (e.g. ``{Asset}_Asset_Type``) whose
+        # match columns are themselves FK references into other
+        # tables that were deduped on the same load. If we matched
+        # on bag-side source RIDs, the lookup would miss the
+        # already-existing destination row (it's keyed by the
+        # destination RID) and we'd insert a duplicate — failing
+        # the destination's unique-key constraint with 409.
+        # Rewriting first means the match query asks the right
+        # question: "does the destination already have this row
+        # under its canonical RIDs?"
+        rows = [self._rewrite_fks(table, row) for row in rows]
+
         new_rows: list[dict[str, Any]] = []
         remap = self._rid_remap.setdefault(key, {})
         for row in rows:
@@ -752,14 +766,6 @@ class BagCatalogLoader:
                 new_rows.append(row)
 
         if new_rows:
-            # ``match_by_columns`` is commonly used on association
-            # tables (e.g. ``{Asset}_Asset_Type``) whose rows FK
-            # into asset tables that were themselves deduped via
-            # ``match_by_columns`` on a previous step. Without the
-            # FK rewrite the inserted row's FK column would
-            # carry a source RID that doesn't exist at the
-            # destination, failing the FK constraint with 409.
-            new_rows = [self._rewrite_fks(table, row) for row in new_rows]
             inserted = await self._insert_rows(table, new_rows)
             stats.rows_inserted = inserted
 
