@@ -39,7 +39,6 @@ from typing import Any, Generator, Type
 
 from sqlalchemy import (
     MetaData,
-    String,
     event,
     inspect,
     select,
@@ -50,14 +49,11 @@ from sqlalchemy import Table as SQLTable
 from sqlalchemy import UniqueConstraint as SQLUniqueConstraint
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.automap import automap_base
-from sqlalchemy.orm import Session, backref, foreign, relationship
-from sqlalchemy.sql.type_api import TypeEngine
+from sqlalchemy.orm import backref, foreign, relationship
 from urllib.parse import urlparse
 
-from deriva.core.ermrest_model import Column as DerivaColumn
 from deriva.core.ermrest_model import Model
 from deriva.core.ermrest_model import Table as DerivaTable
-from deriva.core.ermrest_model import Type as DerivaType
 
 from deriva.bag.profile import BAG_SCHEMA_VERSION
 from deriva.bag.sqlite_helpers import create_wal_engine, ensure_schema_meta
@@ -69,11 +65,15 @@ from deriva.bag.sqlite_helpers import create_wal_engine, ensure_schema_meta
 # ``deriva.core.bag_database``) continues to work for existing
 # callers.
 from deriva.bag._column_types import (
-    ERMRestBoolean,
-    StringToDate,
-    StringToDateTime,
-    StringToFloat,
-    StringToInteger,
+    # Decorator classes re-exported for back-compat with the
+    # historical ``deriva.bag.database`` and ``deriva.core.bag_database``
+    # access paths. Used internally by callers via the public
+    # surface; not directly referenced inside this module.
+    ERMRestBoolean,  # noqa: F401
+    StringToDate,  # noqa: F401
+    StringToDateTime,  # noqa: F401
+    StringToFloat,  # noqa: F401
+    StringToInteger,  # noqa: F401
     is_key_column,
     sql_type_for_ermrest,
 )
@@ -405,35 +405,6 @@ class BagDatabase:
                     return schema_name
         return None
 
-    def _localize_asset_row(
-        self,
-        row: list,
-        asset_indexes: tuple[int, int] | None,
-        asset_map: dict[str, str],
-        table_name: str | None = None,
-        rid_index: int | None = None,
-    ) -> tuple:
-        """No-op for the row's column values.
-
-        Historical name kept for callers in :meth:`_insert_csv`.
-        The asset-path lookup is now done lazily at upload time by
-        :meth:`resolve_asset_local_path`, which keeps the source
-        ``Filename`` value verbatim through to the destination
-        catalog (overwriting it would have inserted a long
-        bag-local absolute path).
-
-        Args:
-            row: List of column values (returned unchanged).
-            asset_indexes: Unused. Kept for signature stability.
-            asset_map: Unused. Kept for signature stability.
-            table_name: Unused. Kept for signature stability.
-            rid_index: Unused. Kept for signature stability.
-
-        Returns:
-            The row's values as a tuple, unmodified.
-        """
-        return tuple(row)
-
     def resolve_asset_local_path(
         self,
         table_name: str,
@@ -517,7 +488,6 @@ class BagDatabase:
         to ON via :func:`create_wal_engine`'s connect hook.
         """
         data_path = self.bag_path / "data"
-        asset_map = self._build_asset_map()
 
         # Index the bag's CSVs by qualified table name so we can
         # walk them in the order ForeignKeyOrderer dictates.
@@ -581,7 +551,6 @@ class BagDatabase:
                     conn,
                     ordered_tables,
                     csv_by_qualified,
-                    asset_map,
                 )
                 raw_conn.commit()
             except BaseException:
@@ -598,7 +567,6 @@ class BagDatabase:
         conn: "Connection",
         ordered_tables: list[DerivaTable],
         csv_by_qualified: dict[str, list[Path]],
-        asset_map: dict[str, str],
     ) -> None:
         """Insert each CSV's rows into its mirror table.
 
@@ -625,62 +593,35 @@ class BagDatabase:
                 continue
 
             for csv_file in sorted(csv_files):
-                self._insert_csv(
-                    conn, table, sql_table, csv_file, asset_map
-                )
+                self._insert_csv(conn, sql_table, csv_file)
 
     def _insert_csv(
         self,
         conn: "Connection",
-        table: DerivaTable,
         sql_table: SQLTable,
         csv_file: Path,
-        asset_map: dict[str, str],
     ) -> None:
         """Load one CSV into ``sql_table``.
 
         Factored out of :meth:`_insert_rows_in_order` so the
         multi-CSV-per-table loop has a clean per-file unit.
+
+        Row values are inserted verbatim. Asset-row column
+        rewriting (translating bag-relative paths into
+        destination-catalog URLs) is **not** done here: the
+        catalog ``URL`` value the bag was written with is the
+        authoritative one for downstream loaders, and the
+        bag-local path is recovered lazily at upload time by
+        :meth:`resolve_asset_local_path`.
         """
         with csv_file.open(newline="") as csvfile:
             csv_reader = reader(csvfile)
             column_names = next(csv_reader)
-
-            # Get asset column indexes if this is an asset table.
-            # ``rid_index`` is needed for the embedded-asset
-            # fallback path inside ``_localize_asset_row``; it
-            # constructs ``data/asset/{table}/{rid}/{filename}`` for
-            # bags built by :meth:`BagBuilder.add_asset` (no
-            # fetch.txt — bytes live at the profile-standard path).
-            asset_indexes = None
-            rid_index: int | None = None
-            if self._is_asset_table(table.name):
-                try:
-                    asset_indexes = (
-                        column_names.index("Filename"),
-                        column_names.index("URL"),
-                    )
-                    rid_index = column_names.index("RID")
-                except ValueError:
-                    pass
-
-            rows = [
-                self._localize_asset_row(
-                    list(row),
-                    asset_indexes,
-                    asset_map,
-                    table_name=table.name,
-                    rid_index=rid_index,
-                )
-                for row in csv_reader
-            ]
+            rows = list(csv_reader)
             if rows:
                 conn.execute(
                     sqlite_insert(sql_table).on_conflict_do_nothing(),
-                    [
-                        dict(zip(column_names, row))
-                        for row in rows
-                    ],
+                    [dict(zip(column_names, row)) for row in rows],
                 )
 
     def dispose(self) -> None:

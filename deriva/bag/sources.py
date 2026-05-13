@@ -46,10 +46,8 @@ import csv
 import logging
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Protocol, runtime_checkable
-from urllib.parse import urlparse
 
 from deriva.core import ErmrestCatalog
-from deriva.core.ermrest_model import Model
 from deriva.core.ermrest_model import Table as DerivaTable
 from sqlalchemy import select
 from sqlalchemy.engine import Engine
@@ -115,21 +113,16 @@ class BagDataSource:
     """Read rows from a bag's per-table CSV files.
 
     Walks the bag's ``data/`` directory looking for ``*.csv`` and
-    indexes them by the file stem (the table name). When the source
-    table has a ``URL`` column (i.e., is an asset table), values
-    pointed at by ``fetch.txt`` are localized so the loaded ``Filename``
-    points at the on-disk path instead of the remote URL.
+    indexes them by the file stem (the table name). Rows are
+    yielded verbatim — asset-row column rewriting (translating
+    bag-relative paths into destination-catalog URLs) is **not**
+    the source's job. The catalog ``URL`` value the bag was
+    written with is the authoritative one for downstream loaders;
+    the bag-local path is recovered lazily at upload time by
+    :meth:`~deriva.bag.database.BagDatabase.resolve_asset_local_path`.
 
     Args:
         bag_path: Path to a BDBag directory.
-        model: Optional ERMrest :class:`Model`. When ``None``, the
-            source loads it from ``data/schema.json`` inside the bag.
-            Used to decide which tables are asset tables (for URL
-            localization).
-        asset_localization: Set ``False`` to skip the fetch.txt-based
-            URL→path rewrite. The default (``True``) matches what
-            :class:`~deriva.bag.database.BagDatabase` does on its own
-            load path.
 
     Example:
         Open a bag and stream its Subject rows::
@@ -140,28 +133,36 @@ class BagDataSource:
             ...     print(row["Name"])  # doctest: +SKIP
     """
 
-    def __init__(
-        self,
-        bag_path: Path,
-        model: Model | None = None,
-        asset_localization: bool = True,
-    ):
+    def __init__(self, bag_path: Path, **legacy_kwargs: Any):
+        """Open a bag for row iteration.
+
+        ``legacy_kwargs`` accepts ``asset_localization`` and ``model``
+        for back-compat — both were no-ops after the asset-row
+        rewriting was retired (see deriva-py bag-package audit
+        2026-05, §1.2). Callers passing either get a DeprecationWarning
+        and the value is ignored. Remove the kwargs once all known
+        consumers (deriva-ml's ``test_data_sources.py``, in
+        particular) have stopped passing them.
+        """
+        if legacy_kwargs:
+            unexpected = set(legacy_kwargs) - {"asset_localization", "model"}
+            if unexpected:
+                raise TypeError(
+                    f"BagDataSource got unexpected keyword arguments: "
+                    f"{sorted(unexpected)}"
+                )
+            import warnings
+
+            warnings.warn(
+                "BagDataSource no longer accepts ``asset_localization`` "
+                "or ``model``; they were no-ops after the asset-row "
+                "rewriting was retired. Drop the kwarg from your call.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
         self.bag_path = Path(bag_path)
         self.data_path = self.bag_path / "data"
-
-        if model is None:
-            schema_file = self.data_path / "schema.json"
-            if schema_file.exists():
-                self.model = Model.fromfile("file-system", schema_file)
-            else:
-                self.model = None
-                logger.warning(f"No schema.json found in {self.bag_path}")
-        else:
-            self.model = model
-
-        self._asset_map = (
-            self._build_asset_map() if asset_localization else {}
-        )
 
         # table-stem → list of CSV paths. Multiple paths can exist
         # for nested-dataset cases where the same table is exported
@@ -175,32 +176,6 @@ class BagDataSource:
             table_name = csv_file.stem
             self._csv_cache.setdefault(table_name, []).append(csv_file)
 
-    def _build_asset_map(self) -> dict[str, str]:
-        """Parse ``fetch.txt`` into a URL-path → local-path map.
-
-        ``fetch.txt`` rows are tab-separated: URL, length, local
-        path. We key the map by ``urlparse(url).path`` (the path
-        portion of the URL, not the full URL) because the loaded CSV
-        row carries the same path. Mismatched-protocol or
-        differently-cased URLs are tolerated; only the path matches.
-        """
-        fetch_map: dict[str, str] = {}
-        fetch_file = self.bag_path / "fetch.txt"
-        if not fetch_file.exists():
-            logger.debug(f"No fetch.txt in bag {self.bag_path.name}")
-            return fetch_map
-        try:
-            with fetch_file.open(newline="\n") as f:
-                for row in f:
-                    fields = row.split("\t")
-                    if len(fields) >= 3:
-                        local_file = fields[2].replace("\n", "")
-                        local_path = f"{self.bag_path}/{local_file}"
-                        fetch_map[urlparse(fields[0]).path] = local_path
-        except Exception as e:
-            logger.warning(f"Error reading fetch.txt: {e}")
-        return fetch_map
-
     def _get_table_name(self, table: DerivaTable | str) -> str:
         """Extract the bare table-name from a Table or qualified string."""
         if isinstance(table, DerivaTable):
@@ -208,33 +183,6 @@ class BagDataSource:
         if "." in table:
             return table.split(".")[-1]
         return table
-
-    def _is_asset_table(self, table_name: str) -> bool:
-        """Use ``Table.is_asset()`` from the model to detect asset tables."""
-        if self.model is None:
-            return False
-        for schema in self.model.schemas.values():
-            if table_name in schema.tables:
-                return schema.tables[table_name].is_asset()
-        return False
-
-    def _localize_asset_row(self, row: dict[str, Any]) -> dict[str, Any]:
-        """If the row's URL is in the asset map, rewrite ``Filename``.
-
-        Note (pre-existing upstream bug): the lookup keys the asset
-        map by ``urlparse(url).path`` but checks ``url in self._asset_map``,
-        which uses the full URL. This silently does nothing for any
-        real asset row. The behavior is preserved here for parity
-        with the consumer path in
-        :class:`~deriva.bag.database.BagDatabase`; the fix will land
-        as part of the deriva-ml migration PR.
-        """
-        if "URL" in row and "Filename" in row:
-            url = row.get("URL")
-            if url and url in self._asset_map:
-                row = dict(row)
-                row["Filename"] = self._asset_map[url]
-        return row
 
     def get_table_data(
         self,
@@ -247,15 +195,12 @@ class BagDataSource:
             logger.debug(f"No CSV file found for table {table_name}")
             return
 
-        is_asset = self._is_asset_table(table_name)
         for csv_file in csv_files:
             if not csv_file.exists():
                 continue
             with csv_file.open(newline="") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    if is_asset and self._asset_map:
-                        row = self._localize_asset_row(row)
                     yield row
 
     def has_table(self, table: DerivaTable | str) -> bool:

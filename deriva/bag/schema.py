@@ -36,10 +36,13 @@ changes:
 - The CSV-to-Python type decorators (``ERMRestBoolean``,
   ``StringToFloat``, ``StringToInteger``, ``StringToDateTime``,
   ``StringToDate``) are imported from
-  :mod:`deriva.bag.database` rather than re-defined; they're the
-  same decorators in both places, and keeping one copy avoids the
-  surprise where two ``ERMRestBoolean`` classes (from different
-  modules) compare unequal.
+  :mod:`deriva.bag._column_types` rather than re-defined; they're
+  the same decorators every consumer in the package sees, and
+  keeping one copy avoids the surprise where two ``ERMRestBoolean``
+  classes (from different modules) compare unequal. (The
+  decorators historically lived in :mod:`deriva.bag.database`;
+  they moved to ``_column_types`` in deriva-py #248. Both
+  ``database`` and this module re-export them for back-compat.)
 """
 
 from __future__ import annotations
@@ -48,14 +51,10 @@ import logging
 from pathlib import Path
 from typing import Any, Generator, Type
 
-from deriva.core.ermrest_model import Column as DerivaColumn
 from deriva.core.ermrest_model import Model
 from deriva.core.ermrest_model import Table as DerivaTable
-from deriva.core.ermrest_model import Type as DerivaType
 from sqlalchemy import (
-    JSON,
     MetaData,
-    String,
     create_engine,
     event,
     inspect,
@@ -68,7 +67,6 @@ from sqlalchemy import UniqueConstraint as SQLUniqueConstraint
 from sqlalchemy.engine import Engine
 from sqlalchemy.ext.automap import AutomapBase, automap_base
 from sqlalchemy.orm import backref, foreign, relationship
-from sqlalchemy.sql.type_api import TypeEngine
 
 # Re-export the type decorators from deriva.bag.database so callers
 # that import them from here see the same classes BagDatabase uses.
@@ -130,7 +128,6 @@ class SchemaORM:
         Base: AutomapBase,
         model: Model,
         schemas: list[str],
-        class_prefix: str,
         use_schemas: bool = True,
     ):
         """Initialize the value object.
@@ -141,9 +138,6 @@ class SchemaORM:
             Base: Automap base carrying ORM classes.
             model: Source ERMrest :class:`Model`.
             schemas: Schemas that were included in the ORM.
-            class_prefix: Prefix used for ORM class names (a per-instance
-                random-ish string so multiple ``SchemaORM`` instances
-                don't clash in the SQLAlchemy registry).
             use_schemas: ``True`` for file-based databases, ``False``
                 for in-memory.
         """
@@ -152,7 +146,6 @@ class SchemaORM:
         self.Base = Base
         self.model = model
         self.schemas = schemas
-        self._class_prefix = class_prefix
         self._use_schemas = use_schemas
         self._disposed = False
 
@@ -654,7 +647,6 @@ class SchemaBuilder:
             Base=self.Base,
             model=self.model,
             schemas=self.schemas,
-            class_prefix=self._class_prefix,
             use_schemas=self._use_schemas,
         )
 

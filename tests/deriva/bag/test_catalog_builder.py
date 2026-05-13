@@ -948,3 +948,112 @@ def test_resolve_table_accepts_qualified_name(tmp_path: Path) -> None:
     )
     assert cb._resolve_table(model, "demo.Subject") == ("demo", "Subject")
     assert cb._resolve_table(model, "other.Subject") == ("other", "Subject")
+
+
+# =============================================================================
+# _validate_anchors — uses the datapath ``.in_()`` operator (deriva-py #242)
+# =============================================================================
+#
+# Before deriva-py #242 the ``_validate_anchors`` impl rolled its
+# own ``?RID=any(...)`` URL because the datapath ``_ColumnWrapper``
+# had no ``.in_()``. PR #242 added the operator; this validation
+# path was migrated to use it as part of the bag-audit cleanup.
+
+
+def test_validate_anchors_uses_path_builder_in_for_rid_anchors(
+    tmp_path: Path,
+) -> None:
+    """``_validate_anchors`` runs one ``.in_()`` query per RIDAnchor.
+
+    Mocks ``catalog.getPathBuilder()`` to capture which RIDs were
+    asked for; verifies the query returned them all so validation
+    passes. Also verifies that the raw ``catalog.get`` path is no
+    longer used (would have raised ``AssertionError`` if a raw
+    URL hit the mock).
+    """
+    subject = _make_mock_table("demo", "Subject")
+    model = _make_mock_model({"demo": {"Subject": subject}})
+    catalog = _make_mock_catalog(model)
+
+    # Catalog with a configured path builder. ``getPathBuilder()``
+    # returns a mock pb whose ``schemas[s].tables[t]`` returns a
+    # table-path mock that supports ``.RID.in_(rids)`` and
+    # ``.filter(...).attributes(...).fetch()``.
+    captured_rids: list[str] = []
+
+    def _make_table_path_mock(returned_rids: list[str]) -> MagicMock:
+        table_path = MagicMock(name="TablePath")
+
+        def _in_call(rids: list[str]) -> MagicMock:
+            captured_rids.extend(rids)
+            return MagicMock(name="InPredicate")
+
+        rid_col = MagicMock(name="RidColumn")
+        rid_col.in_.side_effect = _in_call
+        table_path.RID = rid_col
+
+        filtered = MagicMock(name="Filtered")
+        attributed = MagicMock(name="Attributed")
+        attributed.fetch.return_value = [
+            {"RID": rid} for rid in returned_rids
+        ]
+        filtered.attributes.return_value = attributed
+        table_path.filter.return_value = filtered
+        return table_path
+
+    pb = MagicMock(name="PathBuilder")
+    pb.schemas = {
+        "demo": MagicMock(
+            tables={
+                "Subject": _make_table_path_mock(["S1", "S2"]),
+            }
+        )
+    }
+    catalog.getPathBuilder.return_value = pb
+
+    # Make catalog.get raise so we catch any regression that goes
+    # back to the raw URL path.
+    catalog.get.side_effect = AssertionError(
+        "_validate_anchors should not call catalog.get directly"
+    )
+
+    cb = CatalogBagBuilder(
+        catalog=catalog,
+        anchors=[RIDAnchor(table="Subject", rids=["S1", "S2"])],
+        output_dir=tmp_path,
+    )
+    cb._validate_anchors()  # No raise — both RIDs were returned.
+
+    assert captured_rids == ["S1", "S2"]
+
+
+def test_validate_anchors_raises_on_missing_rids(tmp_path: Path) -> None:
+    """A RID the catalog doesn't return is reported as missing."""
+    subject = _make_mock_table("demo", "Subject")
+    model = _make_mock_model({"demo": {"Subject": subject}})
+    catalog = _make_mock_catalog(model)
+
+    table_path = MagicMock(name="TablePath")
+    rid_col = MagicMock(name="RidColumn")
+    rid_col.in_.return_value = MagicMock(name="InPredicate")
+    table_path.RID = rid_col
+    filtered = MagicMock(name="Filtered")
+    attributed = MagicMock(name="Attributed")
+    # Only S1 exists; S2 is missing.
+    attributed.fetch.return_value = [{"RID": "S1"}]
+    filtered.attributes.return_value = attributed
+    table_path.filter.return_value = filtered
+
+    pb = MagicMock(name="PathBuilder")
+    pb.schemas = {
+        "demo": MagicMock(tables={"Subject": table_path}),
+    }
+    catalog.getPathBuilder.return_value = pb
+
+    cb = CatalogBagBuilder(
+        catalog=catalog,
+        anchors=[RIDAnchor(table="Subject", rids=["S1", "S2"])],
+        output_dir=tmp_path,
+    )
+    with pytest.raises(ValueError, match="not present in the source catalog"):
+        cb._validate_anchors()

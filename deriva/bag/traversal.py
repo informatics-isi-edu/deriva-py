@@ -207,18 +207,27 @@ class FKTraversalPolicy(BaseModel):
             ``{(schema, table), ...}`` tuples. Useful for
             domain-specific filtering (e.g., dataset associations
             for element types with no members).
-        terminal_tables: Tables the walker enters but does **not**
-            exit, as ``{(schema, table), ...}`` tuples. The
-            walker emits rows for the table (so other rows' FKs
-            into it resolve at load time) but does not follow
-            its outbound or inbound FKs to discover further
-            tables. Same semantics as vocabulary tables, applied
-            to non-vocab "provenance" tables that aggregate
-            cross-anchor state — e.g. ``Execution`` and
-            ``Workflow`` in the deriva-ml schema, where walking
-            *through* them pulls in unrelated anchor scopes via
-            shared rows. Empty by default; callers opt in based
-            on schema-domain knowledge.
+        terminal_tables: Tables the walker enters but only
+            partially exits, as ``{(schema, table), ...}`` tuples.
+            The walker emits rows for the table (so other rows'
+            FKs into it resolve at load time) and follows its
+            **outbound** FKs (so the rows the terminal table
+            *references* land in the slice), but does **not**
+            follow its **inbound** FKs (the FKs other tables
+            declare *at* the terminal table). That asymmetry is
+            the whole point: inbound traversal is what aggregates
+            cross-anchor state. From a terminal ``Execution`` row,
+            inbound goes to every ``*_Execution`` association and
+            from there to every other anchor scope sharing the
+            ``Execution`` — exactly the over-fetch this rule
+            exists to prevent.
+
+            Applied to non-vocab "provenance" tables that
+            aggregate cross-anchor state — e.g. ``Execution``
+            and ``Workflow`` in the deriva-ml schema. Empty by
+            default; callers opt in based on schema-domain
+            knowledge. See ``catalog_builder.py:_expand_table``
+            for the implementation of the outbound-only rule.
         max_depth: Maximum FK hops from the anchor set. ``None``
             (default) means unbounded.
         vocab_export: How vocabularies are exported. See

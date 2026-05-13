@@ -71,12 +71,6 @@ from deriva.bag.traversal import (
 logger = logging.getLogger(__name__)
 
 
-#: Backwards-compat alias for the canonical default-exclude set.
-#: New code should import :data:`DEFAULT_EXCLUDE_SCHEMAS` from
-#: :mod:`deriva.bag.traversal` directly.
-_SYSTEM_SCHEMAS = DEFAULT_EXCLUDE_SCHEMAS
-
-
 class CatalogBagBuilder:
     """Build a bag from a live ERMrest catalog.
 
@@ -220,20 +214,19 @@ class CatalogBagBuilder:
     def _validate_anchors(self) -> None:
         """Fail-fast on RIDAnchor RIDs that don't exist in the catalog.
 
-        Issues one ``?RID=any(...)`` query per ``RIDAnchor`` table
-        directly against ERMrest (the datapath ``_ColumnWrapper``
-        doesn't expose ``in_``), comparing the returned RIDs
-        against the anchor's claimed list. Missing RIDs raise
-        with the list of misses.
+        Issues one query per ``RIDAnchor`` table through the
+        deriva-py path builder, using the ``column.in_(values)``
+        operator added in deriva-py #242. The query fetches just
+        the RIDs that exist; missing RIDs raise with the list of
+        misses.
 
         :class:`TableAnchor` and :class:`PathAnchor` are not
         validated here — TableAnchor is permissive of empty
         tables; PathAnchor's empty result is warned but allowed
         at walk time.
         """
-        from urllib.parse import quote as urlquote
-
         model = self._get_model()
+        pb = self.catalog.getPathBuilder()
         for anchor in self.anchors:
             if anchor.kind != AnchorKind.RID:
                 continue
@@ -244,17 +237,13 @@ class CatalogBagBuilder:
             schema_name, table_name = self._resolve_table(
                 model, anchor.table
             )
-            # ERMrest's ``RID=any(v1,v2,...)`` filter returns just
-            # the RIDs that actually exist. One query per anchor.
-            rid_list = ",".join(urlquote(r) for r in anchor.rids)
-            path = (
-                f"/attribute/{schema_name}:{table_name}"
-                f"/RID=any({rid_list})/RID"
-            )
             try:
-                response = self.catalog.get(path)
-                response.raise_for_status()
-                results = response.json()
+                table_path = pb.schemas[schema_name].tables[table_name]
+                results = list(
+                    table_path.filter(table_path.RID.in_(anchor.rids))
+                    .attributes(table_path.RID)
+                    .fetch()
+                )
             except Exception as e:
                 # If the catalog query fails for reasons unrelated
                 # to anchor correctness (auth, network), surface
@@ -523,7 +512,7 @@ class CatalogBagBuilder:
 
     def _is_excluded_schema(self, schema_name: str) -> bool:
         return (
-            schema_name in _SYSTEM_SCHEMAS
+            schema_name in DEFAULT_EXCLUDE_SCHEMAS
             or schema_name in self.policy.exclude_schemas
         )
 

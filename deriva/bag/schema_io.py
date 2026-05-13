@@ -33,15 +33,15 @@ Functions provided:
   same on-disk JSON byte for byte).
 - :func:`ermrest_json_to_metadata` — parse a ``data/schema.json``
   back to a ``MetaData``. Used by :class:`BagDatabase` on bag open.
-- :func:`ermrest_model_to_metadata` — convert a live catalog's
-  :class:`Model` (or a slice of it) to a ``MetaData``. Used by
-  :class:`CatalogBagBuilder`.
 - :func:`typed_schema_def_to_metadata` — add deriva-py
   ``typed.SchemaDef`` definitions into an existing ``MetaData``.
   Used by :class:`BagBuilder` when callers supply ``typed`` input.
-- :func:`metadata_to_typed_schema_defs` — inverse of the above.
-  Useful when :class:`BagCatalogLoader` needs to create destination
-  tables from a bag's schema.
+
+Two additional converters — :func:`_ermrest_model_to_metadata`
+and :func:`_metadata_to_typed_schema_defs` — are private. They
+have no production callers today but are exercised by tests
+because the conversion logic is non-trivial and worth pinning
+against regression while the bag pipeline matures.
 
 The ERMrest ↔ SQLAlchemy type mapping lives here as a pair of
 constants (:data:`ERMREST_TO_SQL` and :data:`SQL_TO_ERMREST`), the
@@ -596,7 +596,7 @@ def _serialize_default(col: SQLColumn) -> Any:
 # =============================================================================
 
 
-def ermrest_model_to_metadata(
+def _ermrest_model_to_metadata(
     model: Model,
     *,
     schemas: list[str] | None = None,
@@ -623,7 +623,7 @@ def ermrest_model_to_metadata(
         >>> from deriva.core import ErmrestCatalog  # doctest: +SKIP
         >>> catalog = ErmrestCatalog(...)  # doctest: +SKIP
         >>> model = catalog.getCatalogModel()  # doctest: +SKIP
-        >>> md = ermrest_model_to_metadata(  # doctest: +SKIP
+        >>> md = _ermrest_model_to_metadata(  # doctest: +SKIP
         ...     model, schemas=["deriva-ml"]
         ... )
     """
@@ -724,7 +724,7 @@ def typed_schema_def_to_metadata(
     return metadata
 
 
-def metadata_to_typed_schema_defs(metadata: MetaData) -> list[dict[str, Any]]:
+def _metadata_to_typed_schema_defs(metadata: MetaData) -> list[dict[str, Any]]:
     """Project a ``MetaData`` to typed-style schema-def dicts.
 
     Returns plain dicts in the same shape as ``typed.SchemaDef.prejson()``
