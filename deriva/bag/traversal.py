@@ -232,7 +232,29 @@ class FKTraversalPolicy(BaseModel):
             on **content** tables (non-vocabulary, non-system).
             See :class:`ContentConflictStrategy`. Default ``FAIL``.
             Vocabulary tables use match-by-name regardless of this
-            setting.
+            setting; tables listed in :attr:`match_by_columns` use
+            match-by-supplied-columns regardless of this setting.
+        match_by_columns: Per-table caller-supplied "reconcile by
+            these columns" rule. Maps ``(schema_name, table_name)``
+            to a list of column names that uniquely identify a row
+            on the destination. For each bag row in such a table,
+            the loader queries the destination by those columns;
+            if a match is found, the bag row is **not** inserted
+            and the source RID is remapped to the destination's
+            RID (so child rows that FK-reference it get rewritten
+            to the destination's RID at insert time). If no match,
+            the bag row is inserted normally and an identity remap
+            entry is recorded.
+
+            This generalises the vocabulary match-by-``Name``
+            behaviour to non-vocabulary tables that nevertheless
+            have a content-addressed unique key (e.g. asset tables
+            whose ``URL`` is hash-derived and stable across
+            executions). Empty dict (default) leaves all
+            non-vocabulary tables on the standard content path.
+
+            Empty column lists are rejected at validation time —
+            a table either has a match rule or it doesn't.
         preserve_provenance: Whether to preserve the bag's source
             audit columns (``RCT`` creation time, ``RCB`` creating
             user) at insert time. ``True`` (default) sends the bag
@@ -283,6 +305,9 @@ class FKTraversalPolicy(BaseModel):
     asset_mode: AssetMode = AssetMode.UPLOAD_IF_MISSING
     dangling_fk_strategy: DanglingFKStrategy = DanglingFKStrategy.FAIL
     content_on_conflict: ContentConflictStrategy = ContentConflictStrategy.FAIL
+    match_by_columns: dict[tuple[str, str], list[str]] = Field(
+        default_factory=dict
+    )
     preserve_provenance: bool = True
 
     @field_validator("max_depth")
@@ -294,6 +319,23 @@ class FKTraversalPolicy(BaseModel):
             raise ValueError(
                 "max_depth must be a non-negative integer or None"
             )
+        return v
+
+    @field_validator("match_by_columns")
+    @classmethod
+    def _match_by_columns_non_empty(
+        cls,
+        v: dict[tuple[str, str], list[str]],
+    ) -> dict[tuple[str, str], list[str]]:
+        # An empty column list for a table means "match by nothing",
+        # which is meaningless — every existing row would match.
+        # Make the caller delete the entry instead.
+        for key, cols in v.items():
+            if not cols:
+                raise ValueError(
+                    f"match_by_columns[{key!r}] is empty; drop the "
+                    f"entry rather than supply an empty column list."
+                )
         return v
 
     def validate_with_bag_state(self, *, holey: bool) -> None:

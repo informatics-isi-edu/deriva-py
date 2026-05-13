@@ -1778,3 +1778,399 @@ def test_run_inside_event_loop_uses_nest_asyncio(tmp_path: Path) -> None:
         loader.dispose()
 
     assert result is sentinel
+
+
+# =============================================================================
+# match_by_columns — caller-supplied unique-key reconciliation
+# =============================================================================
+#
+# Generalises the vocab match-by-Name path to non-vocabulary
+# tables that nevertheless have a content-addressed unique key
+# (e.g. asset tables whose ``URL`` is hash-derived and stable
+# across executions). The classifier routes such tables through
+# a parallel ``_load_match_by_columns_table`` whose remap shape
+# matches the vocab path's exactly, so child FK rewriting via
+# ``_rewrite_fks`` works without further changes.
+
+
+def _build_image_widget_bag(tmp_path: Path) -> Path:
+    """Build a bag with one asset-like table + one content table.
+
+    Shapes:
+
+    * ``demo.Image`` — non-vocab table with a content-addressed
+      ``URL`` column. Used to exercise ``match_by_columns``.
+    * ``demo.Widget`` — content table with a single-column FK to
+      ``demo.Image`` for the RID-remap propagation check.
+
+    Differs from ``_build_vocab_bag`` in that neither table has
+    the canonical vocab columns; the classifier would route them
+    both as ``CONTENT`` without an explicit ``match_by_columns``
+    policy.
+    """
+    cache_key = "image_widget_bag"
+    bag = tmp_path / cache_key / "bag"
+    (bag / "data" / "demo").mkdir(parents=True)
+
+    doc = {
+        "snaptime": "2026-01-01T00:00:00",
+        "schemas": {
+            "demo": {
+                "schema_name": "demo",
+                "tables": {
+                    "Image": {
+                        "schema_name": "demo",
+                        "table_name": "Image",
+                        "kind": "table",
+                        "column_definitions": [
+                            {
+                                "name": "RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "URL",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "Filename",
+                                "type": {"typename": "text"},
+                                "nullok": True,
+                                "default": None,
+                                "comment": None,
+                            },
+                        ],
+                        "keys": [
+                            {
+                                "names": [["demo", "Image_RID_key"]],
+                                "unique_columns": ["RID"],
+                            },
+                            {
+                                "names": [["demo", "Image_URL_key"]],
+                                "unique_columns": ["URL"],
+                            },
+                        ],
+                        "foreign_keys": [],
+                    },
+                    "Widget": {
+                        "schema_name": "demo",
+                        "table_name": "Widget",
+                        "kind": "table",
+                        "column_definitions": [
+                            {
+                                "name": "RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "Image",
+                                "type": {"typename": "text"},
+                                "nullok": True,
+                                "default": None,
+                                "comment": None,
+                            },
+                        ],
+                        "keys": [
+                            {
+                                "names": [["demo", "Widget_RID_key"]],
+                                "unique_columns": ["RID"],
+                            }
+                        ],
+                        "foreign_keys": [
+                            {
+                                "names": [
+                                    ["demo", "Widget_Image_fkey"]
+                                ],
+                                "foreign_key_columns": [
+                                    {
+                                        "schema_name": "demo",
+                                        "table_name": "Widget",
+                                        "column_name": "Image",
+                                    }
+                                ],
+                                "referenced_columns": [
+                                    {
+                                        "schema_name": "demo",
+                                        "table_name": "Image",
+                                        "column_name": "RID",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                },
+            }
+        },
+    }
+    (bag / "data" / "schema.json").write_text(json.dumps(doc))
+    with (bag / "data" / "demo" / "Image.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["RID", "URL", "Filename"])
+        w.writerow(["I-SRC-A", "/hatrac/demo/abc.a.png", "a.png"])
+        w.writerow(["I-SRC-B", "/hatrac/demo/def.b.png", "b.png"])
+    with (bag / "data" / "demo" / "Widget.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["RID", "Image"])
+        w.writerow(["W1", "I-SRC-A"])
+        w.writerow(["W2", "I-SRC-B"])
+    return bag
+
+
+def test_classify_table_routes_through_match_by_columns(tmp_path: Path) -> None:
+    """A table listed in ``match_by_columns`` is reported as ``MATCH_BY_COLUMNS``.
+
+    Other tables fall through to ``VOCABULARY`` (structural) or
+    ``CONTENT``. The new class takes precedence over the
+    structural vocab check, so a vocab-shaped table listed in
+    the policy still routes through the new path.
+    """
+    from deriva.bag.catalog_loader import _TableClass
+
+    # Use the existing vocab bag so we also verify the
+    # match_by_columns override of the structural classification.
+    bag = _build_vocab_bag(tmp_path)
+    loader = BagCatalogLoader(
+        catalog=_mock_catalog(),
+        bag=bag,
+        policy=FKTraversalPolicy(
+            match_by_columns={("demo", "Color"): ["Name"]},
+        ),
+        database_dir=tmp_path / "db",
+    )
+    try:
+        color = loader.bag_db.model.schemas["demo"].tables["Color"]
+        widget = loader.bag_db.model.schemas["demo"].tables["Widget"]
+        # Color is vocab-shaped AND listed in match_by_columns;
+        # explicit policy wins.
+        assert loader._classify_table(color) == _TableClass.MATCH_BY_COLUMNS
+        # Widget isn't listed; default classification (CONTENT).
+        assert loader._classify_table(widget) == _TableClass.CONTENT
+    finally:
+        loader.dispose()
+
+
+def test_match_by_columns_matches_existing_and_records_remap(tmp_path: Path) -> None:
+    """Existing destination rows match by the supplied column; remap recorded.
+
+    Mirror of ``test_vocab_load_matches_by_name_and_records_remap``
+    but for the new ``match_by_columns`` path. The mock catalog
+    reports one of the bag's Image rows as already present at a
+    different RID; the loader should skip the insert for that row,
+    record ``src_rid → dst_rid``, and rewrite the Widget FK at
+    insert time.
+    """
+    bag = _build_image_widget_bag(tmp_path)
+
+    catalog = _mock_catalog()
+
+    def _get(path: str, **_: Any):
+        # Only the match-fetch is expected via GET in this test.
+        assert "Image" in path
+        assert "URL" in path
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        resp.json.return_value = [
+            {"URL": "/hatrac/demo/abc.a.png", "RID": "I-DST-A"},
+            # The second image (.../def.b.png) is absent — must
+            # be inserted.
+        ]
+        return resp
+
+    insert_payloads: list[list[dict[str, Any]]] = []
+
+    def _post(path: str, **kwargs: Any):
+        insert_payloads.append(kwargs["json"])
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        return resp
+
+    catalog.get = _get
+    catalog.post = _post
+
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=FKTraversalPolicy(
+            asset_mode=AssetMode.ROWS_ONLY,
+            match_by_columns={("demo", "Image"): ["URL"]},
+        ),
+        database_dir=tmp_path / "db",
+    )
+    try:
+        report = loader.run()
+    finally:
+        loader.dispose()
+
+    image_stats = report.table_stats["demo.Image"]
+    assert image_stats.rows_matched_by_columns == 1  # I-SRC-A matched
+    assert image_stats.rows_inserted == 1  # I-SRC-B inserted
+    # rows_matched_by_name is reserved for the structural vocab
+    # path and must stay zero on this code path.
+    assert image_stats.rows_matched_by_name == 0
+
+    # Remap: matched row → destination RID; unmatched → identity.
+    remap = loader._rid_remap[("demo", "Image")]
+    assert remap["I-SRC-A"] == "I-DST-A"
+    assert remap["I-SRC-B"] == "I-SRC-B"
+
+    # Widget rows were POSTed with their Image FK rewritten through
+    # the remap. W1 → Image=I-DST-A (matched), W2 → Image=I-SRC-B
+    # (identity).
+    widget_inserts = [
+        p
+        for p in insert_payloads
+        if any(
+            r.get("RID") in {"W1", "W2"}
+            for r in (p if isinstance(p, list) else [])
+        )
+    ]
+    assert widget_inserts, "expected Widget rows to be posted"
+    widget_rows = widget_inserts[0]
+    by_rid = {r["RID"]: r for r in widget_rows}
+    assert by_rid["W1"]["Image"] == "I-DST-A"
+    assert by_rid["W2"]["Image"] == "I-SRC-B"
+
+
+def test_match_by_columns_composite_key(tmp_path: Path) -> None:
+    """Composite match keys (multi-column) work as a single GET + tuple lookup.
+
+    Verifies the ``list[str]`` policy shape: more than one column
+    forms a composite key. The fetched-rows dict is keyed by
+    tuple ``(col1, col2, ...)``; the loader's per-row match uses
+    the same tuple shape.
+
+    Uses the vocab bag's Color table with a synthetic composite
+    key ``["Name", "Description"]`` — silly in practice (Name
+    alone is unique) but exercises the multi-column path with the
+    smallest possible fixture.
+    """
+    bag = _build_vocab_bag(tmp_path)
+    catalog = _mock_catalog()
+
+    def _get(path: str, **_: Any):
+        # Composite-key path includes both columns.
+        assert "Name" in path and "Description" in path
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        resp.json.return_value = [
+            {
+                "Name": "Red",
+                "Description": "Red color",
+                "RID": "C-DST-RED",
+            },
+            # Blue absent → must be inserted.
+        ]
+        return resp
+
+    insert_payloads: list[list[dict[str, Any]]] = []
+
+    def _post(path: str, **kwargs: Any):
+        insert_payloads.append(kwargs["json"])
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        return resp
+
+    catalog.get = _get
+    catalog.post = _post
+
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=FKTraversalPolicy(
+            asset_mode=AssetMode.ROWS_ONLY,
+            match_by_columns={
+                ("demo", "Color"): ["Name", "Description"],
+            },
+        ),
+        database_dir=tmp_path / "db",
+    )
+    try:
+        report = loader.run()
+    finally:
+        loader.dispose()
+
+    color_stats = report.table_stats["demo.Color"]
+    assert color_stats.rows_matched_by_columns == 1  # Red matched
+    assert color_stats.rows_inserted == 1  # Blue inserted
+
+
+def test_match_by_columns_null_in_key_falls_through(tmp_path: Path) -> None:
+    """Bag row with NULL in any match column is inserted, not matched.
+
+    Composite NULL semantics are ambiguous (``(NULL, NULL)`` ==
+    ``(NULL, NULL)``?); the loader's policy is to never match
+    such rows and let the destination's uniqueness constraint
+    surface any error itself.
+    """
+    bag = _build_image_widget_bag(tmp_path)
+
+    # Rewrite Image.csv so I-SRC-A has a NULL URL (empty string in
+    # CSV, which the loader normalises to None).
+    img_csv = bag / "data" / "demo" / "Image.csv"
+    with img_csv.open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["RID", "URL", "Filename"])
+        w.writerow(["I-SRC-A", "", "a.png"])  # NULL URL
+        w.writerow(["I-SRC-B", "/hatrac/demo/def.b.png", "b.png"])
+
+    catalog = _mock_catalog()
+
+    def _get(path: str, **_: Any):
+        # Destination returns no matching rows; both bag rows
+        # are inserts. The point of this test isn't the match —
+        # it's that the NULL-URL row reaches the insert path
+        # without being "matched" against a hypothetical NULL row.
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        resp.json.return_value = []
+        return resp
+
+    posted: list[dict[str, Any]] = []
+
+    def _post(path: str, **kwargs: Any):
+        posted.extend(kwargs["json"])
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        return resp
+
+    catalog.get = _get
+    catalog.post = _post
+
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=FKTraversalPolicy(
+            asset_mode=AssetMode.ROWS_ONLY,
+            match_by_columns={("demo", "Image"): ["URL"]},
+        ),
+        database_dir=tmp_path / "db",
+    )
+    try:
+        report = loader.run()
+    finally:
+        loader.dispose()
+
+    image_stats = report.table_stats["demo.Image"]
+    # No matches — NULL-URL row falls through, valid-URL row
+    # had nothing to match against.
+    assert image_stats.rows_matched_by_columns == 0
+    assert image_stats.rows_inserted == 2
+
+    # Both Image rows reached the insert payload.
+    image_rids = {r["RID"] for r in posted if "URL" in r}
+    assert image_rids == {"I-SRC-A", "I-SRC-B"}
+
+
+def test_match_by_columns_policy_rejects_empty_column_list() -> None:
+    """``match_by_columns[k] = []`` is a caller bug; validator rejects it."""
+    with pytest.raises(ValueError, match="empty"):
+        FKTraversalPolicy(
+            match_by_columns={("demo", "Image"): []},
+        )

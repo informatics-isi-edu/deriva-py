@@ -64,7 +64,7 @@ class _TableClass(StrEnum):
     """How :class:`BagCatalogLoader` should treat each in-scope table.
 
     Determined at the start of the load by :meth:`_classify_table`
-    from the bag's schema model:
+    from the bag's schema model and the active policy:
 
     - ``VOCABULARY``: table looks like a controlled vocabulary
       (has the canonical ``ID``/``URI``/``Name``/``Description``/
@@ -73,14 +73,28 @@ class _TableClass(StrEnum):
       Reconciled by ``Name`` against the destination; existing rows
       contribute a source-RID → destination-RID entry to the
       loader's remap so child rows can be rewritten.
+    - ``MATCH_BY_COLUMNS``: table is listed in
+      :attr:`FKTraversalPolicy.match_by_columns`. Reconciled by
+      the supplied column list (e.g. ``["URL"]`` for content-
+      addressed asset tables); same remap-and-rewrite shape as
+      vocab, just driven by a caller-supplied key instead of the
+      hard-coded ``Name``.
     - ``CONTENT``: every other in-scope table. Inserted by RID;
       collisions resolved per ``policy.content_on_conflict``.
+
+    ``match_by_columns`` takes precedence over the vocabulary
+    structural check: explicit caller intent overrides implicit
+    structural classification. (A table satisfying
+    ``is_vocabulary()`` is rarely in ``match_by_columns`` anyway —
+    if the caller bothered to name custom match columns, they
+    almost certainly mean to use them.)
 
     System schemas and out-of-bag schemas are filtered out earlier
     (by :meth:`_table_in_scope`) and never reach the classifier.
     """
 
     VOCABULARY = "vocabulary"
+    MATCH_BY_COLUMNS = "match_by_columns"
     CONTENT = "content"
 
 logger = logging.getLogger(__name__)
@@ -122,6 +136,15 @@ class TableLoadStats:
     (matched by ``Name``); the bag's source RID was remapped to the
     destination's RID for any child rows that reference it.
     Always zero for non-vocabulary tables."""
+
+    rows_matched_by_columns: int = 0
+    """Rows reconciled via
+    :attr:`FKTraversalPolicy.match_by_columns` — i.e., a row in the
+    bag whose match-column values already exist on the destination.
+    Same remap-and-rewrite semantics as ``rows_matched_by_name``,
+    driven by a caller-supplied unique key instead of the hard-coded
+    ``Name``. Always zero for tables not listed in
+    ``match_by_columns``."""
 
     rows_skipped_on_conflict: int = 0
     """Content rows whose RID already existed on the destination,
@@ -488,13 +511,20 @@ class BagCatalogLoader:
     def _classify_table(self, table: DerivaTable) -> _TableClass:
         """Decide whether a table is reconciled by name or by RID.
 
-        See :class:`_TableClass` for the policy. Vocabulary detection
-        delegates to
-        :meth:`deriva.core.ermrest_model.Table.is_vocabulary`, which
-        checks for the canonical vocab column shape (``ID``/``URI``/
-        ``Name``/``Description``/``Synonyms``). Everything else is
-        ``CONTENT``.
+        See :class:`_TableClass` for the policy. Order:
+
+        1. **``match_by_columns``** — explicit caller intent.
+           A ``(schema, table)`` key in the policy dict overrides
+           the structural vocabulary check.
+        2. **Vocabulary structural check** —
+           :meth:`deriva.core.ermrest_model.Table.is_vocabulary`
+           checks for the canonical vocab column shape
+           (``ID``/``URI``/``Name``/``Description``/``Synonyms``).
+        3. **Content** — every other in-scope table.
         """
+        key = (table.schema.name, table.name)
+        if key in self.policy.match_by_columns:
+            return _TableClass.MATCH_BY_COLUMNS
         if table.is_vocabulary():
             return _TableClass.VOCABULARY
         return _TableClass.CONTENT
@@ -549,8 +579,11 @@ class BagCatalogLoader:
         if not rows:
             return stats
 
-        if self._classify_table(table) == _TableClass.VOCABULARY:
+        table_class = self._classify_table(table)
+        if table_class == _TableClass.VOCABULARY:
             await self._load_vocabulary_table(table, rows, stats)
+        elif table_class == _TableClass.MATCH_BY_COLUMNS:
+            await self._load_match_by_columns_table(table, rows, stats)
         else:
             await self._load_content_table(table, rows, stats)
 
@@ -649,6 +682,111 @@ class BagCatalogLoader:
 
         rows = await asyncio.to_thread(_do_get)
         return {row["Name"]: row["RID"] for row in rows if row.get("Name")}
+
+    # ------------------------------------------------------------------
+    # Match-by-columns path (caller-supplied unique key + RID remap)
+    # ------------------------------------------------------------------
+
+    async def _load_match_by_columns_table(
+        self,
+        table: DerivaTable,
+        rows: list[dict[str, Any]],
+        stats: TableLoadStats,
+    ) -> None:
+        """Reconcile a table by the caller-supplied match columns.
+
+        Same shape as :meth:`_load_vocabulary_table` but parameterized
+        by the column list from
+        :attr:`FKTraversalPolicy.match_by_columns`. For each bag row:
+
+        - Compute the row's composite key from the named columns.
+        - If the destination has a row with the same composite key,
+          record ``src_rid → dst_rid`` in the loader's remap so
+          child rows that FK-reference this row get rewritten at
+          insert time. The bag row is **not** inserted.
+        - Otherwise, insert the bag row and record an identity
+          remap entry.
+
+        Rows whose match-key has any ``None`` component fall
+        through to the insert path — composite NULL semantics are
+        ambiguous and we don't want to silently match e.g. two
+        ``(NULL, NULL)`` rows as the same logical entity.
+        """
+        schema_name = table.schema.name
+        key = (schema_name, table.name)
+        match_cols = self.policy.match_by_columns[key]
+
+        existing_by_key = await self._fetch_existing_by_columns(
+            schema_name, table.name, match_cols
+        )
+
+        new_rows: list[dict[str, Any]] = []
+        remap = self._rid_remap.setdefault(key, {})
+        for row in rows:
+            src_rid = row.get("RID")
+            match_key = tuple(row.get(col) for col in match_cols)
+            if src_rid is None or any(v is None for v in match_key):
+                # Either no RID (defensive — should not happen for
+                # an in-scope bag row) or one of the match columns
+                # is NULL. Either way, don't try to match; insert
+                # as new and let any uniqueness constraint at the
+                # destination surface its own error.
+                new_rows.append(row)
+                continue
+            dst_rid = existing_by_key.get(match_key)
+            if dst_rid is not None:
+                remap[src_rid] = dst_rid
+                stats.rows_matched_by_columns += 1
+            else:
+                # Identity remap — same rationale as vocab: the
+                # insert preserves the RID, so child rows still
+                # find it via the remap.
+                remap[src_rid] = src_rid
+                new_rows.append(row)
+
+        if new_rows:
+            inserted = await self._insert_rows(table, new_rows)
+            stats.rows_inserted = inserted
+
+    async def _fetch_existing_by_columns(
+        self,
+        schema_name: str,
+        table_name: str,
+        match_cols: list[str],
+    ) -> dict[tuple[Any, ...], str]:
+        """Return ``{(col1_value, col2_value, ...): RID}`` for all rows.
+
+        One GET to ``/attributegroup/{schema}:{table}/<cols>;RID``
+        covers the whole table. For asset tables, the match
+        columns are typically a single content-addressed key
+        (e.g. ``["URL"]``), so the result is small — same shape
+        and round-trip cost as the vocab fetch.
+
+        Rows whose match-key has any ``None`` component are
+        dropped from the result map; the caller's matching loop
+        already declines to match such rows, so including them
+        here would only invite collisions on ``(None, None, ...)``
+        bag rows.
+        """
+        cols_path = ",".join(match_cols)
+        path = (
+            f"/attributegroup/"
+            f"{schema_name}:{table_name}/{cols_path};RID"
+        )
+
+        def _do_get() -> list[dict[str, Any]]:
+            response = self.catalog.get(path)
+            response.raise_for_status()
+            return response.json()
+
+        rows = await asyncio.to_thread(_do_get)
+        result: dict[tuple[Any, ...], str] = {}
+        for row in rows:
+            key = tuple(row.get(col) for col in match_cols)
+            if any(v is None for v in key):
+                continue
+            result[key] = row["RID"]
+        return result
 
     # ------------------------------------------------------------------
     # Content path (RID-stable + conflict policy)
