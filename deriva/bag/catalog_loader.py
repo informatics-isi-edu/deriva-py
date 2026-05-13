@@ -889,14 +889,21 @@ class BagCatalogLoader:
         value with the destination-catalog RID. Rows are mutated
         on a shallow-copied dict so the bag's in-memory rows stay
         clean (asset-upload code may want the originals).
+
+        Composite (multi-column) FKs are not rewritten. They're
+        vanishingly rare in deriva-ml-shaped catalogs (where every
+        FK targets ``RID``) but legal in general ERMrest schemas.
+        The loader logs a warning the first time it sees one per
+        ``(schema, table, fk_name)`` so a maintainer running clone-via-
+        bag on a less constrained schema gets a clear hint that the
+        remap won't apply.
         """
         if not self._rid_remap:
             return row
         out = dict(row)
         for fk in table.foreign_keys:
             if len(fk.foreign_key_columns) != 1:
-                # Composite FKs into vocabularies are vanishingly
-                # rare in deriva-ml-shaped catalogs; punt.
+                self._warn_composite_fk_skipped(table, fk)
                 continue
             src_col = fk.foreign_key_columns[0].name
             tgt_table = fk.pk_table
@@ -911,6 +918,53 @@ class BagCatalogLoader:
             if src_value in remap:
                 out[src_col] = remap[src_value]
         return out
+
+    def _warn_composite_fk_skipped(
+        self, table: DerivaTable, fk: Any
+    ) -> None:
+        """Log a one-shot warning per composite FK encountered.
+
+        Internal helper for :meth:`_rewrite_fks`. The remap can't
+        rewrite a composite FK because the destination's column
+        values for the multiple columns aren't independently
+        knowable from a single source-RID remap entry. Callers
+        on deriva-ml-shaped catalogs (RID-FK only) never see this
+        warning; callers running clone-via-bag on a general
+        ERMrest catalog get one warning per offending FK and a
+        clear pointer at the limitation.
+
+        Suppression is per ``(schema, table, fk_name)``, so a
+        repeated row over the same FK during the same load only
+        logs once. State lives on ``self._composite_fk_warned`` —
+        which is initialised lazily so existing tests that
+        construct ``BagCatalogLoader`` directly without going
+        through ``__init__`` keep working.
+        """
+        warned = getattr(self, "_composite_fk_warned", None)
+        if warned is None:
+            warned = self._composite_fk_warned = set()
+        # Each FK has a list of (schema, name) tuples; flatten for
+        # a stable key.
+        fk_key = (
+            table.schema.name,
+            table.name,
+            tuple(fk.names) if hasattr(fk, "names") else id(fk),
+        )
+        if fk_key in warned:
+            return
+        warned.add(fk_key)
+        logger.warning(
+            "Composite FK on %s.%s (columns=%r → %s.%s) skipped by "
+            "_rewrite_fks. The remap cannot rewrite composite FKs; "
+            "rows of this table will be inserted with their bag-side "
+            "FK values verbatim. Confirm the destination catalog has "
+            "the referenced rows under those values.",
+            table.schema.name,
+            table.name,
+            [c.name for c in fk.foreign_key_columns],
+            fk.pk_table.schema.name,
+            fk.pk_table.name,
+        )
 
     async def _fetch_existing_rids(
         self, schema_name: str, table_name: str

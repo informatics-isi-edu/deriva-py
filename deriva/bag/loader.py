@@ -216,14 +216,31 @@ class ForeignKeyOrderer:
         error: CycleError,
         _depth: int = 0,
     ) -> list[str]:
-        """Remove one cycle-causing edge and retry the topological sort."""
+        """Remove one cycle-causing edge and retry the topological sort.
+
+        The recursion bound is ``len(graph)`` — a schema can't
+        have more independent cycles than edges. Exceeding it is
+        a bug (either in the FK extraction step or in the cycle
+        detector), not a recoverable state. Earlier behaviour was
+        to log an error and return ``list(graph.keys())`` — an
+        arbitrary order with no ``_cycle_broken_edges`` entries
+        recorded. That made downstream two-phase-insert callers
+        (which consume ``cycle_broken_edges``) silently produce
+        ``FK constraint`` failures instead of a clear "could not
+        break cycles" error. The audit (§4.5) recommended raising
+        instead; this is that fix.
+        """
         # Defensive recursion bound: can't have more cycles than edges.
         max_depth = len(graph)
         if _depth > max_depth:
-            logger.error(
-                "Too many cycles to break; returning arbitrary order"
+            raise RuntimeError(
+                "Too many cycles to break in FK dependency graph "
+                f"(depth exceeded {max_depth}). This is a bug in "
+                "the cycle detector or the FK extraction step — a "
+                "real schema cannot have more independent cycles "
+                "than edges. Inspect the remaining graph: "
+                f"{dict(graph)}"
             )
-            return list(graph.keys())
 
         cycle = list(error.args[1]) if len(error.args) > 1 else []
         if cycle:

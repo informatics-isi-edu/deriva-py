@@ -2362,3 +2362,117 @@ def test_match_by_columns_rewrites_fks_before_match_query(tmp_path: Path) -> Non
         f"W2 should have inserted; got "
         f"rows_inserted={widget_stats.rows_inserted}"
     )
+
+
+# =============================================================================
+# Composite-FK warning in _rewrite_fks (audit §3.1)
+# =============================================================================
+#
+# ``_rewrite_fks`` can only rewrite single-column FKs (the source
+# RID maps to one destination RID; composite-column FKs aren't
+# representable in the remap shape). Pre-audit, composite FKs
+# were silently skipped — fine for deriva-ml-shaped catalogs where
+# every FK targets RID, but a footgun for general clone-via-bag
+# users. The fix: log a one-shot warning per offending FK.
+
+
+def test_rewrite_fks_warns_once_on_composite_fk(
+    tmp_path: Path, caplog: Any
+) -> None:
+    """A composite FK is skipped but logs a one-shot warning.
+
+    Two rows over the same composite FK should produce exactly
+    one log entry (per ``(schema, table, fk_name)``), so a real
+    clone with many rows over the same composite FK doesn't flood
+    the log.
+    """
+    import logging
+
+    bag = _build_fk_bag(tmp_path)
+    loader = BagCatalogLoader(
+        catalog=_mock_catalog(),
+        bag=bag,
+        policy=FKTraversalPolicy(asset_mode=AssetMode.ROWS_ONLY),
+        database_dir=tmp_path / "db",
+    )
+    try:
+        # Synthesize a composite-FK shape: a mock table with one
+        # FK whose ``foreign_key_columns`` has two entries.
+        col1 = MagicMock(name="Col1")
+        col1.name = "K1"
+        col2 = MagicMock(name="Col2")
+        col2.name = "K2"
+        composite_fk = MagicMock(name="CompositeFK")
+        composite_fk.foreign_key_columns = [col1, col2]
+        composite_fk.names = [("demo", "fk_composite")]
+        pk_table = MagicMock(name="ParentTable")
+        pk_table.schema.name = "demo"
+        pk_table.name = "Parent"
+        composite_fk.pk_table = pk_table
+
+        child_table = MagicMock(name="ChildTable")
+        child_table.schema.name = "demo"
+        child_table.name = "Child"
+        child_table.foreign_keys = [composite_fk]
+
+        # Seed the remap so the function has something to do
+        # (otherwise the early-return short-circuits before
+        # iterating FKs).
+        loader._rid_remap[("demo", "Other")] = {"X": "Y"}
+
+        with caplog.at_level(logging.WARNING, logger="deriva.bag.catalog_loader"):
+            _ = loader._rewrite_fks(child_table, {"K1": "a", "K2": "b"})
+            _ = loader._rewrite_fks(child_table, {"K1": "c", "K2": "d"})
+
+        composite_msgs = [
+            r
+            for r in caplog.records
+            if "Composite FK" in r.getMessage()
+        ]
+        assert len(composite_msgs) == 1, (
+            f"expected one composite-FK warning, got {len(composite_msgs)}; "
+            f"messages: {[r.getMessage() for r in composite_msgs]}"
+        )
+    finally:
+        loader.dispose()
+
+
+def test_rewrite_fks_returns_row_unchanged_for_composite_fk(
+    tmp_path: Path,
+) -> None:
+    """Composite FKs aren't rewritten; row passes through verbatim."""
+    bag = _build_fk_bag(tmp_path)
+    loader = BagCatalogLoader(
+        catalog=_mock_catalog(),
+        bag=bag,
+        policy=FKTraversalPolicy(asset_mode=AssetMode.ROWS_ONLY),
+        database_dir=tmp_path / "db",
+    )
+    try:
+        col1 = MagicMock(name="Col1")
+        col1.name = "K1"
+        col2 = MagicMock(name="Col2")
+        col2.name = "K2"
+        composite_fk = MagicMock(name="CompositeFK")
+        composite_fk.foreign_key_columns = [col1, col2]
+        composite_fk.names = [("demo", "fk_composite")]
+        pk_table = MagicMock(name="ParentTable")
+        pk_table.schema.name = "demo"
+        pk_table.name = "Parent"
+        composite_fk.pk_table = pk_table
+
+        child_table = MagicMock(name="ChildTable")
+        child_table.schema.name = "demo"
+        child_table.name = "Child"
+        child_table.foreign_keys = [composite_fk]
+        # Remap a different table so the early-return doesn't fire.
+        loader._rid_remap[("demo", "Other")] = {"X": "Y"}
+
+        row = {"K1": "a", "K2": "b"}
+        out = loader._rewrite_fks(child_table, row)
+        assert out == row
+        # The function returns a shallow copy; values must match
+        # but the dict identity is allowed to differ.
+        assert out is not row
+    finally:
+        loader.dispose()

@@ -270,6 +270,32 @@ def test_orderer_cycle_broken_edges_empty_for_dag() -> None:
     assert orderer.cycle_broken_edges() == []
 
 
+def test_orderer_break_cycles_raises_on_depth_exhaust() -> None:
+    """``_break_cycles_and_sort`` raises when the recursion bound trips.
+
+    Audit §4.5: pre-cleanup, the function logged an error and
+    returned ``list(graph.keys())`` — an arbitrary order with no
+    broken-edge records. That hid bugs in cycle detection from
+    downstream two-phase-insert callers (which silently failed
+    FK constraints instead of getting a clear error). Now raises.
+
+    Hard to hit in real schemas (would require more cycles than
+    edges, which is impossible). This test constructs the failure
+    mode by passing ``_depth`` past the bound directly.
+    """
+    from graphlib import CycleError
+
+    model = _model_with_two_way_cycle()
+    orderer = ForeignKeyOrderer(model, ["demo"])
+    # Synthesize a graph + CycleError that won't make progress.
+    graph: dict[str, set[str]] = {"a": {"b"}, "b": {"a"}}
+    err = CycleError("nodes are in a cycle", ["a", "b", "a"])
+    with pytest.raises(RuntimeError, match="Too many cycles to break"):
+        orderer._break_cycles_and_sort(
+            graph, err, _depth=len(graph) + 1
+        )
+
+
 # ---------------------------------------------------------------------------
 # DataLoader + SQLiteSink (default sink)
 # ---------------------------------------------------------------------------
