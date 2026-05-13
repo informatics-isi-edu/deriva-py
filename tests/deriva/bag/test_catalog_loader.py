@@ -744,8 +744,7 @@ def test_table_load_stats_defaults() -> None:
     assert s.rows_inserted == 0
     assert s.rows_skipped_orphan == 0
     assert s.rows_nullified_orphan == 0
-    assert s.assets_uploaded == 0
-    assert s.assets_deduped == 0
+    assert s.assets_attempted == 0
 
 
 # ---------------------------------------------------------------------------
@@ -1308,17 +1307,44 @@ def _build_asset_only_bag(tmp_path: Path) -> Path:
     return bag
 
 
-def test_upload_assets_dedupe_skips_when_md5_matches(tmp_path: Path) -> None:
-    """``UPLOAD_IF_MISSING`` skips bytes when destination MD5 matches."""
+def _install_mock_uploader(loader: BagCatalogLoader, hatrac_store: Any) -> Any:
+    """Stand-in :class:`DerivaUpload` for the loader.
+
+    Bypasses the public ``__init__`` (config load, signal handler) by
+    pre-populating only the attributes :meth:`DerivaUpload._hatracUpload`
+    and its callees read. ``self.store`` is the caller's
+    ``HatracStore`` mock — that's the layer the test asserts against,
+    since :meth:`_hatracUpload` delegates byte transfer to it.
+    """
+    from deriva.transfer.upload.deriva_upload import DerivaUpload
+
+    uploader = DerivaUpload.__new__(DerivaUpload)
+    uploader.store = hatrac_store
+    uploader.server_url = "https://example.org"
+    uploader.transfer_state = {}
+    uploader.transfer_state_fh = None
+    uploader.transfer_state_locks = {}
+    uploader.cancelled = False
+    loader._uploader = uploader
+    return uploader
+
+
+def test_upload_assets_invokes_put_loc_per_row(tmp_path: Path) -> None:
+    """``UPLOAD_IF_MISSING`` invokes ``store.put_loc(chunked=True)`` per asset row.
+
+    The loader hands each row to :meth:`DerivaUpload._hatracUpload`, which
+    in turn calls :meth:`HatracStore.put_loc` with ``chunked=True``.
+    HEAD-then-PUT dedup is decided inside ``put_loc`` server-side; the
+    loader does not pre-check or count dedups. :attr:`assets_attempted`
+    counts upload invocations.
+    """
     import asyncio
 
     bag = _build_asset_only_bag(tmp_path)
     catalog = _mock_catalog()
     hatrac = MagicMock()
-    head_resp = MagicMock()
-    head_resp.status_code = 200
-    head_resp.headers = {"Content-MD5": "deadbeef"}
-    hatrac.head.return_value = head_resp
+    # put_loc returns a Content-Location string on success.
+    hatrac.put_loc.return_value = "/hatrac/Image/img.png:VERSION1"
 
     loader = BagCatalogLoader(
         catalog=catalog,
@@ -1326,67 +1352,34 @@ def test_upload_assets_dedupe_skips_when_md5_matches(tmp_path: Path) -> None:
         policy=FKTraversalPolicy(asset_mode=AssetMode.UPLOAD_IF_MISSING),
         database_dir=tmp_path / "db",
     )
-    loader._hatrac_store = hatrac  # bypass real construction
+    _install_mock_uploader(loader, hatrac)
     try:
         image = loader.bag_db.model.schemas["demo"].tables["Image"]
         rows = list(loader.bag_db.get_table_contents("Image"))
-        uploaded, deduped = asyncio.run(
-            loader._upload_assets(image, rows)
-        )
+        attempted = asyncio.run(loader._upload_assets(image, rows))
     finally:
         loader.dispose()
 
-    assert uploaded == 0
-    assert deduped == 1
-    hatrac.put_loc.assert_not_called()
-    hatrac.head.assert_called_once_with("/hatrac/Image/img.png")
-
-
-def test_upload_assets_uploads_when_md5_differs(tmp_path: Path) -> None:
-    """``UPLOAD_IF_MISSING`` pushes bytes when destination MD5 differs."""
-    import asyncio
-
-    bag = _build_asset_only_bag(tmp_path)
-    catalog = _mock_catalog()
-    hatrac = MagicMock()
-    head_resp = MagicMock()
-    head_resp.status_code = 200
-    head_resp.headers = {"Content-MD5": "different_md5"}
-    hatrac.head.return_value = head_resp
-
-    loader = BagCatalogLoader(
-        catalog=catalog,
-        bag=bag,
-        policy=FKTraversalPolicy(asset_mode=AssetMode.UPLOAD_IF_MISSING),
-        database_dir=tmp_path / "db",
-    )
-    loader._hatrac_store = hatrac
-    try:
-        image = loader.bag_db.model.schemas["demo"].tables["Image"]
-        rows = list(loader.bag_db.get_table_contents("Image"))
-        uploaded, deduped = asyncio.run(
-            loader._upload_assets(image, rows)
-        )
-    finally:
-        loader.dispose()
-
-    assert uploaded == 1
-    assert deduped == 0
+    assert attempted == 1
+    # put_loc was called with the canonicalized destination path, the
+    # row's MD5 (for server-side dedup verification), chunked mode on,
+    # and force off.
     hatrac.put_loc.assert_called_once()
-    # The destination Hatrac path is the source URL's path component.
     args, kwargs = hatrac.put_loc.call_args
     assert args[0] == "/hatrac/Image/img.png"
     assert kwargs.get("md5") == "deadbeef"
+    assert kwargs.get("chunked") is True
     assert kwargs.get("force") is False
 
 
-def test_upload_assets_force_bypasses_head(tmp_path: Path) -> None:
-    """``UPLOAD_FORCE`` skips the HEAD and pushes unconditionally."""
+def test_upload_assets_force_passes_through(tmp_path: Path) -> None:
+    """``UPLOAD_FORCE`` propagates as ``force=True`` to ``put_loc``."""
     import asyncio
 
     bag = _build_asset_only_bag(tmp_path)
     catalog = _mock_catalog()
     hatrac = MagicMock()
+    hatrac.put_loc.return_value = "/hatrac/Image/img.png:VERSION1"
 
     loader = BagCatalogLoader(
         catalog=catalog,
@@ -1394,25 +1387,26 @@ def test_upload_assets_force_bypasses_head(tmp_path: Path) -> None:
         policy=FKTraversalPolicy(asset_mode=AssetMode.UPLOAD_FORCE),
         database_dir=tmp_path / "db",
     )
-    loader._hatrac_store = hatrac
+    _install_mock_uploader(loader, hatrac)
     try:
         image = loader.bag_db.model.schemas["demo"].tables["Image"]
         rows = list(loader.bag_db.get_table_contents("Image"))
-        uploaded, deduped = asyncio.run(
-            loader._upload_assets(image, rows)
-        )
+        attempted = asyncio.run(loader._upload_assets(image, rows))
     finally:
         loader.dispose()
 
-    assert uploaded == 1
-    assert deduped == 0
-    hatrac.head.assert_not_called()
+    assert attempted == 1
     _args, kwargs = hatrac.put_loc.call_args
     assert kwargs.get("force") is True
 
 
 def test_upload_assets_skips_missing_local_file(tmp_path: Path) -> None:
-    """Rows whose Filename doesn't exist on disk are warned and skipped."""
+    """Rows whose Filename doesn't exist on disk are warned and skipped.
+
+    Skipped rows do not contribute to :attr:`assets_attempted` — the
+    counter reflects calls to :meth:`_hatracUpload`, which the loader
+    doesn't issue for rows without local bytes.
+    """
     import asyncio
 
     bag = _build_asset_only_bag(tmp_path)
@@ -1427,18 +1421,15 @@ def test_upload_assets_skips_missing_local_file(tmp_path: Path) -> None:
         policy=FKTraversalPolicy(asset_mode=AssetMode.UPLOAD_IF_MISSING),
         database_dir=tmp_path / "db",
     )
-    loader._hatrac_store = hatrac
+    _install_mock_uploader(loader, hatrac)
     try:
         image = loader.bag_db.model.schemas["demo"].tables["Image"]
         rows = list(loader.bag_db.get_table_contents("Image"))
-        uploaded, deduped = asyncio.run(
-            loader._upload_assets(image, rows)
-        )
+        attempted = asyncio.run(loader._upload_assets(image, rows))
     finally:
         loader.dispose()
 
-    assert uploaded == 0
-    assert deduped == 0
+    assert attempted == 0
     hatrac.put_loc.assert_not_called()
 
 

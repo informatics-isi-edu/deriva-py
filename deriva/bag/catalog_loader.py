@@ -15,13 +15,34 @@ Two surfaces:
   ``run()`` is a thin wrapper around ``arun()`` for callers in
   sync contexts.
 
-The loader does **not** implement its own asset uploader; it
-delegates each per-file upload to deriva-py's
-:class:`~deriva.transfer.upload.deriva_upload.DerivaUpload`
-recipe, which already handles Hatrac MD5-based dedupe, catalog
-row reconciliation (so additional metadata on the bag's row
-survives a re-upload), pre-allocated RID handling, and
-transfer-state resumption.
+The loader does **not** implement its own Hatrac upload — it
+hands each asset row to
+:meth:`~deriva.transfer.upload.deriva_upload.DerivaUpload._hatracUpload`,
+which picks chunked vs. single-PUT based on file size and (when
+the destination already has a matching MD5) skips byte transfer
+via :meth:`HatracStore.put_loc`'s built-in HEAD-then-PUT path.
+Server-side dedup is therefore transparent to the loader:
+:attr:`TableLoadStats.assets_attempted` counts upload invocations
+only; whether bytes actually transferred is decided downstream.
+
+Cross-process transfer-state resumption — the persistent
+``.deriva-upload-state-*.json`` machinery in
+:class:`~deriva.transfer.upload.deriva_upload.DerivaUpload` — is
+**not** wired up here. The bag-loader is a one-shot driver; the
+state-file overhead would buy resume-on-crash at the cost of a
+file lock that would serialize concurrent loads to the same bag.
+A future caller that needs resume can opt in by populating
+``self._uploader.transfer_state`` and calling
+:meth:`DerivaUpload.loadTransferState` before invoking
+:meth:`run`.
+
+Catalog row insertion is the loader's own responsibility, not
+the uploader's: row writes go directly through ``catalog.post``
+in :meth:`_insert_rows`, with row reconciliation, RID remap, and
+dangling-FK handling layered in by the table-class machinery
+(:meth:`_load_vocabulary_table`,
+:meth:`_load_match_by_columns_table`,
+:meth:`_load_content_table`).
 
 For non-asset tables, the loader walks the bag's SQLAlchemy ORM
 (via :class:`BagDatabase`) in :class:`ForeignKeyOrderer`-computed
@@ -123,13 +144,14 @@ class TableLoadStats:
     """Rows whose dangling FK columns were set to NULL (only
     nonzero when ``dangling_fk_strategy == NULLIFY``)."""
 
-    assets_uploaded: int = 0
-    """Asset files transferred to the destination Hatrac (zero
-    for ``ROWS_ONLY`` mode or when Hatrac dedupe found a match)."""
-
-    assets_deduped: int = 0
-    """Asset files that already existed in the destination Hatrac
-    with a matching MD5; bytes not transferred."""
+    assets_attempted: int = 0
+    """Number of asset rows for which :meth:`_hatracUpload` was
+    invoked. The deriva-py uploader's HEAD-then-PUT path (inside
+    :meth:`HatracStore.put_loc` when ``chunked=True``) decides
+    server-side whether to transfer bytes or skip-on-MD5-match;
+    the loader does not distinguish the two outcomes in this
+    counter. Zero in ``ROWS_ONLY`` mode (asset bytes aren't pushed
+    at all)."""
 
     rows_matched_by_name: int = 0
     """Vocabulary rows that already existed on the destination
@@ -604,12 +626,15 @@ class BagCatalogLoader:
             table.is_asset()
             and self.policy.asset_mode != AssetMode.ROWS_ONLY
         ):
-            # Upload asset bytes. For UPLOAD_IF_MISSING the upload
-            # recipe checks Hatrac via HEAD and skips bytes when
-            # MD5 matches; we count those skips for the report.
-            uploaded, deduped = await self._upload_assets(table, rows)
-            stats.assets_uploaded = uploaded
-            stats.assets_deduped = deduped
+            # Hand off each asset row to deriva-py's
+            # :meth:`DerivaUpload._hatracUpload`, which handles
+            # chunking-by-size, HEAD-then-PUT dedup against the
+            # destination's MD5, and (when wired up) per-chunk
+            # transfer-state. Dedup-vs-transfer is decided
+            # server-side inside :meth:`HatracStore.put_loc` and
+            # is not surfaced to the loader; ``assets_attempted``
+            # counts upload invocations only.
+            stats.assets_attempted = await self._upload_assets(table, rows)
 
         return stats
 
@@ -1276,35 +1301,50 @@ class BagCatalogLoader:
         self,
         table: DerivaTable,
         rows: list[dict[str, Any]],
-    ) -> tuple[int, int]:
-        """Push asset bytes to the destination Hatrac. Returns ``(uploaded, deduped)``.
+    ) -> int:
+        """Push asset bytes to the destination Hatrac via deriva-py's uploader.
 
-        For each asset row in ``rows``:
+        For each asset row in ``rows`` the loader hands the
+        bag-local file path and the source-catalog URL to
+        :meth:`DerivaUpload._hatracUpload`, which:
 
-        - Use ``Filename`` (now a local path inside the bag — see
-          :meth:`BagDatabase._localize_asset_row`) as the source
-          file.
-        - Use the path component of the row's ``URL`` (the
-          source-catalog Hatrac URL) as the destination Hatrac
-          path. Source and destination share the same logical
-          ``/hatrac/{table}/...`` layout, so the path is portable
-          across catalogs.
-        - With ``UPLOAD_IF_MISSING`` (default), HEAD the
-          destination first and skip the byte transfer when the
-          MD5 already matches.
-        - With ``UPLOAD_FORCE``, re-upload unconditionally.
+        - Picks chunked vs. single-PUT based on file size (default
+          chunk threshold is ``DEFAULT_CHUNK_SIZE``).
+        - HEADs the destination first; when ``Content-MD5`` matches
+          the supplied MD5 it returns the existing object location
+          without transferring bytes (server-side dedup). The
+          loader does not surface the dedup-vs-transfer distinction
+          to the caller — :attr:`TableLoadStats.assets_attempted`
+          counts upload invocations only.
+        - With ``UPLOAD_FORCE``, skips the HEAD and pushes
+          unconditionally.
 
         Rows missing a local file or URL are warned and skipped
-        (they count as neither uploaded nor deduped). HTTP errors
-        during upload propagate to the caller — the loader's job
-        is to surface them, not to swallow them.
-        """
-        hatrac = self._dest_hatrac_store()
+        (they don't count toward ``assets_attempted``). HTTP
+        errors during upload propagate to the caller — the
+        loader's job is to surface them, not to swallow them.
 
-        uploaded = 0
-        deduped = 0
+        Args:
+            table: The asset table being uploaded (used for the
+                bag-local path resolution and for diagnostic
+                logging).
+            rows: The bag rows to upload. Each row supplies
+                ``URL`` (destination Hatrac path source),
+                ``Filename`` (catalog-facing name; resolved to
+                the on-disk path by
+                :meth:`BagDatabase.resolve_asset_local_path`),
+                and ``MD5`` (used both for dedup HEAD-match and
+                for upload-job verification).
+
+        Returns:
+            Number of asset rows for which :meth:`_hatracUpload`
+            was invoked. Sets :attr:`TableLoadStats.assets_attempted`
+            at the caller.
+        """
+        uploader = self._get_uploader()
         force = self.policy.asset_mode == AssetMode.UPLOAD_FORCE
 
+        attempted = 0
         for row in rows:
             url = row.get("URL")
             if not url:
@@ -1345,42 +1385,69 @@ class BagCatalogLoader:
 
             md5 = row.get("MD5") or None
 
-            # HEAD-then-PUT so we can count dedupes accurately. For
-            # ``UPLOAD_FORCE`` skip the HEAD and just push.
-            if not force and await self._hatrac_already_has(
-                hatrac, hatrac_path, md5
-            ):
-                deduped += 1
-                continue
-
+            # Hand off to deriva-py's uploader. ``_hatracUpload``
+            # decides chunking based on file size and does
+            # HEAD-then-PUT dedup against the destination's MD5
+            # internally; when ``force`` is True it skips the HEAD
+            # and pushes unconditionally.
             await asyncio.to_thread(
-                hatrac.put_loc,
+                uploader._hatracUpload,
                 hatrac_path,
-                local_path,
+                str(local_path),
                 md5=md5,
+                chunked=True,
                 force=force,
             )
-            uploaded += 1
+            attempted += 1
 
-        return uploaded, deduped
+        return attempted
 
-    def _dest_hatrac_store(self) -> Any:
-        """Return a :class:`HatracStore` bound to the destination host.
+    def _get_uploader(self) -> Any:
+        """Return a minimal :class:`DerivaUpload` for asset uploads.
 
-        Cached on the loader since every asset upload reuses the
-        same store. The store reuses the catalog's credentials.
+        Constructed lazily on first asset-upload. We bypass the
+        public ``__init__`` (which loads a config file, installs
+        a SIGINT handler, and resolves credentials from the local
+        filesystem) and instead populate only the attributes
+        :meth:`_hatracUpload` and its callees read:
+
+        - ``store``: the :class:`HatracStore` bound to the
+          destination catalog's host.
+        - ``server_url``: used for log messages.
+        - ``transfer_state`` / ``transfer_state_fh`` /
+          ``transfer_state_locks``: present and empty so
+          ``getTransferState`` returns ``None`` and ``cleanupTransferState``
+          (called from ``__del__``) is a no-op. Wiring up the
+          state-file machinery for cross-process resume is a
+          deliberate non-goal here — the bag-loader is a one-shot
+          driver; the state-file overhead would buy resume on
+          process crash but at the cost of a file lock that
+          would serialize concurrent bag-loads to the same bag.
+        - ``cancelled``: ``False``; cancellation isn't wired up
+          through the bag-loader.
         """
-        if getattr(self, "_hatrac_store", None) is not None:
-            return self._hatrac_store
+        if getattr(self, "_uploader", None) is not None:
+            return self._uploader
+
         from deriva.core import HatracStore
+        from deriva.transfer.upload.deriva_upload import DerivaUpload
 
         deriva_server = self.catalog.deriva_server
-        self._hatrac_store = HatracStore(
+        store = HatracStore(
             deriva_server.scheme,
             deriva_server.server,
             credentials=self.catalog._credentials,
         )
-        return self._hatrac_store
+
+        uploader = DerivaUpload.__new__(DerivaUpload)
+        uploader.store = store
+        uploader.server_url = f"{deriva_server.scheme}://{deriva_server.server}"
+        uploader.transfer_state = {}
+        uploader.transfer_state_fh = None
+        uploader.transfer_state_locks = {}
+        uploader.cancelled = False
+        self._uploader = uploader
+        return uploader
 
     @staticmethod
     def _hatrac_path_for(url: str) -> str | None:
@@ -1415,35 +1482,6 @@ class BagCatalogLoader:
         if version_sep > last_slash:
             path = path[:version_sep]
         return path
-
-    async def _hatrac_already_has(
-        self,
-        hatrac: Any,
-        hatrac_path: str,
-        md5: str | None,
-    ) -> bool:
-        """HEAD the destination Hatrac object; True iff MD5 matches.
-
-        Missing MD5 means we can't be sure dedupe is safe, so we
-        return False (forcing an upload). A 404 on HEAD also means
-        we need to upload.
-        """
-        if not md5:
-            return False
-        import requests
-
-        def _head() -> bool:
-            try:
-                r = hatrac.head(hatrac_path)
-            except requests.HTTPError as e:
-                if getattr(e.response, "status_code", None) == 404:
-                    return False
-                raise
-            if r.status_code != 200:
-                return False
-            return r.headers.get("Content-MD5") == md5
-
-        return await asyncio.to_thread(_head)
 
     # ------------------------------------------------------------------
     # Lifecycle
