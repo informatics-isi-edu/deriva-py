@@ -1681,3 +1681,100 @@ def test_loader_defers_cycle_fks_and_patches_in_second_pass(
         # deferred column.
         for row in call["json"]:
             assert "RID" in row
+
+
+# =============================================================================
+# run() entry-point — notebook-loop fallback
+# =============================================================================
+#
+# BagCatalogLoader.run() bridges the async arun() pipeline into
+# sync callers. When invoked from inside an already-running event
+# loop (Jupyter / papermill kernels), bare asyncio.run() raises
+# "cannot be called from a running event loop". The fallback uses
+# nest_asyncio to re-enter the active loop.
+#
+# Both code paths are exercised below. The tests stub arun() to a
+# trivial coroutine so the run-time logic stays focused on the
+# scheduling shim, not the load pipeline.
+
+
+def test_run_outside_event_loop_uses_asyncio_run(tmp_path: Path) -> None:
+    """``run()`` from a plain sync caller drives ``arun`` to completion.
+
+    The pre-fallback behaviour. Verifies the no-loop path still
+    works after the nest_asyncio addition.
+    """
+    import asyncio as _asyncio
+
+    bag = _build_fk_bag(tmp_path)
+    catalog = _mock_catalog()
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=FKTraversalPolicy(asset_mode=AssetMode.ROWS_ONLY),
+        database_dir=tmp_path / "db",
+    )
+
+    sentinel = LoadReport(bag_path=bag, catalog_id="42")
+
+    async def _fake_arun() -> LoadReport:
+        return sentinel
+
+    try:
+        # Sanity: no loop is running at this point.
+        with pytest.raises(RuntimeError):
+            _asyncio.get_running_loop()
+        loader.arun = _fake_arun  # type: ignore[method-assign]
+        result = loader.run()
+    finally:
+        loader.dispose()
+
+    assert result is sentinel
+
+
+def test_run_inside_event_loop_uses_nest_asyncio(tmp_path: Path) -> None:
+    """``run()`` from inside a running loop re-enters via ``nest_asyncio``.
+
+    Drive the loader's ``run()`` from inside an ``async def``
+    function so a loop is active. Without the fallback this
+    would raise ``RuntimeError: asyncio.run() cannot be called
+    from a running event loop``.
+
+    ``nest_asyncio`` is a soft dependency of deriva-py — only
+    notebook callers need it, the bag module itself is import-safe
+    without it. Skip cleanly when the test environment doesn't
+    have it installed.
+    """
+    pytest.importorskip(
+        "nest_asyncio",
+        reason="soft dep; only notebook callers need it",
+    )
+    import asyncio as _asyncio
+
+    bag = _build_fk_bag(tmp_path)
+    catalog = _mock_catalog()
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=FKTraversalPolicy(asset_mode=AssetMode.ROWS_ONLY),
+        database_dir=tmp_path / "db",
+    )
+
+    sentinel = LoadReport(bag_path=bag, catalog_id="42")
+
+    async def _fake_arun() -> LoadReport:
+        return sentinel
+
+    loader.arun = _fake_arun  # type: ignore[method-assign]
+
+    async def _from_inside_a_running_loop() -> LoadReport:
+        # ``loop.is_running()`` is True here; loader.run() must
+        # detect that and use nest_asyncio instead of asyncio.run.
+        return loader.run()
+
+    try:
+        result = _asyncio.run(_from_inside_a_running_loop())
+    finally:
+        loader.dispose()
+
+    assert result is sentinel
