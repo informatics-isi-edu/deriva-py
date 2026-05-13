@@ -37,14 +37,7 @@ from csv import reader
 from pathlib import Path
 from typing import Any, Generator, Type
 
-from dateutil import parser
 from sqlalchemy import (
-    JSON,
-    Boolean,
-    Date,
-    DateTime,
-    Float,
-    Integer,
     MetaData,
     String,
     event,
@@ -59,7 +52,6 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.orm import Session, backref, foreign, relationship
 from sqlalchemy.sql.type_api import TypeEngine
-from sqlalchemy.types import TypeDecorator
 from urllib.parse import urlparse
 
 from deriva.core.ermrest_model import Column as DerivaColumn
@@ -70,69 +62,24 @@ from deriva.core.ermrest_model import Type as DerivaType
 from deriva.bag.profile import BAG_SCHEMA_VERSION
 from deriva.bag.sqlite_helpers import create_wal_engine, ensure_schema_meta
 
+# CSV-to-typed-value decorators + the canonical ERMrest → SQL map
+# live in :mod:`deriva.bag._column_types` since deriva-py PR #248
+# (column-construction dedup). Re-exported here so the public access
+# path through ``deriva.bag.database`` (and the historical shim
+# ``deriva.core.bag_database``) continues to work for existing
+# callers.
+from deriva.bag._column_types import (
+    ERMRestBoolean,
+    StringToDate,
+    StringToDateTime,
+    StringToFloat,
+    StringToInteger,
+    is_key_column,
+    sql_type_for_ermrest,
+)
+
 
 logger = logging.getLogger(__name__)
-
-
-# Type converters for loading CSV string data into SQLite with proper types
-
-class ERMRestBoolean(TypeDecorator):
-    """Convert ERMrest boolean strings to Python bool."""
-    impl = Boolean
-    cache_ok = True
-
-    def process_bind_param(self, value: Any, dialect: Any) -> bool | None:
-        if value in ("Y", "y", 1, True, "t", "T"):
-            return True
-        elif value in ("N", "n", 0, False, "f", "F"):
-            return False
-        elif value is None:
-            return None
-        raise ValueError(f"Invalid boolean value: {value!r}")
-
-
-class StringToFloat(TypeDecorator):
-    """Convert string to float, handling empty strings."""
-    impl = Float
-    cache_ok = True
-
-    def process_bind_param(self, value: Any, dialect: Any) -> float | None:
-        if value == "" or value is None:
-            return None
-        return float(value)
-
-
-class StringToInteger(TypeDecorator):
-    """Convert string to integer, handling empty strings."""
-    impl = Integer
-    cache_ok = True
-
-    def process_bind_param(self, value: Any, dialect: Any) -> int | None:
-        if value == "" or value is None:
-            return None
-        return int(value)
-
-
-class StringToDateTime(TypeDecorator):
-    """Convert string to datetime, handling empty strings."""
-    impl = DateTime
-    cache_ok = True
-
-    def process_bind_param(self, value: Any, dialect: Any) -> Any:
-        if value == "" or value is None:
-            return None
-        return parser.parse(value)
-
-
-class StringToDate(TypeDecorator):
-    """Convert string to date, handling empty strings."""
-    impl = Date
-    cache_ok = True
-
-    def process_bind_param(self, value: Any, dialect: Any) -> Any:
-        if value == "" or value is None:
-            return None
-        return parser.parse(value).date()
 
 
 # Standard asset table columns
@@ -245,26 +192,6 @@ class BagDatabase:
             cur.execute(f"ATTACH DATABASE '{schema_file}' AS '{schema}'")
         cur.close()
 
-    @staticmethod
-    def _sql_type(deriva_type: DerivaType) -> TypeEngine:
-        """Map ERMrest type to SQLAlchemy type with CSV string conversion."""
-        return {
-            "boolean": ERMRestBoolean,
-            "date": StringToDate,
-            "float4": StringToFloat,
-            "float8": StringToFloat,
-            "int2": StringToInteger,
-            "int4": StringToInteger,
-            "int8": StringToInteger,
-            "json": JSON,
-            "jsonb": JSON,
-            "timestamptz": StringToDateTime,
-            "timestamp": StringToDateTime,
-        }.get(deriva_type.typename, String)
-
-    def _is_key_column(self, column: DerivaColumn, table: DerivaTable) -> bool:
-        """Check if column is the primary key (RID)."""
-        return column in [key.unique_columns[0] for key in table.keys] and column.name == "RID"
 
     def _create_tables(self) -> None:
         """Create SQLite tables from the ERMrest schema."""
@@ -303,10 +230,10 @@ class BagDatabase:
                     # insert time. Same rule as
                     # ``SchemaBuilder._create_tables`` and
                     # ``ermrest_json_to_metadata``.
-                    is_pk = self._is_key_column(c, table)
+                    is_pk = is_key_column(c, table)
                     database_column = SQLColumn(
                         name=c.name,
-                        type_=self._sql_type(c.type),
+                        type_=sql_type_for_ermrest(c.type),
                         comment=c.comment,
                         default=c.default,
                         primary_key=is_pk,

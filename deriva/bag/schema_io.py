@@ -77,7 +77,16 @@ from sqlalchemy.sql.type_api import TypeEngine
 # through ``ermrest_json_to_metadata`` gets the same type-coercion
 # behavior as :class:`~deriva.bag.database.BagDatabase` (which is
 # itself built on top of the schema_io output indirectly).
-from deriva.bag.database import (
+#
+# Since deriva-py PR #248 (column-construction dedup), the
+# decorator classes + the ``ERMREST_TO_SQL`` map live in
+# :mod:`deriva.bag._column_types` as the single source of truth.
+# ``ERMREST_TO_SQL`` is re-exported here for back-compat — older
+# code that did ``from deriva.bag.schema_io import ERMREST_TO_SQL``
+# continues to work, and the symbol is part of this module's
+# documented public surface.
+from deriva.bag._column_types import (
+    ERMREST_TO_SQL,
     ERMRestBoolean,
     StringToDate,
     StringToDateTime,
@@ -86,46 +95,6 @@ from deriva.bag.database import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-# =============================================================================
-# Type-mapping tables — single source of truth
-# =============================================================================
-
-
-#: ERMrest typename → SQLAlchemy type class.
-#:
-#: The integer/float/datetime types route through the ``StringTo*``
-#: decorators so a ``MetaData`` produced from ``schema.json`` can
-#: load CSV string values without an explicit conversion step. For
-#: producer-side use (``MetaData`` supplied by the caller for
-#: :class:`BagBuilder`) the decorators are unused — the caller is
-#: free to supply already-converted Python values.
-#:
-#: Unknown ERMrest types fall back to :class:`sqlalchemy.String`,
-#: which preserves any value that round-trips as a string.
-ERMREST_TO_SQL: dict[str, type[TypeEngine]] = {
-    "boolean": ERMRestBoolean,
-    "date": StringToDate,
-    "float4": StringToFloat,
-    "float8": StringToFloat,
-    "int2": StringToInteger,
-    "int4": StringToInteger,
-    "int8": StringToInteger,
-    "json": JSON,
-    "jsonb": JSON,
-    "timestamptz": StringToDateTime,
-    "timestamp": StringToDateTime,
-    "text": String,
-    "longtext": String,
-    "markdown": String,
-    # ERMrest's ``ermrest_rid`` etc. are stored as text; map directly.
-    "ermrest_rid": String,
-    "ermrest_rct": StringToDateTime,
-    "ermrest_rmt": StringToDateTime,
-    "ermrest_rcb": String,
-    "ermrest_rmb": String,
-}
 
 
 #: SQLAlchemy type class → ERMrest typename.
