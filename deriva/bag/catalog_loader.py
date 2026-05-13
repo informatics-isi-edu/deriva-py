@@ -658,6 +658,13 @@ class BagCatalogLoader:
                 new_rows.append(row)
 
         if new_rows:
+            # FK columns on a vocab row are unusual (most vocab
+            # tables are FK-terminal) but legitimate — a vocab
+            # row may reference another vocab row, and that
+            # parent might have been remapped on the same load.
+            # Apply the same FK-rewrite pass that
+            # ``_load_content_table`` runs.
+            new_rows = [self._rewrite_fks(table, row) for row in new_rows]
             inserted = await self._insert_rows(table, new_rows)
             stats.rows_inserted = inserted
 
@@ -745,6 +752,14 @@ class BagCatalogLoader:
                 new_rows.append(row)
 
         if new_rows:
+            # ``match_by_columns`` is commonly used on association
+            # tables (e.g. ``{Asset}_Asset_Type``) whose rows FK
+            # into asset tables that were themselves deduped via
+            # ``match_by_columns`` on a previous step. Without the
+            # FK rewrite the inserted row's FK column would
+            # carry a source RID that doesn't exist at the
+            # destination, failing the FK constraint with 409.
+            new_rows = [self._rewrite_fks(table, row) for row in new_rows]
             inserted = await self._insert_rows(table, new_rows)
             stats.rows_inserted = inserted
 
