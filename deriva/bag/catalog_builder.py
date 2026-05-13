@@ -314,12 +314,40 @@ class CatalogBagBuilder:
         Records two side outputs in addition to ``_reached_tables``:
 
         * :attr:`_anchor_tables` — the anchor-set tables themselves.
-        * :attr:`_table_paths` — the FK-walk path from the *first*
-          anchor that reached each table. Used by
-          :meth:`_table_query_path` to scope each non-anchor table's
-          query to rows reachable via that FK path. BFS guarantees
-          the recorded path is one of the shortest, which is what
-          we want for an anchor-scoped slice.
+        * :attr:`_table_paths` — every distinct simple FK path
+          (one or more) from an anchor that reached each table.
+          Used by :meth:`_table_query_path` to scope each non-
+          anchor table's query to rows reachable via that FK
+          route. BFS guarantees each recorded path is among the
+          shortest for its endpoint.
+
+        **Worked example** (single-anchor multi-path case):
+
+        Schema fragment::
+
+            Subject ──Image (FK Image.Subject → Subject.RID)
+                │
+                │ Dataset_Subject (assoc)
+                ▼
+            Dataset ─── Dataset_Image (assoc) ─── Image
+
+        Anchored at ``Subject``, the BFS visits ``Image`` two
+        ways:
+
+        1. ``[Subject, Image]`` — direct inbound FK (Image.Subject).
+        2. ``[Subject, Dataset_Subject, Dataset, Dataset_Image, Image]``
+           — via the Dataset_Image association.
+
+        Both paths are recorded in ``_table_paths[("demo", "Image")]``
+        so ``_build_export_spec`` emits one ``query_processor`` per
+        path, each scoped through ERMrest's natural-FK join. The
+        loader unions the two CSV files when the bag is consumed
+        (``ON CONFLICT DO NOTHING`` on RID), so the same Image row
+        reachable both ways is materialized exactly once at the
+        destination.
+
+        The ``max_paths`` knob caps the per-table path count so a
+        densely-connected catalog can't produce an unbounded spec.
         """
         from collections import deque
 

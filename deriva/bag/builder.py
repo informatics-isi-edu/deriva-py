@@ -710,22 +710,19 @@ class BagBuilder:
             loader.load_tables(list(self._pending_rows.keys()))
 
     def _metadata_as_model(self) -> Model:
-        """Turn our SQLAlchemy MetaData into an ERMrest Model."""
-        # Round-trip through ERMrest JSON. This is mildly wasteful
-        # (we already have a MetaData!) but it gives the
-        # SchemaBuilder + DataLoader machinery the deriva-py Model
-        # they expect. A direct MetaData→Model converter could
-        # replace this if profile coverage shows it matters.
-        doc = metadata_to_ermrest_json(self.metadata)
-        # Model.fromfile needs a file path; write to a temp file.
-        import tempfile
+        """Turn our SQLAlchemy MetaData into an ERMrest Model.
 
-        with tempfile.NamedTemporaryFile(
-            "w", suffix=".json", delete=False
-        ) as f:
-            json.dump(doc, f)
-            path = f.name
-        return Model.fromfile("file-system", path)
+        Goes through the ERMrest JSON serialization so the
+        ``SchemaBuilder`` + ``DataLoader`` machinery receives the
+        same shape it would get from a real catalog. ``Model``'s
+        constructor takes the JSON dict directly — no tempfile
+        round-trip needed (the previous implementation wrote the
+        JSON to a tempfile just to read it back via
+        ``Model.fromfile``; that was "mildly wasteful" and is now
+        gone).
+        """
+        doc = metadata_to_ermrest_json(self.metadata)
+        return Model("file-system", doc)
 
     def _write_provenance_file(self) -> None:
         """Write ``metadata/deriva-bag-provenance.json``."""

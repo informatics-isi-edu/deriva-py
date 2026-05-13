@@ -279,6 +279,46 @@ class FKTraversalPolicy(BaseModel):
             sent with NULL ``RCB`` and ERMrest rejects them with
             ``Image_RCB_fkey`` constraint failures.
 
+    Field interactions:
+        The four behaviour flags below are **orthogonal** —
+        :class:`BagCatalogLoader` consumes each independently. Some
+        pairings are nonetheless worth thinking through together:
+
+        * :attr:`dangling_fk_strategy` × :attr:`preserve_provenance`:
+          independent. Dangling-FK handling runs per row in
+          :meth:`BagCatalogLoader._apply_dangling_fk_strategy`;
+          provenance preservation only changes the wire URL
+          (``?nondefaults=RID`` vs ``?nondefaults=RID,RCT,RCB``).
+          ``PRESERVE`` (skip the bag-side check) + ``preserve_provenance=False``
+          is the end-of-execution commit case (rows are new,
+          parents already at destination).
+
+        * :attr:`match_by_columns` × :attr:`content_on_conflict`:
+          ``content_on_conflict`` only applies to tables classified
+          as ``CONTENT`` by ``_classify_table``. A table listed in
+          ``match_by_columns`` is classified as ``MATCH_BY_COLUMNS``
+          and routes through a different dispatch (vocab-style
+          remap), so the conflict strategy is ignored for that
+          table. Same for the structural vocab path — vocab tables
+          always match by ``Name`` regardless of the conflict
+          strategy.
+
+        * :attr:`match_by_columns` × :attr:`preserve_provenance`:
+          independent. A matched row is **not** inserted at all,
+          so neither RCT/RCB-strip behaviour applies. A new row
+          (no match) is inserted with the same provenance rules
+          as any other content row.
+
+        * :attr:`asset_mode` × everything else: independent. Asset
+          bytes flow through Hatrac after rows have been inserted;
+          which rows landed and how they were classified doesn't
+          change which asset bytes need PUTing.
+
+        See :class:`_TableClass` in
+        :mod:`deriva.bag.catalog_loader` for the
+        ``MATCH_BY_COLUMNS`` ▶ ``VOCABULARY`` ▶ ``CONTENT``
+        precedence rule.
+
     Example:
         >>> # Default — works for any producer case.
         >>> p = FKTraversalPolicy()

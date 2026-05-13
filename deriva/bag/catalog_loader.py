@@ -536,9 +536,22 @@ class BagCatalogLoader:
     async def _load_table(self, table: DerivaTable) -> TableLoadStats:
         """Load one table: rows + (if asset) bytes.
 
-        Dispatches to a vocabulary or content path based on
-        :meth:`_classify_table`. Both paths still apply the
-        :class:`DanglingFKStrategy` from the policy.
+        Dispatches to one of three row-load paths based on
+        :meth:`_classify_table`'s precedence ladder:
+
+        1. **``MATCH_BY_COLUMNS``** — table is listed in
+           :attr:`FKTraversalPolicy.match_by_columns`. Explicit
+           caller intent wins over structural classification.
+        2. **``VOCABULARY``** — structural detection
+           (``Table.is_vocabulary()``). Matched by ``Name``.
+        3. **``CONTENT``** — every other in-scope table. Inserted
+           by RID with :attr:`FKTraversalPolicy.content_on_conflict`
+           controlling collisions.
+
+        See :class:`_TableClass` for the full rule. All three
+        paths apply :class:`DanglingFKStrategy` and run
+        ``_rewrite_fks`` before insert (the rewrite handles
+        composite-FK skipping with a one-shot warning per FK).
         """
         qname = f"{table.schema.name}.{table.name}"
         stats = TableLoadStats(table=qname)
