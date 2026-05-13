@@ -2268,3 +2268,97 @@ def test_match_by_columns_rewrites_fks_on_inserted_rows(tmp_path: Path) -> None:
     # W2's parent (I-SRC-B) was identity-remapped (no destination
     # match). Either I-SRC-B (identity) is acceptable.
     assert by_rid["W2"]["Image"] == "I-SRC-B"
+
+
+def test_match_by_columns_rewrites_fks_before_match_query(tmp_path: Path) -> None:
+    """``match_by_columns`` rewrites FKs *before* computing the match key.
+
+    Regression: the original ``_load_match_by_columns_table`` ran
+    the match query using the bag-side row's FK column values
+    verbatim, then ran ``_rewrite_fks`` only on the unmatched
+    rows that fell through to insert. That mis-ordering broke
+    the common case where the match key includes an FK column
+    whose target table was deduped on the same load:
+
+    - Asset table deduped: ``Image.URL`` matches an existing
+      destination row, so ``_rid_remap`` maps ``I-SRC-A → I-DST-A``.
+    - Asset-type association deduped: match key is
+      ``(Image, Asset_Type)``. The bag row carries
+      ``(I-SRC-A, Type-X)``. The query asks "is there an existing
+      row with ``Image=I-SRC-A``?" → no (the destination's row has
+      ``Image=I-DST-A``). The bag row falls through to insert.
+    - Insert: ``_rewrite_fks`` turns the FK into ``I-DST-A``, then
+      ERMrest 409s on the **already-existing** composite key
+      ``(I-DST-A, Type-X)``.
+
+    Fix: ``_rewrite_fks`` runs at the **top** of the loop, so the
+    match query asks the right question and the existing
+    destination row is found in one shot.
+    """
+    bag = _build_image_widget_bag(tmp_path)
+
+    catalog = _mock_catalog()
+    # Image fetch: one existing row matches.
+    image_response = MagicMock()
+    image_response.raise_for_status.return_value = None
+    image_response.json.return_value = [
+        {"URL": "/hatrac/demo/abc.a.png", "RID": "I-DST-A"},
+    ]
+    # Widget fetch: one existing row matches the *destination*
+    # Image RID + Widget RID. Without the fix, the query is keyed
+    # by ``I-SRC-A`` (bag-side) and misses; with the fix it's
+    # keyed by ``I-DST-A`` and finds the row.
+    widget_response = MagicMock()
+    widget_response.raise_for_status.return_value = None
+    widget_response.json.return_value = [
+        {"Image": "I-DST-A", "RID": "W1"},
+    ]
+
+    def _get(path: str, **_: Any):
+        if "Image" in path and "URL" in path:
+            return image_response
+        if "Widget" in path:
+            return widget_response
+        raise AssertionError(f"unexpected GET path: {path}")
+
+    insert_payloads: list[tuple[str, list[dict[str, Any]]]] = []
+
+    def _post(path: str, **kwargs: Any):
+        insert_payloads.append((path, kwargs["json"]))
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        return resp
+
+    catalog.get = _get
+    catalog.post = _post
+
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=FKTraversalPolicy(
+            asset_mode=AssetMode.ROWS_ONLY,
+            match_by_columns={
+                ("demo", "Image"): ["URL"],
+                ("demo", "Widget"): ["Image", "RID"],
+            },
+        ),
+        database_dir=tmp_path / "db",
+    )
+    try:
+        report = loader.run()
+    finally:
+        loader.dispose()
+
+    widget_stats = report.table_stats["demo.Widget"]
+    # W1's match key, after FK rewrite, is (I-DST-A, W1) — which
+    # the destination has. W2's match key, after FK rewrite, is
+    # (I-SRC-B, W2) — which the destination doesn't have, so it
+    # inserts.
+    assert widget_stats.rows_matched_by_columns == 1, (
+        f"W1 should have matched after FK rewrite; got "
+        f"rows_matched_by_columns={widget_stats.rows_matched_by_columns}"
+    )
+    assert widget_stats.rows_inserted == 1, (
+        f"W2 should have inserted; got "
+        f"rows_inserted={widget_stats.rows_inserted}"
+    )
