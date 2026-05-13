@@ -2174,3 +2174,97 @@ def test_match_by_columns_policy_rejects_empty_column_list() -> None:
         FKTraversalPolicy(
             match_by_columns={("demo", "Image"): []},
         )
+
+
+def test_match_by_columns_rewrites_fks_on_inserted_rows(tmp_path: Path) -> None:
+    """``match_by_columns`` insert path runs ``_rewrite_fks``.
+
+    Regression: ``_load_match_by_columns_table`` originally
+    inserted rows whose match-key didn't match without running
+    them through ``_rewrite_fks``. That broke the common case
+    where a child table itself uses ``match_by_columns`` and its
+    parent (e.g. an asset row) was remapped by a previous step.
+    The child's FK column would carry a source-RID that doesn't
+    exist at the destination, failing the FK constraint with 409.
+
+    Test setup: ``Image`` is deduped by URL (one match, one new);
+    ``Widget`` is also deduped by ``match_by_columns`` (composite
+    key with no matches → every row inserts). Widget's
+    ``Image`` FK references the bag's source RID; after the
+    asset row was matched, that FK must be rewritten to the
+    destination RID before Widget is inserted.
+    """
+    bag = _build_image_widget_bag(tmp_path)
+    catalog = _mock_catalog()
+
+    # First GET fetches existing Image rows by URL (one match).
+    # Second GET fetches existing Widget rows by (Image, RID) —
+    # empty (Widget is fresh).
+    image_response = MagicMock()
+    image_response.raise_for_status.return_value = None
+    image_response.json.return_value = [
+        {"URL": "/hatrac/demo/abc.a.png", "RID": "I-DST-A"},
+    ]
+    widget_response = MagicMock()
+    widget_response.raise_for_status.return_value = None
+    widget_response.json.return_value = []  # no existing widgets
+
+    def _get(path: str, **_: Any):
+        if "Image" in path and "URL" in path:
+            return image_response
+        if "Widget" in path:
+            return widget_response
+        raise AssertionError(f"unexpected GET path: {path}")
+
+    insert_payloads: list[tuple[str, list[dict[str, Any]]]] = []
+
+    def _post(path: str, **kwargs: Any):
+        insert_payloads.append((path, kwargs["json"]))
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        return resp
+
+    catalog.get = _get
+    catalog.post = _post
+
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=FKTraversalPolicy(
+            asset_mode=AssetMode.ROWS_ONLY,
+            match_by_columns={
+                ("demo", "Image"): ["URL"],
+                # Widget also goes through match_by_columns. Use a
+                # composite key that won't match anything (Widget
+                # has no Name column in the test fixture, so use
+                # the synthetic combination of ``Image`` FK +
+                # ``RID`` — which makes every Widget row unique
+                # and forces them all through the insert path
+                # where the FK-rewrite must apply.
+                ("demo", "Widget"): ["Image", "RID"],
+            },
+        ),
+        database_dir=tmp_path / "db",
+    )
+    try:
+        loader.run()
+    finally:
+        loader.dispose()
+
+    # Locate the Widget POST payload. The FK column must have
+    # been rewritten through the remap built when Image was loaded.
+    widget_posts = [
+        rows for path, rows in insert_payloads if "Widget" in path
+    ]
+    assert widget_posts, "expected Widget rows to be POSTed"
+    widget_rows = widget_posts[0]
+    by_rid = {r["RID"]: r for r in widget_rows}
+    # W1 references the matched Image (I-SRC-A → I-DST-A).
+    # Without the FK rewrite, W1.Image would still be I-SRC-A.
+    assert by_rid["W1"]["Image"] == "I-DST-A", (
+        "Widget.Image FK was not rewritten through the remap; "
+        "match_by_columns insert path must call _rewrite_fks"
+    )
+    # W2's parent (I-SRC-B) was identity-remapped (no destination
+    # match). Either I-SRC-B (identity) is acceptable.
+    assert by_rid["W2"]["Image"] == "I-SRC-B"
