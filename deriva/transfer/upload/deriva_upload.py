@@ -777,7 +777,29 @@ class DerivaUpload(object):
             default_columns = asset_mapping.get("default_columns")
             if not default_columns:
                 default_columns = self.catalog.getDefaultColumns({}, self.metadata['target_table'])
+            # Optional ``nondefaults`` parameter on the asset_mapping mirrors
+            # the same-named parameter on :meth:`_catalogRecordCreate` (single
+            # row insert). Callers use it to install bulk rows with
+            # caller-supplied values for normally-auto-assigned columns —
+            # most commonly ``nondefaults=["RID"]`` so pre-leased RIDs from
+            # ERMrest_RID_Lease survive the insert. Without this, the server
+            # assigns new RIDs and any FK reference in another table pointing
+            # at the leased RID would break.
+            #
+            # Deduplicate: any column in both ``default_columns`` and
+            # ``nondefaults`` should be treated as nondefault. The asset
+            # mapping's intent is "auto-default these, but explicitly NOT
+            # those" — overlap on a column means "explicit wins."
+            nondefaults = asset_mapping.get("nondefaults") or []
+            if nondefaults:
+                default_columns = [c for c in default_columns if c not in nondefaults]
             default_param = ('?defaults=%s' % ','.join(default_columns)) if len(default_columns) > 0 else ''
+            if nondefaults:
+                nondefaults_str = ','.join(nondefaults)
+                if default_param:
+                    default_param += '&nondefaults=%s' % nondefaults_str
+                else:
+                    default_param = '?nondefaults=%s' % nondefaults_str
             file_ext = self.metadata['file_ext']
             file_ext = file_ext.lower()
             if file_ext == 'csv':
