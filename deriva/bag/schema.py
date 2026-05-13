@@ -73,12 +73,14 @@ from sqlalchemy.sql.type_api import TypeEngine
 # Re-export the type decorators from deriva.bag.database so callers
 # that import them from here see the same classes BagDatabase uses.
 # (Defining a second copy would risk subtle isinstance() mismatches.)
-from deriva.bag.database import (  # noqa: F401  (re-export)
+from deriva.bag._column_types import (  # noqa: F401  (re-export)
     ERMRestBoolean,
     StringToDate,
     StringToDateTime,
     StringToFloat,
     StringToInteger,
+    is_key_column,
+    sql_type_for_ermrest,
 )
 from deriva.bag.sqlite_helpers import create_wal_engine
 
@@ -550,24 +552,6 @@ class SchemaBuilder:
             orm.dispose()
     """
 
-    #: Map from ERMrest type names to SQLAlchemy column types. The
-    #: integer/float/timestamp types route through ``StringTo*``
-    #: decorators so CSV string values can be loaded directly without
-    #: a separate conversion step.
-    _TYPE_MAP = {
-        "boolean": ERMRestBoolean,
-        "date": StringToDate,
-        "float4": StringToFloat,
-        "float8": StringToFloat,
-        "int2": StringToInteger,
-        "int4": StringToInteger,
-        "int8": StringToInteger,
-        "json": JSON,
-        "jsonb": JSON,
-        "timestamptz": StringToDateTime,
-        "timestamp": StringToDateTime,
-    }
-
     def __init__(
         self,
         model: Model,
@@ -599,35 +583,6 @@ class SchemaBuilder:
         self.metadata: MetaData | None = None
         self.Base: AutomapBase | None = None
         self._class_prefix: str = ""
-
-    @staticmethod
-    def _sql_type(deriva_type: DerivaType) -> TypeEngine:
-        """Map an ERMrest column type to its SQLAlchemy counterpart.
-
-        Args:
-            deriva_type: ERMrest type object.
-
-        Returns:
-            SQLAlchemy column type class. Unknown types fall back to
-            :class:`sqlalchemy.String`, which works for any value that
-            survives the CSV round-trip as a string.
-        """
-        return SchemaBuilder._TYPE_MAP.get(deriva_type.typename, String)
-
-    def _is_key_column(
-        self, column: DerivaColumn, table: DerivaTable
-    ) -> bool:
-        """Return True if ``column`` is the table's RID primary key.
-
-        ERMrest catalogs have many declared keys, but only RID is the
-        canonical primary key. We tag *only* RID as ``primary_key=True``
-        on the SQLAlchemy column; other keys become non-PK unique
-        constraints.
-        """
-        return (
-            column in [key.unique_columns[0] for key in table.keys]
-            and column.name == "RID"
-        )
 
     def build(self) -> SchemaORM:
         """Build the SQLAlchemy ORM structure.
@@ -780,10 +735,10 @@ class SchemaBuilder:
                     # without violating its local NOT-NULL. The
                     # destination's ERMrest endpoint is the
                     # authoritative validator at insert time.
-                    is_pk = self._is_key_column(c, table)
+                    is_pk = is_key_column(c, table)
                     database_column = SQLColumn(
                         name=c.name,
-                        type_=self._sql_type(c.type),
+                        type_=sql_type_for_ermrest(c.type),
                         comment=c.comment,
                         default=c.default,
                         primary_key=is_pk,
