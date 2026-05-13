@@ -951,6 +951,26 @@ class DerivaUpload(object):
     def _initFileMetadata(self, file_path, asset_mapping, match_groupdict):
         self.metadata.clear()
         self._updateFileMetadata(match_groupdict)
+        # Optional caller-supplied metadata overlay. Useful when row metadata
+        # is known externally (e.g., from a bag's CSV row) rather than
+        # derivable from a filename regex. Values here override any
+        # equivalently-named groupdict captures — the caller's prepopulated
+        # values are treated as authoritative because they typically come
+        # from a structured source rather than from path parsing.
+        #
+        # Interaction with framework-derived fields: this overlay runs
+        # before the unconditional writes below for ``file_name``,
+        # ``file_size``, ``file_ext``, ``base_path``, ``base_name``,
+        # ``_upload_*``, and ``_identity_*``. Those framework writes are
+        # last-wins, so the overlay cannot override them — supplying any
+        # of those keys here is harmless but has no effect. The overlay
+        # CAN supply reserved keys that are written *later* in the upload
+        # pipeline (e.g., ``URI``, ``md5``, ``md5_base64``); those values
+        # may be overwritten by later steps (``_getFileHatracMetadata``,
+        # the hash-computation step in ``_uploadAsset``) but reach the
+        # column_map interpolation and any template references that fire
+        # before those later steps run.
+        self._updateFileMetadata(asset_mapping.get("prepopulated_metadata", {}))
         # Fast-fail check for pre-allocated-RID asset mappings: the caller
         # opted in via ``use_pre_allocated_rid: true`` and must supply the
         # RID via a ``(?P<RID>...)`` named group in the file_pattern regex.
