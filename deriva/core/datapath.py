@@ -1266,6 +1266,51 @@ class _ColumnWrapper (object):
 
     __eq__ = eq
 
+    def in_(self, values):
+        """Returns a filter matching any of the supplied values.
+
+        Equivalent to ``column == v0 | column == v1 | ...`` but
+        without the boilerplate at the call site. Sends the
+        resulting disjunction to ERMrest as a single filter
+        expression (``;`` separated equality predicates), letting
+        the server resolve the membership test in one request.
+
+        :param values: an iterable of literal values. Order is
+            preserved in the URL but is not semantically meaningful.
+            ``None`` is not accepted — use ``eq(None)`` (or
+            ``column == None``) explicitly for NULL matching.
+        :return: a filter predicate object. With one value, the
+            returned object is a plain equality predicate (no
+            disjunction overhead).
+        :raises ValueError: if ``values`` is empty. ERMrest has no
+            "always false" filter; a caller passing an empty list
+            almost always has a bug worth raising on, not silently
+            matching everything (or nothing — which is the
+            ambiguity).
+        :raises TypeError: if any value is ``None``. NULL matching
+            is not a membership test; mixing the two in one filter
+            invites bugs.
+
+        Example::
+
+            # Match three IDs in one round trip:
+            path.filter(table.column.in_(["a", "b", "c"])).entities()
+        """
+        values = list(values)
+        if not values:
+            raise ValueError(
+                "in_() requires at least one value; ERMrest has no "
+                "'always false' filter. Pass a non-empty iterable."
+            )
+        if any(v is None for v in values):
+            raise TypeError(
+                "in_() does not accept None; use eq(None) explicitly "
+                "for NULL matching."
+            )
+        if len(values) == 1:
+            return self.eq(values[0])
+        return _DisjunctionPredicate([self.eq(v) for v in values])
+
     def ne(self, other):
         """Returns a 'not equal' comparison predicate.
 
