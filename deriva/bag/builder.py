@@ -104,6 +104,45 @@ def _file_md5(path: Path, chunk_size: int = 1024 * 1024) -> str:
     return md5.hexdigest()
 
 
+def hatrac_url_for(table: str, md5: str, filename: str) -> str:
+    """Build the canonical hatrac URL for an asset row.
+
+    The convention — ``/hatrac/{table}/{md5}.{filename}`` — is
+    implicit but fixed across deriva-py's upload pipeline and
+    deriva-ml's bag-commit path. Callers that need to write a
+    consistent ``URL`` column for an asset row (so the loader's
+    later HEAD/PUT against Hatrac targets the right object)
+    previously hand-rolled this f-string. This helper centralises
+    the convention so a future tweak (e.g. URI-encoding the
+    filename, or adding a hostname prefix) happens in one place.
+
+    The path mirrors the default ``hatrac_uri`` template used by
+    :class:`~deriva.transfer.upload.deriva_upload.GenericUploader`
+    via the upload-spec dict: ``/hatrac/{TableName}/{md5}.{filename}``.
+
+    Args:
+        table: Asset-table name (without schema prefix). The
+            convention puts each asset table's bytes under its own
+            hatrac namespace.
+        md5: Lowercase hex MD5 of the file bytes. Used as the
+            content-addressed object name, so dedup works
+            server-side (different rows pointing at the same
+            bytes share the URL).
+        filename: The original file name. Preserved as a suffix on
+            the hatrac object so a content-disposition header can
+            reconstruct it on download.
+
+    Returns:
+        The unversioned hatrac path, leading slash included.
+        Suitable for writing into an asset row's ``URL`` column.
+
+    Example:
+        >>> hatrac_url_for("Image", "abc123", "scan.png")
+        '/hatrac/Image/abc123.scan.png'
+    """
+    return f"/hatrac/{table}/{md5}.{filename}"
+
+
 class BagBuilder:
     """Build a deriva-bag profile bag from in-memory inputs.
 
