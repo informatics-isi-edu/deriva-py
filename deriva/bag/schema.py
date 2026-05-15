@@ -49,7 +49,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Generator, Type
+from typing import Any, Generator
 
 from deriva.core.ermrest_model import Model
 from deriva.core.ermrest_model import Table as DerivaTable
@@ -279,40 +279,6 @@ class SchemaORM:
             result = conn.execute(select(sql_table))
             for row in result.mappings():
                 yield dict(row)
-
-    # ``is_association_table`` and ``get_association_class`` are
-    # delegated to :mod:`deriva.bag._orm_helpers` since deriva-py
-    # PR #248-followup (audit §1.3). The thin wrappers below keep
-    # the public method names on ``SchemaORM`` so existing callers
-    # ``self.is_association_table(...)`` / ``self.get_association_class(...)``
-    # keep working.
-
-    @staticmethod
-    def is_association_table(*args: Any, **kwargs: Any) -> Any:
-        """Check whether an ORM class represents an association table.
-
-        Thin delegator to
-        :func:`deriva.bag._orm_helpers.is_association_table`; see that
-        function for the signature and semantics.
-        """
-        from deriva.bag._orm_helpers import is_association_table
-
-        return is_association_table(*args, **kwargs)
-
-    def get_association_class(
-        self,
-        left_cls: Type[Any],
-        right_cls: Type[Any],
-    ) -> tuple[Any, Any, Any] | None:
-        """Find an association class connecting two ORM classes.
-
-        Thin delegator to
-        :func:`deriva.bag._orm_helpers.get_association_class`; see
-        that function for the signature and semantics.
-        """
-        from deriva.bag._orm_helpers import get_association_class
-
-        return get_association_class(left_cls, right_cls)
 
     def dispose(self) -> None:
         """Release the SQLAlchemy registry and engine.

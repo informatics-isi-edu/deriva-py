@@ -196,23 +196,6 @@ def test_is_key_column_rejects_rid_with_no_key_declaration() -> None:
 # =============================================================================
 
 
-def test_database_module_reexports_same_objects() -> None:
-    """``deriva.bag.database`` re-exports point at the shared module's
-    objects, not duplicate copies."""
-    from deriva.bag import database
-    from deriva.bag import _column_types
-
-    assert database.ERMRestBoolean is _column_types.ERMRestBoolean
-    assert database.StringToDate is _column_types.StringToDate
-    assert database.StringToDateTime is _column_types.StringToDateTime
-    assert database.StringToFloat is _column_types.StringToFloat
-    assert database.StringToInteger is _column_types.StringToInteger
-    assert database.is_key_column is _column_types.is_key_column
-    assert (
-        database.sql_type_for_ermrest is _column_types.sql_type_for_ermrest
-    )
-
-
 def test_schema_io_module_reexports_same_map() -> None:
     """``deriva.bag.schema_io.ERMREST_TO_SQL`` is the same dict as the
     canonical one in ``_column_types``."""
