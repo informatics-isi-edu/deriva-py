@@ -178,6 +178,10 @@ class SchemaORM:
 
         Raises:
             KeyError: If no table matches.
+            ValueError: If a bare-name lookup is ambiguous — i.e.,
+                two schemas in the ORM each carry a table with the
+                same bare name. Pass the qualified ``"schema.table"``
+                form to disambiguate.
         """
         # Try exact match first
         if table_name in self.metadata.tables:
@@ -189,19 +193,38 @@ class SchemaORM:
             if converted_name in self.metadata.tables:
                 return self.metadata.tables[converted_name]
 
-        # Try matching just the table name part
+        # Try matching just the table name part — collect every
+        # match across schemas, then raise if ambiguous.
+        #
+        # For in-memory tables stored as ``{schema}_{table}`` the
+        # match uses ``split("_", 1)[1] == table_name``: this
+        # correctly accepts table names containing underscores
+        # (``"A_B"``) without misclassifying them as a bare-name
+        # match for ``"B"`` against ``"demo_A_B"``. An
+        # ``endswith(f"_{table_name}")`` heuristic would silently
+        # do that — and would collide with itself for any pair of
+        # tables where one's name is a suffix of another.
+        suffix_matches: list[tuple[str, SQLTable]] = []
         for full_name, table in self.metadata.tables.items():
             # Handle . separator (file-based)
             if "." in full_name and full_name.split(".")[-1] == table_name:
-                return table
-            # Handle _ separator (in-memory) - match suffix after first _
+                suffix_matches.append((full_name, table))
+                continue
+            # Handle _ separator (in-memory) — match suffix after first _
             if "_" in full_name and "." not in full_name:
                 parts = full_name.split("_", 1)
                 if len(parts) > 1 and parts[1] == table_name:
-                    return table
-                # Also check if it ends with the table name
-                if full_name.endswith(f"_{table_name}"):
-                    return table
+                    suffix_matches.append((full_name, table))
+
+        if len(suffix_matches) == 1:
+            return suffix_matches[0][1]
+        if len(suffix_matches) > 1:
+            qualified = ", ".join(sorted(name for name, _ in suffix_matches))
+            raise ValueError(
+                f"Bare-name lookup {table_name!r} is ambiguous; "
+                f"matches {len(suffix_matches)} tables ({qualified}). "
+                "Pass the qualified 'schema.table' form to disambiguate."
+            )
 
         raise KeyError(f"Table {table_name} not found")
 
@@ -556,7 +579,15 @@ class SchemaBuilder:
 
             self.engine = create_wal_engine(main_db)
 
-            # Attach schema-specific databases at connect time.
+            # Attach schema-specific databases at connect time. The
+            # listener fires once per *physical* connection — every
+            # connection the pool hands out runs the ATTACH again.
+            # ``BagDatabase._load_data`` deliberately calls
+            # ``engine.dispose()`` to force a fresh pool checkout, so
+            # the multiplier matters: K schemas × N pool evictions
+            # during a load. Acceptable for the bag's small schema
+            # counts but worth knowing about if a future caller
+            # spawns many connections.
             event.listen(self.engine, "connect", self._attach_schemas)
 
         self.metadata = MetaData()
@@ -866,10 +897,12 @@ class SchemaBuilder:
                         if "_" in full_name
                         else full_name
                     )
-                    if (
-                        table_part == table_name
-                        or full_name.endswith(f"_{table_name}")
-                    ):
+                    # ``endswith(f"_{table_name}")`` was tempting here
+                    # but misclassifies table names containing
+                    # underscores (see ``find_table`` for the same
+                    # reasoning); leave ``table_part`` as the only
+                    # match heuristic.
+                    if table_part == table_name:
                         sql_table = table
                         break
 
