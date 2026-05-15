@@ -646,3 +646,198 @@ def test_is_association_table_detects_simple_two_fk_table() -> None:
         result = assoc_table.is_association()
         # Result is the arity (number of covered FKs).
         assert result == 2
+
+
+def test_get_association_class_resolves_endpoints_and_attrs() -> None:
+    """``SchemaORM.get_association_class`` returns the assoc class + ORM attrs.
+
+    The structural "is this an association?" check routes through
+    deriva-py's :meth:`Table.is_association`; the SQLAlchemy walk
+    then resolves the relationship attributes on the association
+    class that point at ``left_cls`` and ``right_cls``.
+    """
+    doc = _two_table_association_doc()
+    import json
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".json", delete=False
+    ) as f:
+        json.dump(doc, f)
+        path = f.name
+    model = Model.fromfile("file-system", path)
+
+    with SchemaBuilder(
+        model, ["demo"], database_path=":memory:"
+    ).build() as orm:
+        A = orm.get_orm_class("A")
+        B = orm.get_orm_class("B")
+        assert A is not None and B is not None
+
+        result = orm.get_association_class(A, B)
+        assert result is not None, (
+            "get_association_class should find A_B as the association"
+        )
+        mid_cls, left_attr, right_attr = result
+        assert orm.get_orm_class("A_B") is mid_cls
+        # The returned attributes are SQLAlchemy InstrumentedAttributes
+        # bound to the association class.
+        assert left_attr.class_ is mid_cls
+        assert right_attr.class_ is mid_cls
+        # They point at the right ORM classes.
+        assert left_attr.property.mapper.class_ is A
+        assert right_attr.property.mapper.class_ is B
+
+
+def test_get_association_class_returns_none_for_non_association() -> None:
+    """No association → returns ``None``."""
+    doc = _two_table_association_doc()
+    # Drop the A_B association table — A and B alone are not
+    # connected via an association.
+    del doc["schemas"]["demo"]["tables"]["A_B"]
+    import json
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".json", delete=False
+    ) as f:
+        json.dump(doc, f)
+        path = f.name
+    model = Model.fromfile("file-system", path)
+
+    with SchemaBuilder(
+        model, ["demo"], database_path=":memory:"
+    ).build() as orm:
+        A = orm.get_orm_class("A")
+        B = orm.get_orm_class("B")
+        assert orm.get_association_class(A, B) is None
+
+
+def _two_table_association_doc() -> dict:
+    """Return the demo schema document used by association tests."""
+    return {
+        "snaptime": None,
+        "schemas": {
+            "demo": {
+                "schema_name": "demo",
+                "tables": {
+                    "A": {
+                        "schema_name": "demo",
+                        "table_name": "A",
+                        "kind": "table",
+                        "column_definitions": [
+                            {
+                                "name": "RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            }
+                        ],
+                        "keys": [
+                            {
+                                "names": [["demo", "A_RID_key"]],
+                                "unique_columns": ["RID"],
+                            }
+                        ],
+                        "foreign_keys": [],
+                    },
+                    "B": {
+                        "schema_name": "demo",
+                        "table_name": "B",
+                        "kind": "table",
+                        "column_definitions": [
+                            {
+                                "name": "RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            }
+                        ],
+                        "keys": [
+                            {
+                                "names": [["demo", "B_RID_key"]],
+                                "unique_columns": ["RID"],
+                            }
+                        ],
+                        "foreign_keys": [],
+                    },
+                    "A_B": {
+                        "schema_name": "demo",
+                        "table_name": "A_B",
+                        "kind": "table",
+                        "column_definitions": [
+                            {
+                                "name": "RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "A",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "B",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                        ],
+                        "keys": [
+                            {
+                                "names": [["demo", "A_B_RID_key"]],
+                                "unique_columns": ["RID"],
+                            },
+                            {
+                                "names": [["demo", "A_B_combo_key"]],
+                                "unique_columns": ["A", "B"],
+                            },
+                        ],
+                        "foreign_keys": [
+                            {
+                                "names": [["demo", "A_B_A_fkey"]],
+                                "foreign_key_columns": [
+                                    {
+                                        "schema_name": "demo",
+                                        "table_name": "A_B",
+                                        "column_name": "A",
+                                    }
+                                ],
+                                "referenced_columns": [
+                                    {
+                                        "schema_name": "demo",
+                                        "table_name": "A",
+                                        "column_name": "RID",
+                                    }
+                                ],
+                            },
+                            {
+                                "names": [["demo", "A_B_B_fkey"]],
+                                "foreign_key_columns": [
+                                    {
+                                        "schema_name": "demo",
+                                        "table_name": "A_B",
+                                        "column_name": "B",
+                                    }
+                                ],
+                                "referenced_columns": [
+                                    {
+                                        "schema_name": "demo",
+                                        "table_name": "B",
+                                        "column_name": "RID",
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                },
+            }
+        },
+    }

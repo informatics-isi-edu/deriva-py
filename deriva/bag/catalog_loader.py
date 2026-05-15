@@ -37,9 +37,11 @@ A future caller that needs resume can opt in by populating
 :meth:`run`.
 
 Catalog row insertion is the loader's own responsibility, not
-the uploader's: row writes go directly through ``catalog.post``
-in :meth:`_insert_rows`, with row reconciliation, RID remap, and
-dangling-FK handling layered in by the table-class machinery
+the uploader's: row writes route through deriva-py's
+:meth:`~deriva.core.datapath._TableWrapper.insert` (obtained via
+:meth:`ErmrestCatalog.getPathBuilder`) in :meth:`_insert_rows`,
+with row reconciliation, RID remap, and dangling-FK handling
+layered in by the table-class machinery
 (:meth:`_load_vocabulary_table`,
 :meth:`_load_match_by_columns_table`,
 :meth:`_load_content_table`).
