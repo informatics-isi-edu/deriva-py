@@ -94,6 +94,51 @@ def _mock_catalog(catalog_id: str = "42") -> MagicMock:
     return catalog
 
 
+# Per-catalog cache of (schema, table) → stable ``_TableWrapper`` mocks.
+# ``MagicMock.__getitem__`` by default returns the *same* child for every
+# key, which collapses different tables into one mock and breaks
+# ``call_args`` assertions. Track per-key state externally and wire it
+# via ``__getitem__.side_effect``.
+_pb_dispatch: "dict[int, dict[str, dict[str, MagicMock]]]" = {}
+
+
+def _pb_table(catalog: MagicMock, schema_name: str, table_name: str) -> MagicMock:
+    """Resolve the path-builder ``_TableWrapper`` mock the loader will hit."""
+    catalog_key = id(catalog)
+    schemas_dict = _pb_dispatch.get(catalog_key)
+    if schemas_dict is None:
+        schemas_dict = {}
+        _pb_dispatch[catalog_key] = schemas_dict
+        pb = catalog.getPathBuilder.return_value
+        pb.schemas.__getitem__.side_effect = lambda key: schemas_dict.setdefault(
+            key, _build_schema_mock()
+        )
+    schema_mock = schemas_dict.setdefault(schema_name, _build_schema_mock())
+    return schema_mock.tables[table_name]
+
+
+def _build_schema_mock() -> MagicMock:
+    """Construct a per-schema mock whose ``tables[name]`` dispatches per-key."""
+    schema = MagicMock()
+    tables_dict: dict[str, MagicMock] = {}
+    schema.tables.__getitem__.side_effect = lambda key: tables_dict.setdefault(
+        key, MagicMock(name=f"TableWrapper[{key}]")
+    )
+    return schema
+
+
+def _stub_insert_result(tw: MagicMock, rows: list[dict[str, Any]] | None = None) -> None:
+    """Make ``tw.insert(...)`` return a list-able stub.
+
+    ``BagCatalogLoader._insert_rows`` calls ``len(list(result))`` to
+    compute the inserted-row count (with ``onconflict=skip`` the
+    destination returns only the rows it accepted). The default
+    ``MagicMock`` is not iterable; the loader would compute 0 rows
+    inserted, which breaks tests that assert non-zero counts.
+    """
+    tw.insert.return_value = list(rows) if rows is not None else []
+
+
 # ---------------------------------------------------------------------------
 # Schema inference
 # ---------------------------------------------------------------------------
@@ -521,19 +566,17 @@ def _make_fake_table() -> MagicMock:
 def test_insert_rows_preserve_provenance_default_sends_rct_rcb(
     tmp_path: Path,
 ) -> None:
-    """Default ``preserve_provenance=True`` sends ``RID,RCT,RCB`` in nondefaults.
+    """Default ``preserve_provenance=True`` opts ``RID,RCT,RCB`` out of defaults.
 
     Clone semantics: the bag's source audit columns are real
-    history worth keeping at the destination. The wire URL
-    explicitly opts those columns out of ERMrest's default-fill.
+    history worth keeping at the destination. The loader hands
+    ``nondefaults={RID,RCT,RCB}`` to ``_TableWrapper.insert`` so
+    ERMrest does not overwrite them with server-side defaults.
     """
     import asyncio as _asyncio
 
     bag = _build_fk_bag(tmp_path)
     catalog = _mock_catalog()
-    response = MagicMock()
-    response.json.return_value = [{"RID": "I1"}]
-    catalog.post.return_value = response
 
     loader = BagCatalogLoader(
         catalog=catalog,
@@ -541,6 +584,8 @@ def test_insert_rows_preserve_provenance_default_sends_rct_rcb(
         policy=FKTraversalPolicy(),  # preserve_provenance default = True
         database_dir=tmp_path / "db",
     )
+    tw = _pb_table(catalog, "demo", "Image")
+    _stub_insert_result(tw, [{"RID": "I1"}])
     try:
         _asyncio.run(
             loader._insert_rows(
@@ -551,17 +596,13 @@ def test_insert_rows_preserve_provenance_default_sends_rct_rcb(
     finally:
         loader.dispose()
 
-    # The URL ERMrest received carries all three audit columns.
-    posted_url = catalog.post.call_args[0][0]
-    assert posted_url == "/entity/demo:Image?nondefaults=RID,RCT,RCB", (
-        posted_url
-    )
+    assert tw.insert.call_args.kwargs["nondefaults"] == {"RID", "RCT", "RCB"}
 
 
 def test_insert_rows_preserve_provenance_false_sends_only_rid(
     tmp_path: Path,
 ) -> None:
-    """``preserve_provenance=False`` sends only ``RID`` in nondefaults.
+    """``preserve_provenance=False`` opts only ``RID`` out of defaults.
 
     Commit semantics: the bag carries newly-minted rows. Only
     ``RID`` is preserved (the caller leased it ahead of time);
@@ -574,9 +615,6 @@ def test_insert_rows_preserve_provenance_false_sends_only_rid(
 
     bag = _build_fk_bag(tmp_path)
     catalog = _mock_catalog()
-    response = MagicMock()
-    response.json.return_value = [{"RID": "I1"}]
-    catalog.post.return_value = response
 
     loader = BagCatalogLoader(
         catalog=catalog,
@@ -584,6 +622,8 @@ def test_insert_rows_preserve_provenance_false_sends_only_rid(
         policy=FKTraversalPolicy(preserve_provenance=False),
         database_dir=tmp_path / "db",
     )
+    tw = _pb_table(catalog, "demo", "Image")
+    _stub_insert_result(tw, [{"RID": "I1"}])
     try:
         _asyncio.run(
             loader._insert_rows(
@@ -594,16 +634,13 @@ def test_insert_rows_preserve_provenance_false_sends_only_rid(
     finally:
         loader.dispose()
 
-    posted_url = catalog.post.call_args[0][0]
-    assert posted_url == "/entity/demo:Image?nondefaults=RID", (
-        posted_url
-    )
+    assert tw.insert.call_args.kwargs["nondefaults"] == {"RID"}
 
 
 def test_insert_rows_preserve_provenance_false_strips_system_columns(
     tmp_path: Path,
 ) -> None:
-    """``preserve_provenance=False`` strips RCT/RCB/RMT/RMB from the JSON body.
+    """``preserve_provenance=False`` strips RCT/RCB/RMT/RMB from each row.
 
     Bag CSVs serialize NULL as ``""`` (CSV has no NULL sentinel).
     ERMrest rejects ``""`` for the timestamp ``RCT`` / ``RMT``
@@ -611,16 +648,12 @@ def test_insert_rows_preserve_provenance_false_strips_system_columns(
     400 ``invalid input syntax`` error. Stripping these columns
     from the row dict entirely (relying on the server's defaults
     to populate them) is the symmetrical counterpart of the
-    ``nondefaults=RID`` URL — the wire-format contract for
-    commit-style inserts.
+    ``nondefaults={RID}`` setting.
     """
     import asyncio as _asyncio
 
     bag = _build_fk_bag(tmp_path)
     catalog = _mock_catalog()
-    response = MagicMock()
-    response.json.return_value = [{"RID": "I1"}]
-    catalog.post.return_value = response
 
     loader = BagCatalogLoader(
         catalog=catalog,
@@ -628,6 +661,8 @@ def test_insert_rows_preserve_provenance_false_strips_system_columns(
         policy=FKTraversalPolicy(preserve_provenance=False),
         database_dir=tmp_path / "db",
     )
+    tw = _pb_table(catalog, "demo", "Image")
+    _stub_insert_result(tw, [{"RID": "I1"}])
     try:
         _asyncio.run(
             loader._insert_rows(
@@ -650,11 +685,7 @@ def test_insert_rows_preserve_provenance_false_strips_system_columns(
     finally:
         loader.dispose()
 
-    # The JSON body posted to ERMrest excludes the system columns.
-    posted_rows = catalog.post.call_args.kwargs.get("json") or (
-        catalog.post.call_args[1].get("json")
-    )
-    assert posted_rows is not None, catalog.post.call_args
+    posted_rows = tw.insert.call_args.args[0]
     row = posted_rows[0]
     assert "RID" in row
     assert "Filename" in row
@@ -668,7 +699,7 @@ def test_insert_rows_preserve_provenance_false_strips_system_columns(
 def test_insert_rows_preserve_provenance_true_keeps_system_columns(
     tmp_path: Path,
 ) -> None:
-    """Clone semantics keep RCT/RCB in the JSON body verbatim.
+    """Clone semantics keep RCT/RCB in the row dict verbatim.
 
     Backward-compat guard: the strip behavior is opt-in via
     ``preserve_provenance=False``. Default callers see the
@@ -678,9 +709,6 @@ def test_insert_rows_preserve_provenance_true_keeps_system_columns(
 
     bag = _build_fk_bag(tmp_path)
     catalog = _mock_catalog()
-    response = MagicMock()
-    response.json.return_value = [{"RID": "I1"}]
-    catalog.post.return_value = response
 
     loader = BagCatalogLoader(
         catalog=catalog,
@@ -688,6 +716,8 @@ def test_insert_rows_preserve_provenance_true_keeps_system_columns(
         policy=FKTraversalPolicy(),  # preserve_provenance=True default
         database_dir=tmp_path / "db",
     )
+    tw = _pb_table(catalog, "demo", "Image")
+    _stub_insert_result(tw, [{"RID": "I1"}])
     try:
         _asyncio.run(
             loader._insert_rows(
@@ -705,11 +735,8 @@ def test_insert_rows_preserve_provenance_true_keeps_system_columns(
     finally:
         loader.dispose()
 
-    posted_rows = catalog.post.call_args.kwargs.get("json") or (
-        catalog.post.call_args[1].get("json")
-    )
+    posted_rows = tw.insert.call_args.args[0]
     row = posted_rows[0]
-    # Audit data preserved verbatim.
     assert row["RCT"] == "2026-01-01T00:00:00+00:00"
     assert row["RCB"] == "https://idp/user1"
 
@@ -977,26 +1004,16 @@ def test_vocab_load_matches_by_name_and_records_remap(tmp_path: Path) -> None:
     # Mock catalog: destination already has a "Red" row at a *different* RID.
     catalog = _mock_catalog()
 
-    def _get(path: str, **_: Any):
-        assert "Color" in path  # only the vocab fetch is expected here
-        resp = MagicMock()
-        resp.raise_for_status.return_value = None
-        resp.json.return_value = [
-            {"Name": "Red", "RID": "C-DST-RED"},
-            # Blue is absent on the destination — must be inserted.
-        ]
-        return resp
+    color_tw = _pb_table(catalog, "demo", "Color")
+    # PathBuilder fetch returns the destination's existing vocab rows.
+    color_tw.attributes.return_value.fetch.return_value = [
+        {"Name": "Red", "RID": "C-DST-RED"},
+        # Blue is absent on the destination — must be inserted.
+    ]
+    _stub_insert_result(color_tw, [{"RID": "C-SRC-BLUE"}])
 
-    insert_payloads: list[list[dict[str, Any]]] = []
-
-    def _post(path: str, **kwargs: Any):
-        insert_payloads.append(kwargs["json"])
-        resp = MagicMock()
-        resp.raise_for_status.return_value = None
-        return resp
-
-    catalog.get = _get
-    catalog.post = _post
+    widget_tw = _pb_table(catalog, "demo", "Widget")
+    _stub_insert_result(widget_tw, [{"RID": "W1"}, {"RID": "W2"}])
 
     loader = BagCatalogLoader(
         catalog=catalog,
@@ -1018,18 +1035,9 @@ def test_vocab_load_matches_by_name_and_records_remap(tmp_path: Path) -> None:
     assert remap["C-SRC-RED"] == "C-DST-RED"
     assert remap["C-SRC-BLUE"] == "C-SRC-BLUE"
 
-    # Widget rows were POSTed with their Color FK rewritten:
+    # Widget rows passed to insert have their Color FK rewritten:
     # W1 → Color=C-DST-RED (remapped), W2 → Color=C-SRC-BLUE (identity).
-    widget_inserts = [
-        p
-        for p in insert_payloads
-        if any(
-            r.get("RID") in {"W1", "W2"}
-            for r in (p if isinstance(p, list) else [])
-        )
-    ]
-    assert widget_inserts, "expected Widget rows to be posted"
-    widget_rows = widget_inserts[0]
+    widget_rows = widget_tw.insert.call_args.args[0]
     by_rid = {r["RID"]: r for r in widget_rows}
     assert by_rid["W1"]["Color"] == "C-DST-RED"
     assert by_rid["W2"]["Color"] == "C-SRC-BLUE"
@@ -1039,36 +1047,23 @@ def test_content_conflict_fail_propagates(tmp_path: Path) -> None:
     """Default content_on_conflict=FAIL surfaces the 409 from ERMrest.
 
     The loader doesn't catch the HTTPError; the caller sees a clear
-    raise from the POST and can decide how to recover (typically by
-    re-running with SKIP_BY_RID).
+    raise from the path-builder and can decide how to recover
+    (typically by re-running with SKIP_BY_RID).
     """
     import requests
 
     bag = _build_vocab_bag(tmp_path)
     catalog = _mock_catalog()
 
-    def _get(path: str, **_: Any):
-        # Vocab fetch returns empty so Color rows are both inserts;
-        # we want Widget to be the one that 409s.
-        resp = MagicMock()
-        resp.raise_for_status.return_value = None
-        resp.json.return_value = []
-        return resp
+    color_tw = _pb_table(catalog, "demo", "Color")
+    color_tw.attributes.return_value.fetch.return_value = []
+    _stub_insert_result(color_tw, [{"RID": "C-SRC-RED"}, {"RID": "C-SRC-BLUE"}])
 
-    def _post(path: str, **_: Any):
-        # Simulate a 409 on Widget insert.
-        if "Widget" in path:
-            err = requests.HTTPError("409 Conflict")
-            err.response = MagicMock(status_code=409)
-            resp = MagicMock()
-            resp.raise_for_status.side_effect = err
-            return resp
-        resp = MagicMock()
-        resp.raise_for_status.return_value = None
-        return resp
-
-    catalog.get = _get
-    catalog.post = _post
+    widget_tw = _pb_table(catalog, "demo", "Widget")
+    # Simulate a 409 on Widget insert: the path-builder raises HTTPError.
+    err = requests.HTTPError("409 Conflict")
+    err.response = MagicMock(status_code=409)
+    widget_tw.insert.side_effect = err
 
     loader = BagCatalogLoader(
         catalog=catalog,
@@ -1086,34 +1081,26 @@ def test_content_conflict_fail_propagates(tmp_path: Path) -> None:
 def test_content_conflict_skip_by_rid_filters_existing(
     tmp_path: Path,
 ) -> None:
-    """SKIP_BY_RID filters out rows whose RID is already on the destination."""
+    """SKIP_BY_RID is forwarded to _TableWrapper.insert(on_conflict_skip=True).
+
+    With the new reuse-the-deriva-py path, the loader no longer
+    pre-fetches existing RIDs — it asks ERMrest to skip them at
+    insert time via ``onconflict=skip``. The mock simulates the
+    server's reply: when W1 already exists, the insert result
+    returns only W2.
+    """
     from deriva.bag.traversal import ContentConflictStrategy
 
     bag = _build_vocab_bag(tmp_path)
     catalog = _mock_catalog()
 
-    def _get(path: str, **_: Any):
-        resp = MagicMock()
-        resp.raise_for_status.return_value = None
-        if "Color" in path and "Name" in path:
-            resp.json.return_value = []  # vocab is empty
-        elif "Widget" in path:
-            # Destination already has W1; W2 is new.
-            resp.json.return_value = [{"RID": "W1"}]
-        else:
-            resp.json.return_value = []
-        return resp
+    color_tw = _pb_table(catalog, "demo", "Color")
+    color_tw.attributes.return_value.fetch.return_value = []  # vocab empty
+    _stub_insert_result(color_tw, [{"RID": "C-SRC-RED"}, {"RID": "C-SRC-BLUE"}])
 
-    posted: list[dict[str, Any]] = []
-
-    def _post(path: str, **kwargs: Any):
-        posted.append({"path": path, "json": kwargs["json"]})
-        resp = MagicMock()
-        resp.raise_for_status.return_value = None
-        return resp
-
-    catalog.get = _get
-    catalog.post = _post
+    widget_tw = _pb_table(catalog, "demo", "Widget")
+    # Server skipped W1 (already exists); only W2 came back.
+    _stub_insert_result(widget_tw, [{"RID": "W2"}])
 
     loader = BagCatalogLoader(
         catalog=catalog,
@@ -1133,12 +1120,12 @@ def test_content_conflict_skip_by_rid_filters_existing(
     assert widget_stats.rows_skipped_on_conflict == 1
     assert widget_stats.rows_inserted == 1
 
-    widget_post = next(p for p in posted if "Widget" in p["path"])
-    widget_rids = {r["RID"] for r in widget_post["json"]}
-    assert widget_rids == {"W2"}, (
-        "SKIP_BY_RID should drop W1 (already on destination) but "
-        f"send W2; got {widget_rids!r}"
-    )
+    # The loader handed both rows to insert with on_conflict_skip=True;
+    # the server picked which to skip.
+    widget_insert_kwargs = widget_tw.insert.call_args.kwargs
+    assert widget_insert_kwargs["on_conflict_skip"] is True
+    sent_rids = {r["RID"] for r in widget_tw.insert.call_args.args[0]}
+    assert sent_rids == {"W1", "W2"}
 
 
 # ---------------------------------------------------------------------------
@@ -1308,23 +1295,54 @@ def _build_asset_only_bag(tmp_path: Path) -> Path:
 
 
 def _install_mock_uploader(loader: BagCatalogLoader, hatrac_store: Any) -> Any:
-    """Stand-in :class:`DerivaUpload` for the loader.
+    """Plant a mock uploader on the loader for asset-upload tests.
 
-    Bypasses the public ``__init__`` (config load, signal handler) by
-    pre-populating only the attributes :meth:`DerivaUpload._hatracUpload`
-    and its callees read. ``self.store`` is the caller's
-    ``HatracStore`` mock — that's the layer the test asserts against,
-    since :meth:`_hatracUpload` delegates byte transfer to it.
+    The bag-loader calls ``uploader._hatracUpload(...)``; mocking
+    that method directly (per audit §B.1) keeps the test focused
+    on the contract the loader actually uses and avoids importing
+    :class:`DerivaUpload` (which transitively pulls heavy modules).
+
+    Inside ``_hatracUpload``, deriva-py routes byte transfer
+    through ``self.store.put_loc(...)``. To preserve the existing
+    test assertions on ``put_loc`` call args, the mock
+    ``_hatracUpload`` forwards to ``store.put_loc`` with the same
+    keyword shape deriva-py would use.
     """
-    from deriva.transfer.upload.deriva_upload import DerivaUpload
-
-    uploader = DerivaUpload.__new__(DerivaUpload)
+    uploader = MagicMock()
     uploader.store = hatrac_store
-    uploader.server_url = "https://example.org"
-    uploader.transfer_state = {}
-    uploader.transfer_state_fh = None
-    uploader.transfer_state_locks = {}
-    uploader.cancelled = False
+
+    def _hatrac_upload(
+        hatrac_uri,
+        file_path,
+        md5=None,
+        sha256=None,
+        content_type=None,
+        content_disposition=None,
+        chunked=False,
+        create_parents=True,
+        allow_versioning=True,
+        cancel_job_on_error=True,
+        cleanup_transfer_state_on_error=True,
+        chunk_size=None,
+        force=False,
+    ):
+        return hatrac_store.put_loc(
+            hatrac_uri,
+            file_path,
+            md5=md5,
+            sha256=sha256,
+            content_type=content_type,
+            content_disposition=content_disposition,
+            chunked=chunked,
+            create_parents=create_parents,
+            allow_versioning=allow_versioning,
+            cancel_job_on_error=cancel_job_on_error,
+            cleanup_transfer_state_on_error=cleanup_transfer_state_on_error,
+            chunk_size=chunk_size,
+            force=force,
+        )
+
+    uploader._hatracUpload.side_effect = _hatrac_upload
     loader._uploader = uploader
     return uploader
 
@@ -1591,41 +1609,21 @@ def test_loader_raises_when_cycle_fk_is_not_null(tmp_path: Path) -> None:
 def test_loader_defers_cycle_fks_and_patches_in_second_pass(
     tmp_path: Path,
 ) -> None:
-    """Cycle FKs are nulled on insert and PUT in the second pass.
+    """Cycle FKs are nulled on insert and updated in the second pass.
 
     The two-way ``Dataset ↔ Dataset_Version`` cycle forces the
     orderer to drop one edge. On first-pass insert, the dropped
     edge's FK column must be sent as NULL (the target row hasn't
-    landed yet); after every table is inserted, the loader PUTs
-    the original values via ``/attributegroup/RID;col``.
+    landed yet); after every table is inserted, the loader patches
+    the original values via ``_TableWrapper.update``.
     """
     bag = _build_cycle_bag(tmp_path, cycle_col_nullable=True)
     catalog = _mock_catalog()
 
-    posted: list[dict[str, Any]] = []
-    put_calls: list[dict[str, Any]] = []
-
-    def _get(path: str, **_: Any):
-        resp = MagicMock()
-        resp.raise_for_status.return_value = None
-        resp.json.return_value = []  # destination is empty
-        return resp
-
-    def _post(path: str, **kwargs: Any):
-        posted.append({"path": path, "json": kwargs["json"]})
-        resp = MagicMock()
-        resp.raise_for_status.return_value = None
-        return resp
-
-    def _put(path: str, **kwargs: Any):
-        put_calls.append({"path": path, "json": kwargs["json"]})
-        resp = MagicMock()
-        resp.raise_for_status.return_value = None
-        return resp
-
-    catalog.get = _get
-    catalog.post = _post
-    catalog.put = _put
+    dataset_tw = _pb_table(catalog, "demo", "Dataset")
+    dataset_version_tw = _pb_table(catalog, "demo", "Dataset_Version")
+    _stub_insert_result(dataset_tw, [{"RID": "D1"}])
+    _stub_insert_result(dataset_version_tw, [{"RID": "DV1"}])
 
     loader = BagCatalogLoader(
         catalog=catalog,
@@ -1638,39 +1636,45 @@ def test_loader_defers_cycle_fks_and_patches_in_second_pass(
     finally:
         loader.dispose()
 
-    # The cycle-cut FK column was nulled on the first-pass insert.
     # Exactly one of (Dataset.Version, Dataset_Version.Dataset) is
-    # deferred — the orderer picks which.
-    insert_targets = {p["path"] for p in posted}
-    assert any("Dataset" in t for t in insert_targets)
-
-    # At least one of the inserted rows must have its cycle FK as
-    # None (the dropped edge).
-    deferred_seen = False
-    for entry in posted:
-        for row in entry["json"]:
-            if (
-                "Dataset_Version" in entry["path"]
-                and row.get("Dataset") is None
-            ) or (
-                "Dataset" in entry["path"]
-                and "Dataset_Version" not in entry["path"]
-                and row.get("Version") is None
-            ):
-                deferred_seen = True
-    assert deferred_seen, (
-        "Expected at least one cycle FK to be deferred to NULL on "
-        f"first-pass insert; saw payloads: {posted!r}"
+    # deferred — the orderer picks which. Inspect the rows actually
+    # handed to each table's insert.
+    dataset_rows = (
+        dataset_tw.insert.call_args.args[0]
+        if dataset_tw.insert.called
+        else []
+    )
+    dv_rows = (
+        dataset_version_tw.insert.call_args.args[0]
+        if dataset_version_tw.insert.called
+        else []
     )
 
-    # Second pass: a PUT to /attributegroup/{table}/RID;{col} for
-    # the deferred column. Restoring the original value.
-    assert put_calls, "Expected at least one second-pass PUT"
-    for call in put_calls:
-        assert "/attributegroup/" in call["path"]
-        # Each row in the PUT payload must include RID + the
-        # deferred column.
-        for row in call["json"]:
+    deferred_seen = any(
+        row.get("Version") is None for row in dataset_rows
+    ) or any(
+        row.get("Dataset") is None for row in dv_rows
+    )
+    assert deferred_seen, (
+        "Expected at least one cycle FK to be deferred to NULL on "
+        f"first-pass insert; Dataset rows: {dataset_rows!r}, "
+        f"Dataset_Version rows: {dv_rows!r}"
+    )
+
+    # Second pass: the loader called ``_TableWrapper.update`` on the
+    # table holding the cycle-cut column. ``correlation={"RID"}``;
+    # ``targets`` lists the cycle column(s).
+    patched = []
+    if dataset_tw.update.called:
+        patched.append(("Dataset", dataset_tw.update))
+    if dataset_version_tw.update.called:
+        patched.append(("Dataset_Version", dataset_version_tw.update))
+    assert patched, "Expected a second-pass update on a cycle table"
+    for _, update_mock in patched:
+        kwargs = update_mock.call_args.kwargs
+        assert kwargs.get("correlation") == {"RID"}
+        # Every patch row carries RID.
+        for row in update_mock.call_args.args[0]:
             assert "RID" in row
 
 
@@ -1948,42 +1952,18 @@ def test_classify_table_routes_through_match_by_columns(tmp_path: Path) -> None:
 
 
 def test_match_by_columns_matches_existing_and_records_remap(tmp_path: Path) -> None:
-    """Existing destination rows match by the supplied column; remap recorded.
-
-    Mirror of ``test_vocab_load_matches_by_name_and_records_remap``
-    but for the new ``match_by_columns`` path. The mock catalog
-    reports one of the bag's Image rows as already present at a
-    different RID; the loader should skip the insert for that row,
-    record ``src_rid → dst_rid``, and rewrite the Widget FK at
-    insert time.
-    """
+    """Existing destination rows match by the supplied column; remap recorded."""
     bag = _build_image_widget_bag(tmp_path)
-
     catalog = _mock_catalog()
 
-    def _get(path: str, **_: Any):
-        # Only the match-fetch is expected via GET in this test.
-        assert "Image" in path
-        assert "URL" in path
-        resp = MagicMock()
-        resp.raise_for_status.return_value = None
-        resp.json.return_value = [
-            {"URL": "/hatrac/demo/abc.a.png", "RID": "I-DST-A"},
-            # The second image (.../def.b.png) is absent — must
-            # be inserted.
-        ]
-        return resp
+    image_tw = _pb_table(catalog, "demo", "Image")
+    image_tw.attributes.return_value.fetch.return_value = [
+        {"URL": "/hatrac/demo/abc.a.png", "RID": "I-DST-A"},
+    ]
+    _stub_insert_result(image_tw, [{"RID": "I-SRC-B"}])
 
-    insert_payloads: list[list[dict[str, Any]]] = []
-
-    def _post(path: str, **kwargs: Any):
-        insert_payloads.append(kwargs["json"])
-        resp = MagicMock()
-        resp.raise_for_status.return_value = None
-        return resp
-
-    catalog.get = _get
-    catalog.post = _post
+    widget_tw = _pb_table(catalog, "demo", "Widget")
+    _stub_insert_result(widget_tw, [{"RID": "W1"}, {"RID": "W2"}])
 
     loader = BagCatalogLoader(
         catalog=catalog,
@@ -2002,74 +1982,37 @@ def test_match_by_columns_matches_existing_and_records_remap(tmp_path: Path) -> 
     image_stats = report.table_stats["demo.Image"]
     assert image_stats.rows_matched_by_columns == 1  # I-SRC-A matched
     assert image_stats.rows_inserted == 1  # I-SRC-B inserted
-    # rows_matched_by_name is reserved for the structural vocab
-    # path and must stay zero on this code path.
     assert image_stats.rows_matched_by_name == 0
 
-    # Remap: matched row → destination RID; unmatched → identity.
     remap = loader._rid_remap[("demo", "Image")]
     assert remap["I-SRC-A"] == "I-DST-A"
     assert remap["I-SRC-B"] == "I-SRC-B"
 
-    # Widget rows were POSTed with their Image FK rewritten through
-    # the remap. W1 → Image=I-DST-A (matched), W2 → Image=I-SRC-B
-    # (identity).
-    widget_inserts = [
-        p
-        for p in insert_payloads
-        if any(
-            r.get("RID") in {"W1", "W2"}
-            for r in (p if isinstance(p, list) else [])
-        )
-    ]
-    assert widget_inserts, "expected Widget rows to be posted"
-    widget_rows = widget_inserts[0]
+    # Widget rows handed to insert with their Image FK rewritten.
+    widget_rows = widget_tw.insert.call_args.args[0]
     by_rid = {r["RID"]: r for r in widget_rows}
     assert by_rid["W1"]["Image"] == "I-DST-A"
     assert by_rid["W2"]["Image"] == "I-SRC-B"
 
 
 def test_match_by_columns_composite_key(tmp_path: Path) -> None:
-    """Composite match keys (multi-column) work as a single GET + tuple lookup.
-
-    Verifies the ``list[str]`` policy shape: more than one column
-    forms a composite key. The fetched-rows dict is keyed by
-    tuple ``(col1, col2, ...)``; the loader's per-row match uses
-    the same tuple shape.
+    """Composite match keys (multi-column) match through the path-builder.
 
     Uses the vocab bag's Color table with a synthetic composite
-    key ``["Name", "Description"]`` — silly in practice (Name
-    alone is unique) but exercises the multi-column path with the
-    smallest possible fixture.
+    key ``["Name", "Description"]``.
     """
     bag = _build_vocab_bag(tmp_path)
     catalog = _mock_catalog()
 
-    def _get(path: str, **_: Any):
-        # Composite-key path includes both columns.
-        assert "Name" in path and "Description" in path
-        resp = MagicMock()
-        resp.raise_for_status.return_value = None
-        resp.json.return_value = [
-            {
-                "Name": "Red",
-                "Description": "Red color",
-                "RID": "C-DST-RED",
-            },
-            # Blue absent → must be inserted.
-        ]
-        return resp
+    color_tw = _pb_table(catalog, "demo", "Color")
+    color_tw.attributes.return_value.fetch.return_value = [
+        {"Name": "Red", "Description": "Red color", "RID": "C-DST-RED"},
+        # Blue absent → must be inserted.
+    ]
+    _stub_insert_result(color_tw, [{"RID": "C-SRC-BLUE"}])
 
-    insert_payloads: list[list[dict[str, Any]]] = []
-
-    def _post(path: str, **kwargs: Any):
-        insert_payloads.append(kwargs["json"])
-        resp = MagicMock()
-        resp.raise_for_status.return_value = None
-        return resp
-
-    catalog.get = _get
-    catalog.post = _post
+    widget_tw = _pb_table(catalog, "demo", "Widget")
+    _stub_insert_result(widget_tw, [{"RID": "W1"}, {"RID": "W2"}])
 
     loader = BagCatalogLoader(
         catalog=catalog,
@@ -2093,17 +2036,9 @@ def test_match_by_columns_composite_key(tmp_path: Path) -> None:
 
 
 def test_match_by_columns_null_in_key_falls_through(tmp_path: Path) -> None:
-    """Bag row with NULL in any match column is inserted, not matched.
-
-    Composite NULL semantics are ambiguous (``(NULL, NULL)`` ==
-    ``(NULL, NULL)``?); the loader's policy is to never match
-    such rows and let the destination's uniqueness constraint
-    surface any error itself.
-    """
+    """Bag row with NULL in any match column is inserted, not matched."""
     bag = _build_image_widget_bag(tmp_path)
 
-    # Rewrite Image.csv so I-SRC-A has a NULL URL (empty string in
-    # CSV, which the loader normalises to None).
     img_csv = bag / "data" / "demo" / "Image.csv"
     with img_csv.open("w", newline="") as f:
         w = csv.writer(f)
@@ -2113,26 +2048,14 @@ def test_match_by_columns_null_in_key_falls_through(tmp_path: Path) -> None:
 
     catalog = _mock_catalog()
 
-    def _get(path: str, **_: Any):
-        # Destination returns no matching rows; both bag rows
-        # are inserts. The point of this test isn't the match —
-        # it's that the NULL-URL row reaches the insert path
-        # without being "matched" against a hypothetical NULL row.
-        resp = MagicMock()
-        resp.raise_for_status.return_value = None
-        resp.json.return_value = []
-        return resp
+    image_tw = _pb_table(catalog, "demo", "Image")
+    image_tw.attributes.return_value.fetch.return_value = []
+    _stub_insert_result(
+        image_tw, [{"RID": "I-SRC-A"}, {"RID": "I-SRC-B"}]
+    )
 
-    posted: list[dict[str, Any]] = []
-
-    def _post(path: str, **kwargs: Any):
-        posted.extend(kwargs["json"])
-        resp = MagicMock()
-        resp.raise_for_status.return_value = None
-        return resp
-
-    catalog.get = _get
-    catalog.post = _post
+    widget_tw = _pb_table(catalog, "demo", "Widget")
+    _stub_insert_result(widget_tw, [{"RID": "W1"}, {"RID": "W2"}])
 
     loader = BagCatalogLoader(
         catalog=catalog,
@@ -2149,13 +2072,11 @@ def test_match_by_columns_null_in_key_falls_through(tmp_path: Path) -> None:
         loader.dispose()
 
     image_stats = report.table_stats["demo.Image"]
-    # No matches — NULL-URL row falls through, valid-URL row
-    # had nothing to match against.
     assert image_stats.rows_matched_by_columns == 0
     assert image_stats.rows_inserted == 2
 
-    # Both Image rows reached the insert payload.
-    image_rids = {r["RID"] for r in posted if "URL" in r}
+    # Both Image rows reached insert.
+    image_rids = {r["RID"] for r in image_tw.insert.call_args.args[0]}
     assert image_rids == {"I-SRC-A", "I-SRC-B"}
 
 
@@ -2188,35 +2109,15 @@ def test_match_by_columns_rewrites_fks_on_inserted_rows(tmp_path: Path) -> None:
     bag = _build_image_widget_bag(tmp_path)
     catalog = _mock_catalog()
 
-    # First GET fetches existing Image rows by URL (one match).
-    # Second GET fetches existing Widget rows by (Image, RID) —
-    # empty (Widget is fresh).
-    image_response = MagicMock()
-    image_response.raise_for_status.return_value = None
-    image_response.json.return_value = [
+    image_tw = _pb_table(catalog, "demo", "Image")
+    image_tw.attributes.return_value.fetch.return_value = [
         {"URL": "/hatrac/demo/abc.a.png", "RID": "I-DST-A"},
     ]
-    widget_response = MagicMock()
-    widget_response.raise_for_status.return_value = None
-    widget_response.json.return_value = []  # no existing widgets
+    _stub_insert_result(image_tw, [{"RID": "I-SRC-B"}])
 
-    def _get(path: str, **_: Any):
-        if "Image" in path and "URL" in path:
-            return image_response
-        if "Widget" in path:
-            return widget_response
-        raise AssertionError(f"unexpected GET path: {path}")
-
-    insert_payloads: list[tuple[str, list[dict[str, Any]]]] = []
-
-    def _post(path: str, **kwargs: Any):
-        insert_payloads.append((path, kwargs["json"]))
-        resp = MagicMock()
-        resp.raise_for_status.return_value = None
-        return resp
-
-    catalog.get = _get
-    catalog.post = _post
+    widget_tw = _pb_table(catalog, "demo", "Widget")
+    widget_tw.attributes.return_value.fetch.return_value = []  # no existing
+    _stub_insert_result(widget_tw, [{"RID": "W1"}, {"RID": "W2"}])
 
     loader = BagCatalogLoader(
         catalog=catalog,
@@ -2225,13 +2126,8 @@ def test_match_by_columns_rewrites_fks_on_inserted_rows(tmp_path: Path) -> None:
             asset_mode=AssetMode.ROWS_ONLY,
             match_by_columns={
                 ("demo", "Image"): ["URL"],
-                # Widget also goes through match_by_columns. Use a
-                # composite key that won't match anything (Widget
-                # has no Name column in the test fixture, so use
-                # the synthetic combination of ``Image`` FK +
-                # ``RID`` — which makes every Widget row unique
-                # and forces them all through the insert path
-                # where the FK-rewrite must apply.
+                # Widget composite key forces every row through the
+                # insert path so we can assert the FK-rewrite ran.
                 ("demo", "Widget"): ["Image", "RID"],
             },
         ),
@@ -2242,22 +2138,16 @@ def test_match_by_columns_rewrites_fks_on_inserted_rows(tmp_path: Path) -> None:
     finally:
         loader.dispose()
 
-    # Locate the Widget POST payload. The FK column must have
-    # been rewritten through the remap built when Image was loaded.
-    widget_posts = [
-        rows for path, rows in insert_payloads if "Widget" in path
-    ]
-    assert widget_posts, "expected Widget rows to be POSTed"
-    widget_rows = widget_posts[0]
+    widget_rows = widget_tw.insert.call_args.args[0]
     by_rid = {r["RID"]: r for r in widget_rows}
-    # W1 references the matched Image (I-SRC-A → I-DST-A).
-    # Without the FK rewrite, W1.Image would still be I-SRC-A.
+    # W1 references the matched Image (I-SRC-A → I-DST-A). Without
+    # the FK rewrite, W1.Image would still be I-SRC-A.
     assert by_rid["W1"]["Image"] == "I-DST-A", (
         "Widget.Image FK was not rewritten through the remap; "
         "match_by_columns insert path must call _rewrite_fks"
     )
     # W2's parent (I-SRC-B) was identity-remapped (no destination
-    # match). Either I-SRC-B (identity) is acceptable.
+    # match), so the FK stays as I-SRC-B.
     assert by_rid["W2"]["Image"] == "I-SRC-B"
 
 
@@ -2287,41 +2177,23 @@ def test_match_by_columns_rewrites_fks_before_match_query(tmp_path: Path) -> Non
     destination row is found in one shot.
     """
     bag = _build_image_widget_bag(tmp_path)
-
     catalog = _mock_catalog()
-    # Image fetch: one existing row matches.
-    image_response = MagicMock()
-    image_response.raise_for_status.return_value = None
-    image_response.json.return_value = [
+
+    image_tw = _pb_table(catalog, "demo", "Image")
+    image_tw.attributes.return_value.fetch.return_value = [
         {"URL": "/hatrac/demo/abc.a.png", "RID": "I-DST-A"},
     ]
+    _stub_insert_result(image_tw, [{"RID": "I-SRC-B"}])
+
     # Widget fetch: one existing row matches the *destination*
-    # Image RID + Widget RID. Without the fix, the query is keyed
-    # by ``I-SRC-A`` (bag-side) and misses; with the fix it's
-    # keyed by ``I-DST-A`` and finds the row.
-    widget_response = MagicMock()
-    widget_response.raise_for_status.return_value = None
-    widget_response.json.return_value = [
+    # Image RID + Widget RID. Without the FK-rewrite-first ordering,
+    # the query would be keyed by ``I-SRC-A`` (bag-side) and miss;
+    # with the fix it's keyed by ``I-DST-A`` and finds the row.
+    widget_tw = _pb_table(catalog, "demo", "Widget")
+    widget_tw.attributes.return_value.fetch.return_value = [
         {"Image": "I-DST-A", "RID": "W1"},
     ]
-
-    def _get(path: str, **_: Any):
-        if "Image" in path and "URL" in path:
-            return image_response
-        if "Widget" in path:
-            return widget_response
-        raise AssertionError(f"unexpected GET path: {path}")
-
-    insert_payloads: list[tuple[str, list[dict[str, Any]]]] = []
-
-    def _post(path: str, **kwargs: Any):
-        insert_payloads.append((path, kwargs["json"]))
-        resp = MagicMock()
-        resp.raise_for_status.return_value = None
-        return resp
-
-    catalog.get = _get
-    catalog.post = _post
+    _stub_insert_result(widget_tw, [{"RID": "W2"}])
 
     loader = BagCatalogLoader(
         catalog=catalog,
@@ -2341,10 +2213,6 @@ def test_match_by_columns_rewrites_fks_before_match_query(tmp_path: Path) -> Non
         loader.dispose()
 
     widget_stats = report.table_stats["demo.Widget"]
-    # W1's match key, after FK rewrite, is (I-DST-A, W1) — which
-    # the destination has. W2's match key, after FK rewrite, is
-    # (I-SRC-B, W2) — which the destination doesn't have, so it
-    # inserts.
     assert widget_stats.rows_matched_by_columns == 1, (
         f"W1 should have matched after FK rewrite; got "
         f"rows_matched_by_columns={widget_stats.rows_matched_by_columns}"
