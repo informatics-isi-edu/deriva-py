@@ -314,7 +314,7 @@ class FKTraversalPolicy(BaseModel):
           which rows landed and how they were classified doesn't
           change which asset bytes need PUTing.
 
-        See :class:`_TableClass` in
+        See :class:`TableClass` in
         :mod:`deriva.bag.catalog_loader` for the
         ``MATCH_BY_COLUMNS`` ▶ ``VOCABULARY`` ▶ ``CONTENT``
         precedence rule.

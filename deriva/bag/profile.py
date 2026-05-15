@@ -88,6 +88,18 @@ TABLE_CSV_TEMPLATE = "data/{schema}/{table}.csv"
 #: ``filename`` (asset's filename column value).
 ASSET_FILE_TEMPLATE = "data/asset/{table}/{rid}/{filename}"
 
+#: Hatrac URL template the destination catalog uses for an asset
+#: row's ``URL`` column. Format args: ``table`` (asset table name),
+#: ``md5`` (lowercase hex MD5), ``filename`` (original filename).
+#: Mirrors the default ``hatrac_uri`` template used by
+#: :class:`~deriva.transfer.upload.deriva_upload.GenericUploader`.
+HATRAC_URL_TEMPLATE = "/hatrac/{table}/{md5}.{filename}"
+
+#: Path-prefix that identifies a hatrac URL (vs. a CDN ref or other
+#: external link). Consumers use this to decide whether an asset
+#: row's ``URL`` is uploadable as a hatrac object.
+HATRAC_PATH_PREFIX = "/hatrac/"
+
 #: Top-level directory (relative to the bag root) for producer-side
 #: provenance files.
 METADATA_DIR = "metadata"
