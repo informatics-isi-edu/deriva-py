@@ -4,8 +4,10 @@ This module provides :class:`BagDatabase`, which opens a BDBag
 directory as a SQLAlchemy ORM layer. It reads the bag's
 ``data/schema.json`` (ERMrest model description), builds SQLite
 tables matching that schema via :class:`~deriva.bag.schema.SchemaBuilder`,
-loads the CSVs in ``data/<schema>/<table>.csv``, and localizes
-asset paths using ``fetch.txt``.
+and loads the CSVs in ``data/<schema>/<table>.csv``. Asset paths
+are resolved on demand by :meth:`BagDatabase.resolve_asset_local_path`
+(which consults ``fetch.txt`` and the bag-profile embedded-asset
+directory layout) — not at load time.
 
 The on-disk SQLite layout is one ``main.db`` plus one attached
 ``{schema}.db`` per ERMrest schema. SQLAlchemy hides the multi-file
@@ -344,4 +346,14 @@ class BagDatabase:
     def get_orm_class_for_table(self, table) -> Any | None:
         """Look up the ORM class for a table (SQLAlchemy or deriva-py)."""
         return self.orm.get_orm_class_for_table(table)
+
+    def get_association_class(
+        self, left_cls: Any, right_cls: Any
+    ) -> tuple[Any, Any, Any] | None:
+        """Find an association class connecting two ORM classes.
+
+        See :meth:`SchemaORM.get_association_class` for the
+        signature and semantics.
+        """
+        return self.orm.get_association_class(left_cls, right_cls)
 
