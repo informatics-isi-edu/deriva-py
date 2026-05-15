@@ -151,6 +151,13 @@ def create_wal_engine(db_path: Path, *, read_only: bool = False) -> Engine:
         the pool) because the event is ``connect``, not ``checkout``.
         That's fine: the pragmas we set are connection-scoped and
         persist until the connection is closed.
+
+        Caveat: if the pool ever evicts and re-creates a connection
+        (rare under ``QueuePool``, and not expected mid-transaction),
+        the new connection runs this listener afresh — any
+        caller-toggled pragmas (e.g. :meth:`BagDatabase._load_data`'s
+        ``foreign_keys=OFF`` override) revert to the values declared
+        here.
         """
         cur = dbapi_conn.cursor()
         try:
@@ -181,13 +188,21 @@ def attach_database(conn: Connection, db_path: Path, alias: str) -> None:
     qualified names in SQL and via the ``schema=`` argument on
     SQLAlchemy ``Table`` constructors.
 
+    .. warning::
+        Both ``db_path`` and ``alias`` are interpolated into the SQL
+        statement (SQLite's ``ATTACH`` does not support parameter
+        binding). Quote escaping is applied, but callers must pass
+        only trusted values — ERMrest schema names for ``alias``,
+        and paths constructed by the package for ``db_path``. Do
+        not call with strings from external input.
+
     Args:
         conn: An open SQLAlchemy connection. The ``ATTACH`` is scoped to
             this connection; sibling connections in the same engine do
             not see the attachment.
-        db_path: Path to the SQLite file to attach.
+        db_path: Path to the SQLite file to attach. Trusted input.
         alias: Name to attach it under. Used as the schema qualifier in
-            subsequent queries (e.g. ``alias.tablename``).
+            subsequent queries (e.g. ``alias.tablename``). Trusted input.
 
     Example:
         >>> import tempfile
@@ -246,6 +261,12 @@ def ensure_schema_meta(engine: Engine, expected_version: int) -> int:
     ``datetime('now')``). It is intentionally simple — its only job is
     to fail fast when version skew would otherwise cause confusing
     errors at query time.
+
+    ``version`` is the primary key, so the table is append-only on
+    version: writing an existing version is a no-op (the
+    ``INSERT OR IGNORE`` swallows the PK conflict). Versions
+    monotonically increase in practice, so the table never carries
+    more than one row.
 
     Args:
         engine: Writable SQLAlchemy engine for the database.
