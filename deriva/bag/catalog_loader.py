@@ -288,6 +288,24 @@ class BagCatalogLoader:
         # which vocab rows survived as-is. See ADR-0001.
         self._rid_remap: dict[tuple[str, str], dict[str, str]] = {}
 
+        # PathBuilder is lazily built on first read/write.
+        # ``ErmrestCatalog.getPathBuilder()`` walks /schema once;
+        # cache the result so subsequent reads/writes reuse the
+        # same wrapper tree.
+        self._path_builder = None
+
+    def _table_wrapper(self, table: DerivaTable):
+        """Return the deriva-py ``_TableWrapper`` for ``table``.
+
+        Wraps the catalog's lazy PathBuilder so the loader's
+        insert/update/read calls go through deriva-py's
+        URL-encoding, batching, and retry machinery instead of
+        hand-rolled paths.
+        """
+        if self._path_builder is None:
+            self._path_builder = self.catalog.getPathBuilder()
+        return self._path_builder.schemas[table.schema.name].tables[table.name]
+
     @staticmethod
     def _infer_schemas_from_bag(bag_path: Path) -> list[str]:
         """Peek at the bag's schema.json and return loadable schemas.
@@ -472,19 +490,17 @@ class BagCatalogLoader:
             )
 
     async def _apply_deferred_fk_updates(self) -> None:
-        """Second pass: PUT each row's deferred FK column values.
+        """Second pass: update each row's deferred FK column values.
 
         For every ``(schema, table)`` that had cycle-cut FKs, walk
-        the saved ``{rid: {col: value}}`` map and issue one PUT
-        per row to fill in the columns that were sent as NULL on
-        the first-pass insert.
+        the saved ``{rid: {col: value}}`` map and call
+        ``_TableWrapper.update`` to fill in the columns that were
+        sent as NULL on the first-pass insert.
 
-        ERMrest's ``/attributegroup/{schema}:{table}/RID;col1,col2``
-        endpoint accepts a JSON array of update rows, each
-        carrying the keying column (``RID``) plus the target
-        columns. Using PUT-by-attributegroup (rather than
-        ``/entity/`` PUT) avoids re-sending every column on the
-        row.
+        ``update(correlation={"RID"}, targets=<cols>)`` uses ERMrest's
+        ``/attributegroup`` PUT under the hood — same wire shape as
+        the previous hand-rolled implementation, but with batching,
+        retry, and URL-encoding from deriva-py.
         """
         for (
             schema_name,
@@ -506,16 +522,18 @@ class BagCatalogLoader:
                         row[col] = col_values[col]
                 payload.append(row)
 
-            url = (
-                f"/attributegroup/{schema_name}:{table_name}"
-                f"/RID;{','.join(cols)}"
-            )
+            if self._path_builder is None:
+                self._path_builder = self.catalog.getPathBuilder()
+            tw = self._path_builder.schemas[schema_name].tables[table_name]
 
-            def _do_put(payload=payload, url=url) -> None:
-                response = self.catalog.put(url, json=payload)
-                response.raise_for_status()
+            def _do_update(payload=payload, tw=tw, cols=cols) -> None:
+                tw.update(
+                    payload,
+                    correlation={"RID"},
+                    targets=cols,
+                )
 
-            await asyncio.to_thread(_do_put)
+            await asyncio.to_thread(_do_update)
 
     def _table_in_scope(self, schema_name: str, table_name: str) -> bool:
         """Apply policy.exclude_schemas/exclude_tables/schemas filter."""
@@ -711,19 +729,21 @@ class BagCatalogLoader:
     ) -> dict[str, str]:
         """Return ``{Name: RID}`` for every existing row in the table.
 
-        One GET to ``/attributegroup/{schema}:{table}/Name;RID`` covers
-        the whole table — vocabularies are small enough that pagination
-        isn't worth the round trips.
+        Reads the whole vocab table via deriva-py's PathBuilder —
+        vocabularies are small enough that pagination isn't worth
+        the round trips.
         """
-        path = (
-            f"/attributegroup/"
-            f"{schema_name}:{table_name}/Name;RID"
-        )
+        if self._path_builder is None:
+            self._path_builder = self.catalog.getPathBuilder()
+        tw = self._path_builder.schemas[schema_name].tables[table_name]
 
         def _do_get() -> list[dict[str, Any]]:
-            response = self.catalog.get(path)
-            response.raise_for_status()
-            return response.json()
+            return list(
+                tw.attributes(
+                    tw.column_definitions["Name"],
+                    tw.column_definitions["RID"],
+                ).fetch()
+            )
 
         rows = await asyncio.to_thread(_do_get)
         return {row["Name"]: row["RID"] for row in rows if row.get("Name")}
@@ -815,11 +835,10 @@ class BagCatalogLoader:
     ) -> dict[tuple[Any, ...], str]:
         """Return ``{(col1_value, col2_value, ...): RID}`` for all rows.
 
-        One GET to ``/attributegroup/{schema}:{table}/<cols>;RID``
-        covers the whole table. For asset tables, the match
+        Reads the whole table via deriva-py's PathBuilder, projecting
+        only the match columns plus RID. For asset tables, the match
         columns are typically a single content-addressed key
-        (e.g. ``["URL"]``), so the result is small — same shape
-        and round-trip cost as the vocab fetch.
+        (e.g. ``["URL"]``), so the result is small.
 
         Rows whose match-key has any ``None`` component are
         dropped from the result map; the caller's matching loop
@@ -827,16 +846,15 @@ class BagCatalogLoader:
         here would only invite collisions on ``(None, None, ...)``
         bag rows.
         """
-        cols_path = ",".join(match_cols)
-        path = (
-            f"/attributegroup/"
-            f"{schema_name}:{table_name}/{cols_path};RID"
-        )
+        if self._path_builder is None:
+            self._path_builder = self.catalog.getPathBuilder()
+        tw = self._path_builder.schemas[schema_name].tables[table_name]
+        projection = [tw.column_definitions[col] for col in match_cols] + [
+            tw.column_definitions["RID"]
+        ]
 
         def _do_get() -> list[dict[str, Any]]:
-            response = self.catalog.get(path)
-            response.raise_for_status()
-            return response.json()
+            return list(tw.attributes(*projection).fetch())
 
         rows = await asyncio.to_thread(_do_get)
         result: dict[tuple[Any, ...], str] = {}
@@ -896,26 +914,24 @@ class BagCatalogLoader:
                 if stash:
                     per_row[rid] = stash
 
-        if (
+        skip_on_conflict = (
             self.policy.content_on_conflict
             == ContentConflictStrategy.SKIP_BY_RID
-        ):
-            existing_rids = await self._fetch_existing_rids(
-                table.schema.name, table.name
-            )
-            kept: list[dict[str, Any]] = []
-            for row in rewritten:
-                if row.get("RID") in existing_rids:
-                    stats.rows_skipped_on_conflict += 1
-                else:
-                    kept.append(row)
-            rewritten = kept
+        )
 
         if not rewritten:
             return
 
-        inserted = await self._insert_rows(table, rewritten)
+        attempted = len(rewritten)
+        inserted = await self._insert_rows(
+            table, rewritten, on_conflict_skip=skip_on_conflict
+        )
         stats.rows_inserted = inserted
+        if skip_on_conflict:
+            # ``_TableWrapper.insert`` with ``onconflict=skip`` returns
+            # only the rows the destination actually accepted. Anything
+            # we sent but didn't get back was skipped.
+            stats.rows_skipped_on_conflict += attempted - inserted
 
     def _rewrite_fks(
         self, table: DerivaTable, row: dict[str, Any]
@@ -1003,26 +1019,6 @@ class BagCatalogLoader:
             fk.pk_table.schema.name,
             fk.pk_table.name,
         )
-
-    async def _fetch_existing_rids(
-        self, schema_name: str, table_name: str
-    ) -> set[str]:
-        """Return every RID currently present in ``schema.table``.
-
-        Used by the ``SKIP_BY_RID`` content-conflict path to filter
-        the insert payload. For tables with very large row counts
-        this is one pass through the destination — that's fine for
-        the resume-a-partial-load use case.
-        """
-        path = f"/attribute/{schema_name}:{table_name}/RID"
-
-        def _do_get() -> list[dict[str, Any]]:
-            response = self.catalog.get(path)
-            response.raise_for_status()
-            return response.json()
-
-        rows = await asyncio.to_thread(_do_get)
-        return {row["RID"] for row in rows if row.get("RID")}
 
     def _apply_dangling_fk_strategy(
         self,
@@ -1219,36 +1215,36 @@ class BagCatalogLoader:
         self,
         table: DerivaTable,
         rows: list[dict[str, Any]],
+        *,
+        on_conflict_skip: bool = False,
     ) -> int:
-        """Bulk-insert rows via ERMrest's /entity endpoint.
+        """Bulk-insert rows via deriva-py's ``_TableWrapper.insert``.
 
-        Routes through ``catalog.post`` (sync). The async wrapper
-        is mostly defensive — today's :class:`ErmrestCatalog` API
-        is sync; running it inside ``asyncio.to_thread`` keeps
-        the surface consistent with ``arun`` semantics so the
-        loader can be embedded in async pipelines without
-        blocking the event loop.
+        Picks ``nondefaults`` from ``policy.preserve_provenance``:
+
+        - **True** (clone semantics): ``nondefaults={"RID","RCT","RCB"}``
+          preserves the source's creation audit data; matches the
+          canonical clone path.
+        - **False** (commit semantics): ``nondefaults={"RID"}`` so the
+          server sets ``RCT``/``RCB``. The bag's serialized empty
+          strings for these columns are stripped explicitly
+          because ERMrest rejects ``""`` for timestamp /
+          ERMrest_Client typed columns.
+
+        ``on_conflict_skip=True`` adds ``?onconflict=skip`` so the
+        destination silently ignores rows whose RIDs already exist
+        — subsumes the old SKIP_BY_RID pre-fetch + filter.
+
+        ``_TableWrapper.insert`` provides retry/backoff, batching,
+        and URL-encoding for free.
         """
-        # Two insert modes, picked by ``policy.preserve_provenance``:
-        #
-        # - **True** (default — clone semantics): preserve creation
-        #   provenance from the bag's source catalog by passing
-        #   ``?nondefaults=RID,RCT,RCB``. Matches the canonical
-        #   clone paths (``ErmrestCatalog.clone_catalog``,
-        #   ``asyncio/clone.py``). Audit data from the source is
-        #   real history worth keeping; modification timestamps
-        #   would be overwritten on the next update anyway.
-        # - **False** (commit semantics): only ``RID`` is preserved;
-        #   ``RCT`` / ``RCB`` get server-set values. Required when
-        #   the bag carries newly-minted rows the destination is
-        #   generating — e.g. end-of-execution commit. Without
-        #   this, NULL ``RCB`` violates the
-        #   ``{Table}_RCB_fkey → public.ERMrest_Client`` constraint.
-        qname = f"{table.schema.name}:{table.name}"
+        if not rows:
+            return 0
+
+        nondefaults: set[str] = {"RID"}
         if self.policy.preserve_provenance:
-            url = f"/entity/{qname}?nondefaults=RID,RCT,RCB"
+            nondefaults |= {"RCT", "RCB"}
         else:
-            url = f"/entity/{qname}?nondefaults=RID"
             # Commit semantics: strip RCT/RCB/RMT/RMB from the row
             # dict entirely. The bag built them via
             # ``BagBuilder.add_row`` from a row that didn't supply
@@ -1258,8 +1254,7 @@ class BagCatalogLoader:
             # ERMrest rejects empty strings for timestamp /
             # ERMrest_Client columns with a 400). Removing them
             # lets the server's defaults populate ``RCT`` (now())
-            # and ``RCB`` (current user) at insert time, which is
-            # the whole point of ``preserve_provenance=False``.
+            # and ``RCB`` (current user) at insert time.
             _SYSTEM_COLUMNS = ("RCT", "RCB", "RMT", "RMB")
             rows = [
                 {k: v for k, v in row.items() if k not in _SYSTEM_COLUMNS}
@@ -1282,15 +1277,24 @@ class BagCatalogLoader:
         # Coerce date/datetime values back to ISO strings. The bag's
         # SQLite mirror returns Python ``datetime.date`` /
         # ``datetime.datetime`` objects via the type decorators in
-        # :mod:`deriva.bag.database` (``StringToDate`` /
+        # :mod:`deriva.bag._column_types` (``StringToDate`` /
         # ``StringToDateTime``); ``json.dumps`` can't serialize those
         # directly and ERMrest expects ISO strings on the wire.
         rows = [self._coerce_datetimes(r) for r in rows]
 
+        tw = self._table_wrapper(table)
+
         def _do_insert() -> int:
-            response = self.catalog.post(url, json=rows)
-            response.raise_for_status()
-            return len(rows)
+            result = tw.insert(
+                rows,
+                nondefaults=nondefaults,
+                on_conflict_skip=on_conflict_skip,
+            )
+            # With ``onconflict=skip`` the destination returns only
+            # the rows it actually accepted; otherwise the result
+            # mirrors the input. ``len()`` walks the result-set's
+            # fetched data.
+            return len(list(result))
 
         # ``asyncio.to_thread`` keeps the sync HTTP call from
         # blocking the loop; for the small-row batches we see,
@@ -1405,26 +1409,13 @@ class BagCatalogLoader:
     def _get_uploader(self) -> Any:
         """Return a minimal :class:`DerivaUpload` for asset uploads.
 
-        Constructed lazily on first asset-upload. We bypass the
-        public ``__init__`` (which loads a config file, installs
-        a SIGINT handler, and resolves credentials from the local
-        filesystem) and instead populate only the attributes
-        :meth:`_hatracUpload` and its callees read:
-
-        - ``store``: the :class:`HatracStore` bound to the
-          destination catalog's host.
-        - ``server_url``: used for log messages.
-        - ``transfer_state`` / ``transfer_state_fh`` /
-          ``transfer_state_locks``: present and empty so
-          ``getTransferState`` returns ``None`` and ``cleanupTransferState``
-          (called from ``__del__``) is a no-op. Wiring up the
-          state-file machinery for cross-process resume is a
-          deliberate non-goal here — the bag-loader is a one-shot
-          driver; the state-file overhead would buy resume on
-          process crash but at the cost of a file lock that
-          would serialize concurrent bag-loads to the same bag.
-        - ``cancelled``: ``False``; cancellation isn't wired up
-          through the bag-loader.
+        Constructed lazily on first asset-upload via
+        :meth:`DerivaUpload.minimal_for_upload`, which skips the
+        full ``__init__`` (config file, SIGINT handler, credential
+        resolution). The loader is a one-shot driver — it only
+        needs :meth:`DerivaUpload._hatracUpload`, which depends on
+        ``store``, ``server_url``, and the (empty) transfer-state
+        machinery.
         """
         if getattr(self, "_uploader", None) is not None:
             return self._uploader
@@ -1436,18 +1427,13 @@ class BagCatalogLoader:
         store = HatracStore(
             deriva_server.scheme,
             deriva_server.server,
-            credentials=self.catalog._credentials,
+            credentials=self.catalog.get_credentials(),
         )
-
-        uploader = DerivaUpload.__new__(DerivaUpload)
-        uploader.store = store
-        uploader.server_url = f"{deriva_server.scheme}://{deriva_server.server}"
-        uploader.transfer_state = {}
-        uploader.transfer_state_fh = None
-        uploader.transfer_state_locks = {}
-        uploader.cancelled = False
-        self._uploader = uploader
-        return uploader
+        self._uploader = DerivaUpload.minimal_for_upload(
+            store=store,
+            server_url=f"{deriva_server.scheme}://{deriva_server.server}",
+        )
+        return self._uploader
 
     @staticmethod
     def _hatrac_path_for(url: str) -> str | None:
