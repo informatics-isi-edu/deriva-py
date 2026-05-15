@@ -99,7 +99,25 @@ def _mock_catalog(catalog_id: str = "42") -> MagicMock:
 # key, which collapses different tables into one mock and breaks
 # ``call_args`` assertions. Track per-key state externally and wire it
 # via ``__getitem__.side_effect``.
+#
+# The autouse ``_clear_pb_dispatch`` fixture below resets this between
+# tests so the dispatcher state stays bounded across the session — tests
+# don't leak ``MagicMock`` chains into each other's catalogs.
 _pb_dispatch: "dict[int, dict[str, dict[str, MagicMock]]]" = {}
+
+
+@pytest.fixture(autouse=True)
+def _clear_pb_dispatch():
+    """Reset the per-catalog mock-dispatch table between tests.
+
+    Without this, every test that calls ``_pb_table`` adds an entry
+    keyed by ``id(catalog)`` that lives for the rest of the session.
+    The entries are inert (other tests use different catalog
+    instances), but they accumulate and obscure leak-debugging.
+    """
+    _pb_dispatch.clear()
+    yield
+    _pb_dispatch.clear()
 
 
 def _pb_table(catalog: MagicMock, schema_name: str, table_name: str) -> MagicMock:
@@ -118,11 +136,24 @@ def _pb_table(catalog: MagicMock, schema_name: str, table_name: str) -> MagicMoc
 
 
 def _build_schema_mock() -> MagicMock:
-    """Construct a per-schema mock whose ``tables[name]`` dispatches per-key."""
+    """Construct a per-schema mock whose ``tables[name]`` dispatches per-key.
+
+    Newly-minted table-wrapper mocks default ``insert.return_value``
+    and ``update.return_value`` to ``[]`` so the loader's
+    ``len(list(result))`` accounting doesn't blow up on tests that
+    don't otherwise pin a specific return shape.
+    """
     schema = MagicMock()
     tables_dict: dict[str, MagicMock] = {}
+
+    def _new_table_wrapper(key: str) -> MagicMock:
+        tw = MagicMock(name=f"TableWrapper[{key}]")
+        tw.insert.return_value = []
+        tw.update.return_value = []
+        return tw
+
     schema.tables.__getitem__.side_effect = lambda key: tables_dict.setdefault(
-        key, MagicMock(name=f"TableWrapper[{key}]")
+        key, _new_table_wrapper(key)
     )
     return schema
 
@@ -741,6 +772,57 @@ def test_insert_rows_preserve_provenance_true_keeps_system_columns(
     assert row["RCB"] == "https://idp/user1"
 
 
+def test_insert_rows_accounting_works_when_result_spans_multiple_batches(
+    tmp_path: Path,
+) -> None:
+    """``_insert_rows`` counts the returned rows correctly when the
+    PathBuilder result spans multiple HTTP batches.
+
+    ``_TableWrapper.insert`` chunks the input into batches of up to
+    ``max_batch_rows`` (default 1000) and returns a ``_ResultSet``
+    that walks every batch's response. The loader computes
+    ``inserted = len(list(result))``. The path-builder result
+    typically yields a single concatenated list; this test pins
+    the contract by handing back a multi-element iterable and
+    asserting the loader counts every element — not just the
+    first batch.
+    """
+    import asyncio as _asyncio
+
+    bag = _build_fk_bag(tmp_path)
+    catalog = _mock_catalog()
+
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=FKTraversalPolicy(),
+        database_dir=tmp_path / "db",
+    )
+    tw = _pb_table(catalog, "demo", "Image")
+    # Simulate the path-builder concatenating three batches of three
+    # rows each (i.e. nine accepted-row dicts). ``_TableWrapper.insert``
+    # returns a ``_ResultSet`` whose iteration walks the
+    # concatenated payload; ``list()`` materializes it.
+    accepted = [{"RID": f"I{i}"} for i in range(9)]
+    tw.insert.return_value = accepted
+    try:
+        inserted = _asyncio.run(
+            loader._insert_rows(
+                _make_fake_table(),
+                # Nine input rows; the real PathBuilder would batch
+                # internally. The mock returns nine accepted rows.
+                [{"RID": f"I{i}", "Filename": f"f{i}.bin"} for i in range(9)],
+            )
+        )
+    finally:
+        loader.dispose()
+
+    assert inserted == 9, (
+        f"loader must count every accepted row across batches; "
+        f"got {inserted} (expected 9)"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Report shape
 # ---------------------------------------------------------------------------
@@ -1297,48 +1379,38 @@ def _build_asset_only_bag(tmp_path: Path) -> Path:
 def _install_mock_uploader(loader: BagCatalogLoader, hatrac_store: Any) -> Any:
     """Plant a mock uploader on the loader for asset-upload tests.
 
-    The bag-loader calls ``uploader._hatracUpload(...)``; mocking
-    that method directly (per audit §B.1) keeps the test focused
-    on the contract the loader actually uses and avoids importing
-    :class:`DerivaUpload` (which transitively pulls heavy modules).
+    The bag-loader calls
+    ``uploader._hatracUpload(hatrac_path, local_path, md5=...,
+    chunked=True, force=...)`` — see ``catalog_loader.py``'s
+    ``_upload_assets``. Mocking ``_hatracUpload`` directly (per
+    audit §B.1) keeps the test focused on that contract and avoids
+    importing :class:`DerivaUpload` (which transitively pulls
+    heavy modules unrelated to upload).
 
-    Inside ``_hatracUpload``, deriva-py routes byte transfer
-    through ``self.store.put_loc(...)``. To preserve the existing
-    test assertions on ``put_loc`` call args, the mock
-    ``_hatracUpload`` forwards to ``store.put_loc`` with the same
-    keyword shape deriva-py would use.
+    The forwarding function below accepts only the kwargs the
+    loader actually sends. ``DerivaUpload._hatracUpload`` has a
+    broader real signature (``sha256``, ``content_type``,
+    ``content_disposition``, ``chunk_size``, ``create_parents``,
+    ``allow_versioning``, ``callback``); they're not relevant
+    here and advertising them in the mock would let a future
+    refactor accidentally rely on a shape production doesn't
+    exercise. Tests that need to pin those kwargs should write
+    against :class:`DerivaUpload` itself.
+
+    Inside the real ``_hatracUpload``, deriva-py routes byte
+    transfer through ``self.store.put_loc(...)``. The forwarding
+    function below mirrors that so the existing ``put_loc``
+    assertions continue to work.
     """
     uploader = MagicMock()
     uploader.store = hatrac_store
 
-    def _hatrac_upload(
-        hatrac_uri,
-        file_path,
-        md5=None,
-        sha256=None,
-        content_type=None,
-        content_disposition=None,
-        chunked=False,
-        create_parents=True,
-        allow_versioning=True,
-        cancel_job_on_error=True,
-        cleanup_transfer_state_on_error=True,
-        chunk_size=None,
-        force=False,
-    ):
+    def _hatrac_upload(hatrac_uri, file_path, md5=None, chunked=True, force=False):
         return hatrac_store.put_loc(
             hatrac_uri,
             file_path,
             md5=md5,
-            sha256=sha256,
-            content_type=content_type,
-            content_disposition=content_disposition,
             chunked=chunked,
-            create_parents=create_parents,
-            allow_versioning=allow_versioning,
-            cancel_job_on_error=cancel_job_on_error,
-            cleanup_transfer_state_on_error=cleanup_transfer_state_on_error,
-            chunk_size=chunk_size,
             force=force,
         )
 
