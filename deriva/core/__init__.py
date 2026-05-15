@@ -11,14 +11,6 @@ from deriva.core.hatrac_store import HatracStore, HatracHashMismatch, HatracJobP
 from deriva.core.utils.globus_auth_utils import GlobusNativeLogin
 from deriva.core.model_handles import TableHandle, ColumnHandle
 from deriva.core.export import export_entity
-# BagDatabase moved to deriva.bag.database; callers that imported it
-# via ``from deriva.core import BagDatabase`` should switch to
-# ``from deriva.bag import BagDatabase`` (or import via the legacy
-# shim at ``deriva.core.bag_database``, which re-exports). The
-# top-level re-export is removed to avoid a circular import:
-# ``deriva.bag.database`` itself imports from
-# ``deriva.core.ermrest_model``, which would trigger this module's
-# initialization mid-flight.
 
 
 def get_credential(host,
