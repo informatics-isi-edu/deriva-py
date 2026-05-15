@@ -182,11 +182,22 @@ class BagCacheIndex:
     ) -> None:
         """Record a bag in the index.
 
-        Idempotent: re-recording a bag with the same checksum
-        updates the metadata and *replaces* the anchor list
-        (because the bag's contents are content-addressed; if the
-        anchor RIDs differ for the same checksum, the most recent
-        producer's claim wins).
+        Idempotent on the metadata row and **accumulative** on the
+        anchor list. Re-recording the same checksum updates the
+        ``bags`` row's metadata (profile, built_at, size, summary)
+        and adds any new ``(table, rid)`` anchor pairs that aren't
+        already in the reverse index. Existing anchor rows are
+        preserved.
+
+        This matches reverse-index semantics: a single
+        content-addressed bag may legitimately be anchored from
+        multiple RIDs (e.g., two datasets that share content via
+        clone-via-bag, or a dev-version rerun whose checksum
+        coincides with a release version). Each producer's claim
+        accumulates rather than replacing the prior claim.
+
+        To remove a bag's index entry (and all its anchors via FK
+        cascade), use :meth:`forget`.
 
         Args:
             checksum: The bag's BDBag checksum. Used as the
@@ -194,8 +205,10 @@ class BagCacheIndex:
             profile_id: Optional BagIt-Profile-Identifier URL. Helps
                 future tooling tell deriva-bag profile bags apart
                 from other BDBag flavors.
-            anchors: An iterable of ``(table, rid)`` pairs to put
-                in the reverse index. May be empty.
+            anchors: An iterable of ``(table, rid)`` pairs to add
+                to the reverse index. May be empty. Duplicates of
+                existing rows (same checksum + table + rid) are
+                silently ignored.
             anchor_summary: Optional dict (e.g., a serialized
                 ``Anchor`` list) recorded as JSON for provenance.
             size_bytes: Optional bag size on disk. Useful for
@@ -237,20 +250,16 @@ class BagCacheIndex:
                     "size_bytes": size_bytes,
                 },
             )
-            # Replace anchors: delete the existing rows and re-insert.
-            # The FK ON DELETE CASCADE would handle this, but we
-            # want to keep the bags row stable across re-records, so
-            # we delete only the anchor rows.
-            conn.execute(
-                text(
-                    'DELETE FROM bag_anchor_rids WHERE checksum = :c'
-                ),
-                {"c": checksum},
-            )
+            # Accumulate anchors: insert new (checksum, table, rid)
+            # triples; rely on the PRIMARY KEY constraint and
+            # ``INSERT OR IGNORE`` to silently dedupe rows that are
+            # already in the reverse index. Existing anchors are
+            # preserved across re-records — see the docstring for
+            # the semantic and the GitHub issue trail.
             if anchor_rows:
                 conn.execute(
                     text(
-                        "INSERT INTO bag_anchor_rids "
+                        "INSERT OR IGNORE INTO bag_anchor_rids "
                         '(checksum, "table", rid) '
                         "VALUES (:checksum, :table, :rid)"
                     ),
