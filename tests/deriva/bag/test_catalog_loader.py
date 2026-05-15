@@ -953,7 +953,7 @@ def _build_vocab_bag(tmp_path: Path) -> Path:
 
 def test_classify_table_detects_vocabulary(tmp_path: Path) -> None:
     """A vocab-shaped table is reported as ``VOCABULARY``; others as ``CONTENT``."""
-    from deriva.bag.catalog_loader import _TableClass
+    from deriva.bag.catalog_loader import TableClass
 
     bag = _build_vocab_bag(tmp_path)
     loader = BagCatalogLoader(
@@ -964,8 +964,8 @@ def test_classify_table_detects_vocabulary(tmp_path: Path) -> None:
     try:
         color = loader.bag_db.model.schemas["demo"].tables["Color"]
         widget = loader.bag_db.model.schemas["demo"].tables["Widget"]
-        assert loader._classify_table(color) == _TableClass.VOCABULARY
-        assert loader._classify_table(widget) == _TableClass.CONTENT
+        assert loader._classify_table(color) == TableClass.VOCABULARY
+        assert loader._classify_table(widget) == TableClass.CONTENT
     finally:
         loader.dispose()
 
@@ -1922,7 +1922,7 @@ def test_classify_table_routes_through_match_by_columns(tmp_path: Path) -> None:
     structural vocab check, so a vocab-shaped table listed in
     the policy still routes through the new path.
     """
-    from deriva.bag.catalog_loader import _TableClass
+    from deriva.bag.catalog_loader import TableClass
 
     # Use the existing vocab bag so we also verify the
     # match_by_columns override of the structural classification.
@@ -1940,9 +1940,9 @@ def test_classify_table_routes_through_match_by_columns(tmp_path: Path) -> None:
         widget = loader.bag_db.model.schemas["demo"].tables["Widget"]
         # Color is vocab-shaped AND listed in match_by_columns;
         # explicit policy wins.
-        assert loader._classify_table(color) == _TableClass.MATCH_BY_COLUMNS
+        assert loader._classify_table(color) == TableClass.MATCH_BY_COLUMNS
         # Widget isn't listed; default classification (CONTENT).
-        assert loader._classify_table(widget) == _TableClass.CONTENT
+        assert loader._classify_table(widget) == TableClass.CONTENT
     finally:
         loader.dispose()
 

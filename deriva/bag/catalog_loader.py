@@ -72,6 +72,7 @@ from deriva.core.ermrest_model import Table as DerivaTable
 
 from deriva.bag.database import BagDatabase
 from deriva.bag.loader import ForeignKeyOrderer
+from deriva.bag.profile import HATRAC_PATH_PREFIX
 from deriva.bag.traversal import (
     DEFAULT_EXCLUDE_SCHEMAS,
     AssetMode,
@@ -81,7 +82,7 @@ from deriva.bag.traversal import (
 )
 
 
-class _TableClass(StrEnum):
+class TableClass(StrEnum):
     """How :class:`BagCatalogLoader` should treat each in-scope table.
 
     Determined at the start of the load by :meth:`_classify_table`
@@ -548,10 +549,10 @@ class BagCatalogLoader:
             return False
         return True
 
-    def _classify_table(self, table: DerivaTable) -> _TableClass:
+    def _classify_table(self, table: DerivaTable) -> TableClass:
         """Decide whether a table is reconciled by name or by RID.
 
-        See :class:`_TableClass` for the policy. Order:
+        See :class:`TableClass` for the policy. Order:
 
         1. **``match_by_columns``** — explicit caller intent.
            A ``(schema, table)`` key in the policy dict overrides
@@ -564,10 +565,10 @@ class BagCatalogLoader:
         """
         key = (table.schema.name, table.name)
         if key in self.policy.match_by_columns:
-            return _TableClass.MATCH_BY_COLUMNS
+            return TableClass.MATCH_BY_COLUMNS
         if table.is_vocabulary():
-            return _TableClass.VOCABULARY
-        return _TableClass.CONTENT
+            return TableClass.VOCABULARY
+        return TableClass.CONTENT
 
     # ------------------------------------------------------------------
     # Per-table load
@@ -588,7 +589,7 @@ class BagCatalogLoader:
            by RID with :attr:`FKTraversalPolicy.content_on_conflict`
            controlling collisions.
 
-        See :class:`_TableClass` for the full rule. All three
+        See :class:`TableClass` for the full rule. All three
         paths apply :class:`DanglingFKStrategy` and run
         ``_rewrite_fks`` before insert (the rewrite handles
         composite-FK skipping with a one-shot warning per FK).
@@ -633,9 +634,9 @@ class BagCatalogLoader:
             return stats
 
         table_class = self._classify_table(table)
-        if table_class == _TableClass.VOCABULARY:
+        if table_class == TableClass.VOCABULARY:
             await self._load_vocabulary_table(table, rows, stats)
-        elif table_class == _TableClass.MATCH_BY_COLUMNS:
+        elif table_class == TableClass.MATCH_BY_COLUMNS:
             await self._load_match_by_columns_table(table, rows, stats)
         else:
             await self._load_content_table(table, rows, stats)
@@ -1453,11 +1454,11 @@ class BagCatalogLoader:
         """
         from urllib.parse import urlparse
 
-        if url.startswith("/hatrac/"):
+        if url.startswith(HATRAC_PATH_PREFIX):
             path = url
         else:
             parsed = urlparse(url)
-            if not parsed.path.startswith("/hatrac/"):
+            if not parsed.path.startswith(HATRAC_PATH_PREFIX):
                 return None
             path = parsed.path
         # Strip the ``:VERSIONID`` suffix if present. Versioned
@@ -1489,5 +1490,6 @@ class BagCatalogLoader:
 __all__ = [
     "BagCatalogLoader",
     "LoadReport",
+    "TableClass",
     "TableLoadStats",
 ]
