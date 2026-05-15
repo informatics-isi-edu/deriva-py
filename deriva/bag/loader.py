@@ -39,6 +39,7 @@ from typing import Any, Callable, Protocol, runtime_checkable
 from deriva.core.ermrest_model import Model
 from deriva.core.ermrest_model import Table as DerivaTable
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.exc import IntegrityError
 
 from deriva.bag.profile import TABLE_CSV_TEMPLATE
 from deriva.bag.schema import SchemaORM
@@ -524,8 +525,17 @@ class SQLiteSink:
             with self.orm.engine.begin() as conn:
                 conn.execute(stmt, rows)
             return len(rows)
-        except Exception as e:
-            logger.error(f"Sink: error inserting into {sql_table.name}: {e}")
+        except IntegrityError as e:
+            # FK / unique constraint violations are the conflict
+            # case the ``on_conflict`` knob is supposed to handle.
+            # For ``ignore`` and ``replace`` the SQLite-side ON
+            # CONFLICT clause already absorbs them, so reaching this
+            # branch means the conflict was something the clause
+            # didn't catch (e.g. an FK violation, which ON CONFLICT
+            # doesn't suppress). Log and surface per the policy.
+            logger.error(
+                f"Sink: integrity error inserting into {sql_table.name}: {e}"
+            )
             if self.on_conflict == "error":
                 raise
             return 0
