@@ -10,7 +10,6 @@ from pydantic import TypeAdapter, ValidationError
 from deriva.bag.anchors import (
     Anchor,
     AnchorKind,
-    PathAnchor,
     RIDAnchor,
     TableAnchor,
 )
@@ -70,35 +69,6 @@ def test_table_anchor_rejects_empty_table() -> None:
 
 
 # ---------------------------------------------------------------------------
-# PathAnchor
-# ---------------------------------------------------------------------------
-
-
-def test_path_anchor_constructs() -> None:
-    a = PathAnchor(table="Subject", rids=["S1"], expression="Age>30")
-    assert a.table == "Subject"
-    assert a.rids == ["S1"]
-    assert a.expression == "Age>30"
-    assert a.kind == AnchorKind.PATH
-
-
-def test_path_anchor_allows_empty_rids() -> None:
-    """Unlike RIDAnchor, PathAnchor tolerates an empty resolved set.
-
-    Empty paths *might* indicate a user error but they're not
-    inherently wrong (e.g., filtering by a label that nothing
-    has matches). The producer warns but proceeds.
-    """
-    a = PathAnchor(table="Subject", rids=[])
-    assert a.rids == []
-
-
-def test_path_anchor_expression_optional() -> None:
-    a = PathAnchor(table="Subject", rids=["S1"])
-    assert a.expression is None
-
-
-# ---------------------------------------------------------------------------
 # Discriminated union
 # ---------------------------------------------------------------------------
 
@@ -114,12 +84,8 @@ def test_anchor_union_discriminates_by_kind() -> None:
     table_a = _anchor_adapter.validate_python(
         {"kind": "table", "table": "Subject"}
     )
-    path_a = _anchor_adapter.validate_python(
-        {"kind": "path", "table": "Subject", "rids": ["S1"]}
-    )
     assert isinstance(rid_a, RIDAnchor)
     assert isinstance(table_a, TableAnchor)
-    assert isinstance(path_a, PathAnchor)
 
 
 def test_anchor_union_round_trips_through_json() -> None:

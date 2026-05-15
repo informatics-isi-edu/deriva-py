@@ -1,23 +1,18 @@
 """Anchors — starting points for a catalog-to-bag walk.
 
 An *anchor* describes where :class:`CatalogBagBuilder` starts
-walking the FK graph. Three concrete forms cover the producer
+walking the FK graph. Two concrete forms cover the producer
 cases identified in ADR-0006:
 
 - :class:`RIDAnchor` — explicit list of RIDs for one table.
   Example: ``RIDAnchor(table="Subject", rids=["S1", "S2", ...])``.
 - :class:`TableAnchor` — every row in a named table.
   Example: ``TableAnchor(table="Subject")``.
-- :class:`PathAnchor` — a datapath expression already evaluated
-  by the caller to a set of RIDs.
-  Example: ``PathAnchor(table="Subject", rids=resolved_set)``.
 
 The union type :data:`Anchor` lets callers pass a list of any
 mix. :class:`CatalogBagBuilder` deduplicates overlaps silently
-(via the FK walk's visited-set), fails fast on ``RIDAnchor``
-RIDs that don't resolve, and warns-but-proceeds on empty
-``PathAnchor`` results (per the resolution semantics agreed in
-ADR-0006).
+(via the FK walk's visited-set) and fails fast on ``RIDAnchor``
+RIDs that don't resolve.
 
 Anchors are Pydantic models so they:
 
@@ -49,7 +44,6 @@ class AnchorKind(StrEnum):
 
     RID = "rid"
     TABLE = "table"
-    PATH = "path"
 
 
 class RIDAnchor(BaseModel):
@@ -116,44 +110,13 @@ class TableAnchor(BaseModel):
     table: str = Field(..., min_length=1)
 
 
-class PathAnchor(BaseModel):
-    """Anchor walk at a caller-resolved set of RIDs for one table.
-
-    The most general anchor form. The caller is presumed to have
-    built the RID set with a datapath query (e.g.,
-    ``"Subject?Age>30"``); ``PathAnchor`` records the result plus
-    the (optional) original expression for provenance.
-
-    Empty path results are *warned but allowed* — a filter that
-    matches nothing is sometimes the correct outcome, but is
-    often a user error worth surfacing.
-
-    Args:
-        table: ERMrest table name.
-        rids: The resolved RID set. May be empty.
-        expression: Optional human-readable description of the
-            datapath that produced the RID set. Recorded in the
-            bag's provenance for traceability.
-
-    Example:
-        >>> a = PathAnchor(table="Subject", rids=["S1"], expression="Age>30")
-        >>> a.kind
-        <AnchorKind.PATH: 'path'>
-    """
-
-    kind: Literal[AnchorKind.PATH] = AnchorKind.PATH
-    table: str = Field(..., min_length=1)
-    rids: list[str] = Field(default_factory=list)
-    expression: str | None = None
-
-
 #: The :class:`Anchor` discriminated union.
 #:
 #: Use this as the type for "any anchor" in producer signatures.
 #: Pydantic resolves the concrete variant from the ``kind`` field
 #: when deserializing.
 Anchor = Annotated[
-    Union[RIDAnchor, TableAnchor, PathAnchor],
+    Union[RIDAnchor, TableAnchor],
     Field(discriminator="kind"),
 ]
 
@@ -161,7 +124,6 @@ Anchor = Annotated[
 __all__ = [
     "Anchor",
     "AnchorKind",
-    "PathAnchor",
     "RIDAnchor",
     "TableAnchor",
 ]
