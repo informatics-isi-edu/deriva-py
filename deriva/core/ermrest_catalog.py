@@ -385,9 +385,29 @@ class ErmrestCatalog(DerivaBinding):
         r.raise_for_status()
         return r.json()
 
-    def getPathBuilder(self):
-        """Returns the 'path builder' interface for this catalog."""
-        return datapath.from_catalog(self)
+    def getPathBuilder(self, refresh=False):
+        """Returns the 'path builder' interface for this catalog.
+
+        The returned wrapper is **cached on the catalog instance**.
+        Constructing the wrapper walks the full catalog ``/schema``
+        endpoint; for callers that build multiple path expressions
+        against the same catalog (e.g. several
+        :class:`~deriva.bag.catalog_loader.BagCatalogLoader`
+        instances), sharing one wrapper avoids re-walking.
+
+        Args:
+            refresh: When ``True``, discard the cached wrapper and
+                build a fresh one — useful if the catalog schema
+                changed under us. Default ``False``.
+
+        The cache holds one wrapper per catalog instance. Schema
+        rows added by another process between calls are not seen
+        unless the caller passes ``refresh=True``; this is the
+        same staleness window every other catalog-model read has.
+        """
+        if refresh or getattr(self, "_path_builder_cache", None) is None:
+            self._path_builder_cache = datapath.from_catalog(self)
+        return self._path_builder_cache
 
     def getTableSchema(self, fq_table_name):
         # first try to get from cache(s)
