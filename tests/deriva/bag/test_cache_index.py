@@ -93,8 +93,13 @@ def test_cache_index_forget_unknown_returns_false(tmp_path: Path) -> None:
         idx.dispose()
 
 
-def test_cache_index_record_is_idempotent(tmp_path: Path) -> None:
-    """Re-recording the same checksum updates rather than duplicating."""
+def test_cache_index_record_metadata_is_idempotent(tmp_path: Path) -> None:
+    """Re-recording the same checksum updates metadata in place.
+
+    The ``bags`` row's metadata (profile_id, built_at, summary,
+    size_bytes) reflects the most recent ``record()`` call —
+    upsert semantics on the metadata row.
+    """
     idx = BagCacheIndex(tmp_path)
     try:
         idx.record(checksum="abc", profile_id="old", anchors=[("T", "1")])
@@ -102,8 +107,43 @@ def test_cache_index_record_is_idempotent(tmp_path: Path) -> None:
         record = idx.get("abc")
         assert record is not None
         assert record["profile_id"] == "new"
-        # Anchor list is replaced, not appended.
-        assert idx.find_bags_for_rid(table="T", rid="1") == []
+    finally:
+        idx.dispose()
+
+
+def test_cache_index_record_accumulates_anchors(tmp_path: Path) -> None:
+    """Re-recording the same checksum **accumulates** anchor rows.
+
+    A single content-addressed bag can legitimately be anchored
+    from multiple RIDs (e.g., two datasets that share content via
+    clone-via-bag, or a dev-version rerun whose checksum coincides
+    with a release version). Each ``record()`` call adds anchors
+    without removing prior ones.
+    """
+    idx = BagCacheIndex(tmp_path)
+    try:
+        idx.record(checksum="abc", anchors=[("T", "1")])
+        idx.record(checksum="abc", anchors=[("T", "2")])
+        # Both anchors resolve after the round-trip.
+        assert idx.find_bags_for_rid(table="T", rid="1") == ["abc"]
+        assert idx.find_bags_for_rid(table="T", rid="2") == ["abc"]
+    finally:
+        idx.dispose()
+
+
+def test_cache_index_record_dedupes_repeated_anchor(tmp_path: Path) -> None:
+    """Re-inserting an existing (checksum, table, rid) row is a no-op.
+
+    Surfaces the ``INSERT OR IGNORE`` guard on the anchor table.
+    Without it, a re-record with an overlapping anchor would raise
+    on the PRIMARY KEY constraint.
+    """
+    idx = BagCacheIndex(tmp_path)
+    try:
+        idx.record(checksum="abc", anchors=[("T", "1")])
+        idx.record(checksum="abc", anchors=[("T", "1"), ("T", "2")])
+        # No duplicate-key error; both anchors resolve, exactly once.
+        assert idx.find_bags_for_rid(table="T", rid="1") == ["abc"]
         assert idx.find_bags_for_rid(table="T", rid="2") == ["abc"]
     finally:
         idx.dispose()
