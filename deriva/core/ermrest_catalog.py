@@ -342,6 +342,16 @@ class ErmrestCatalog(DerivaBinding):
     def catalog_id(self):
         return self._catalog_id
 
+    def get_credentials(self):
+        """Return the credentials bound to this catalog binding.
+
+        Public accessor for the credentials passed to ``__init__``.
+        Returns the same object (typically a dict) so callers can
+        hand it to sibling clients (e.g. :class:`HatracStore`) that
+        need to authenticate against the same server.
+        """
+        return self._credentials
+
     @property
     def alias_target(self):
         r = self.get('/')
