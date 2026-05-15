@@ -32,9 +32,10 @@ Cross-process transfer-state resumption — the persistent
 state-file overhead would buy resume-on-crash at the cost of a
 file lock that would serialize concurrent loads to the same bag.
 A future caller that needs resume can opt in by populating
-``self._uploader.transfer_state`` and calling
-:meth:`DerivaUpload.loadTransferState` before invoking
-:meth:`run`.
+``self._uploader.transfer_state`` (initialised to ``{}`` by
+:meth:`DerivaUpload.minimal_for_upload`, which the loader's
+:meth:`_get_uploader` calls) and then invoking
+:meth:`DerivaUpload.loadTransferState` before :meth:`run`.
 
 Catalog row insertion is the loader's own responsibility, not
 the uploader's: row writes route through deriva-py's
@@ -62,6 +63,7 @@ is called *before* any rows are inserted, rejecting the
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import logging
 from dataclasses import dataclass, field
@@ -530,14 +532,17 @@ class BagCatalogLoader:
                 self._path_builder = self.catalog.getPathBuilder()
             tw = self._path_builder.schemas[schema_name].tables[table_name]
 
-            def _do_update(payload=payload, tw=tw, cols=cols) -> None:
-                tw.update(
+            # ``functools.partial`` binds the loop variables at this
+            # iteration; ``asyncio.to_thread`` then invokes it with
+            # no further args.
+            await asyncio.to_thread(
+                functools.partial(
+                    tw.update,
                     payload,
                     correlation={"RID"},
                     targets=cols,
                 )
-
-            await asyncio.to_thread(_do_update)
+            )
 
     def _table_in_scope(self, schema_name: str, table_name: str) -> bool:
         """Apply policy.exclude_schemas/exclude_tables/schemas filter."""
@@ -736,6 +741,12 @@ class BagCatalogLoader:
         Reads the whole vocab table via deriva-py's PathBuilder —
         vocabularies are small enough that pagination isn't worth
         the round trips.
+
+        ``Name`` is assumed unique by the vocabulary contract
+        (:meth:`~deriva.core.ermrest_model.Table.is_vocabulary`
+        requires a ``Name`` key column). A duplicate is a
+        destination-side data error; we log a warning and drop
+        all but the first RID rather than silently picking one.
         """
         if self._path_builder is None:
             self._path_builder = self.catalog.getPathBuilder()
@@ -750,7 +761,26 @@ class BagCatalogLoader:
             )
 
         rows = await asyncio.to_thread(_do_get)
-        return {row["Name"]: row["RID"] for row in rows if row.get("Name")}
+        result: dict[str, str] = {}
+        for row in rows:
+            name = row.get("Name")
+            if not name:
+                continue
+            if name in result:
+                logger.warning(
+                    "Vocabulary table %s.%s has duplicate Name %r at "
+                    "destination (RIDs %r and %r); the first is kept "
+                    "for remap purposes. Investigate the destination's "
+                    "vocab data — Name is supposed to be unique.",
+                    schema_name,
+                    table_name,
+                    name,
+                    result[name],
+                    row.get("RID"),
+                )
+                continue
+            result[name] = row["RID"]
+        return result
 
     # ------------------------------------------------------------------
     # Match-by-columns path (caller-supplied unique key + RID remap)
@@ -849,6 +879,11 @@ class BagCatalogLoader:
         already declines to match such rows, so including them
         here would only invite collisions on ``(None, None, ...)``
         bag rows.
+
+        Duplicates on the composite match key are a destination-side
+        data error (``match_by_columns`` is expected to identify a
+        row uniquely per :attr:`FKTraversalPolicy.match_by_columns`'s
+        contract). A duplicate is logged and the first RID is kept.
         """
         if self._path_builder is None:
             self._path_builder = self.catalog.getPathBuilder()
@@ -865,6 +900,20 @@ class BagCatalogLoader:
         for row in rows:
             key = tuple(row.get(col) for col in match_cols)
             if any(v is None for v in key):
+                continue
+            if key in result:
+                logger.warning(
+                    "match_by_columns table %s.%s has duplicate %r=%r "
+                    "at destination (RIDs %r and %r); the first is "
+                    "kept. Verify the destination's data — these "
+                    "columns are supposed to uniquely identify a row.",
+                    schema_name,
+                    table_name,
+                    match_cols,
+                    key,
+                    result[key],
+                    row.get("RID"),
+                )
                 continue
             result[key] = row["RID"]
         return result
