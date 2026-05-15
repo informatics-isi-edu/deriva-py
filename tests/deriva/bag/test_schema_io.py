@@ -18,7 +18,6 @@ from sqlalchemy import (
 
 from deriva.bag.schema_io import (
     ERMREST_TO_SQL,
-    _metadata_to_typed_schema_defs,
     ermrest_json_to_metadata,
     metadata_to_ermrest_json,
     sql_type_to_ermrest_name,
@@ -597,10 +596,3 @@ def test_round_trip_preserves_fks() -> None:
     assert len(image_fks) == 1
 
 
-def test_metadata_to_typed_schema_defs_returns_list() -> None:
-    """_metadata_to_typed_schema_defs returns one entry per schema."""
-    md = ermrest_json_to_metadata(_two_table_doc())
-    defs = _metadata_to_typed_schema_defs(md)
-    assert isinstance(defs, list)
-    schema_names = {d["schema_name"] for d in defs}
-    assert "demo" in schema_names
