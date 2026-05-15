@@ -11,13 +11,15 @@ directory layout) — not at load time.
 
 The on-disk SQLite layout is one ``main.db`` plus one attached
 ``{schema}.db`` per ERMrest schema. SQLAlchemy hides the multi-file
-layout behind a single engine, metadata, and ORM ``Base``. All
-SQLite engines use the project's WAL + pragma policy via
-:func:`deriva.bag.sqlite_helpers.create_wal_engine`, and the
-``schema_meta`` versioning machinery
-(:func:`~deriva.bag.sqlite_helpers.ensure_schema_meta` with
-:data:`~deriva.bag.profile.BAG_SCHEMA_VERSION`) guards against
-on-disk-newer-than-code drift.
+layout behind a single engine, metadata, and ORM ``Base`` — all
+constructed by :class:`~deriva.bag.schema.SchemaBuilder`, which
+applies the project's WAL + pragma policy via
+:func:`~deriva.bag.sqlite_helpers.create_wal_engine`.
+:class:`BagDatabase` then calls
+:func:`~deriva.bag.sqlite_helpers.ensure_schema_meta` with
+:data:`~deriva.bag.profile.BAG_SCHEMA_VERSION` against the resulting
+engine to guard against on-disk-newer-than-code drift before
+loading the bag's CSVs.
 
 This is a generic implementation; it knows about the deriva-bag
 profile but not about datasets, executions, features, or any other
@@ -156,22 +158,32 @@ class BagDatabase:
     # ------------------------------------------------------------------
 
     def _build_asset_map(self) -> dict[str, str]:
-        """Build a map from remote URLs to local file paths using fetch.txt.
+        """Build (and memoize) a map from remote URLs to local file paths.
+
+        Parses ``fetch.txt`` once per :class:`BagDatabase` instance
+        and caches the result on ``self._asset_map_cache``. Asset-
+        row resolution (:meth:`resolve_asset_local_path`) calls this
+        per row; without memoization a bag with N asset rows reads
+        ``fetch.txt`` N times.
 
         The map is keyed by **both** the full URL and the URL's path
         component. CSV rows typically carry whichever form the
         catalog stored — sometimes a full ``https://hatrac.../foo``,
-        sometimes a relative ``/hatrac/...`` — and we want
-        :meth:`_localize_asset_row` to hit on either.
+        sometimes a relative ``/hatrac/...``.
 
         Returns:
             Dictionary mapping URL (or URL path) to local file path.
         """
+        cached = getattr(self, "_asset_map_cache", None)
+        if cached is not None:
+            return cached
+
         fetch_map: dict[str, str] = {}
         fetch_file = self.bag_path / "fetch.txt"
 
         if not fetch_file.exists():
             logger.info(f"No fetch.txt in bag {self.bag_path.name}")
+            self._asset_map_cache = fetch_map
             return fetch_map
 
         try:
@@ -190,6 +202,7 @@ class BagDatabase:
         except Exception as e:
             logger.warning(f"Error reading fetch.txt: {e}")
 
+        self._asset_map_cache = fetch_map
         return fetch_map
 
     def resolve_asset_local_path(
@@ -286,10 +299,17 @@ class BagDatabase:
         engine.dispose()
         event.listen(engine, "connect", _fk_off)
         try:
-            loader = DataLoader(self.orm, source, sink=SQLiteSink(self.orm))
-            loader.load_tables()
+            try:
+                loader = DataLoader(
+                    self.orm, source, sink=SQLiteSink(self.orm)
+                )
+                loader.load_tables()
+            finally:
+                # Always remove the listener — but if removal itself
+                # raises (it shouldn't, but defensive), still run the
+                # final dispose() below to flush pool connections.
+                event.remove(engine, "connect", _fk_off)
         finally:
-            event.remove(engine, "connect", _fk_off)
             # Force new connections to re-pick up the default FK=ON
             # behaviour from create_wal_engine's connect listener.
             engine.dispose()
@@ -308,7 +328,16 @@ class BagDatabase:
         self._disposed = True
 
     def __del__(self) -> None:
-        """Best-effort cleanup at garbage-collection time."""
+        """Best-effort cleanup at garbage-collection time.
+
+        Intentionally delegates to ``self.dispose()`` (which in turn
+        calls ``self.orm.dispose()``). ``SchemaORM`` also defines
+        ``__del__`` with its own GC-safety swallow; the two
+        ``__del__``s are deliberately redundant — the
+        ``BagDatabase`` instance and its owned ``SchemaORM`` are
+        usually collected separately, and one finishing first must
+        not leave the other to run with half-torn-down state.
+        """
         try:
             self.dispose()
         except Exception:
