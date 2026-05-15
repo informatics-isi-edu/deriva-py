@@ -280,6 +280,102 @@ class SchemaORM:
             for row in result.mappings():
                 yield dict(row)
 
+    def get_association_class(
+        self,
+        left_cls: Any,
+        right_cls: Any,
+    ) -> tuple[Any, Any, Any] | None:
+        """Find an association class connecting two ORM classes.
+
+        Walks ``left_cls``'s SQLAlchemy relationships looking for any
+        that terminate at a table whose ERMrest model classifies as
+        an association linking ``left_cls`` and ``right_cls``.
+
+        The structural "is this an association?" test runs on the
+        ERMrest model side via
+        :meth:`~deriva.core.ermrest_model.Table.is_association` —
+        the canonical implementation lives in deriva-py and works on
+        the model's own type information (columns, keys, foreign
+        keys) rather than on SQLAlchemy reflection state. The
+        SQLAlchemy walk is then used only to resolve the relationship
+        *attributes* the caller needs (so they can build joins through
+        the association table).
+
+        Args:
+            left_cls: One end of the relationship (a SQLAlchemy ORM
+                class produced by this ``SchemaORM``).
+            right_cls: The other end (likewise).
+
+        Returns:
+            ``(association_class, left_relationship_attr,
+            right_relationship_attr)`` if an association linking
+            ``left_cls`` and ``right_cls`` is found; ``None``
+            otherwise. ``left_relationship_attr`` and
+            ``right_relationship_attr`` are the
+            :class:`~sqlalchemy.orm.attributes.InstrumentedAttribute`
+            references on the association class that point at
+            ``left_cls`` and ``right_cls`` respectively — suitable
+            for use in ``select(...).join(...)``.
+        """
+        from sqlalchemy import inspect
+
+        for left_rel in inspect(left_cls).relationships.values():
+            mid_cls = left_rel.mapper.class_
+            ermrest_table = self._ermrest_table_for(mid_cls)
+            if ermrest_table is None:
+                continue
+            fkeys = ermrest_table.is_association(return_fkeys=True)
+            if not fkeys:
+                continue
+
+            # is_association returns deriva-py ForeignKey objects;
+            # find the two ORM relationships on the association class
+            # that point at left_cls and right_cls respectively.
+            mid_relationships = list(
+                inspect(mid_cls).relationships.values()
+            )
+            left_attr = None
+            right_attr = None
+            for rel in mid_relationships:
+                target = rel.mapper.class_
+                if left_attr is None and target is left_cls:
+                    left_attr = rel.class_attribute
+                elif right_attr is None and target is right_cls:
+                    right_attr = rel.class_attribute
+            if left_attr is not None and right_attr is not None:
+                return mid_cls, left_attr, right_attr
+
+        return None
+
+    def _ermrest_table_for(self, orm_cls: Any) -> Any | None:
+        """Map a SQLAlchemy ORM class back to its ERMrest model Table.
+
+        Walks ``self.model.schemas`` looking for a table whose
+        ``(schema_name, table_name)`` matches the ORM class's
+        ``__table__.schema`` and ``__table__.name``. Returns
+        ``None`` if no match — which usually means the ORM class
+        came from a different ``SchemaORM`` instance or from an
+        in-memory mode that folded the schema into the table name.
+        """
+        sql_table = getattr(orm_cls, "__table__", None)
+        if sql_table is None:
+            return None
+        schema_name = sql_table.schema
+        table_name = sql_table.name
+        if schema_name is not None:
+            schema = self.model.schemas.get(schema_name)
+            if schema is None:
+                return None
+            return schema.tables.get(table_name)
+        # In-memory mode collapses schema into the table name
+        # (``schema_table``); scan the model for a matching bare-name.
+        for schema in self.model.schemas.values():
+            for name, table in schema.tables.items():
+                folded = f"{schema.name}_{name}".replace("-", "_")
+                if folded == table_name:
+                    return table
+        return None
+
     def dispose(self) -> None:
         """Release the SQLAlchemy registry and engine.
 
