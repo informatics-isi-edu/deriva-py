@@ -733,14 +733,8 @@ class DerivaUpload(object):
         self.metadata["URI_urlencoded"] = urlquote(self.metadata["URI"], safe=safe_overrides)
 
         # 7. Check for an existing record and create a new one if necessary.
-        #    If use_pre_allocated_rid is set, skip the MD5+Filename lookup
-        #    and go straight to _createFileRecordWithRid (with idempotency
-        #    pre-check).
         if not record:
-            if stob(asset_mapping.get("use_pre_allocated_rid", False)):
-                record, result = self._createFileRecordWithRid(asset_mapping)
-            else:
-                record, result = self._getFileRecord(asset_mapping)
+            record, result = self._getFileRecord(asset_mapping)
 
         # 8. Update an existing record, if necessary
         column_map = asset_mapping.get("column_map", {})
@@ -821,11 +815,20 @@ class DerivaUpload(object):
     def _getFileRecord(self, asset_mapping):
         """
         Helper function that queries the catalog to get a record linked to the asset, or create it if it doesn't exist.
+
+        When ``asset_mapping["use_pre_allocated_rid"]`` is true, the caller has supplied a pre-allocated
+        RID in ``self.metadata["RID"]``. The retrieve branch then enforces RID-authoritative semantics:
+        if the existing row's RID matches the caller's, return idempotently; if it differs and the target
+        table carries ``tag:isrd.isi.edu,2026:strict-preallocated-rid``, raise; otherwise (soft default)
+        adopt the existing row's RID. The create branch passes ``nondefaults=["RID"]`` so ERMrest honors
+        the caller-supplied RID instead of assigning a fresh one.
+
         :return: the file record
         """
         record = None
         column_map = asset_mapping.get("column_map", {})
         allow_none_col_list = asset_mapping.get("allow_empty_columns_on_update", [])
+        use_pre_allocated_rid = stob(asset_mapping.get("use_pre_allocated_rid", False))
         rqt = asset_mapping['record_query_template']
         try:
             path = rqt.format(**self.metadata)
@@ -834,105 +837,37 @@ class DerivaUpload(object):
         result = self.catalog.get(path).json()
         if result:
             record = result[0]
+            if use_pre_allocated_rid:
+                target_table = self.metadata['target_table']
+                caller_rid = self.metadata["RID"]
+                existing_rid = record.get("RID")
+                if existing_rid != caller_rid:
+                    if self._is_strict_preallocated_rid(target_table):
+                        raise DerivaUploadCatalogCreateError(
+                            "Pre-allocated RID %r cannot be used for file %r: "
+                            "the catalog already has a matching row with RID %r. "
+                            "The target table has tag:isrd.isi.edu,2026:strict-preallocated-rid set, "
+                            "so silently substituting the existing RID would break FK references the "
+                            "caller captured at lease-time. Either re-lease this asset with the "
+                            "existing RID, or reconcile the catalog state." % (
+                                caller_rid, self.metadata.get("file_name", ""), existing_rid,
+                            )
+                        )
+                    # Soft mode (default): adopt the existing row's RID.
+                    self.metadata["RID"] = existing_rid
             self._updateFileMetadata(record, no_overwrite=True)
             return self.pruneDict(record, column_map, allow_none_col_list), record
         else:
             row = self.interpolateDict(self.metadata, column_map)
-            result = self._catalogRecordCreate(self.metadata['target_table'], row)
+            # When the caller supplied a pre-allocated RID (typically from
+            # ERMrest_RID_Lease), pass nondefaults=["RID"] so ERMrest honors
+            # it instead of assigning a fresh one on insert.
+            nondefaults = ["RID"] if use_pre_allocated_rid else None
+            result = self._catalogRecordCreate(self.metadata['target_table'], row, nondefaults=nondefaults)
             if result:
                 record = result[0]
                 self._updateFileMetadata(record)
             return self.interpolateDict(self.metadata, column_map, allow_none_column_list=allow_none_col_list), record
-
-    def _createFileRecordWithRid(self, asset_mapping):
-        """Create a new record using a caller-supplied RID.
-
-        Used when asset_mapping has ``use_pre_allocated_rid: true``.
-        Uses MD5+Filename lookup (same key space as ``_getFileRecord``)
-        to detect existing rows, but enforces RID-authoritative
-        semantics: the caller's pre-allocated RID must match the
-        existing row's RID (or the row must not exist).
-
-        Three cases:
-
-        1. **No existing row** — create with caller's RID in payload.
-        2. **Existing row, matching RID** — idempotent return (retry
-           after partial success).
-        3. **Existing row, different RID** — raise
-           :class:`DerivaUploadCatalogCreateError`. The caller's
-           pre-allocated RID cannot be used because the physical
-           artifact already has a catalog row with a different RID.
-           Silently substituting the existing RID would break any
-           FK reference the caller captured between lease-time and
-           upload-completion.
-
-        Returns:
-            Tuple of (row, record) mirroring ``_getFileRecord``'s
-            return shape.
-
-        Raises:
-            DerivaUploadCatalogCreateError: If an existing catalog
-                row for this MD5+Filename has a RID different from
-                the caller's pre-allocated RID.
-        """
-        column_map = asset_mapping.get("column_map", {})
-        allow_none_col_list = asset_mapping.get("allow_empty_columns_on_update", [])
-        target_table = self.metadata['target_table']
-        caller_rid = self.metadata["RID"]
-        md5 = self.metadata.get("md5", "")
-        file_name = self.metadata.get("file_name", "")
-
-        # Pre-check by MD5+Filename (same key space as _getFileRecord).
-        # This detects collisions with physical artifacts already in
-        # the catalog — hatrac upload-by-MD5 is idempotent, so a prior
-        # run's successful insert will have a row with a matching URL
-        # unique key.
-        existing = self.catalog.get(
-            "/entity/%s/MD5=%s&Filename=%s" % (
-                target_table, urlquote(md5), urlquote(file_name),
-            )
-        ).json()
-        if existing:
-            record = existing[0]
-            existing_rid = record.get("RID")
-            if existing_rid == caller_rid:
-                # Matching RID — idempotent return.
-                self._updateFileMetadata(record, no_overwrite=True)
-                return self.pruneDict(record, column_map, allow_none_col_list), record
-
-            # RID mismatch — check the table's strict-preallocated-rid
-            # annotation. If set, the caller asserted that any RID
-            # divergence is an error. Otherwise, soft fallback: adopt
-            # the existing row's RID (legacy _getFileRecord semantics).
-            if self._is_strict_preallocated_rid(target_table):
-                raise DerivaUploadCatalogCreateError(
-                    "Pre-allocated RID %r cannot be used for file %r: "
-                    "the catalog already has a row for this MD5+Filename "
-                    "with RID %r. The target table has "
-                    "tag:isrd.isi.edu,2026:strict-preallocated-rid set, "
-                    "so silently substituting the existing RID would "
-                    "break FK references the caller captured at "
-                    "lease-time. Either re-lease this asset with the "
-                    "existing RID, or reconcile the catalog state." % (
-                        caller_rid, file_name, existing_rid,
-                    )
-                )
-            # Soft mode (default): adopt the existing row's RID.
-            self.metadata["RID"] = existing_rid
-            self._updateFileMetadata(record, no_overwrite=True)
-            return self.pruneDict(record, column_map, allow_none_col_list), record
-
-        # Fresh create — RID goes into the payload via column_map.
-        row = self.interpolateDict(self.metadata, column_map, allow_none_col_list)
-        # Bug E.2: pass nondefaults=["RID"] so ERMrest uses our pre-allocated
-        # RID (from ERMrest_RID_Lease) instead of its implicit default behavior.
-        result = self._catalogRecordCreate(target_table, row, nondefaults=["RID"])
-        record = result[0] if result else row
-        if record:
-            self._updateFileMetadata(record)
-        return self.interpolateDict(
-            self.metadata, column_map, allow_none_column_list=allow_none_col_list
-        ), record
 
     def _is_strict_preallocated_rid(self, target_table):
         """Return True if the table has the strict-preallocated-rid annotation.
