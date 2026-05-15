@@ -133,34 +133,8 @@ class BagDataSource:
             ...     print(row["Name"])  # doctest: +SKIP
     """
 
-    def __init__(self, bag_path: Path, **legacy_kwargs: Any):
-        """Open a bag for row iteration.
-
-        ``legacy_kwargs`` accepts ``asset_localization`` and ``model``
-        for back-compat — both were no-ops after the asset-row
-        rewriting was retired (see deriva-py bag-package audit
-        2026-05, §1.2). Callers passing either get a DeprecationWarning
-        and the value is ignored. Remove the kwargs once all known
-        consumers (deriva-ml's ``test_data_sources.py``, in
-        particular) have stopped passing them.
-        """
-        if legacy_kwargs:
-            unexpected = set(legacy_kwargs) - {"asset_localization", "model"}
-            if unexpected:
-                raise TypeError(
-                    f"BagDataSource got unexpected keyword arguments: "
-                    f"{sorted(unexpected)}"
-                )
-            import warnings
-
-            warnings.warn(
-                "BagDataSource no longer accepts ``asset_localization`` "
-                "or ``model``; they were no-ops after the asset-row "
-                "rewriting was retired. Drop the kwarg from your call.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-
+    def __init__(self, bag_path: Path):
+        """Open a bag for row iteration."""
         self.bag_path = Path(bag_path)
         self.data_path = self.bag_path / "data"
 

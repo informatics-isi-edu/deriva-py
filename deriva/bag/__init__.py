@@ -38,7 +38,6 @@ from __future__ import annotations
 from deriva.bag.anchors import (
     Anchor,
     AnchorKind,
-    PathAnchor,
     RIDAnchor,
     TableAnchor,
 )
@@ -88,7 +87,6 @@ __all__ = [
     # Anchors
     "Anchor",
     "AnchorKind",
-    "PathAnchor",
     "RIDAnchor",
     "TableAnchor",
     # Producers
