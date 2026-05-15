@@ -1,47 +1,32 @@
-"""Schema-interchange between ERMrest, SQLAlchemy, and typed defs.
+"""Schema-interchange between ERMrest JSON, SQLAlchemy, and typed defs.
 
-This module owns the conversions between the four schema vocabularies
-the bag pipeline touches:
+This module owns the conversions between the three schema
+vocabularies the bag-producer pipeline touches:
 
 - **ERMrest JSON**: the model-description format ERMrest emits and
   what ``data/schema.json`` carries inside a bag.
-- **ERMrest** :class:`~deriva.core.ermrest_model.Model`: the Python
-  object form a live catalog returns from ``getCatalogModel()``.
-- **SQLAlchemy** :class:`~sqlalchemy.MetaData`: the internal canonical
-  schema vocabulary across :mod:`deriva.bag` and deriva-ml's
-  ``local_db``.
+- **SQLAlchemy** :class:`~sqlalchemy.MetaData`: the staging vocabulary
+  used by :class:`~deriva.bag.builder.BagBuilder` for in-memory
+  row holding before write-out.
 - **deriva-py** :class:`~deriva.core.typed.SchemaDef`: the typed
-  definitions deriva-py users write to push schemas to catalogs.
-
-``MetaData`` is the hub: every other form has a round-trip path
-through it. Reasons:
-
-- :class:`~deriva.bag.database.BagDatabase` returns a ``MetaData`` on
-  bag open.
-- :class:`~deriva.bag.schema.SchemaBuilder` produces a ``MetaData``
-  from a ``Model``.
-- ``local_db`` manipulates ``MetaData`` internally.
-- :class:`~deriva.bag.builder.BagBuilder` (forthcoming) accepts
-  ``typed.SchemaDef`` or ``MetaData``; normalizes to ``MetaData``.
+  definitions producers can supply instead of a raw ``MetaData``.
 
 Functions provided:
 
 - :func:`metadata_to_ermrest_json` — write the ``data/schema.json``
   contents from a ``MetaData``. Used by :class:`BagBuilder` and by
-  :class:`CatalogBagBuilder` (the catalog walker projects its source
-  :class:`Model` to ``MetaData`` first so the two producers emit the
-  same on-disk JSON byte for byte).
+  :class:`CatalogBagBuilder` (the catalog walker projects its
+  source :class:`Model` to ``MetaData`` first so the two producers
+  emit the same on-disk JSON byte for byte).
 - :func:`ermrest_json_to_metadata` — parse a ``data/schema.json``
-  back to a ``MetaData``. Used by :class:`BagDatabase` on bag open.
+  document back to a ``MetaData``.
 - :func:`typed_schema_def_to_metadata` — add deriva-py
   ``typed.SchemaDef`` definitions into an existing ``MetaData``.
-  Used by :class:`BagBuilder` when callers supply ``typed`` input.
+  Used by :class:`BagBuilder` when callers supply typed input.
 
-Two additional converters — :func:`_ermrest_model_to_metadata`
-and :func:`_metadata_to_typed_schema_defs` — are private. They
-have no production callers today but are exercised by tests
-because the conversion logic is non-trivial and worth pinning
-against regression while the bag pipeline matures.
+The consumer side (opening a bag) uses
+:class:`~deriva.bag.schema.SchemaBuilder` directly on the
+``Model`` parsed by ``Model.fromfile``, not these helpers.
 
 The ERMrest ↔ SQLAlchemy type mapping lives here as a pair of
 constants (:data:`ERMREST_TO_SQL` and :data:`SQL_TO_ERMREST`), the
@@ -53,7 +38,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from deriva.core.ermrest_model import Model
 from sqlalchemy import (
     JSON,
     BigInteger,
@@ -592,55 +576,8 @@ def _serialize_default(col: SQLColumn) -> Any:
 
 
 # =============================================================================
-# ERMrest Model → MetaData
+# typed.SchemaDef → MetaData
 # =============================================================================
-
-
-def _ermrest_model_to_metadata(
-    model: Model,
-    *,
-    schemas: list[str] | None = None,
-) -> MetaData:
-    """Convert a live catalog's :class:`Model` to a SQLAlchemy ``MetaData``.
-
-    Routes through :func:`metadata_to_ermrest_json`'s sibling form
-    rather than re-implementing the column/key/FK walking. The
-    function is essentially: serialize the model to ERMrest JSON
-    (via ``model.prejson()``), then parse it back with
-    :func:`ermrest_json_to_metadata`. The double-trip is cheap (the
-    JSON document is the schema, not the data) and guarantees the
-    same code path on the file-based and live-catalog sides.
-
-    Args:
-        model: Source ERMrest :class:`Model`.
-        schemas: Optional list of schema names to include. ``None``
-            includes every schema in the model.
-
-    Returns:
-        A SQLAlchemy ``MetaData``.
-
-    Example:
-        >>> from deriva.core import ErmrestCatalog  # doctest: +SKIP
-        >>> catalog = ErmrestCatalog(...)  # doctest: +SKIP
-        >>> model = catalog.getCatalogModel()  # doctest: +SKIP
-        >>> md = _ermrest_model_to_metadata(  # doctest: +SKIP
-        ...     model, schemas=["deriva-ml"]
-        ... )
-    """
-    # ``model.prejson()`` returns the schema dict in ERMrest's wire
-    # format — exactly what ``ermrest_json_to_metadata`` consumes.
-    return ermrest_json_to_metadata(model.prejson(), schemas=schemas)
-
-
-# =============================================================================
-# typed.SchemaDef ↔ MetaData
-# =============================================================================
-#
-# The deriva.core.typed module is the canonical Python vocabulary for
-# defining ERMrest schemas. Producers (catalog push, BagBuilder)
-# accept ``SchemaDef`` lists; consumers don't typically need them.
-# These two functions bridge to and from MetaData so the same
-# SchemaDef can drive both a catalog-push and a bag-build.
 
 
 def typed_schema_def_to_metadata(
@@ -661,18 +598,10 @@ def typed_schema_def_to_metadata(
     Returns:
         The (possibly newly-created) ``MetaData``.
 
-    Notes:
-        - Implementation routes through ``prejson()``-like dict form
-          so the same ``ermrest_json_to_metadata`` path is used. The
-          ``typed`` module exposes ``prejson()`` methods on its def
-          classes; we collect them into the same schema-document
-          shape and reuse :func:`ermrest_json_to_metadata`.
-        - This function is a placeholder pending the typed-module
-          API check (the ``typed`` package is on the
-          ``deriva-ml`` branch of deriva-py but the public surface
-          for ``SchemaDef.prejson()`` is being finalized). The
-          implementation here uses a reasonable best-effort form;
-          adjustment may be needed once the typed API stabilizes.
+    Implementation routes through the ERMrest-JSON intermediate
+    form so the same :func:`ermrest_json_to_metadata` path drives
+    both the file-based bag-open and the typed-defs constructive
+    side.
     """
     if metadata is None:
         metadata = MetaData()
@@ -722,22 +651,3 @@ def typed_schema_def_to_metadata(
     for table in list(parsed.tables.values()):
         table.tometadata(metadata)
     return metadata
-
-
-def _metadata_to_typed_schema_defs(metadata: MetaData) -> list[dict[str, Any]]:
-    """Project a ``MetaData`` to typed-style schema-def dicts.
-
-    Returns plain dicts in the same shape as ``typed.SchemaDef.prejson()``
-    output rather than constructed ``SchemaDef`` objects, so the
-    function works regardless of the ``typed`` API state. Callers who
-    want real ``SchemaDef`` objects can map across with
-    ``SchemaDef.from_prejson(d)``.
-
-    Args:
-        metadata: SQLAlchemy ``MetaData``.
-
-    Returns:
-        A list of dicts; each dict is one schema and carries
-        ``schema_name`` + ``tables`` keys.
-    """
-    return list(metadata_to_ermrest_json(metadata)["schemas"].values())
