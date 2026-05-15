@@ -114,6 +114,39 @@ class DerivaUpload(object):
         signal.signal(signal.SIGINT, self.interrupt_handler)
         self.initialize()
 
+    @classmethod
+    def minimal_for_upload(cls, store, server_url):
+        """Build a :class:`DerivaUpload` set up only for asset uploads.
+
+        Skips the public ``__init__`` (which reads a config file,
+        installs a SIGINT handler, and resolves credentials from
+        the local filesystem). Use this when the caller already
+        has a :class:`HatracStore` bound to its destination and
+        only needs :meth:`_hatracUpload` (or another byte-level
+        helper) — for example, the bag-loader pipeline that
+        already holds a catalog-bound store.
+
+        Args:
+            store: A :class:`~deriva.core.HatracStore` instance.
+            server_url: ``{scheme}://{host}`` form, used for log
+                messages only.
+
+        Returns:
+            A :class:`DerivaUpload` with ``store``, ``server_url``,
+            empty transfer-state machinery, and ``cancelled=False``.
+            Other attributes default to whatever the bare instance
+            has — callers should not invoke methods that require
+            ``config``, ``asset_mappings``, or ``catalog``.
+        """
+        uploader = cls.__new__(cls)
+        uploader.store = store
+        uploader.server_url = server_url
+        uploader.transfer_state = {}
+        uploader.transfer_state_fh = None
+        uploader.transfer_state_locks = {}
+        uploader.cancelled = False
+        return uploader
+
     def __del__(self):
         self.cleanupTransferState()
 
