@@ -481,7 +481,8 @@ class BagCatalogLoader:
 
         if non_nullable_violations:
             raise ValueError(
-                "BagCatalogLoader cannot load this bag: an FK in a "
+                f"BagCatalogLoader cannot load bag at {self.bag_path} "
+                f"into catalog {self.catalog.catalog_id}: an FK in a "
                 "cycle must be deferred to second-pass PUT, but the "
                 "FK column is declared NOT NULL — first-pass insert "
                 "would fail. Affected column(s): "
@@ -1051,10 +1052,15 @@ class BagCatalogLoader:
         if self.policy.dangling_fk_strategy == DanglingFKStrategy.PRESERVE:
             return rows, 0, 0
 
-        # Build the set of valid parent RIDs per FK column once.
-        # Each table.foreign_keys element points at a single
-        # column (or composite); for the simple single-column
-        # case we look up the parent's RIDs in the bag.
+        # Build the set of valid parent RIDs per FK column once per
+        # ``(schema, table, ref_col)`` parent identity. The cache
+        # lives on the loader so multiple in-scope tables that FK
+        # into the same parent share one scan.
+        if not hasattr(self, "_parent_rid_cache"):
+            self._parent_rid_cache: dict[
+                tuple[str, str, str], set[str]
+            ] = {}
+
         parent_rids: dict[str, set[str]] = {}
         bag_schemas = set(self.bag_db.schemas)
         for fk in table.foreign_keys:
@@ -1070,6 +1076,12 @@ class BagCatalogLoader:
             # them on its own when the rows land.
             if pk_table.schema.name not in bag_schemas:
                 continue
+            ref_col = fk.referenced_columns[0].name
+            cache_key = (pk_table.schema.name, pk_table.name, ref_col)
+            cached = self._parent_rid_cache.get(cache_key)
+            if cached is not None:
+                parent_rids[fk_col] = cached
+                continue
             try:
                 parent_rows = list(
                     self.bag_db.get_table_contents(pk_table.name)
@@ -1078,14 +1090,15 @@ class BagCatalogLoader:
                 # Parent table missing entirely from the bag.
                 # Every row's FK is dangling against this parent.
                 parent_rids[fk_col] = set()
+                self._parent_rid_cache[cache_key] = set()
                 continue
-            # The pk side is whichever column the FK references;
-            # typically RID. Build the valid-rid set off the
-            # actual referenced column.
-            ref_col = fk.referenced_columns[0].name
-            parent_rids[fk_col] = {
+            # Build the valid-rid set off the actual referenced
+            # column; typically RID.
+            rids = {
                 row[ref_col] for row in parent_rows if row.get(ref_col)
             }
+            self._parent_rid_cache[cache_key] = rids
+            parent_rids[fk_col] = rids
 
         if not parent_rids:
             return rows, 0, 0
