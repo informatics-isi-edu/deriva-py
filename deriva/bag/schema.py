@@ -591,12 +591,25 @@ class SchemaBuilder:
                         SQLUniqueConstraint(*key_columns, name=key.name[1])
                     )
 
-                # FK constraints, but only same-schema ones. Cross-schema
-                # FKs go through the relationship pass below — SQLite
-                # can declare them across attached databases but
-                # SQLAlchemy's referential resolution gets confused, so
-                # we model the cross-schema link only as a Python
-                # relationship.
+                # FK constraints, but only same-schema ones. Cross-
+                # schema FKs go through the relationship pass below
+                # — they are modelled only as ``viewonly`` Python
+                # relationships, not as ``ForeignKeyConstraint``s. Two
+                # reasons:
+                #   1. SQLite's ATTACH allows cross-database FK
+                #      declarations syntactically, but the constraint
+                #      enforcement across attached databases is
+                #      undefined in older versions and silently
+                #      broken in some — the constraint exists but
+                #      no error fires on violation.
+                #   2. SQLAlchemy's referential resolution within
+                #      automap doesn't trace FKs across MetaData
+                #      scopes; the relationship pass wires the
+                #      cross-schema link as an explicit Python join.
+                # Mirror callers who walk relationships get the right
+                # answer; callers who hand-write SQL see whatever the
+                # mirror happens to hold (FK enforcement is
+                # intra-schema only).
                 for fk in table.foreign_keys:
                     if fk.pk_table.schema.name not in self.schemas:
                         continue
