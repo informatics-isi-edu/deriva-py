@@ -93,6 +93,108 @@ def test_cache_index_forget_unknown_returns_false(tmp_path: Path) -> None:
         idx.dispose()
 
 
+def test_cache_index_forget_cascades_to_anchor_rows(tmp_path: Path) -> None:
+    """``ON DELETE CASCADE`` actually removes ``bag_anchor_rids`` rows.
+
+    Pin the DDL guarantee directly by counting rows in the
+    ``bag_anchor_rids`` table before and after ``forget``. The
+    audit (§B.6) flagged that the existing CASCADE coverage went
+    only through :meth:`find_bags_for_rid` — an indirect probe that
+    would pass even if the CASCADE didn't run, as long as the
+    join filtered out orphaned rows.
+    """
+    from sqlalchemy import text
+
+    idx = BagCacheIndex(tmp_path)
+    try:
+        idx.record(
+            checksum="abc",
+            anchors=[("Dataset", "D1"), ("Dataset", "D2"), ("Subject", "S1")],
+        )
+        with idx._engine.connect() as conn:
+            count_before = conn.execute(
+                text(
+                    "SELECT COUNT(*) FROM bag_anchor_rids "
+                    "WHERE checksum = :c"
+                ),
+                {"c": "abc"},
+            ).scalar()
+        assert count_before == 3
+
+        assert idx.forget("abc") is True
+
+        with idx._engine.connect() as conn:
+            count_after = conn.execute(
+                text(
+                    "SELECT COUNT(*) FROM bag_anchor_rids "
+                    "WHERE checksum = :c"
+                ),
+                {"c": "abc"},
+            ).scalar()
+        assert count_after == 0, (
+            "FOREIGN KEY (checksum) REFERENCES bags(checksum) "
+            "ON DELETE CASCADE should have removed all 3 anchor "
+            f"rows; bag_anchor_rids still has {count_after}"
+        )
+    finally:
+        idx.dispose()
+
+
+def test_cache_index_purge_removes_bag_and_directory(tmp_path: Path) -> None:
+    """``purge`` drops the index row *and* the on-disk bag directory.
+
+    :meth:`forget` only touches the index; :meth:`purge` is the
+    convenience method that closes the orphan-directory hazard.
+    """
+    idx = BagCacheIndex(tmp_path)
+    try:
+        idx.record(checksum="abc", anchors=[("Dataset", "D1")])
+        bag_dir = idx.bag_dir_for("abc")
+        bag_dir.mkdir(parents=True, exist_ok=True)
+        (bag_dir / "data.csv").write_text("RID,Name\n1,Alice\n")
+
+        assert idx.purge("abc") is True
+        assert not idx.is_cached("abc")
+        assert not bag_dir.exists()
+
+
+    finally:
+        idx.dispose()
+
+
+def test_cache_index_purge_unknown_returns_false(tmp_path: Path) -> None:
+    """Purging a checksum that's neither in the index nor on disk."""
+    idx = BagCacheIndex(tmp_path)
+    try:
+        assert idx.purge("never_recorded") is False
+    finally:
+        idx.dispose()
+
+
+def test_cache_index_purge_removes_directory_even_when_index_missing(
+    tmp_path: Path,
+) -> None:
+    """Orphan on-disk directories (no index row) still get cleaned up.
+
+    The orphan-directory hazard is the case :meth:`purge` exists
+    to close: the bag was forgotten via :meth:`forget` but the
+    caller never followed up with an rm-rf. A subsequent
+    ``purge`` should find the directory and remove it even though
+    the index row is gone.
+    """
+    idx = BagCacheIndex(tmp_path)
+    try:
+        bag_dir = idx.bag_dir_for("orphan")
+        bag_dir.mkdir(parents=True, exist_ok=True)
+        (bag_dir / "data.csv").write_text("x\n")
+        assert not idx.is_cached("orphan")  # never recorded
+
+        assert idx.purge("orphan") is True
+        assert not bag_dir.exists()
+    finally:
+        idx.dispose()
+
+
 def test_cache_index_record_metadata_is_idempotent(tmp_path: Path) -> None:
     """Re-recording the same checksum updates metadata in place.
 
