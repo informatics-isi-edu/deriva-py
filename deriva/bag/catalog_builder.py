@@ -1176,7 +1176,7 @@ class CatalogBagBuilder:
             },
             config=spec,
             output_dir=str(self.output_dir),
-            credentials=self.catalog._credentials,
+            credentials=self.catalog.get_credentials(),
         )
         downloader.download()
 
