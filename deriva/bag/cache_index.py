@@ -283,20 +283,74 @@ class BagCacheIndex:
             # SQLite reports affected rows via rowcount.
             return bool(result.rowcount)
 
+    def purge(self, checksum: str) -> bool:
+        """Remove a bag from both the index and on-disk storage.
+
+        Combines :meth:`forget` (drop the index row) with a recursive
+        delete of the bag directory and any SQLAlchemy database files
+        the consumer side created beneath
+        :meth:`bag_dir_for`. Closes the orphan-directory hazard that
+        :meth:`forget` leaves open at the API level.
+
+        Args:
+            checksum: Bag checksum to purge.
+
+        Returns:
+            ``True`` if the index row existed (and was deleted) or
+            the on-disk directory existed (and was removed);
+            ``False`` if neither was present.
+        """
+        import shutil
+
+        deleted_row = self.forget(checksum)
+        bag_dir = self.bag_dir_for(checksum)
+        removed_dir = False
+        if bag_dir.exists():
+            shutil.rmtree(bag_dir)
+            removed_dir = True
+        return deleted_row or removed_dir
+
     # ------------------------------------------------------------------
     # Query
     # ------------------------------------------------------------------
 
+    def _query_one(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> dict[str, Any] | None:
+        """Run a SELECT expected to return zero or one row.
+
+        Returns the row as a dict (``.mappings().first()``) or
+        ``None`` if no row matched.
+        """
+        with self._engine.connect() as conn:
+            row = (
+                conn.execute(text(sql), params or {})
+                .mappings()
+                .first()
+            )
+        return dict(row) if row is not None else None
+
+    def _query_all(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Run a SELECT and return every row as a list of dicts."""
+        with self._engine.connect() as conn:
+            rows = (
+                conn.execute(text(sql), params or {})
+                .mappings()
+                .all()
+            )
+        return [dict(r) for r in rows]
+
     def is_cached(self, checksum: str) -> bool:
         """Return ``True`` if a bag with this checksum is in the index."""
-        with self._engine.connect() as conn:
-            row = conn.execute(
-                text(
-                    "SELECT 1 FROM bags WHERE checksum = :c LIMIT 1"
-                ),
+        return (
+            self._query_one(
+                "SELECT 1 AS hit FROM bags WHERE checksum = :c LIMIT 1",
                 {"c": checksum},
-            ).first()
-        return row is not None
+            )
+            is not None
+        )
 
     def get(self, checksum: str) -> dict[str, Any] | None:
         """Return the index metadata for a bag, or ``None`` if missing.
@@ -305,26 +359,15 @@ class BagCacheIndex:
         ``built_at``, ``anchor_summary`` (parsed back from JSON),
         and ``size_bytes``.
         """
-        with self._engine.connect() as conn:
-            row = conn.execute(
-                text(
-                    "SELECT checksum, profile_id, built_at, "
-                    "anchor_summary_json, size_bytes "
-                    "FROM bags WHERE checksum = :c"
-                ),
-                {"c": checksum},
-            ).mappings().first()
-        if row is None:
+        record = self._query_one(
+            "SELECT checksum, profile_id, built_at, "
+            "anchor_summary_json, size_bytes "
+            "FROM bags WHERE checksum = :c",
+            {"c": checksum},
+        )
+        if record is None:
             return None
-        record = dict(row)
-        if record.get("anchor_summary_json"):
-            record["anchor_summary"] = json.loads(
-                record["anchor_summary_json"]
-            )
-        else:
-            record["anchor_summary"] = None
-        record.pop("anchor_summary_json", None)
-        return record
+        return self._inflate_bag_row(record)
 
     def find_bags_for_rid(self, *, table: str, rid: str) -> list[str]:
         """Reverse-lookup: what checksums name this RID as an anchor?
@@ -340,40 +383,40 @@ class BagCacheIndex:
             List of checksums (most recent first by ``built_at``).
             Empty list if no bag in the index claims this RID.
         """
-        with self._engine.connect() as conn:
-            rows = conn.execute(
-                text(
-                    "SELECT b.checksum FROM bag_anchor_rids r "
-                    "JOIN bags b ON b.checksum = r.checksum "
-                    'WHERE r."table" = :t AND r.rid = :r '
-                    "ORDER BY b.built_at DESC"
-                ),
-                {"t": table, "r": rid},
-            ).all()
-        return [r[0] for r in rows]
+        rows = self._query_all(
+            "SELECT b.checksum FROM bag_anchor_rids r "
+            "JOIN bags b ON b.checksum = r.checksum "
+            'WHERE r."table" = :t AND r.rid = :r '
+            "ORDER BY b.built_at DESC",
+            {"t": table, "r": rid},
+        )
+        return [r["checksum"] for r in rows]
 
     def list_bags(self) -> list[dict[str, Any]]:
         """Return every bag in the index, most-recently-built first."""
-        with self._engine.connect() as conn:
-            rows = conn.execute(
-                text(
-                    "SELECT checksum, profile_id, built_at, "
-                    "anchor_summary_json, size_bytes "
-                    "FROM bags ORDER BY built_at DESC"
-                )
-            ).mappings().all()
-        out: list[dict[str, Any]] = []
-        for row in rows:
-            record = dict(row)
-            if record.get("anchor_summary_json"):
-                record["anchor_summary"] = json.loads(
-                    record["anchor_summary_json"]
-                )
-            else:
-                record["anchor_summary"] = None
-            record.pop("anchor_summary_json", None)
-            out.append(record)
-        return out
+        rows = self._query_all(
+            "SELECT checksum, profile_id, built_at, "
+            "anchor_summary_json, size_bytes "
+            "FROM bags ORDER BY built_at DESC"
+        )
+        return [self._inflate_bag_row(r) for r in rows]
+
+    @staticmethod
+    def _inflate_bag_row(record: dict[str, Any]) -> dict[str, Any]:
+        """Parse the stashed JSON column on a bag row.
+
+        ``anchor_summary`` is stored as a JSON string in
+        ``anchor_summary_json``; expand to ``anchor_summary`` for
+        callers and drop the raw column.
+        """
+        if record.get("anchor_summary_json"):
+            record["anchor_summary"] = json.loads(
+                record["anchor_summary_json"]
+            )
+        else:
+            record["anchor_summary"] = None
+        record.pop("anchor_summary_json", None)
+        return record
 
     def total_size_bytes(self) -> int:
         """Sum of ``size_bytes`` across every bag in the index.
