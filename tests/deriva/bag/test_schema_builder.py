@@ -640,7 +640,9 @@ def test_is_association_table_detects_simple_two_fk_table() -> None:
     with SchemaBuilder(
         model, ["demo"], database_path=":memory:"
     ).build() as orm:
-        AssocCls = orm.get_orm_class("A_B")
-        result = SchemaORM.is_association_table(AssocCls)
+        # Association detection now lives on the ERMrest model
+        # side: ``Table.is_association()`` from deriva-py.
+        assoc_table = orm.model.schemas["demo"].tables["A_B"]
+        result = assoc_table.is_association()
         # Result is the arity (number of covered FKs).
         assert result == 2
