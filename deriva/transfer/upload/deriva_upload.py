@@ -690,7 +690,7 @@ class DerivaUpload(object):
         #    one if necessary. Otherwise, delay this logic until after the file upload.
         result = record = None
         if stob(asset_mapping.get("create_record_before_upload", False)):
-            record = self._getFileRecord(asset_mapping)
+            record, result = self._getFileRecord(asset_mapping)
 
         # 6. Perform the Hatrac upload
         self._getFileHatracMetadata(asset_mapping)
