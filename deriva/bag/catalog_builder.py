@@ -54,7 +54,6 @@ from deriva.core.ermrest_model import Table as DerivaTable
 from deriva.bag.anchors import (
     Anchor,
     AnchorKind,
-    PathAnchor,
     RIDAnchor,
     TableAnchor,
 )
@@ -229,7 +228,7 @@ class CatalogBagBuilder:
         membership tests).
 
         Anchor filtering is applied at the root of each datapath:
-        :class:`RIDAnchor` and :class:`PathAnchor` produce a
+        :class:`RIDAnchor` produces a
         ``filter(table.RID.in_(rids))`` predicate on the anchor
         table; :class:`TableAnchor` produces an unfiltered root.
         Subsequent path segments use :meth:`pathBuilder.link` with
@@ -357,10 +356,8 @@ class CatalogBagBuilder:
         the RIDs that exist; missing RIDs raise with the list of
         misses.
 
-        :class:`TableAnchor` and :class:`PathAnchor` are not
-        validated here — TableAnchor is permissive of empty
-        tables; PathAnchor's empty result is warned but allowed
-        at walk time.
+        :class:`TableAnchor` is not validated here — empty tables
+        are a legitimate outcome.
         """
         model = self._get_model()
         pb = self.catalog.getPathBuilder()
@@ -865,10 +862,6 @@ class CatalogBagBuilder:
                 filters.setdefault(
                     (schema_name, table_name), []
                 ).extend(anchor.rids)
-            elif isinstance(anchor, PathAnchor):
-                filters.setdefault(
-                    (schema_name, table_name), []
-                ).extend(anchor.rids)
             # TableAnchor: no filter (full table).
         # Dedup each filter list while preserving order.
         return {
@@ -966,7 +959,7 @@ class CatalogBagBuilder:
         # Case 3: this table was reached via the FK walk from one
         # of the anchor tables. Build a chained path. The first
         # segment carries the anchor's RID filter (when the anchor
-        # is a RIDAnchor/PathAnchor); subsequent segments are
+        # is a RIDAnchor); subsequent segments are
         # bare ``{schema}:{table}`` joins that ERMrest resolves via
         # the natural FK relationship.
         anchor_key = fk_path[0]
@@ -996,8 +989,8 @@ class CatalogBagBuilder:
         """Construct a linked datapath for one FK route.
 
         Applies the anchor's RID filter at the root (when the
-        first segment is a :class:`RIDAnchor` / :class:`PathAnchor`
-        table) and chains :meth:`pathBuilder.link` calls for each
+        first segment is a :class:`RIDAnchor` table) and chains
+        :meth:`pathBuilder.link` calls for each
         subsequent segment. Composite FKs are linked with an
         explicit ``on=`` clause derived from the model; simple FKs
         rely on datapath's implicit resolution.
