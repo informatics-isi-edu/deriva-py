@@ -47,6 +47,7 @@ from deriva.bag.catalog_builder import CatalogBagBuilder
 from deriva.bag.catalog_loader import (
     BagCatalogLoader,
     LoadReport,
+    TableClass,
     TableLoadStats,
 )
 from deriva.bag.database import BagDatabase
@@ -95,6 +96,7 @@ __all__ = [
     # Loader
     "BagCatalogLoader",
     "LoadReport",
+    "TableClass",
     "TableLoadStats",
     # Consumer
     "BagDatabase",

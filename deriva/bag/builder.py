@@ -70,6 +70,7 @@ from deriva.bag.loader import CSVSink, DataLoader
 from deriva.bag.profile import (
     ASSET_FILE_TEMPLATE,
     BAGIT_PROFILE_IDENTIFIER,
+    HATRAC_URL_TEMPLATE,
     SCHEMA_JSON_PATH,
     archive_bag,
     write_provenance,
@@ -140,7 +141,7 @@ def hatrac_url_for(table: str, md5: str, filename: str) -> str:
         >>> hatrac_url_for("Image", "abc123", "scan.png")
         '/hatrac/Image/abc123.scan.png'
     """
-    return f"/hatrac/{table}/{md5}.{filename}"
+    return HATRAC_URL_TEMPLATE.format(table=table, md5=md5, filename=filename)
 
 
 class BagBuilder:
