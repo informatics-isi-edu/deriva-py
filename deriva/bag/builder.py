@@ -251,6 +251,24 @@ class BagBuilder:
 
         self._finalized = False
 
+        # Memoized schema-JSON projection of ``self.metadata``.
+        # ``_write_schema_json`` and ``_metadata_as_model`` both walk
+        # the metadata; the underlying ``MetaData`` is fixed at
+        # construction time (the package has no schema-mutator on
+        # ``BagBuilder`` after ``__init__``), so a single walk is
+        # safe to share. Filled lazily by ``_schema_json``.
+        self._schema_json_cache: dict[str, Any] | None = None
+
+    def _schema_json(self) -> dict[str, Any]:
+        """Return (and memoize) the ERMrest-JSON projection of self.metadata.
+
+        See :data:`_schema_json_cache` for why a single walk is
+        safe across the bag's lifetime.
+        """
+        if self._schema_json_cache is None:
+            self._schema_json_cache = metadata_to_ermrest_json(self.metadata)
+        return self._schema_json_cache
+
     # ------------------------------------------------------------------
     # Schema access (mostly for callers that want to introspect what
     # tables BagBuilder knows about before adding rows).
@@ -669,7 +687,7 @@ class BagBuilder:
 
     def _write_schema_json(self) -> None:
         """Write ``data/schema.json`` from the metadata."""
-        doc = metadata_to_ermrest_json(self.metadata)
+        doc = self._schema_json()
         # Constructive bags have no source-catalog snapshot, but the
         # ``snaptime`` field is part of the ERMrest wire format.
         # metadata_to_ermrest_json defaults it to None; that's fine.
@@ -722,7 +740,7 @@ class BagBuilder:
         ``Model.fromfile``; that was "mildly wasteful" and is now
         gone).
         """
-        doc = metadata_to_ermrest_json(self.metadata)
+        doc = self._schema_json()
         return Model("file-system", doc)
 
     def _write_provenance_file(self) -> None:
