@@ -502,14 +502,20 @@ class SQLiteSink:
             if self.on_conflict == "ignore":
                 stmt = sqlite_insert(sql_table).on_conflict_do_nothing()
             elif self.on_conflict == "replace":
+                # Derive the conflict-key column set from the actual
+                # primary-key definition rather than hard-coding
+                # ``RID`` — the protocol contract claims a general
+                # sink, and the audit (§D.6) flagged the hard-code as
+                # a leaky deriva-ml-shape assumption.
+                pk_cols = [c.name for c in sql_table.primary_key.columns]
                 stmt = sqlite_insert(sql_table)
                 update_cols = {
                     c.name: c
                     for c in stmt.excluded
-                    if c.name not in ("RID",)
+                    if c.name not in pk_cols
                 }
                 stmt = stmt.on_conflict_do_update(
-                    index_elements=["RID"],
+                    index_elements=pk_cols,
                     set_=update_cols,
                 )
             else:
@@ -621,6 +627,21 @@ class CSVSink:
     def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
         self.close()
         return False
+
+    def __del__(self) -> None:
+        """Safety-net cleanup at GC time.
+
+        Callers should use the sink as a context manager
+        (``with CSVSink(...) as sink:``). If they don't, this
+        ensures the per-table file handles get closed before the
+        object is collected. Errors are swallowed — at interpreter
+        shutdown, the file handle's underlying module may already
+        be unloaded.
+        """
+        try:
+            self.close()
+        except Exception:
+            pass
 
 
 # =============================================================================
