@@ -385,7 +385,7 @@ class ErmrestCatalog(DerivaBinding):
         r.raise_for_status()
         return r.json()
 
-    def getPathBuilder(self, refresh=False):
+    def getPathBuilder(self, refresh=False, if_stale=False):
         """Returns the 'path builder' interface for this catalog.
 
         The returned wrapper is **cached on the catalog instance**.
@@ -397,17 +397,83 @@ class ErmrestCatalog(DerivaBinding):
 
         Args:
             refresh: When ``True``, discard the cached wrapper and
-                build a fresh one — useful if the catalog schema
-                changed under us. Default ``False``.
+                build a fresh one unconditionally. Pays one full
+                ``/schema`` walk every call. Default ``False``.
+            if_stale: When ``True`` (and ``refresh`` is ``False``),
+                make a cheap ``GET /`` snaptime probe and rebuild
+                only if the catalog has advanced past the cached
+                snaptime. Suitable for long-lived processes, async
+                handlers that hold their own ``ErmrestCatalog``
+                instance, or any other caller that can't rely on
+                same-instance auto-invalidation (see below). Default
+                ``False``.
 
-        The cache holds one wrapper per catalog instance. Schema
-        rows added by another process between calls are not seen
-        unless the caller passes ``refresh=True``; this is the
-        same staleness window every other catalog-model read has.
+        The default call (no args) makes no HTTP request beyond what
+        the underlying ``from_catalog`` walk does on a cache miss —
+        strictly backward-compatible.
+
+        The cache holds one wrapper per catalog instance. Two
+        invalidation paths are wired in:
+
+        - **Same-instance auto-invalidation.** Any successful
+          (non-error) ``POST`` / ``PUT`` / ``DELETE`` against a
+          ``/schema/...`` path on this instance clears the cache;
+          the next ``getPathBuilder()`` call rebuilds. Callers that
+          mutate schema through one ``ErmrestCatalog`` and read it
+          back through the same instance don't need ``refresh=True``.
+        - **Explicit cheap freshness check.** Pass ``if_stale=True``
+          to detect cross-instance / cross-process schema changes
+          via a small snaptime probe before rebuilding. The first
+          ``if_stale=True`` call after a cold build always rebuilds
+          (the snaptime is not yet recorded); subsequent calls
+          compare and rebuild only on drift.
+
+        Neither path is atomic; if a writer and a reader race on the
+        same instance the worst case is one redundant ``/schema``
+        walk. This matches the existing single-attribute cache
+        discipline elsewhere on the catalog.
         """
-        if refresh or getattr(self, "_path_builder_cache", None) is None:
-            self._path_builder_cache = datapath.from_catalog(self)
+        cache_present = getattr(self, "_path_builder_cache", None) is not None
+        cached_snap = getattr(self, "_path_builder_snap", None)
+        current_snap = None
+
+        if refresh:
+            rebuild = True
+        elif not cache_present:
+            rebuild = True
+        elif if_stale:
+            current_snap = self.get('/').json().get('snaptime')
+            rebuild = current_snap != cached_snap
+            if not rebuild:
+                return self._path_builder_cache
+            # else fall through; reuse current_snap below
+        else:
+            return self._path_builder_cache
+
+        self._path_builder_cache = datapath.from_catalog(self)
+        # Snaptime is captured only when ``if_stale=True`` triggered
+        # a rebuild — the probe was already paid for. Other build
+        # paths (cold, ``refresh=True``) leave the slot as ``None``;
+        # the next ``if_stale=True`` caller will probe afresh and,
+        # finding ``None != snap-X``, rebuild once — then subsequent
+        # ``if_stale=True`` calls settle into a normal compare.
+        self._path_builder_snap = current_snap
         return self._path_builder_cache
+
+    def _invalidate_path_builder_if_schema_mutation(self, path, response):
+        """Clear the path-builder cache after a successful schema mutation.
+
+        Called from the ``post`` / ``put`` / ``delete`` overrides
+        below. A 2xx/3xx non-GET to ``/schema/...`` means the
+        catalog model has changed; any cached path-builder wrapper
+        is now stale. ``DerivaBinding`` already raises on 4xx/5xx
+        responses (and on 412 specifically), so by the time we
+        reach this helper the status is in the success range —
+        the check is defensive but cheap.
+        """
+        if path.startswith("/schema") and 200 <= response.status_code < 400:
+            self._path_builder_cache = None
+            self._path_builder_snap = None
 
     def getTableSchema(self, fq_table_name):
         # first try to get from cache(s)
@@ -755,6 +821,29 @@ class ErmrestCatalog(DerivaBinding):
             if destfile:
                 destfile.close()
 
+    def post(self, path, data=None, json=None, headers=DEFAULT_HEADERS):
+        """Perform POST request, returning response object.
+
+        Wraps :meth:`DerivaBinding.post` to auto-invalidate the
+        path-builder cache after a successful ``/schema/...`` POST.
+        Argument semantics are unchanged.
+        """
+        r = DerivaBinding.post(self, path, data=data, json=json, headers=headers)
+        self._invalidate_path_builder_if_schema_mutation(path, r)
+        return r
+
+    def put(self, path, data=None, json=None, headers=DEFAULT_HEADERS, guard_response=None):
+        """Perform PUT request, returning response object.
+
+        Wraps :meth:`DerivaBinding.put` to auto-invalidate the
+        path-builder cache after a successful ``/schema/...`` PUT.
+        Argument semantics are unchanged.
+        """
+        r = DerivaBinding.put(self, path, data=data, json=json, headers=headers,
+                              guard_response=guard_response)
+        self._invalidate_path_builder_if_schema_mutation(path, r)
+        return r
+
     def delete(self, path, headers=DEFAULT_HEADERS, guard_response=None):
         """Perform DELETE request, returning response object.
 
@@ -772,7 +861,9 @@ class ErmrestCatalog(DerivaBinding):
         """
         if path == "/":
             raise DerivaPathError('See self.delete_ermrest_catalog() if you really want to destroy this catalog.')
-        return DerivaBinding.delete(self, path, headers=headers, guard_response=guard_response)
+        r = DerivaBinding.delete(self, path, headers=headers, guard_response=guard_response)
+        self._invalidate_path_builder_if_schema_mutation(path, r)
+        return r
 
     def delete_ermrest_catalog(self, really=False):
         """Perform DELETE request, destroying catalog on server.

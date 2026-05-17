@@ -118,6 +118,76 @@ class TestAsyncErmrestCatalogAsync(unittest.IsolatedAsyncioTestCase):
 
         await catalog.close()
 
+    async def test_post_async_to_schema_invalidates_sync_path_builder_cache(self):
+        """An async POST to /schema/... clears the wrapped sync catalog's cache."""
+        catalog = AsyncErmrestCatalog("https", "example.org", "1")
+
+        # Force the sync catalog into existence and prime its cache.
+        sync = catalog.sync_catalog
+        sync._path_builder_cache = MagicMock(name="PathBuilder")
+        sync._path_builder_snap = "snap-1"
+
+        with patch.object(catalog, "_get_client") as mock_get_client:
+            mock_client = AsyncMock()
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.headers = {}
+            mock_client.post.return_value = mock_response
+            mock_get_client.return_value = mock_client
+
+            await catalog.post_async("/schema/foo/table", json_data={})
+
+        self.assertIsNone(sync._path_builder_cache)
+        self.assertIsNone(sync._path_builder_snap)
+
+        await catalog.close()
+
+    async def test_post_async_to_entity_does_not_invalidate_sync_path_builder_cache(self):
+        """A non-schema async POST leaves the wrapped sync cache alone."""
+        catalog = AsyncErmrestCatalog("https", "example.org", "1")
+
+        sync = catalog.sync_catalog
+        sentinel_pb = MagicMock(name="PathBuilder")
+        sync._path_builder_cache = sentinel_pb
+        sync._path_builder_snap = "snap-1"
+
+        with patch.object(catalog, "_get_client") as mock_get_client:
+            mock_client = AsyncMock()
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.headers = {}
+            mock_client.post.return_value = mock_response
+            mock_get_client.return_value = mock_client
+
+            await catalog.post_async("/entity/schema:table", json_data=[{"k": "v"}])
+
+        self.assertIs(sync._path_builder_cache, sentinel_pb)
+        self.assertEqual(sync._path_builder_snap, "snap-1")
+
+        await catalog.close()
+
+    async def test_post_async_does_not_force_sync_catalog_init(self):
+        """Schema invalidation must not lazy-create a sync catalog."""
+        catalog = AsyncErmrestCatalog("https", "example.org", "1")
+
+        # _sync_catalog stays None — no caller asked for it.
+        self.assertIsNone(catalog._sync_catalog)
+
+        with patch.object(catalog, "_get_client") as mock_get_client:
+            mock_client = AsyncMock()
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.headers = {}
+            mock_client.post.return_value = mock_response
+            mock_get_client.return_value = mock_client
+
+            await catalog.post_async("/schema/foo/table", json_data={})
+
+        # Still None — the hook did not touch the property accessor.
+        self.assertIsNone(catalog._sync_catalog)
+
+        await catalog.close()
+
 
 @unittest.skipUnless(hostname, "Test host not specified")
 class TestAsyncErmrestCatalogIntegration(unittest.IsolatedAsyncioTestCase):
