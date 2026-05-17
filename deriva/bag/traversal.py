@@ -264,6 +264,12 @@ class FKTraversalPolicy(BaseModel):
 
             Empty column lists are rejected at validation time —
             a table either has a match rule or it doesn't.
+        intentional_cycles: FK cycles the schema owner has marked
+            as intentional, as ``{frozenset({"schema.table", ...}), ...}``.
+            The loader still breaks these cycles, but logs the
+            break at DEBUG rather than WARNING. Unknown cycles
+            still WARN — callers opt in deliberately.
+
         preserve_provenance: Whether to preserve the bag's source
             audit columns (``RCT`` creation time, ``RCB`` creating
             user) at insert time. ``True`` (default) sends the bag
@@ -358,6 +364,19 @@ class FKTraversalPolicy(BaseModel):
         default_factory=dict
     )
     preserve_provenance: bool = True
+    intentional_cycles: set[frozenset[str]] = Field(
+        default_factory=set,
+        description=(
+            "FK cycles the schema owner has marked as intentional. "
+            "Each entry is a frozenset of fully-qualified table names "
+            "(``{schema}.{table}``) participating in the cycle. The "
+            "loader still breaks these cycles (otherwise it can't "
+            "sort), but logs the cycle-break at DEBUG rather than "
+            "WARNING. Cycles not in this set continue to log at "
+            "WARNING — callers should opt in deliberately, not "
+            "blanket-silence."
+        ),
+    )
 
     @field_validator("max_depth")
     @classmethod
