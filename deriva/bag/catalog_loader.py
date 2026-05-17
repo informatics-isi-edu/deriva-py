@@ -297,7 +297,28 @@ class BagCatalogLoader:
         # ``ErmrestCatalog.getPathBuilder()`` walks /schema once;
         # cache the result so subsequent reads/writes reuse the
         # same wrapper tree.
+        #
+        # First build asks the catalog for a refreshed wrapper
+        # (``refresh=True``). The catalog-instance cache may have
+        # been warmed by an earlier caller in this same process,
+        # *before* the destination schema was extended (e.g. a
+        # ``create_asset`` between the catalog connect and the
+        # bag load). Without ``refresh=True`` here, the loader
+        # inherits that stale snapshot and ``schemas[s].tables[t]``
+        # raises ``KeyError`` for any table added since.
         self._path_builder = None
+
+    def _ensure_path_builder(self) -> Any:
+        """Lazily build (and refresh) the loader's path-builder wrapper.
+
+        The first call asks the catalog for ``refresh=True`` so
+        the wrapper reflects the destination's live schema at
+        load time, not whatever earlier caller warmed the cache.
+        Subsequent calls in the same load reuse the wrapper.
+        """
+        if self._path_builder is None:
+            self._path_builder = self.catalog.getPathBuilder(refresh=True)
+        return self._path_builder
 
     def _table_wrapper(self, table: DerivaTable):
         """Return the deriva-py ``_TableWrapper`` for ``table``.
@@ -307,9 +328,8 @@ class BagCatalogLoader:
         URL-encoding, batching, and retry machinery instead of
         hand-rolled paths.
         """
-        if self._path_builder is None:
-            self._path_builder = self.catalog.getPathBuilder()
-        return self._path_builder.schemas[table.schema.name].tables[table.name]
+        pb = self._ensure_path_builder()
+        return pb.schemas[table.schema.name].tables[table.name]
 
     @staticmethod
     def _infer_schemas_from_bag(bag_path: Path) -> list[str]:
@@ -528,9 +548,8 @@ class BagCatalogLoader:
                         row[col] = col_values[col]
                 payload.append(row)
 
-            if self._path_builder is None:
-                self._path_builder = self.catalog.getPathBuilder()
-            tw = self._path_builder.schemas[schema_name].tables[table_name]
+            pb = self._ensure_path_builder()
+            tw = pb.schemas[schema_name].tables[table_name]
 
             # ``functools.partial`` binds the loop variables at this
             # iteration; ``asyncio.to_thread`` then invokes it with
@@ -748,9 +767,8 @@ class BagCatalogLoader:
         destination-side data error; we log a warning and drop
         all but the first RID rather than silently picking one.
         """
-        if self._path_builder is None:
-            self._path_builder = self.catalog.getPathBuilder()
-        tw = self._path_builder.schemas[schema_name].tables[table_name]
+        pb = self._ensure_path_builder()
+        tw = pb.schemas[schema_name].tables[table_name]
 
         def _do_get() -> list[dict[str, Any]]:
             return list(
@@ -885,9 +903,8 @@ class BagCatalogLoader:
         row uniquely per :attr:`FKTraversalPolicy.match_by_columns`'s
         contract). A duplicate is logged and the first RID is kept.
         """
-        if self._path_builder is None:
-            self._path_builder = self.catalog.getPathBuilder()
-        tw = self._path_builder.schemas[schema_name].tables[table_name]
+        pb = self._ensure_path_builder()
+        tw = pb.schemas[schema_name].tables[table_name]
         projection = [tw.column_definitions[col] for col in match_cols] + [
             tw.column_definitions["RID"]
         ]

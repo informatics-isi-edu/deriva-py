@@ -2407,3 +2407,229 @@ def test_rewrite_fks_returns_row_unchanged_for_composite_fk(
         assert out is not row
     finally:
         loader.dispose()
+
+
+# ---------------------------------------------------------------------------
+# Path-builder cache discipline (regression: stale snapshot at construction).
+#
+# ``ErmrestCatalog.getPathBuilder()`` caches its result on the catalog
+# instance. A path-builder built before a domain table was added will
+# not see that table, and the next ``schemas[s].tables[t]`` lookup
+# raises ``KeyError``. The loader is the natural place to invalidate
+# the catalog's cache, because it is the only consumer that runs after
+# arbitrary schema mutations may have happened in the same process.
+#
+# Contract under test: on first build inside the loader, ``getPathBuilder``
+# is called with ``refresh=True`` so the loader's view of the destination
+# schema is fresh-at-load-time, regardless of what an earlier caller
+# in the same process may have cached.
+# ---------------------------------------------------------------------------
+
+
+def _first_get_path_builder_call(catalog: MagicMock):
+    """Return the ``call_args`` for the loader's first ``getPathBuilder`` call.
+
+    Helper so the assertions below read uniformly across the four
+    lazy-init sites.
+    """
+    calls = catalog.getPathBuilder.call_args_list
+    assert calls, "loader never called getPathBuilder"
+    return calls[0]
+
+
+def test_table_wrapper_refreshes_path_builder_on_first_build(
+    tmp_path: Path,
+) -> None:
+    """``_table_wrapper`` requests a fresh path-builder on first build.
+
+    Regression for the CIFAR-10 stale-snapshot bug: a domain table
+    is created in the same process before the loader runs, but the
+    catalog's cached path-builder was warmed before that. The
+    loader must opt into ``refresh=True`` so it sees the live schema.
+    """
+    import asyncio as _asyncio
+
+    bag = _build_fk_bag(tmp_path)
+    catalog = _mock_catalog()
+
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=FKTraversalPolicy(),
+        database_dir=tmp_path / "db",
+    )
+    tw = _pb_table(catalog, "demo", "Image")
+    _stub_insert_result(tw, [{"RID": "I1"}])
+    try:
+        _asyncio.run(
+            loader._insert_rows(
+                _make_fake_table(),
+                [{"RID": "I1", "Filename": "a.bin"}],
+            )
+        )
+    finally:
+        loader.dispose()
+
+    assert _first_get_path_builder_call(catalog).kwargs.get("refresh") is True
+
+
+def test_apply_deferred_fk_updates_refreshes_path_builder_on_first_build(
+    tmp_path: Path,
+) -> None:
+    """``_apply_deferred_fk_updates`` refreshes when it builds first.
+
+    Same contract as ``_table_wrapper``; the second-pass cycle-cut
+    update path is its own lazy-init site and must not bypass the
+    refresh.
+    """
+    import asyncio as _asyncio
+
+    bag = _build_fk_bag(tmp_path)
+    catalog = _mock_catalog()
+
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=FKTraversalPolicy(),
+        database_dir=tmp_path / "db",
+    )
+    _pb_table(catalog, "demo", "Image")  # pre-wire the dispatcher
+    # ``run()`` populates these maps via ``_init_cycle_deferred_state``;
+    # the test exercises the second pass in isolation, so seed them
+    # directly. One table with one deferred row is enough to drive
+    # the lazy-init site under test.
+    loader._deferred_fk_cols = {("demo", "Image"): {"Subject"}}
+    loader._deferred_fk_values = {
+        ("demo", "Image"): {"I1": {"Subject": "S1"}}
+    }
+    try:
+        _asyncio.run(loader._apply_deferred_fk_updates())
+    finally:
+        loader.dispose()
+
+    assert _first_get_path_builder_call(catalog).kwargs.get("refresh") is True
+
+
+def test_fetch_existing_vocab_by_name_refreshes_path_builder_on_first_build(
+    tmp_path: Path,
+) -> None:
+    """``_fetch_existing_vocab_by_name`` refreshes when it builds first."""
+    import asyncio as _asyncio
+
+    bag = _build_vocab_bag(tmp_path)
+    catalog = _mock_catalog()
+
+    color_tw = _pb_table(catalog, "demo", "Color")
+    color_tw.attributes.return_value.fetch.return_value = []
+
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=FKTraversalPolicy(asset_mode=AssetMode.ROWS_ONLY),
+        database_dir=tmp_path / "db",
+    )
+    try:
+        _asyncio.run(loader._fetch_existing_vocab_by_name("demo", "Color"))
+    finally:
+        loader.dispose()
+
+    assert _first_get_path_builder_call(catalog).kwargs.get("refresh") is True
+
+
+def test_fetch_existing_by_columns_refreshes_path_builder_on_first_build(
+    tmp_path: Path,
+) -> None:
+    """``_fetch_existing_by_columns`` refreshes when it builds first.
+
+    This is the exact site whose ``KeyError`` motivated the bug:
+    bag-loader walking a freshly-created asset table whose row was
+    not in the stale path-builder snapshot.
+    """
+    import asyncio as _asyncio
+
+    bag = _build_image_widget_bag(tmp_path)
+    catalog = _mock_catalog()
+
+    image_tw = _pb_table(catalog, "demo", "Image")
+    image_tw.attributes.return_value.fetch.return_value = []
+
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=FKTraversalPolicy(
+            asset_mode=AssetMode.ROWS_ONLY,
+            match_by_columns={("demo", "Image"): ["URL"]},
+        ),
+        database_dir=tmp_path / "db",
+    )
+    try:
+        _asyncio.run(
+            loader._fetch_existing_by_columns("demo", "Image", ["URL"])
+        )
+    finally:
+        loader.dispose()
+
+    assert _first_get_path_builder_call(catalog).kwargs.get("refresh") is True
+
+
+def test_stale_path_builder_snapshot_is_invalidated_on_load(
+    tmp_path: Path,
+) -> None:
+    """End-to-end: a stale ``getPathBuilder`` cache does not break the load.
+
+    Models the CIFAR-10 reproducer in
+    ``docs/bugs/2026-05-16-bag-loader-stale-path-builder.md``: an
+    earlier caller in the same process warmed the catalog's
+    path-builder cache against a snapshot that lacks the destination
+    asset table, then the domain schema was extended, then the
+    loader runs. Before the fix, the loader inherited the stale
+    snapshot and raised ``KeyError: 'Image'``; after the fix, the
+    loader's first build asks for a refreshed snapshot.
+
+    The mock catalog returns two different schema trees depending
+    on whether ``refresh=True`` is passed. Only the refreshed tree
+    contains the ``Image`` table, so the loader's lookup succeeds
+    iff the refresh was requested.
+    """
+    import asyncio as _asyncio
+
+    bag = _build_image_widget_bag(tmp_path)
+    catalog = _mock_catalog()
+
+    # Two distinct path-builder trees: the stale one is missing
+    # the Image table entirely (KeyError on lookup), the refreshed
+    # one has it.
+    image_tw = MagicMock(name="Image-fresh")
+    image_tw.attributes.return_value.fetch.return_value = []
+
+    fresh_pb = MagicMock(name="PathBuilder[fresh]")
+    fresh_pb.schemas.__getitem__.return_value.tables = {"Image": image_tw}
+
+    stale_pb = MagicMock(name="PathBuilder[stale]")
+    stale_pb.schemas.__getitem__.return_value.tables = {}  # no Image
+
+    def _get_path_builder(refresh: bool = False) -> MagicMock:
+        return fresh_pb if refresh else stale_pb
+
+    catalog.getPathBuilder.side_effect = _get_path_builder
+
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=FKTraversalPolicy(
+            asset_mode=AssetMode.ROWS_ONLY,
+            match_by_columns={("demo", "Image"): ["URL"]},
+        ),
+        database_dir=tmp_path / "db",
+    )
+    try:
+        # The lookup goes through ``_fetch_existing_by_columns``; if
+        # the loader uses the stale snapshot it raises ``KeyError``.
+        _asyncio.run(
+            loader._fetch_existing_by_columns("demo", "Image", ["URL"])
+        )
+    finally:
+        loader.dispose()
+
+    # The loader pulled from the *fresh* tree, not the stale one.
+    assert image_tw.attributes.called
