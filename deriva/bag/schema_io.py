@@ -36,8 +36,10 @@ single source of truth for the cross-vocabulary type story.
 from __future__ import annotations
 
 import logging
+import warnings
 from typing import Any
 
+from sqlalchemy.exc import SAWarning
 from sqlalchemy import (
     JSON,
     BigInteger,
@@ -411,7 +413,21 @@ def metadata_to_ermrest_json(metadata: MetaData) -> dict[str, Any]:
     # Bucket tables by schema name.
     schemas: dict[str, dict[str, Any]] = {}
 
-    for sql_table in metadata.sorted_tables:
+    # ``sorted_tables`` emits an SAWarning for cyclic FK graphs.
+    # deriva-py handles those cycles itself in
+    # :class:`ForeignKeyOrderer`; the warning is about an algorithm
+    # we don't rely on here, so silence it at this call site only.
+    # Narrow ``message=`` keeps unrelated SAWarnings (deprecated
+    # APIs, ambiguous joins) propagating normally.
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            category=SAWarning,
+            message="Cannot correctly sort tables",
+        )
+        sorted_tables = list(metadata.sorted_tables)
+
+    for sql_table in sorted_tables:
         schema_name = sql_table.schema or ""
         if not schema_name:
             # An unrooted table — fold it under the empty schema and

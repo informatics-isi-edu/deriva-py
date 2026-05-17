@@ -166,3 +166,43 @@ def test_policy_enum_values_in_json() -> None:
     assert payload["asset_mode"] == "upload_force"
     assert payload["dangling_fk_strategy"] == "delete"
     assert payload["vocab_export"] == "full"
+
+
+# ---------------------------------------------------------------------------
+# F5: intentional_cycles field
+# ---------------------------------------------------------------------------
+
+def test_policy_intentional_cycles_default_is_empty() -> None:
+    """The new field defaults to an empty set."""
+    p = FKTraversalPolicy()
+    assert p.intentional_cycles == set()
+
+
+def test_policy_intentional_cycles_round_trips_through_json() -> None:
+    """A populated allowlist survives ``model_dump_json`` round-trip.
+
+    Each cycle is a ``frozenset[str]`` of fully-qualified table
+    names; the set-of-sets shape needs to JSON-serialize and
+    deserialize without losing identity.
+    """
+    p = FKTraversalPolicy(
+        intentional_cycles={
+            frozenset({"deriva-ml.Dataset", "deriva-ml.Dataset_Version"}),
+            frozenset({"x.A", "x.B", "x.C"}),
+        }
+    )
+    payload_json = p.model_dump_json()
+    restored = FKTraversalPolicy.model_validate_json(payload_json)
+
+    assert restored.intentional_cycles == p.intentional_cycles
+    # Each element is still a frozenset (hashable, set-comparable).
+    for entry in restored.intentional_cycles:
+        assert isinstance(entry, frozenset)
+
+
+def test_policy_intentional_cycles_accepted_from_set_of_frozensets() -> None:
+    """Constructor accepts the documented ``set[frozenset[str]]`` shape."""
+    p = FKTraversalPolicy(
+        intentional_cycles={frozenset({"s.A", "s.B"})}
+    )
+    assert p.intentional_cycles == {frozenset({"s.A", "s.B"})}

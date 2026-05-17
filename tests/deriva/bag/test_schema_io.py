@@ -596,3 +596,120 @@ def test_round_trip_preserves_fks() -> None:
     assert len(image_fks) == 1
 
 
+# ---------------------------------------------------------------------------
+# F5: SAWarning suppression at the sorted_tables call site
+# ---------------------------------------------------------------------------
+
+def _cyclic_two_table_doc() -> dict[str, Any]:
+    """Two-table ERMrest doc with a mutual FK cycle (A ↔ B)."""
+    return {
+        "snaptime": "2026-01-01T00:00:00",
+        "schemas": {
+            "demo": {
+                "schema_name": "demo",
+                "tables": {
+                    "A": {
+                        "schema_name": "demo",
+                        "table_name": "A",
+                        "kind": "table",
+                        "column_definitions": [
+                            {"name": "RID", "type": {"typename": "text"}, "nullok": False},
+                            {"name": "b_rid", "type": {"typename": "text"}, "nullok": True},
+                        ],
+                        "keys": [{"unique_columns": ["RID"]}],
+                        "foreign_keys": [
+                            {
+                                "names": [["demo", "A_b_fkey"]],
+                                "foreign_key_columns": [
+                                    {"schema_name": "demo", "table_name": "A", "column_name": "b_rid"},
+                                ],
+                                "referenced_columns": [
+                                    {"schema_name": "demo", "table_name": "B", "column_name": "RID"},
+                                ],
+                            }
+                        ],
+                    },
+                    "B": {
+                        "schema_name": "demo",
+                        "table_name": "B",
+                        "kind": "table",
+                        "column_definitions": [
+                            {"name": "RID", "type": {"typename": "text"}, "nullok": False},
+                            {"name": "a_rid", "type": {"typename": "text"}, "nullok": True},
+                        ],
+                        "keys": [{"unique_columns": ["RID"]}],
+                        "foreign_keys": [
+                            {
+                                "names": [["demo", "B_a_fkey"]],
+                                "foreign_key_columns": [
+                                    {"schema_name": "demo", "table_name": "B", "column_name": "a_rid"},
+                                ],
+                                "referenced_columns": [
+                                    {"schema_name": "demo", "table_name": "A", "column_name": "RID"},
+                                ],
+                            }
+                        ],
+                    },
+                },
+            }
+        },
+    }
+
+
+def test_metadata_to_ermrest_json_suppresses_cycle_sawarning() -> None:
+    """``metadata_to_ermrest_json`` doesn't emit the cycle SAWarning.
+
+    The bag pipeline owns its own cycle handling in
+    ``ForeignKeyOrderer``; SQLAlchemy's complaint about
+    ``sorted_tables`` not handling cycles is internal noise.
+    """
+    import warnings as _warnings
+    from sqlalchemy.exc import SAWarning
+
+    md = ermrest_json_to_metadata(_cyclic_two_table_doc())
+
+    with _warnings.catch_warnings(record=True) as caught:
+        _warnings.simplefilter("always")
+        metadata_to_ermrest_json(md)
+
+    cycle_warnings = [
+        w for w in caught
+        if issubclass(w.category, SAWarning)
+        and "Cannot correctly sort tables" in str(w.message)
+    ]
+    assert cycle_warnings == []
+
+
+def test_metadata_to_ermrest_json_still_lets_unrelated_sawarnings_through() -> None:
+    """The filter is narrow — unrelated SAWarnings still propagate.
+
+    Emit a fake SAWarning with a different message inside the
+    suppressed region by patching ``metadata.sorted_tables``. The
+    fake warning must not be filtered.
+    """
+    import warnings as _warnings
+    from unittest.mock import patch
+    from sqlalchemy.exc import SAWarning
+
+    md = ermrest_json_to_metadata(_two_table_doc())
+
+    def _fake_sorted_tables(self):
+        _warnings.warn("Some other SAWarning", SAWarning, stacklevel=2)
+        # Return an empty iterator so the caller's loop runs cleanly.
+        return iter([])
+
+    with patch.object(
+        type(md), "sorted_tables", property(_fake_sorted_tables)
+    ):
+        with _warnings.catch_warnings(record=True) as caught:
+            _warnings.simplefilter("always")
+            metadata_to_ermrest_json(md)
+
+    other_warnings = [
+        w for w in caught
+        if issubclass(w.category, SAWarning)
+        and "Some other SAWarning" in str(w.message)
+    ]
+    assert len(other_warnings) == 1
+
+
