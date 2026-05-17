@@ -69,9 +69,26 @@ class ForeignKeyOrderer:
             references matter).
     """
 
-    def __init__(self, model: Model, schemas: list[str]):
+    def __init__(
+        self,
+        model: Model,
+        schemas: list[str],
+        intentional_cycles: set[frozenset[str]] | None = None,
+    ):
         self.model = model
         self.schemas = set(schemas)
+        # Cycles the consumer has marked as intentional in their
+        # schema. Cycle-break announcements for cycles in this set
+        # log at DEBUG rather than WARNING. Identity is
+        # direction-agnostic — see :meth:`_break_cycles_and_sort`.
+        self._intentional_cycles: set[frozenset[str]] = (
+            set(intentional_cycles) if intentional_cycles else set()
+        )
+        # Cycles already announced from this instance, keyed the same
+        # way as ``_intentional_cycles``. Used to dedupe per-instance
+        # log spam when callers rebuild the dependency graph more
+        # than once (e.g. one orderer driving multiple bag exports).
+        self._reported_cycles: set[frozenset[str]] = set()
         # Both qualified and unqualified names map to Table objects
         # so callers can pass either form into get_insertion_order.
         self._table_cache: dict[str, DerivaTable] = {}
@@ -245,9 +262,31 @@ class ForeignKeyOrderer:
 
         cycle = list(error.args[1]) if len(error.args) > 1 else []
         if cycle:
-            logger.warning(
-                f"Breaking cycle in FK dependencies: {' -> '.join(cycle)}"
+            # Cycle identity is direction-agnostic. ``CycleError``
+            # reports the cycle as ``[A, B, ..., A]``; the trailing
+            # repeat-of-start is dropped before keying so e.g.
+            # ``A -> B -> A`` and ``B -> A -> B`` collide as the same
+            # cycle. Two distinct cycles over the same node set
+            # would also collide, but for realistic schemas (and
+            # certainly for the 2-node case that drives the feature)
+            # this is fine.
+            cycle_key = (
+                frozenset(cycle[:-1])
+                if len(cycle) > 1
+                else frozenset(cycle)
             )
+            if cycle_key not in self._reported_cycles:
+                self._reported_cycles.add(cycle_key)
+                if cycle_key in self._intentional_cycles:
+                    logger.debug(
+                        f"Breaking known-intentional cycle in FK "
+                        f"dependencies: {' -> '.join(cycle)}"
+                    )
+                else:
+                    logger.warning(
+                        f"Breaking cycle in FK dependencies: "
+                        f"{' -> '.join(cycle)}"
+                    )
             edge_removed = False
             if len(cycle) >= 3:
                 # CycleError reports cycle as [A, B, C, A]; remove
@@ -702,6 +741,7 @@ class DataLoader:
         schema_orm: SchemaORM,
         data_source: DataSource,
         sink: Sink | None = None,
+        intentional_cycles: set[frozenset[str]] | None = None,
     ):
         self.orm = schema_orm
         self.source = data_source
@@ -711,6 +751,7 @@ class DataLoader:
         self.orderer = ForeignKeyOrderer(
             schema_orm.model,
             schema_orm.schemas,
+            intentional_cycles=intentional_cycles,
         )
 
     def load_tables(

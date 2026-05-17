@@ -435,3 +435,178 @@ def test_csv_sink_close_is_idempotent(tmp_path: Path) -> None:
     sink = CSVSink(tmp_path, _model_with_fk())
     sink.close()
     sink.close()
+
+
+# ---------------------------------------------------------------------------
+# F5: cycle-break log dedupe + intentional-cycle allowlist
+# ---------------------------------------------------------------------------
+
+def test_orderer_first_cycle_break_logs_at_warning(caplog) -> None:
+    """The first cycle-break announcement on a non-intentional cycle WARNs."""
+    import logging as _log
+
+    model = _model_with_two_way_cycle()
+    orderer = ForeignKeyOrderer(model, ["demo"])
+    with caplog.at_level(_log.DEBUG, logger="deriva.bag.loader"):
+        orderer.get_insertion_order(
+            ["Dataset", "Dataset_Version"], handle_cycles=True
+        )
+
+    warning_lines = [
+        r for r in caplog.records
+        if r.levelno == _log.WARNING and "Breaking cycle" in r.message
+    ]
+    assert len(warning_lines) == 1
+
+
+def test_orderer_repeated_cycle_break_does_not_re_log(caplog) -> None:
+    """A second get_insertion_order on the same instance doesn't re-log."""
+    import logging as _log
+
+    model = _model_with_two_way_cycle()
+    orderer = ForeignKeyOrderer(model, ["demo"])
+    with caplog.at_level(_log.DEBUG, logger="deriva.bag.loader"):
+        orderer.get_insertion_order(
+            ["Dataset", "Dataset_Version"], handle_cycles=True
+        )
+        orderer.get_insertion_order(
+            ["Dataset", "Dataset_Version"], handle_cycles=True
+        )
+
+    cycle_lines = [
+        r for r in caplog.records
+        if "Breaking" in r.message and "cycle" in r.message
+    ]
+    assert len(cycle_lines) == 1
+
+
+def test_orderer_intentional_cycle_logs_at_debug_not_warning(caplog) -> None:
+    """A cycle in the allowlist logs at DEBUG, not WARNING."""
+    import logging as _log
+
+    model = _model_with_two_way_cycle()
+    orderer = ForeignKeyOrderer(
+        model,
+        ["demo"],
+        intentional_cycles={
+            frozenset({"demo.Dataset", "demo.Dataset_Version"})
+        },
+    )
+    with caplog.at_level(_log.DEBUG, logger="deriva.bag.loader"):
+        orderer.get_insertion_order(
+            ["Dataset", "Dataset_Version"], handle_cycles=True
+        )
+
+    warning_lines = [
+        r for r in caplog.records
+        if r.levelno == _log.WARNING and "Breaking" in r.message
+    ]
+    debug_lines = [
+        r for r in caplog.records
+        if r.levelno == _log.DEBUG
+        and "Breaking known-intentional cycle" in r.message
+    ]
+    assert warning_lines == []
+    assert len(debug_lines) == 1
+
+
+def test_orderer_unknown_cycle_still_warns_when_allowlist_nonempty(
+    caplog,
+) -> None:
+    """Allowlist names a different cycle → real cycle still WARNs."""
+    import logging as _log
+
+    model = _model_with_two_way_cycle()
+    orderer = ForeignKeyOrderer(
+        model,
+        ["demo"],
+        intentional_cycles={
+            frozenset({"demo.OtherA", "demo.OtherB"})
+        },
+    )
+    with caplog.at_level(_log.DEBUG, logger="deriva.bag.loader"):
+        orderer.get_insertion_order(
+            ["Dataset", "Dataset_Version"], handle_cycles=True
+        )
+
+    warning_lines = [
+        r for r in caplog.records
+        if r.levelno == _log.WARNING and "Breaking cycle" in r.message
+    ]
+    assert len(warning_lines) == 1
+
+
+def test_orderer_cycle_broken_edges_still_populated_when_silenced() -> None:
+    """Allowlisting a cycle doesn't suppress edge-tracking.
+
+    Two-phase-insert consumers read ``cycle_broken_edges`` regardless
+    of log volume; the silenced log path must still record what got
+    dropped.
+    """
+    model = _model_with_two_way_cycle()
+    orderer = ForeignKeyOrderer(
+        model,
+        ["demo"],
+        intentional_cycles={
+            frozenset({"demo.Dataset", "demo.Dataset_Version"})
+        },
+    )
+    orderer.get_insertion_order(
+        ["Dataset", "Dataset_Version"], handle_cycles=True
+    )
+    broken = orderer.cycle_broken_edges()
+    assert len(broken) >= 1
+
+
+def test_orderer_cycle_identity_is_direction_agnostic() -> None:
+    """The allowlist key matches regardless of cycle traversal direction.
+
+    ``CycleError`` reports the cycle path as ordered (e.g.
+    ``[A, B, A]`` vs ``[B, A, B]`` depending on which node the sort
+    happened to hit first). Both should match the same allowlist
+    entry.
+    """
+    import logging as _log
+    from graphlib import CycleError
+
+    model = _model_with_two_way_cycle()
+    orderer = ForeignKeyOrderer(
+        model,
+        ["demo"],
+        intentional_cycles={
+            frozenset({"demo.Dataset", "demo.Dataset_Version"})
+        },
+    )
+    # Hand-fed cycle in the opposite direction.
+    logger_name = "deriva.bag.loader"
+    graph: dict[str, set[str]] = {
+        "demo.Dataset": {"demo.Dataset_Version"},
+        "demo.Dataset_Version": {"demo.Dataset"},
+    }
+    err = CycleError(
+        "nodes are in a cycle",
+        ["demo.Dataset_Version", "demo.Dataset", "demo.Dataset_Version"],
+    )
+    import logging as _l
+    handler_cap: list[_l.LogRecord] = []
+
+    class _Cap(_l.Handler):
+        def emit(self, record):
+            handler_cap.append(record)
+
+    h = _Cap(level=_l.DEBUG)
+    log = _l.getLogger(logger_name)
+    log.addHandler(h)
+    log.setLevel(_l.DEBUG)
+    try:
+        orderer._break_cycles_and_sort(graph, err)
+    finally:
+        log.removeHandler(h)
+
+    # No WARNING; one DEBUG with the "known-intentional" wording.
+    assert not any(r.levelno == _l.WARNING for r in handler_cap)
+    assert any(
+        r.levelno == _l.DEBUG
+        and "Breaking known-intentional cycle" in r.getMessage()
+        for r in handler_cap
+    )

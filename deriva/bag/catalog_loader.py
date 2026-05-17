@@ -425,7 +425,11 @@ class BagCatalogLoader:
         # source of truth for *what to load* — the destination's
         # schema is presumed to be compatible.
         schemas = list(self.bag_db.model.schemas.keys())
-        orderer = ForeignKeyOrderer(self.bag_db.model, schemas)
+        orderer = ForeignKeyOrderer(
+            self.bag_db.model,
+            schemas,
+            intentional_cycles=self.policy.intentional_cycles,
+        )
         # Restrict to tables that are actually in scope per policy.
         tables_in_scope = [
             self.bag_db.model.schemas[s].tables[t]
