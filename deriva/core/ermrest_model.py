@@ -395,7 +395,16 @@ class Model (object):
 
     @classmethod
     def fromcatalog(cls, catalog):
-        """Retrieve catalog config as a Model management object."""
+        """Retrieve catalog config as a Model management object.
+
+        Uses :meth:`ErmrestCatalog.getCatalogSchema` so the parsed
+        ``/schema`` dict comes from the catalog's identity-tied
+        cache when available -- avoiding a redundant ``r.json()``
+        parse on every call. Falls back to a direct GET for any
+        catalog that doesn't expose ``getCatalogSchema``.
+        """
+        if hasattr(catalog, "getCatalogSchema"):
+            return cls(catalog, catalog.getCatalogSchema())
         return cls(catalog, catalog.get("/schema").json())
 
     @classmethod
