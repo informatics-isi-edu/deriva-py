@@ -114,6 +114,15 @@ class BagDatabase:
             model, schemas, database_path=self.database_dir
         ).build()
 
+        # ``model`` is exposed as a regular attribute (not a @property)
+        # so subclasses can compose with classes that assign ``self.model``
+        # in their own __init__ -- specifically deriva-ml's DerivaModel,
+        # which combines with BagDatabase to form DatabaseModel and
+        # sets self.model from its own constructor argument. The value
+        # we store here is the same ERMrest Model passed into the
+        # SchemaORM (it doesn't mutate after construction).
+        self.model = self.orm.model
+
         # Verify the on-disk schema version. Catches the case where a
         # newer deriva.bag wrote this cache and an older version is
         # trying to open it; raises SchemaVersionError with a clear
@@ -144,10 +153,6 @@ class BagDatabase:
     @property
     def Base(self):
         return self.orm.Base
-
-    @property
-    def model(self):
-        return self.orm.model
 
     @property
     def schemas(self) -> list[str]:
