@@ -113,7 +113,9 @@ class AsyncErmrestCatalog(AsyncDerivaBinding):
         headers: dict | None = None,
     ):
         """Async POST to catalog path."""
-        return await super().post_async(self._catalog_uri(path), data, json_data, headers)
+        response = await super().post_async(self._catalog_uri(path), data, json_data, headers)
+        self._invalidate_sync_path_builder_if_schema_mutation(path, response)
+        return response
 
     async def put_async(
         self,
@@ -124,7 +126,9 @@ class AsyncErmrestCatalog(AsyncDerivaBinding):
         guard_response=None,
     ):
         """Async PUT to catalog path."""
-        return await super().put_async(self._catalog_uri(path), data, json_data, headers, guard_response)
+        response = await super().put_async(self._catalog_uri(path), data, json_data, headers, guard_response)
+        self._invalidate_sync_path_builder_if_schema_mutation(path, response)
+        return response
 
     async def delete_async(
         self,
@@ -133,7 +137,30 @@ class AsyncErmrestCatalog(AsyncDerivaBinding):
         guard_response=None,
     ):
         """Async DELETE on catalog path."""
-        return await super().delete_async(self._catalog_uri(path), headers, guard_response)
+        response = await super().delete_async(self._catalog_uri(path), headers, guard_response)
+        self._invalidate_sync_path_builder_if_schema_mutation(path, response)
+        return response
+
+    def _invalidate_sync_path_builder_if_schema_mutation(self, path, response):
+        """Clear the wrapped sync catalog's ``/schema*`` cached reads
+        after a successful ``/schema/...`` mutation.
+
+        Uses the private ``_sync_catalog`` attribute, not the public
+        :attr:`sync_catalog` property, so we never lazy-instantiate a
+        sync catalog just to clear a cache it never had.
+
+        The sync catalog's own derived caches (path-builder wrapper,
+        parsed-schema dict memoization) are keyed on response /
+        parsed-dict identity and resolve automatically once the
+        underlying ``/schema*`` GET cache is purged -- no explicit
+        slot reset is needed.
+        """
+        if (
+            path.startswith("/schema")
+            and self._sync_catalog is not None
+            and 200 <= response.status_code < 400
+        ):
+            self._sync_catalog.purge_cache_by_prefix("/schema")
 
     async def get_catalog_model_async(self) -> Any:
         """Async version of getCatalogModel().
