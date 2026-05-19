@@ -380,10 +380,30 @@ class ErmrestCatalog(DerivaBinding):
         return ermrest_model.Model.fromcatalog(self)
 
     def getCatalogSchema(self):
-        path = '/schema'
-        r = self.get(path)
+        """Return the catalog's ``/schema`` JSON document.
+
+        The HTTP response is cached by the underlying
+        :class:`~deriva.core.DerivaBinding`, so subsequent calls are
+        served from the binding's response cache with conditional
+        revalidation (``If-None-Match``). Successful schema-mutating
+        POST/PUT/DELETE calls on this instance purge the cache (see
+        the ``post`` / ``put`` / ``delete`` overrides on this class),
+        so the next call refetches fresh.
+
+        The parsed dict itself is memoized once per underlying
+        ``Response`` object: a binding-level cache hit returns the
+        same ``Response`` instance, so we can detect that nothing has
+        changed and return the same parsed dict without re-parsing
+        ~100KB of JSON.
+        """
+        r = self.get('/schema')
         r.raise_for_status()
-        return r.json()
+        cached = getattr(self, "_schema_parsed_cache", None)
+        if cached is not None and cached[0] is r:
+            return cached[1]
+        parsed = r.json()
+        self._schema_parsed_cache = (r, parsed)
+        return parsed
 
     def getPathBuilder(self, refresh=False):
         """Returns the 'path builder' interface for this catalog.
@@ -397,17 +417,33 @@ class ErmrestCatalog(DerivaBinding):
 
         Args:
             refresh: When ``True``, discard the cached wrapper and
-                build a fresh one — useful if the catalog schema
-                changed under us. Default ``False``.
+                build a fresh one unconditionally. Default ``False``.
 
-        The cache holds one wrapper per catalog instance. Schema
-        rows added by another process between calls are not seen
-        unless the caller passes ``refresh=True``; this is the
-        same staleness window every other catalog-model read has.
+        Freshness model
+        ----------------
+        The wrapper cache is tied to the parsed schema dict returned
+        by :meth:`getCatalogSchema`. ``getCatalogSchema()`` consults
+        the binding-level HTTP cache, which validates via
+        ``If-None-Match`` on each call and is invalidated by
+        successful POST/PUT/DELETE to ``/schema/...`` (see the
+        ``post`` / ``put`` / ``delete`` overrides below).
+
+        Consequence: any schema mutation through this
+        ``ErmrestCatalog`` instance is observed by the next
+        ``getPathBuilder()`` call, which sees a different parsed
+        schema dict and rebuilds the wrapper. Cross-instance schema
+        changes are observed the next time the binding's conditional
+        GET on ``/schema`` returns a fresh body. No explicit
+        ``if_stale`` flag is required; the binding layer handles
+        revalidation transparently.
         """
-        if refresh or getattr(self, "_path_builder_cache", None) is None:
-            self._path_builder_cache = datapath.from_catalog(self)
-        return self._path_builder_cache
+        schema = self.getCatalogSchema()
+        cached = getattr(self, "_path_builder_cache_entry", None)
+        if not refresh and cached is not None and cached[0] is schema:
+            return cached[1]
+        wrapper = datapath.from_catalog(self)
+        self._path_builder_cache_entry = (schema, wrapper)
+        return wrapper
 
     def getTableSchema(self, fq_table_name):
         # first try to get from cache(s)
@@ -755,6 +791,29 @@ class ErmrestCatalog(DerivaBinding):
             if destfile:
                 destfile.close()
 
+    def post(self, path, data=None, json=None, headers=DEFAULT_HEADERS):
+        """Perform POST request, returning response object.
+
+        Wraps :meth:`DerivaBinding.post` to invalidate cached
+        ``/schema*`` GET responses after a successful schema-mutating
+        ``/schema/...`` POST. Argument semantics are unchanged.
+        """
+        r = DerivaBinding.post(self, path, data=data, json=json, headers=headers)
+        self._invalidate_schema_cache_if_schema_mutation(path, r)
+        return r
+
+    def put(self, path, data=None, json=None, headers=DEFAULT_HEADERS, guard_response=None):
+        """Perform PUT request, returning response object.
+
+        Wraps :meth:`DerivaBinding.put` to invalidate cached
+        ``/schema*`` GET responses after a successful schema-mutating
+        ``/schema/...`` PUT. Argument semantics are unchanged.
+        """
+        r = DerivaBinding.put(self, path, data=data, json=json, headers=headers,
+                              guard_response=guard_response)
+        self._invalidate_schema_cache_if_schema_mutation(path, r)
+        return r
+
     def delete(self, path, headers=DEFAULT_HEADERS, guard_response=None):
         """Perform DELETE request, returning response object.
 
@@ -772,7 +831,36 @@ class ErmrestCatalog(DerivaBinding):
         """
         if path == "/":
             raise DerivaPathError('See self.delete_ermrest_catalog() if you really want to destroy this catalog.')
-        return DerivaBinding.delete(self, path, headers=headers, guard_response=guard_response)
+        r = DerivaBinding.delete(self, path, headers=headers, guard_response=guard_response)
+        self._invalidate_schema_cache_if_schema_mutation(path, r)
+        return r
+
+    def _invalidate_schema_cache_if_schema_mutation(self, path, response):
+        """Purge cached ``/schema*`` GETs after a successful schema mutation.
+
+        Called from the ``post`` / ``put`` / ``delete`` overrides
+        above. A 2xx/3xx non-GET to ``/schema/...`` means the catalog
+        model has changed; every cached read derived from the schema
+        document (the binding's HTTP cache for ``/schema``, the
+        parsed-dict memoization, the path-builder wrapper) must
+        invalidate together.
+
+        The mechanism is generic: :meth:`DerivaBinding.purge_cache_by_prefix`
+        clears any cached GET whose URL path begins with ``/schema``,
+        and the derived caches on this instance (``_schema_parsed_cache``,
+        ``_path_builder_cache_entry``) are keyed on the response /
+        parsed-dict object identity, so the next access naturally
+        observes the new state. No instance slot needs an explicit
+        reset here -- the lower-layer purge propagates upward through
+        the identity chain.
+
+        ``DerivaBinding`` already raises on 4xx/5xx responses (and on
+        412 specifically), so by the time we reach this helper the
+        status is in the success range -- the check is defensive but
+        cheap.
+        """
+        if path.startswith("/schema") and 200 <= response.status_code < 400:
+            self.purge_cache_by_prefix("/schema")
 
     def delete_ermrest_catalog(self, really=False):
         """Perform DELETE request, destroying catalog on server.

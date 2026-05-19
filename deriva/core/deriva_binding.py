@@ -175,6 +175,40 @@ class DerivaBinding (object):
         headers['deriva-client-context'] = self.dcctx.merged(headers.get('deriva-client-context', {})).encoded()
         return url, headers, prev_response
 
+    def purge_cache_by_prefix(self, path_prefix):
+        """Drop all cached GET responses whose URL path starts with ``path_prefix``.
+
+        Generic cache-invalidation helper for the response cache populated
+        by :meth:`get` / :meth:`head`. Server-specific subclasses
+        (e.g. :class:`~deriva.core.ErmrestCatalog`) call this from their
+        mutation overrides to invalidate cached reads that the mutation
+        has logically affected.
+
+        Example
+        -------
+        After a successful ``POST /schema/...``, an ERMrest binding
+        purges every cached GET to ``/schema*`` so subsequent reads
+        refetch the new schema document::
+
+            self.purge_cache_by_prefix("/schema")
+
+        The check is by URL-path prefix, matching the server-side
+        dependency relationship between the mutation and the cached
+        reads.
+
+        Args:
+            path_prefix: A path-prefix string (with leading slash) on
+                this binding's server. URLs whose path component
+                starts with this string are removed from the cache.
+        """
+        if not self._caching or not self._cache:
+            return
+        target_url_prefix = self._server_uri + path_prefix
+        # Materialize the key list before mutating the dict.
+        stale = [url for url in self._cache if url.startswith(target_url_prefix)]
+        for url in stale:
+            del self._cache[url]
+
     def _pre_mutate(self, path, headers, guard_response=None):
         self.check_path(path)
         url = self._server_uri + path
