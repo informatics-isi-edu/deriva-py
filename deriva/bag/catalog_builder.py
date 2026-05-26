@@ -57,6 +57,7 @@ from deriva.bag.anchors import (
     RIDAnchor,
     TableAnchor,
 )
+from deriva.bag.path_walker import SchemaPathWalker
 from deriva.bag.profile import (
     BAGIT_PROFILE_IDENTIFIER,
     write_provenance,
@@ -438,250 +439,54 @@ class CatalogBagBuilder:
     # ------------------------------------------------------------------
 
     def _compute_reached_tables(self) -> None:
-        """BFS the FK graph from the anchor set, honoring the policy.
+        """Run the shared FK walk from the anchor set.
 
-        The walk is bidirectional (FKs followed in both directions)
-        except for vocabulary tables, which are entered but not
-        exited — preventing the Subject → Species →
-        every-other-Subject explosion.
+        Delegates the bidirectional BFS to
+        :class:`~deriva.bag.path_walker.SchemaPathWalker`. The walker
+        carries the scope rules (schema allow/deny, table deny,
+        terminal-tables, ``max_depth``) and the per-target path-set
+        recording; this method translates anchors to roots, calls the
+        walker, and populates the builder's caches.
 
-        Records two side outputs in addition to ``_reached_tables``:
-
-        * :attr:`_anchor_tables` — the anchor-set tables themselves.
-        * :attr:`_table_paths` — every distinct simple FK path
-          (one or more) from an anchor that reached each table.
-          Used by :meth:`_table_query_path` to scope each non-
-          anchor table's query to rows reachable via that FK
-          route. BFS guarantees each recorded path is among the
-          shortest for its endpoint.
-
-        **Worked example** (single-anchor multi-path case):
-
-        Schema fragment::
-
-            Subject ──Image (FK Image.Subject → Subject.RID)
-                │
-                │ Dataset_Subject (assoc)
-                ▼
-            Dataset ─── Dataset_Image (assoc) ─── Image
-
-        Anchored at ``Subject``, the BFS visits ``Image`` two
-        ways:
-
-        1. ``[Subject, Image]`` — direct inbound FK (Image.Subject).
-        2. ``[Subject, Dataset_Subject, Dataset, Dataset_Image, Image]``
-           — via the Dataset_Image association.
-
-        Both paths are recorded in ``_table_paths[("demo", "Image")]``
-        so ``_build_export_spec`` emits one ``query_processor`` per
-        path, each scoped through ERMrest's natural-FK join. The
-        loader unions the two CSV files when the bag is consumed
-        (``ON CONFLICT DO NOTHING`` on RID), so the same Image row
-        reachable both ways is materialized exactly once at the
-        destination.
-
-        The ``max_paths`` knob caps the per-table path count so a
-        densely-connected catalog can't produce an unbounded spec.
+        Vocab tables are treated as leaves (entered but not exited)
+        and the ``max_paths`` cap (16 by default) keeps the spec
+        finite on densely-connected catalogs.
         """
-        from collections import deque
-
         model = self._get_model()
 
-        # Walk strategy:
-        #
-        # - The queue carries one (table, path) entry per FK route
-        #   we've discovered to that table. We dequeue *all* routes
-        #   to a given table even when the table itself is already
-        #   in ``reached_tables`` — that's the whole point of
-        #   multi-path emission. The simple-path guard in
-        #   :meth:`_enqueue_if_in_scope_with_path` (drops a path
-        #   that would re-enter a table it already visits) prevents
-        #   infinite walks on cycles.
-        # - ``paths`` records the BFS-shortest path discovered per
-        #   reached table (backwards-compat with single-path callers).
-        # - ``path_set`` records every distinct simple path
-        #   discovered per reached table so
-        #   :meth:`_build_export_spec` can emit one query_processor
-        #   per FK route. Bounded by ``max_paths`` to keep the spec
-        #   finite on densely-connected catalogs.
-        queue: deque[
-            tuple[str, str, int, tuple[tuple[str, str], ...]]
-        ] = deque()
-        reached: set[tuple[str, str]] = set()
+        # Translate anchors → (schema, table) roots and remember
+        # which keys are anchors so :meth:`_table_query_path` can
+        # detect them.
         anchor_tables: set[tuple[str, str]] = set()
-        paths: dict[tuple[str, str], list[tuple[str, str]]] = {}
-        path_set: dict[
-            tuple[str, str], list[tuple[tuple[str, str], ...]]
-        ] = {}
-
+        roots: list[tuple[str, str]] = []
         for anchor in self.anchors:
-            schema_name, table_name = self._resolve_table(
-                model, anchor.table
-            )
-            key = (schema_name, table_name)
+            key = self._resolve_table(model, anchor.table)
             anchor_tables.add(key)
-            if key not in paths:
-                paths[key] = [key]
-            path_set.setdefault(key, [])
-            anchor_path: tuple[tuple[str, str], ...] = (key,)
-            if anchor_path not in path_set[key]:
-                path_set[key].append(anchor_path)
-            queue.append((schema_name, table_name, 0, anchor_path))
+            roots.append(key)
 
-        max_depth = self.policy.max_depth
-        max_paths = self._max_paths_per_table()
-        while queue:
-            schema_name, table_name, depth, current_path = queue.popleft()
-            key = (schema_name, table_name)
-            reached.add(key)
+        walker = SchemaPathWalker(model=model, policy=self.policy)
+        path_set = walker.walk_bfs(
+            roots, max_paths_per_target=16
+        )
 
-            # Depth bound (None = unbounded).
-            if max_depth is not None and depth >= max_depth:
-                continue
+        # Backwards-compat shape: ``_table_paths`` is a flat
+        # ``{key: list[(schema, table)]}`` — the BFS-shortest path
+        # for each reached target. Pick the first recorded route
+        # (BFS order = shortest-first).
+        paths: dict[tuple[str, str], list[tuple[str, str]]] = {
+            key: list(routes[0]) for key, routes in path_set.items()
+        }
 
-            table = model.schemas[schema_name].tables[table_name]
-            is_vocab = table.is_vocabulary()
-            is_terminal = (
-                schema_name, table_name
-            ) in self.policy.terminal_tables
-            # Vocab tables are fully terminal — vocab terms are
-            # leaf nodes that don't reference further entities;
-            # the canonical vocab columns (ID/URI/Name/...) carry
-            # no outbound FKs in practice. Inbound FKs from a vocab
-            # term would chase every row in the catalog that uses
-            # it, so we don't follow those either.
-            if is_vocab:
-                continue
-            # Non-vocab terminal tables (declared via
-            # :attr:`FKTraversalPolicy.terminal_tables`) follow
-            # OUTBOUND FKs but not INBOUND ones.
-            #
-            # - **Outbound** (``table.foreign_keys``) = FKs the
-            #   terminal table itself declares to other tables.
-            #   These must be followed so the rows it references
-            #   land in the slice. Example: ``Execution.Workflow``
-            #   must resolve, so the walker continues to Workflow
-            #   from each in-slice Execution row.
-            # - **Inbound** (``table.referenced_by``) = FKs other
-            #   tables declare AT the terminal table. Following
-            #   these is what aggregates cross-anchor state: from
-            #   Execution, inbound goes to every ``*_Execution``
-            #   association, and from there to every other anchor
-            #   scope sharing the Execution. That's the over-fetch
-            #   the terminal-tables rule exists to prevent.
-            for fk in table.foreign_keys:
-                self._enqueue_if_in_scope_with_path(
-                    fk.pk_table,
-                    depth + 1,
-                    current_path,
-                    queue,
-                    paths,
-                    path_set,
-                    max_paths,
-                )
-            if is_terminal:
-                # Block inbound for terminal tables.
-                continue
-            for fk in table.referenced_by:
-                self._enqueue_if_in_scope_with_path(
-                    fk.table,
-                    depth + 1,
-                    current_path,
-                    queue,
-                    paths,
-                    path_set,
-                    max_paths,
-                )
-
-        self._reached_tables = reached
+        self._reached_tables = set(path_set.keys())
         self._anchor_tables = anchor_tables
         self._table_paths = paths
         self._table_path_set = path_set
-
-    def _max_paths_per_table(self) -> int:
-        """Cap on distinct FK paths emitted per target table.
-
-        Multi-path emission walks every simple route; densely
-        connected schemas (m FKs between n tables) can in theory
-        produce many. The cap is a finiteness guard, not a tuning
-        knob — in practice every catalog we've seen tops out at
-        2–3 paths to any given table. The default is generous so
-        the cap is never the explanation for missing rows.
-        """
-        return 16
-
-    def _enqueue_if_in_scope_with_path(
-        self,
-        table: DerivaTable,
-        depth: int,
-        prefix_path: tuple[tuple[str, str], ...],
-        queue: "deque[tuple[str, str, int, tuple[tuple[str, str], ...]]]",
-        paths: dict[tuple[str, str], list[tuple[str, str]]],
-        path_set: dict[
-            tuple[str, str], list[tuple[tuple[str, str], ...]]
-        ],
-        max_paths: int,
-    ) -> None:
-        """Queue a candidate with its FK-path prefix, if policy allows.
-
-        Records the BFS-shortest path on first sight (in ``paths``)
-        plus every distinct simple path discovered (in ``path_set``,
-        bounded by ``max_paths``). The caller's BFS still gates
-        the *expansion* of each table by ``visited``; this helper
-        only records the route the walk arrived by.
-
-        Cycles are guarded by the simple-path test (``key in
-        prefix_path``): a path that would re-enter a table it
-        already visits is dropped.
-        """
-        schema_name = table.schema.name
-        table_name = table.name
-        key = (schema_name, table_name)
-        if self._is_excluded_schema(schema_name):
-            return
-        if self._is_excluded_table(schema_name, table_name):
-            return
-        if (
-            self.policy.schemas is not None
-            and schema_name not in self.policy.schemas
-        ):
-            return
-        if key in prefix_path:
-            # Simple-path guard: don't walk back into a table we've
-            # already used on this path. ERMrest joins on natural
-            # FK relationships and the same join twice would be a
-            # loop in the query.
-            return
-        candidate_path: tuple[tuple[str, str], ...] = prefix_path + (key,)
-        if key not in paths:
-            paths[key] = list(candidate_path)
-        bucket = path_set.setdefault(key, [])
-        if candidate_path in bucket:
-            # We've already enqueued this exact path; the dequeue
-            # will walk its descendants once. Re-enqueueing would
-            # do redundant work.
-            return
-        if len(bucket) >= max_paths:
-            # Path budget exhausted; record the new path is dropped
-            # rather than silently emitting an over-large spec.
-            logger.debug(
-                "max_paths=%d reached for %s.%s; dropping path %s",
-                max_paths, schema_name, table_name, candidate_path,
-            )
-            return
-        bucket.append(candidate_path)
-        queue.append((schema_name, table_name, depth, candidate_path))
 
     def _is_excluded_schema(self, schema_name: str) -> bool:
         return (
             schema_name in DEFAULT_EXCLUDE_SCHEMAS
             or schema_name in self.policy.exclude_schemas
         )
-
-    def _is_excluded_table(
-        self, schema_name: str, table_name: str
-    ) -> bool:
-        return (schema_name, table_name) in self.policy.exclude_tables
 
     # ------------------------------------------------------------------
     # Export-spec generation
