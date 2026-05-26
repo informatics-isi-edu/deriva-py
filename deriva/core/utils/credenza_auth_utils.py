@@ -355,7 +355,7 @@ class CredenzaAuthUtilCLI(BaseCLI):
         self.parser.add_argument('--host', required=True, metavar='<host>', help="Fully qualified host name.")
         self.parser.add_argument("--pretty", "-p", action="store_true", help="Pretty-print all result output.")
         self.args = None
-        self.api = None
+        self._api = None
 
         # init subparsers and corresponding functions
         self.subparsers = self.parser.add_subparsers(title='sub-commands', dest='subcmd')
@@ -458,22 +458,23 @@ class CredenzaAuthUtilCLI(BaseCLI):
         parser.set_defaults(func=self.service_login)
 
 
-    def _api(self):
-        if self.api is None:
+    @property
+    def api(self):
+        if self._api is None:
             credential_file = (
                 self.args.credential_file) if hasattr(self.args, "credential_file") else DEFAULT_CREDENTIAL_FILE
-            self.api = CredenzaAuthUtil(credential_file=credential_file)
-        return self.api
+            self._api = CredenzaAuthUtil(credential_file=credential_file)
+        return self._api
 
 
     def show_token(self, args):
-        return self._api().show_token(args.host)
+        return self.api.show_token(args.host)
 
 
     def get_session(self, args, check_only=False):
         # Default resource if omitted
         resources = args.resource if hasattr(args, "resource") else [DEFAULT_SERVICE_RESOURCE]
-        result = self._api().get_session(args.host, resources=resources)
+        result = self.api.get_session(args.host, resources=resources)
         if not result and check_only:
             return None
         if result is None and not check_only:
@@ -483,7 +484,7 @@ class CredenzaAuthUtilCLI(BaseCLI):
 
     def put_session(self, args):
         resources = args.resource if hasattr(args, "resource") else [DEFAULT_SERVICE_RESOURCE]
-        result = self._api().put_session(args.host, refresh_upstream=args.refresh_upstream, resources=resources)
+        result = self.api.put_session(args.host, refresh_upstream=args.refresh_upstream, resources=resources)
         if result is None:
             return f"No valid session found for host '{args.host}'."
         return result
@@ -552,9 +553,9 @@ class CredenzaAuthUtilCLI(BaseCLI):
         body = token_response.json()
         token = body["access_token"]
 
-        self._api().save_credential(args.host, token)
+        self.api.save_credential(args.host, token)
         if not args.no_bdbag_keychain:
-            self._api().update_bdbag_keychain(host=args.host,
+            self.api.update_bdbag_keychain(host=args.host,
                                               token=token,
                                               keychain_file=args.bdbag_keychain_file or bdbkc.DEFAULT_KEYCHAIN_FILE)
         token_display = f"Bearer token: {token}" if args.show_token else ""
@@ -562,7 +563,7 @@ class CredenzaAuthUtilCLI(BaseCLI):
 
 
     def logout(self, args):
-        credential = self._api().load_credential(args.host)
+        credential = self.api.load_credential(args.host)
         if not credential:
             return "Credential not found. Not logged in."
         token = credential.get("bearer-token")
@@ -574,9 +575,9 @@ class CredenzaAuthUtilCLI(BaseCLI):
         response = session.post(url, data=[("token", token), ("client_id", CLIENT_ID)])
         response.raise_for_status()
 
-        self._api().save_credential(args.host, None)
+        self.api.save_credential(args.host, None)
         if not args.no_bdbag_keychain:
-            self._api().update_bdbag_keychain(host=args.host,
+            self.api.update_bdbag_keychain(host=args.host,
                                               token=token,
                                               delete=True,
                                               keychain_file=args.bdbag_keychain_file or bdbkc.DEFAULT_KEYCHAIN_FILE)
@@ -598,10 +599,10 @@ class CredenzaAuthUtilCLI(BaseCLI):
         bdbag_keychain_file = kw.pop("bdbag_keychain_file", None)
 
 
-        if credential_file and (self.api is None or self.api.credential_file != credential_file):
-            self.api = CredenzaAuthUtil(credential_file)
+        if credential_file and (self._api is None or self._api.credential_file != credential_file):
+            self._api = CredenzaAuthUtil(credential_file)
 
-        response = self._api().service_login(
+        response = self.api.service_login(
             host,
             auth_method=auth_method,
             scope=scope,
