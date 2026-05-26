@@ -58,6 +58,10 @@ from deriva.bag.loader import (
     Sink,
     SQLiteSink,
 )
+from deriva.bag.path_walker import (
+    EdgeFilter,
+    SchemaPathWalker,
+)
 from deriva.bag.profile import (
     BAG_SCHEMA_VERSION,
     BAGIT_PROFILE_IDENTIFIER,
@@ -108,6 +112,9 @@ __all__ = [
     "ForeignKeyOrderer",
     "Sink",
     "SQLiteSink",
+    # Path walker (shared FK-graph primitive)
+    "EdgeFilter",
+    "SchemaPathWalker",
     # Schema
     "SchemaBuilder",
     "SchemaORM",
