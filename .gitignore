@@ -96,3 +96,9 @@ ENV/
 
 # vscode
 .vscode/
+
+# claude code
+.claude/
+
+# uv (deriva-py uses pip/setuptools; uv.lock would be debris)
+uv.lock
