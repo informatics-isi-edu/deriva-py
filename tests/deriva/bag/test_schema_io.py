@@ -368,6 +368,130 @@ def test_ermrest_json_to_metadata_roundtrip_preserves_int8() -> None:
     assert out_cols["Small"]["type"]["typename"] == "int2"
 
 
+def test_ermrest_json_to_metadata_routes_array_columns_through_array_as_json() -> None:
+    """Array typenames declare an ``ArrayAsJson`` column in the mirror.
+
+    Regression: ``text[]`` / ``int4[]`` / etc. used to fall through
+    ``ERMREST_TO_SQL.get(typename, String)`` to ``String`` because
+    the map has no entries for any array typename. The mirror then
+    refused list values at the SQLite bind boundary. The reader now
+    inspects ``type.is_array`` and routes such columns through
+    :class:`ArrayAsJson`.
+    """
+    from deriva.bag._column_types import ArrayAsJson
+
+    doc = {
+        "snaptime": "2026-01-01T00:00:00",
+        "schemas": {
+            "demo": {
+                "schema_name": "demo",
+                "tables": {
+                    "Vocab": {
+                        "schema_name": "demo",
+                        "table_name": "Vocab",
+                        "kind": "table",
+                        "column_definitions": [
+                            {
+                                "name": "RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "Synonyms",
+                                "type": {
+                                    "typename": "text[]",
+                                    "is_array": True,
+                                    "base_type": {"typename": "text"},
+                                },
+                                "nullok": True,
+                                "default": None,
+                                "comment": None,
+                            },
+                        ],
+                        "keys": [
+                            {
+                                "names": [["demo", "Vocab_RID_key"]],
+                                "unique_columns": ["RID"],
+                            }
+                        ],
+                        "foreign_keys": [],
+                    }
+                },
+            }
+        },
+    }
+    md = ermrest_json_to_metadata(doc)
+    cols = {c.name: c for c in md.tables["demo.Vocab"].columns}
+    assert isinstance(cols["Synonyms"].type, ArrayAsJson)
+    # And the original ERMrest typename is stashed for lossless
+    # write-out — element type ``text[]`` round-trips back even
+    # though the SQLAlchemy type alone would default to ``text[]``.
+    assert cols["Synonyms"].info["ermrest_typename"] == "text[]"
+
+
+def test_ermrest_json_to_metadata_roundtrip_preserves_array_typename() -> None:
+    """A json → metadata → json round-trip preserves ``int4[]`` element type.
+
+    The ``ArrayAsJson`` decorator loses the element type at the
+    SQLAlchemy layer; the round-trip works because the original
+    ERMrest typename is stashed in ``col.info["ermrest_typename"]``
+    by the reader and read back by the writer.
+    """
+    from deriva.bag.schema_io import metadata_to_ermrest_json
+
+    doc = {
+        "snaptime": "2026-01-01T00:00:00",
+        "schemas": {
+            "demo": {
+                "schema_name": "demo",
+                "tables": {
+                    "T": {
+                        "schema_name": "demo",
+                        "table_name": "T",
+                        "kind": "table",
+                        "column_definitions": [
+                            {
+                                "name": "RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "Scores",
+                                "type": {
+                                    "typename": "int4[]",
+                                    "is_array": True,
+                                    "base_type": {"typename": "int4"},
+                                },
+                                "nullok": True,
+                                "default": None,
+                                "comment": None,
+                            },
+                        ],
+                        "keys": [
+                            {
+                                "names": [["demo", "T_RID_key"]],
+                                "unique_columns": ["RID"],
+                            }
+                        ],
+                        "foreign_keys": [],
+                    }
+                },
+            }
+        },
+    }
+    md = ermrest_json_to_metadata(doc)
+    out = metadata_to_ermrest_json(md)
+    out_cols = {
+        c["name"]: c
+        for c in out["schemas"]["demo"]["tables"]["T"]["column_definitions"]
+    }
+    assert out_cols["Scores"]["type"]["typename"] == "int4[]"
+
+
 def test_ermrest_json_to_metadata_roundtrip_preserves_annotations() -> None:
     """A json → metadata → json round-trip preserves column annotations.
 

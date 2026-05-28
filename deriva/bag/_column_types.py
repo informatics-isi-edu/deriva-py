@@ -159,6 +159,27 @@ class StringToDate(TypeDecorator):
         return parser.parse(value).date()
 
 
+class ArrayAsJson(TypeDecorator):
+    """Serialise Python list values as JSON-encoded TEXT for SQLite.
+
+    ERMrest emits array columns (``text[]``, ``int4[]``, ...) as JSON
+    arrays, which deriva-py deserialises into Python lists. SQLite has
+    no native array type and SQLAlchemy's SQLite dialect cannot bind a
+    list to a TEXT column. JSON-encode on write, decode on read, so
+    callers see ``list`` end-to-end.
+
+    The wrapped :class:`sqlalchemy.JSON` already round-trips Python
+    ``list`` / ``dict`` values transparently on SQLite; the decorator
+    exists so the bag's lossless schema round-trip
+    (:data:`deriva.bag.schema_io.SQL_TO_ERMREST`) has a named class to
+    distinguish *array* columns from scalar ``json`` / ``jsonb``
+    columns when no ``ermrest_typename`` is stashed in ``col.info``.
+    """
+
+    impl = JSON
+    cache_ok = True
+
+
 # =============================================================================
 # ERMrest typename → SQLAlchemy type
 # =============================================================================
@@ -207,7 +228,9 @@ def sql_type_for_ermrest(deriva_type: "DerivaType") -> type[TypeEngine]:
             :class:`Column` definition).
 
     Returns:
-        SQLAlchemy column type class. Unknown ERMrest typenames fall
+        SQLAlchemy column type class. Array types
+        (``deriva_type.is_array`` is True) route to
+        :class:`ArrayAsJson`; unknown scalar ERMrest typenames fall
         back to :class:`sqlalchemy.String`, which works for any value
         that survives the CSV round-trip as a string.
 
@@ -215,6 +238,7 @@ def sql_type_for_ermrest(deriva_type: "DerivaType") -> type[TypeEngine]:
         >>> # Pure-Python example — runs for real:
         >>> from sqlalchemy import String
         >>> from deriva.bag._column_types import (
+        ...     ArrayAsJson,
         ...     ERMREST_TO_SQL,
         ...     StringToInteger,
         ...     sql_type_for_ermrest,
@@ -225,9 +249,18 @@ def sql_type_for_ermrest(deriva_type: "DerivaType") -> type[TypeEngine]:
         >>> # Unknown typename falls back to String via the helper.
         >>> class _FakeType:
         ...     typename = "never_seen_this"
+        ...     is_array = False
         >>> sql_type_for_ermrest(_FakeType()) is String
         True
+        >>> # Array types route to ArrayAsJson regardless of element type.
+        >>> class _FakeArray:
+        ...     typename = "text[]"
+        ...     is_array = True
+        >>> sql_type_for_ermrest(_FakeArray()) is ArrayAsJson
+        True
     """
+    if getattr(deriva_type, "is_array", False):
+        return ArrayAsJson
     return ERMREST_TO_SQL.get(deriva_type.typename, String)
 
 

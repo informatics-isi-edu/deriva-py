@@ -841,3 +841,115 @@ def _two_table_association_doc() -> dict:
             }
         },
     }
+
+
+# =============================================================================
+# Array-column round-trip (regression: SQLite list-binding failure)
+# =============================================================================
+
+
+def _build_vocab_model_with_array(
+    snaptime: str = "2026-01-01T00:00:00",
+) -> Model:
+    """Build a Model with a vocab table that has a ``text[]`` Synonyms column.
+
+    Matches the deriva-ml standard vocabulary shape; mirrors what the
+    denormalizer hits live when it walks through any vocabulary
+    table.
+    """
+    doc = {
+        "snaptime": snaptime,
+        "schemas": {
+            "demo": {
+                "schema_name": "demo",
+                "tables": {
+                    "Vocab": {
+                        "schema_name": "demo",
+                        "table_name": "Vocab",
+                        "kind": "table",
+                        "column_definitions": [
+                            {
+                                "name": "RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "Name",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "Synonyms",
+                                "type": {
+                                    "typename": "text[]",
+                                    "is_array": True,
+                                    "base_type": {"typename": "text"},
+                                },
+                                "nullok": True,
+                                "default": None,
+                                "comment": None,
+                            },
+                        ],
+                        "keys": [
+                            {
+                                "names": [["demo", "Vocab_RID_key"]],
+                                "unique_columns": ["RID"],
+                            }
+                        ],
+                        "foreign_keys": [],
+                    },
+                },
+            },
+        },
+    }
+    import json
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".json", delete=False
+    ) as f:
+        json.dump(doc, f)
+        path = f.name
+    return Model.fromfile("file-system", path)
+
+
+def test_schemabuilder_array_column_accepts_python_lists() -> None:
+    """Inserting ``list`` values into a ``text[]`` column doesn'"'"'t raise.
+
+    Regression: before the :class:`ArrayAsJson` route, the mirror'"'"'s
+    ``Synonyms`` column was declared :class:`String` and SQLAlchemy
+    raised ``sqlite3.ProgrammingError: type '"'"'list'"'"' is not supported``
+    on the bind. This test reproduces the exact wire shape the
+    bag'"'"'s denormalizer feeds the SQLite mirror (rows with
+    ``list[str]``, ``[]``, and ``None`` values for the array column)
+    and confirms the round-trip returns Python lists.
+    """
+    from sqlalchemy import insert, select
+
+    model = _build_vocab_model_with_array()
+    builder = SchemaBuilder(model, ["demo"], database_path=":memory:")
+    orm = builder.build()
+    try:
+        table = orm.find_table("demo_Vocab")
+        rows = [
+            {"RID": "A", "Name": "airplane", "Synonyms": ["plane", "aeroplane"]},
+            {"RID": "B", "Name": "bird", "Synonyms": []},
+            {"RID": "C", "Name": "cat", "Synonyms": None},
+        ]
+        with orm.engine.begin() as conn:
+            conn.execute(insert(table), rows)
+            result = {
+                r.RID: r.Synonyms
+                for r in conn.execute(select(table))
+            }
+        assert result == {
+            "A": ["plane", "aeroplane"],
+            "B": [],
+            "C": None,
+        }
+    finally:
+        orm.dispose()
