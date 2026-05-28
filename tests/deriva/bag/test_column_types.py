@@ -22,9 +22,19 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock
 
-from sqlalchemy import JSON, String
+from sqlalchemy import (
+    JSON,
+    Column,
+    MetaData,
+    String,
+    Table,
+    create_engine,
+    insert,
+    select,
+)
 
 from deriva.bag._column_types import (
+    ArrayAsJson,
     ERMREST_TO_SQL,
     ERMRestBoolean,
     StringToDate,
@@ -121,12 +131,14 @@ def test_sql_type_for_ermrest_falls_back_to_string_on_unknown() -> None:
     """Unknown ERMrest typenames degrade to ``String``, not raise."""
     fake = MagicMock()
     fake.typename = "this_typename_does_not_exist"
+    fake.is_array = False
     assert sql_type_for_ermrest(fake) is String
 
 
 def test_sql_type_for_ermrest_returns_the_mapped_class() -> None:
     """Known typenames return the same class the map carries."""
     fake = MagicMock()
+    fake.is_array = False
     fake.typename = "int4"
     assert sql_type_for_ermrest(fake) is StringToInteger
     fake.typename = "boolean"
@@ -189,6 +201,97 @@ def test_is_key_column_rejects_rid_with_no_key_declaration() -> None:
     other = _mock_column("Other")
     table = _mock_table_with_keys([other])
     assert is_key_column(rid, table) is False
+
+
+# =============================================================================
+# Array column round-trip (ArrayAsJson)
+# =============================================================================
+#
+# Regression: ERMrest array columns (``text[]``, ``int4[]``, …) used
+# to silently fall back to :class:`String` because
+# :func:`sql_type_for_ermrest` had no :attr:`is_array` branch. The
+# SQLite mirror declared the column as ``TEXT`` and SQLAlchemy's
+# SQLite dialect raised ``sqlite3.ProgrammingError: type 'list' is
+# not supported`` the moment ERMrest handed back a Python ``list``
+# for that column (see the bag denormalizer's vocab-table populate
+# path).
+
+
+def test_sql_type_for_ermrest_routes_arrays_through_array_as_json() -> None:
+    """``is_array`` types go to :class:`ArrayAsJson` regardless of typename."""
+    fake = MagicMock()
+    fake.is_array = True
+    fake.typename = "text[]"
+    assert sql_type_for_ermrest(fake) is ArrayAsJson
+    # Element type doesn't matter — int4[] / float8[] / unknown[] all
+    # route the same way. The ``is_array`` flag is the only gate.
+    fake.typename = "int4[]"
+    assert sql_type_for_ermrest(fake) is ArrayAsJson
+    fake.typename = "never_seen_this[]"
+    assert sql_type_for_ermrest(fake) is ArrayAsJson
+
+
+def test_sql_type_for_ermrest_scalar_json_still_resolves_via_map() -> None:
+    """The new array branch leaves scalar ``json`` / ``jsonb`` untouched."""
+    fake = MagicMock()
+    fake.is_array = False
+    fake.typename = "json"
+    assert sql_type_for_ermrest(fake) is JSON
+    fake.typename = "jsonb"
+    assert sql_type_for_ermrest(fake) is JSON
+
+
+def test_array_as_json_round_trips_python_lists_through_sqlite() -> None:
+    """``ArrayAsJson`` round-trips ``list`` values through a SQLite TEXT cell.
+
+    This is the regression test the audit asks for: the bag's mirror
+    used to declare array columns as ``String`` and crash on the
+    bind. ``ArrayAsJson`` wraps SQLAlchemy ``JSON`` so the value goes
+    in as ``list``, serialises to JSON-encoded TEXT inside SQLite,
+    and comes back out as ``list`` (or ``None``) without the caller
+    seeing the encoding.
+    """
+    metadata = MetaData()
+    table = Table(
+        "vocab",
+        metadata,
+        Column("rid", String, primary_key=True),
+        Column("synonyms", ArrayAsJson),
+    )
+    engine = create_engine("sqlite:///:memory:")
+    metadata.create_all(engine)
+
+    rows = [
+        {"rid": "A", "synonyms": ["plane", "aeroplane"]},
+        {"rid": "B", "synonyms": []},
+        {"rid": "C", "synonyms": None},
+        {"rid": "D", "synonyms": [1, 2, 3]},
+    ]
+    with engine.begin() as conn:
+        conn.execute(insert(table), rows)
+        result = {r.rid: r.synonyms for r in conn.execute(select(table))}
+
+    assert result == {
+        "A": ["plane", "aeroplane"],
+        "B": [],
+        "C": None,
+        "D": [1, 2, 3],
+    }
+
+
+def test_array_as_json_inverse_routes_back_to_array_typename() -> None:
+    """The inverse map :data:`SQL_TO_ERMREST` resolves ``ArrayAsJson``.
+
+    The element type isn't recoverable from the SQLAlchemy type alone
+    so the inverse defaults to ``text[]``; callers that need full
+    fidelity for non-text element types rely on the
+    ``col.info["ermrest_typename"]`` stash that
+    :func:`ermrest_json_to_metadata` writes (and
+    :func:`metadata_to_ermrest_json` reads).
+    """
+    from deriva.bag.schema_io import sql_type_to_ermrest_name
+
+    assert sql_type_to_ermrest_name(ArrayAsJson()) == "text[]"
 
 
 # =============================================================================
