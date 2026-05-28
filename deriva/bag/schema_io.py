@@ -72,6 +72,7 @@ from sqlalchemy.sql.type_api import TypeEngine
 # continues to work, and the symbol is part of this module's
 # documented public surface.
 from deriva.bag._column_types import (
+    ArrayAsJson,
     ERMREST_TO_SQL,
     ERMRestBoolean,
     StringToDate,
@@ -102,6 +103,16 @@ SQL_TO_ERMREST: list[tuple[type, str]] = [
     (StringToDateTime, "timestamptz"),
     (StringToFloat, "float8"),
     (StringToInteger, "int4"),
+    # ``ArrayAsJson`` wraps SQLAlchemy ``JSON`` but means an ERMrest
+    # array column, not a scalar JSON column. The element type
+    # (text vs int4 vs …) isn't recoverable from the SQLAlchemy type
+    # alone, so the inverse defaults to ``text[]`` — callers that
+    # need full fidelity for non-text element types either go
+    # through :func:`ermrest_json_to_metadata` (which stashes the
+    # original typename on ``col.info["ermrest_typename"]`` and
+    # :func:`metadata_to_ermrest_json` reads it back) or carry the
+    # original :class:`~deriva.core.ermrest_model.Type` alongside.
+    (ArrayAsJson, "text[]"),
     # Plain SQLAlchemy types.
     (Boolean, "boolean"),
     (Date, "date"),
@@ -266,10 +277,20 @@ def ermrest_json_to_metadata(
         for table_name, table_def in schema.get("tables", {}).items():
             columns: list[SQLColumn] = []
             for col_def in table_def.get("column_definitions", []):
-                ermrest_type = (
-                    col_def.get("type", {}).get("typename", "text")
-                )
-                sql_type_cls = ERMREST_TO_SQL.get(ermrest_type, String)
+                type_doc = col_def.get("type", {})
+                ermrest_type = type_doc.get("typename", "text")
+                # Array columns (``text[]``, ``int4[]``, …) route to
+                # :class:`ArrayAsJson` so SQLite can round-trip
+                # Python ``list`` values as JSON-encoded TEXT.
+                # Without this, the mirror declares the column as
+                # ``String`` and SQLAlchemy raises
+                # ``sqlite3.ProgrammingError: type 'list' is not
+                # supported`` the moment ERMrest hands back a list
+                # for the column.
+                if type_doc.get("is_array"):
+                    sql_type_cls = ArrayAsJson
+                else:
+                    sql_type_cls = ERMREST_TO_SQL.get(ermrest_type, String)
                 # ERMrest's ``nullok`` defaults to True if absent.
                 nullok = col_def.get("nullok", True)
                 # PK detection: only the RID column is treated as PK,
