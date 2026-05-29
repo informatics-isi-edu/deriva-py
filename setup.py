@@ -42,7 +42,7 @@ setup(
         'deriva.config': ['examples/*.json'],
         'deriva.core': ['schemas/*.schema.json']
     },
-    python_requires='>=3.8, <4',
+    python_requires='>=3.12, <4',
     entry_points={
         'console_scripts': [
             'deriva-upload-cli = deriva.transfer.upload.__main__:main',
@@ -95,9 +95,6 @@ setup(
         'Operating System :: MacOS :: MacOS X',
         'Operating System :: Microsoft :: Windows',
         'Programming Language :: Python',
-        'Programming Language :: Python :: 3.9',
-        'Programming Language :: Python :: 3.10',
-        'Programming Language :: Python :: 3.11',
         'Programming Language :: Python :: 3.12',
         'Programming Language :: Python :: 3.13',
         'Programming Language :: Python :: 3.14'
