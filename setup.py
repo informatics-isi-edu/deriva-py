@@ -72,7 +72,10 @@ setup(
         'globus_sdk>=3,<4',
         'fair-research-login>=0.3.1',
         'fair-identifiers-client>=0.5.1',
-        'jsonschema>=3.1'
+        'jsonschema>=3.1',
+        'sqlalchemy>=2.0',         # used by deriva.bag SQLite mirror
+        'pydantic>=2.0',           # used by deriva.bag traversal/anchors
+        'python-dateutil>=2.8'     # used by deriva.bag _column_types
     ],
     license='Apache 2.0',
     classifiers=[
