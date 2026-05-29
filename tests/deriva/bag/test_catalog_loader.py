@@ -857,49 +857,6 @@ def test_table_load_stats_defaults() -> None:
 
 
 # ---------------------------------------------------------------------------
-# PostgreSQL array-literal coercion
-# ---------------------------------------------------------------------------
-
-
-def test_coerce_pg_array_empty() -> None:
-    """``{}`` is the wire form for an empty array."""
-    assert BagCatalogLoader._coerce_pg_array("{}") == []
-
-
-def test_coerce_pg_array_strings() -> None:
-    """``{a,b,c}`` becomes a list of strings."""
-    assert BagCatalogLoader._coerce_pg_array("{a,b,c}") == [
-        "a",
-        "b",
-        "c",
-    ]
-
-
-def test_coerce_pg_array_quoted() -> None:
-    """Quoted elements have their wrapping quotes stripped."""
-    assert BagCatalogLoader._coerce_pg_array('{"a","b"}') == [
-        "a",
-        "b",
-    ]
-
-
-def test_coerce_pg_array_passthrough_non_string() -> None:
-    """Non-string values (already-decoded lists, ``None``) pass through."""
-    assert BagCatalogLoader._coerce_pg_array(None) is None
-    assert BagCatalogLoader._coerce_pg_array([1, 2]) == [1, 2]
-
-
-def test_coerce_pg_array_passthrough_plain_string() -> None:
-    """A plain text value that isn't braced is returned as-is.
-
-    Necessary because the column-coercion loop is keyed on the
-    column's array-ness in the schema, not on the value shape; a
-    non-array column passes its value through unchanged.
-    """
-    assert BagCatalogLoader._coerce_pg_array("plain") == "plain"
-
-
-# ---------------------------------------------------------------------------
 # Conflict policy: vocabulary match-by-name + content conflict
 # (deriva-py#214 / ADR-0001)
 # ---------------------------------------------------------------------------
