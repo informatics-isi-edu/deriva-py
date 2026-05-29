@@ -77,6 +77,15 @@ setup(
         'pydantic>=2.0',           # used by deriva.bag traversal/anchors
         'python-dateutil>=2.8'     # used by deriva.bag _column_types
     ],
+    extras_require={
+        'test': [
+            'pytest>=9.0',
+        ],
+        'dev': [
+            'pytest>=9.0',
+            'ruff',
+        ],
+    },
     license='Apache 2.0',
     classifiers=[
         'Intended Audience :: Science/Research',
