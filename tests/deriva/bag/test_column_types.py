@@ -279,6 +279,136 @@ def test_array_as_json_round_trips_python_lists_through_sqlite() -> None:
     }
 
 
+def test_array_as_json_round_trips_pg_literal_string_through_sqlite() -> None:
+    """PG-literal-string inputs decode to ``list`` on bind, not get JSON-encoded as strings.
+
+    Regression: bag CSVs preserve ``text[]`` / ``int[]`` columns as
+    PostgreSQL's literal-array form (``{a,b}``). ``csv.DictReader``
+    yields ``str``, so the value reaches :class:`ArrayAsJson` as a
+    ``str``. Without :meth:`process_bind_param` decoding it first,
+    ``json.dumps`` would store the PG literal *as a JSON-encoded
+    string* (``'"{a,b}"'``) and the read would yield a ``str`` instead
+    of a ``list`` — silently violating the type's ``list``-end-to-end
+    contract. See investigation 06 in the e2e fix-pass.
+    """
+    metadata = MetaData()
+    table = Table(
+        "vocab",
+        metadata,
+        Column("rid", String, primary_key=True),
+        Column("synonyms", ArrayAsJson),
+    )
+    engine = create_engine("sqlite:///:memory:")
+    metadata.create_all(engine)
+
+    with engine.begin() as conn:
+        conn.execute(
+            insert(table),
+            [
+                {"rid": "A", "synonyms": "{plane,aeroplane}"},
+            ],
+        )
+        result = {r.rid: r.synonyms for r in conn.execute(select(table))}
+
+    assert result == {"A": ["plane", "aeroplane"]}
+
+
+def test_array_as_json_decodes_empty_pg_literal_to_empty_list() -> None:
+    """The PG empty-array literal ``{}`` round-trips as ``[]``."""
+    metadata = MetaData()
+    table = Table(
+        "vocab",
+        metadata,
+        Column("rid", String, primary_key=True),
+        Column("synonyms", ArrayAsJson),
+    )
+    engine = create_engine("sqlite:///:memory:")
+    metadata.create_all(engine)
+
+    with engine.begin() as conn:
+        conn.execute(insert(table), [{"rid": "A", "synonyms": "{}"}])
+        result = {r.rid: r.synonyms for r in conn.execute(select(table))}
+
+    assert result == {"A": []}
+
+
+def test_array_as_json_decodes_quoted_pg_literal_strips_quotes() -> None:
+    """Quoted elements in a PG literal have their wrapping quotes stripped.
+
+    Matches the edge-case scope of the retired
+    ``BagCatalogLoader._coerce_pg_array`` — simple identifiers with or
+    without double-quote wrappers; embedded commas / escaped quotes
+    are not produced by the current bag walker.
+    """
+    metadata = MetaData()
+    table = Table(
+        "vocab",
+        metadata,
+        Column("rid", String, primary_key=True),
+        Column("synonyms", ArrayAsJson),
+    )
+    engine = create_engine("sqlite:///:memory:")
+    metadata.create_all(engine)
+
+    with engine.begin() as conn:
+        conn.execute(insert(table), [{"rid": "A", "synonyms": '{"a","b"}'}])
+        result = {r.rid: r.synonyms for r in conn.execute(select(table))}
+
+    assert result == {"A": ["a", "b"]}
+
+
+def test_array_as_json_treats_empty_string_as_none() -> None:
+    """Empty string — bag CSV's NULL convention — becomes ``None``.
+
+    Bag CSVs serialise NULL as the empty string (BDBag/CSV has no
+    native NULL sentinel). Coercing here at the type boundary matches
+    the convergence the bag write-back path
+    (:meth:`BagCatalogLoader._coerce_empty_to_null`) applies before
+    sending rows to ERMrest, so a direct read from the SQLite mirror
+    sees the same shape as a catalog round-trip.
+    """
+    metadata = MetaData()
+    table = Table(
+        "vocab",
+        metadata,
+        Column("rid", String, primary_key=True),
+        Column("synonyms", ArrayAsJson),
+    )
+    engine = create_engine("sqlite:///:memory:")
+    metadata.create_all(engine)
+
+    with engine.begin() as conn:
+        conn.execute(insert(table), [{"rid": "A", "synonyms": ""}])
+        result = {r.rid: r.synonyms for r in conn.execute(select(table))}
+
+    assert result == {"A": None}
+
+
+def test_array_as_json_passes_through_non_pg_literal_string() -> None:
+    """A string that isn't braced passes through to ``JSON`` unchanged.
+
+    Defensive: catches the case where a non-array column is
+    accidentally typed as :class:`ArrayAsJson`. The string round-trips
+    as the same string (``json.dumps`` / ``json.loads`` of a plain
+    string), not as an empty list or a coerced value.
+    """
+    metadata = MetaData()
+    table = Table(
+        "vocab",
+        metadata,
+        Column("rid", String, primary_key=True),
+        Column("synonyms", ArrayAsJson),
+    )
+    engine = create_engine("sqlite:///:memory:")
+    metadata.create_all(engine)
+
+    with engine.begin() as conn:
+        conn.execute(insert(table), [{"rid": "A", "synonyms": "not a pg literal"}])
+        result = {r.rid: r.synonyms for r in conn.execute(select(table))}
+
+    assert result == {"A": "not a pg literal"}
+
+
 def test_array_as_json_inverse_routes_back_to_array_typename() -> None:
     """The inverse map :data:`SQL_TO_ERMREST` resolves ``ArrayAsJson``.
 
