@@ -160,24 +160,57 @@ class StringToDate(TypeDecorator):
 
 
 class ArrayAsJson(TypeDecorator):
-    """Serialise Python list values as JSON-encoded TEXT for SQLite.
+    """Serialise ERMrest array values as JSON-encoded TEXT for SQLite.
 
-    ERMrest emits array columns (``text[]``, ``int4[]``, ...) as JSON
-    arrays, which deriva-py deserialises into Python lists. SQLite has
-    no native array type and SQLAlchemy's SQLite dialect cannot bind a
-    list to a TEXT column. JSON-encode on write, decode on read, so
-    callers see ``list`` end-to-end.
+    ERMrest emits array columns (``text[]``, ``int4[]``, ...) in two
+    shapes that reach this type:
 
-    The wrapped :class:`sqlalchemy.JSON` already round-trips Python
-    ``list`` / ``dict`` values transparently on SQLite; the decorator
-    exists so the bag's lossless schema round-trip
-    (:data:`deriva.bag.schema_io.SQL_TO_ERMREST`) has a named class to
+    - **Python ``list``** — the live-catalog HTTP path. ERMrest's
+      JSON response deserialises array columns straight into Python
+      lists; the wrapped :class:`sqlalchemy.JSON` round-trips
+      ``list`` / ``dict`` values transparently on SQLite.
+    - **PostgreSQL literal-array string** (``"{a,b}"``, ``"{}"``,
+      ``'{"a","b"}'``) — the bag CSV load path. ``csv.DictReader``
+      yields ``str`` values, so the PG literal arrives verbatim;
+      :meth:`process_bind_param` decodes it to a Python ``list``
+      before the JSON serialiser runs, otherwise ``json.dumps`` would
+      encode the PG literal *as a string* (``'"{a,b}"'``) instead of
+      as a JSON array. The empty string — bag CSV's NULL convention
+      — becomes ``None``.
+
+    After the bind-side decode, both shapes land in SQLite as a JSON
+    array, and reads come back as a Python ``list`` (or ``None``) via
+    :class:`sqlalchemy.JSON`'s ``result_processor``. Callers see
+    ``list`` end-to-end.
+
+    The decorator also gives the bag's lossless schema round-trip
+    (:data:`deriva.bag.schema_io.SQL_TO_ERMREST`) a named class to
     distinguish *array* columns from scalar ``json`` / ``jsonb``
     columns when no ``ermrest_typename`` is stashed in ``col.info``.
     """
 
     impl = JSON
     cache_ok = True
+
+    def process_bind_param(self, value: Any, dialect: Any) -> Any:
+        # Bag CSV path: ERMrest's PG-literal array form ("{a,b}",
+        # "{}") arrives as a str. Decode to a list so the wrapped
+        # JSON serialises a real array (not a JSON-encoded PG-literal
+        # string). Empty string is bag CSV's NULL convention. Live
+        # catalog inputs are already Python lists and pass through
+        # untouched. Naive split matches the edge-case scope of the
+        # retired BagCatalogLoader._coerce_pg_array safety net —
+        # embedded commas / escaped quotes aren't produced by the
+        # current bag walker. See investigation 06 in the e2e fix-pass.
+        if isinstance(value, str):
+            if value == "":
+                return None
+            if value.startswith("{") and value.endswith("}"):
+                inner = value[1:-1]
+                if not inner:
+                    return []
+                return [part.strip().strip('"') for part in inner.split(",")]
+        return value
 
 
 # =============================================================================
