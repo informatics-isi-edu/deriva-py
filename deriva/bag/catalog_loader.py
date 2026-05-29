@@ -1205,31 +1205,6 @@ class BagCatalogLoader:
         return survivors, skipped, nullified
 
     @staticmethod
-    def _coerce_pg_array(value: Any) -> Any:
-        """Convert a PostgreSQL CSV array literal into a JSON array.
-
-        Bag CSVs preserve ``text[]`` / ``int[]`` etc. as PostgreSQL's
-        literal-array form (``{}``, ``{a,b}``, ``{1,2,3}``). ERMrest's
-        JSON ingest expects real arrays; sending the literal triggers
-        ``cannot call json_array_elements_text on a scalar`` on the
-        server side. Coerce here so callers see normal Python lists.
-
-        Defensive about non-string and already-decoded inputs — pass
-        them through unchanged.
-        """
-        if value is None or not isinstance(value, str):
-            return value
-        if not (value.startswith("{") and value.endswith("}")):
-            return value
-        inner = value[1:-1]
-        if not inner:
-            return []
-        # Naive split is fine for the common case (text[] of simple
-        # identifiers, int[] of digits). Embedded commas in quoted
-        # strings aren't produced by the current bag walker.
-        return [part.strip().strip('"') for part in inner.split(",")]
-
-    @staticmethod
     def _coerce_empty_to_null(
         table: DerivaTable, row: dict[str, Any]
     ) -> dict[str, Any]:
@@ -1329,19 +1304,6 @@ class BagCatalogLoader:
                 {k: v for k, v in row.items() if k not in _SYSTEM_COLUMNS}
                 for row in rows
             ]
-
-        # Coerce array-typed columns from PostgreSQL literal form
-        # (``{a,b}``) into real JSON arrays for the wire.
-        array_cols = [
-            c.name
-            for c in table.column_definitions
-            if getattr(c.type, "is_array", False)
-        ]
-        if array_cols:
-            for row in rows:
-                for col in array_cols:
-                    if col in row:
-                        row[col] = self._coerce_pg_array(row[col])
 
         # Coerce date/datetime values back to ISO strings. The bag's
         # SQLite mirror returns Python ``datetime.date`` /
