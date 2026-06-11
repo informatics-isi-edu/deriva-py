@@ -88,7 +88,8 @@ class DerivaUpload(object):
     DefaultTransferStateBaseName = ".deriva-upload-state"
     DefaultTransferStateFileName = "%s-%s.json"
 
-    def __init__(self, config_file=None, credential_file=None, server=None, dcctx_cid=None):
+    def __init__(self, config_file=None, credential_file=None, server=None, dcctx_cid=None,
+                 session_config_overrides=None, chunk_size=None):
         self.server_url = None
         self.catalog = None
         self.catalog_model = None
@@ -109,6 +110,11 @@ class DerivaUpload(object):
         self.skipped_files = set()
         self.override_config_file = config_file
         self.override_credential_file = credential_file
+        # Instance-level overrides that take precedence over server/deployed configuration without mutating it.
+        # session_config_overrides: dict shallow-merged onto the resolved session config (e.g. {"timeout": [120, 120]}).
+        # chunk_size_override: integer byte count that overrides any per-asset-mapping hatrac_options.chunk_size value.
+        self.session_config_overrides = session_config_overrides
+        self.chunk_size_override = chunk_size
         self.server = self.getDefaultServer() if not server else server
         self.dcctx_cid = dcctx_cid if dcctx_cid else self.__class__.__name__
         signal.signal(signal.SIGINT, self.interrupt_handler)
@@ -144,6 +150,10 @@ class DerivaUpload(object):
         self.server_url = protocol + "://" + host
         catalog_id = self.server.get("catalog_id", "1")
         session_config = self.server.get('session', DEFAULT_SESSION_CONFIG.copy())
+        # Apply any instance-level session config overrides (e.g. a longer timeout for slow/high-latency networks).
+        # Merge into a new dict so the underlying server/default config object is never mutated.
+        if self.session_config_overrides:
+            session_config = {**session_config, **self.session_config_overrides}
         # default credential initialization
         self.credentials = get_credential(host, self.override_credential_file or DEFAULT_CREDENTIAL_FILE)
 
@@ -695,7 +705,11 @@ class DerivaUpload(object):
         # 6. Perform the Hatrac upload
         self._getFileHatracMetadata(asset_mapping)
         hatrac_options = asset_mapping.get("hatrac_options", {})
-        v = hatrac_options.get("chunk_size")
+        # An instance-level chunk_size override takes precedence over any per-asset-mapping configured value.
+        if self.chunk_size_override is not None:
+            v = self.chunk_size_override
+        else:
+            v = hatrac_options.get("chunk_size")
         try:
             chunk_size = int(v) if v not in (None, "") else DEFAULT_CHUNK_SIZE
         except (TypeError, ValueError):
@@ -705,6 +719,9 @@ class DerivaUpload(object):
             logger.warning(
                 "Specified chunk_size must be a positive integer (> 0) - falling back to default chunk size: %d." %
                 DEFAULT_CHUNK_SIZE)
+        # The threshold for switching to chunked (resumable) upload normally tracks the default chunk size, but when an
+        # explicit override is supplied, honor it so that files larger than the override are still chunked.
+        chunked_threshold = chunk_size if self.chunk_size_override is not None else DEFAULT_CHUNK_SIZE
         file_size = self.metadata["file_size"]
         versioned_uri = \
             self._hatracUpload(self.metadata["URI"],
@@ -713,7 +730,7 @@ class DerivaUpload(object):
                                sha256=self.metadata.get("sha256_base64"),
                                content_type=self.guessContentType(file_path),
                                content_disposition=self.metadata.get("content-disposition"),
-                               chunked=True if (file_size > DEFAULT_CHUNK_SIZE or file_size == 0) else False,
+                               chunked=True if (file_size > chunked_threshold or file_size == 0) else False,
                                chunk_size=chunk_size,
                                create_parents=stob(hatrac_options.get("create_parents", True)),
                                allow_versioning=stob(hatrac_options.get("allow_versioning", True)),
@@ -1301,12 +1318,15 @@ class DerivaUpload(object):
 
 class GenericUploader(DerivaUpload):
 
-    def __init__(self, config_file=None, credential_file=None, server=None, dcctx_cid=None):
+    def __init__(self, config_file=None, credential_file=None, server=None, dcctx_cid=None,
+                 session_config_overrides=None, chunk_size=None):
         DerivaUpload.__init__(self,
                               config_file=config_file,
                               credential_file=credential_file,
                               server=server,
-                              dcctx_cid=dcctx_cid)
+                              dcctx_cid=dcctx_cid,
+                              session_config_overrides=session_config_overrides,
+                              chunk_size=chunk_size)
 
     @classmethod
     def getVersion(cls):

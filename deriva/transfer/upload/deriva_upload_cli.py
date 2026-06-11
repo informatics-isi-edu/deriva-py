@@ -4,7 +4,8 @@ import json
 import traceback
 from deriva.transfer import DerivaUpload, DerivaUploadError, DerivaUploadConfigurationError, \
     DerivaUploadCatalogCreateError, DerivaUploadCatalogUpdateError, DerivaUploadAuthenticationError
-from deriva.core import BaseCLI, write_config, format_credential, format_exception, urlparse
+from deriva.core import BaseCLI, write_config, format_credential, format_exception, urlparse, \
+    DEFAULT_REQUESTS_TIMEOUT
 
 
 class DerivaUploadCLI(BaseCLI):
@@ -25,6 +26,16 @@ class DerivaUploadCLI(BaseCLI):
                                  help="Optional path where a JSON-formatted output file will be written, "
                                       "containing file upload status and associated metadata.")
         self.parser.add_argument("--catalog", default=1, metavar="<1>", help="Catalog number. Default: 1")
+        self.parser.add_argument("--connect-timeout", type=float, metavar="<seconds>",
+                                 help="Override the connection timeout, in seconds (default: %d). For uploads this "
+                                      "also bounds the time allowed to write each request body / chunk, so increase "
+                                      "it for slow or high-latency networks." % DEFAULT_REQUESTS_TIMEOUT[0])
+        self.parser.add_argument("--read-timeout", type=float, metavar="<seconds>",
+                                 help="Override the read (response) timeout, in seconds (default: %d)."
+                                      % DEFAULT_REQUESTS_TIMEOUT[1])
+        self.parser.add_argument("--chunk-size", type=int, metavar="<bytes>",
+                                 help="Override the chunked-upload chunk size, in bytes. Smaller chunks reduce the "
+                                      "amount of data resent on retry over unreliable networks.")
         self.parser.add_argument("path", metavar="<input dir>", help="Path to an input directory.")
         self.uploader = uploader
 
@@ -39,7 +50,10 @@ class DerivaUploadCLI(BaseCLI):
                no_update=False,
                purge=False,
                dry_run=False,
-               output_file=None):
+               output_file=None,
+               connect_timeout=None,
+               read_timeout=None,
+               chunk_size=None):
 
         if not issubclass(uploader, DerivaUpload):
             raise TypeError("DerivaUpload subclass required")
@@ -55,7 +69,18 @@ class DerivaUploadCLI(BaseCLI):
             server["protocol"] = "https"
             server["host"] = hostname
 
-        deriva_uploader = uploader(config_file, credential_file, server, dcctx_cid="cli/" + DerivaUploadCLI.__name__)
+        # Build session config overrides from any supplied timeout values, falling back to the library defaults for the
+        # component(s) not specified. These are applied per-invocation and do not modify the server/deployed config.
+        session_config_overrides = None
+        if connect_timeout is not None or read_timeout is not None:
+            default_connect, default_read = DEFAULT_REQUESTS_TIMEOUT
+            session_config_overrides = {
+                "timeout": [connect_timeout if connect_timeout is not None else default_connect,
+                            read_timeout if read_timeout is not None else default_read]
+            }
+
+        deriva_uploader = uploader(config_file, credential_file, server, dcctx_cid="cli/" + DerivaUploadCLI.__name__,
+                                   session_config_overrides=session_config_overrides, chunk_size=chunk_size)
         if token:
             deriva_uploader.setCredentials(format_credential(token))
         if not config_file and not no_update:
@@ -93,7 +118,10 @@ class DerivaUploadCLI(BaseCLI):
                                    args.no_config_update,
                                    args.purge_state,
                                    args.dry_run,
-                                   args.output_file)
+                                   args.output_file,
+                                   args.connect_timeout,
+                                   args.read_timeout,
+                                   args.chunk_size)
         except (RuntimeError, FileNotFoundError, DerivaUploadError, DerivaUploadConfigurationError,
                 DerivaUploadCatalogCreateError, DerivaUploadCatalogUpdateError, DerivaUploadAuthenticationError) as e:
             sys.stderr.write(("\n" if not args.quiet else "") + format_exception(e))
