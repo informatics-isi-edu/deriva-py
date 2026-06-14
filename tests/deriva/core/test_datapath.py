@@ -998,5 +998,129 @@ class InPredicateConstructionTests(unittest.TestCase):
         self.assertIn("b", str(pred))
 
 
+class TestFromModel(unittest.TestCase):
+    """No-network tests for the from_model() helper.
+
+    Verifies that from_model(catalog, model) builds a _CatalogWrapper from the
+    supplied model WITHOUT ever calling catalog.getCatalogModel().  All fake
+    objects provide exactly the attributes that _CatalogWrapper / _SchemaWrapper
+    / _TableWrapper / _ColumnWrapper read at construction time:
+      - model.schemas   (dict name -> schema)
+      - schema.name     (str)
+      - schema.tables   (dict name -> table)
+      - table.name      (str)
+      - table.column_definitions (iterable of column objects)
+      - column.name     (str)
+    """
+
+    # ------------------------------------------------------------------
+    # Fake model objects — just enough attributes to satisfy the wrappers
+    # ------------------------------------------------------------------
+
+    class _FakeColumn:
+        def __init__(self, name):
+            self.name = name
+
+    class _FakeTable:
+        def __init__(self, name, columns=()):
+            self.name = name
+            self.column_definitions = list(columns)
+
+    class _FakeSchema:
+        def __init__(self, name, tables=()):
+            self.name = name
+            self.tables = {t.name: t for t in tables}
+
+    class _FakeModel:
+        def __init__(self, schemas=()):
+            self.schemas = {s.name: s for s in schemas}
+
+    class _FakeCatalog:
+        """A stub catalog whose getCatalogModel() always raises.
+
+        This proves that from_model() never triggers a /schema fetch.
+        """
+        catalog_id = "stub-42"
+        _server_uri = "https://stub.example.org/ermrest/catalog/42"
+
+        def getCatalogModel(self):
+            raise AssertionError(
+                "getCatalogModel() was called — from_model() must not fetch /schema"
+            )
+
+    # ------------------------------------------------------------------
+    # Helper to build a small but valid fake model
+    # ------------------------------------------------------------------
+
+    def _make_fake_model(self):
+        col_rid = self._FakeColumn("RID")
+        col_foo = self._FakeColumn("Foo")
+        tbl = self._FakeTable("MyTable", columns=[col_rid, col_foo])
+        schema = self._FakeSchema("MySchema", tables=[tbl])
+        return self._FakeModel(schemas=[schema])
+
+    # ------------------------------------------------------------------
+    # Tests
+    # ------------------------------------------------------------------
+
+    def test_from_model_builds_without_fetching_model(self):
+        """from_model(catalog, model) builds from the supplied model with no getCatalogModel call."""
+        from deriva.core import datapath
+
+        fake_catalog = self._FakeCatalog()
+        fake_model = self._make_fake_model()
+
+        wrapper = datapath.from_model(fake_catalog, fake_model)
+
+        # The supplied catalog is stored for HTTP routing
+        self.assertIs(wrapper._wrapped_catalog, fake_catalog)
+
+        # The supplied model is stored verbatim (no re-fetch)
+        self.assertIs(wrapper._wrapped_model, fake_model)
+
+        # Schema structure was built from the supplied model
+        self.assertEqual(set(wrapper.schemas.keys()), {"MySchema"})
+        schema_wrapper = wrapper.schemas["MySchema"]
+        self.assertEqual(set(schema_wrapper.tables.keys()), {"MyTable"})
+        table_wrapper = schema_wrapper.tables["MyTable"]
+        self.assertEqual(set(table_wrapper.column_definitions.keys()), {"RID", "Foo"})
+
+    def test_from_model_attribute_access_via_dot_notation(self):
+        """Schemas and tables in the wrapper are accessible by attribute (identifier) access."""
+        from deriva.core import datapath
+
+        fake_catalog = self._FakeCatalog()
+        fake_model = self._make_fake_model()
+
+        wrapper = datapath.from_model(fake_catalog, fake_model)
+
+        # Attribute access on the catalog wrapper
+        self.assertIs(wrapper.MySchema, wrapper.schemas["MySchema"])
+        # Attribute access on the schema wrapper
+        self.assertIs(wrapper.MySchema.MyTable, wrapper.schemas["MySchema"].tables["MyTable"])
+
+    def test_from_catalog_still_calls_get_catalog_model(self):
+        """Regression: from_catalog() must still call getCatalogModel() (model=None default)."""
+        from deriva.core import datapath
+
+        called = []
+
+        class _TrackingCatalog:
+            catalog_id = "tracking-1"
+            _server_uri = "https://stub.example.org/ermrest/catalog/1"
+
+            def getCatalogModel(self_inner):
+                called.append(True)
+                # Return a valid minimal model
+                schema = TestFromModel._FakeSchema("S", tables=[
+                    TestFromModel._FakeTable("T", columns=[TestFromModel._FakeColumn("RID")])
+                ])
+                return TestFromModel._FakeModel(schemas=[schema])
+
+        wrapper = datapath.from_catalog(_TrackingCatalog())
+        self.assertTrue(called, "from_catalog() must call getCatalogModel()")
+        self.assertIn("S", wrapper.schemas)
+
+
 if __name__ == '__main__':
     unittest.main()

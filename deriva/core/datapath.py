@@ -38,6 +38,23 @@ def from_catalog(catalog):
     return _CatalogWrapper(catalog)
 
 
+def from_model(catalog, model):
+    """Wraps a catalog for datapath expressions using a supplied Model.
+
+    Identical to :func:`from_catalog` except the schema structure is
+    taken from ``model`` instead of being fetched via
+    ``catalog.getCatalogModel()``. Use when the caller already holds an
+    up-to-date :class:`~deriva.core.ermrest_model.Model` for ``catalog``
+    and wants to avoid a redundant ``/schema`` fetch. All HTTP (reads
+    and writes) still routes through ``catalog``.
+
+    :param catalog: an ErmrestCatalog object (used for HTTP I/O)
+    :param model: a Model object whose ``.schemas`` define the wrapper
+    :return: a datapath._CatalogWrapper object
+    """
+    return _CatalogWrapper(catalog, model=model)
+
+
 def _isidentifier(a):
     """Tests if string is a valid python identifier.
 
@@ -134,14 +151,17 @@ class DataPathException (Exception):
 class _CatalogWrapper (object):
     """Wraps a Catalog for datapath expressions.
     """
-    def __init__(self, catalog):
+    def __init__(self, catalog, model=None):
         """Creates the _CatalogWrapper.
 
         :param catalog: ErmrestCatalog object
+        :param model: optional pre-fetched Model to build the wrapper from; when None (default) it is fetched via
+            catalog.getCatalogModel() (historical behavior); when supplied, no schema fetch occurs and HTTP still
+            routes through catalog.
         """
         super(_CatalogWrapper, self).__init__()
         self._wrapped_catalog = catalog
-        self._wrapped_model = catalog.getCatalogModel()
+        self._wrapped_model = model if model is not None else catalog.getCatalogModel()
         self.schemas = {
             k: _SchemaWrapper(self, v)
             for k, v in self._wrapped_model.schemas.items()
