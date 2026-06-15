@@ -580,6 +580,25 @@ class ErmrestCatalog(DerivaBinding):
             yield rids[i:i + chunk_size]
 
     @staticmethod
+    def _rid_set_query_url(rid_table, rid_chunk):
+        """Build a ``/entity/{rid_table}/RID=any(...)`` path for one RID chunk.
+
+        Each RID *value* is URL-quoted individually; the comma separators are
+        ``any()`` syntax and stay literal. Quoting the joined string instead
+        (encoding commas to ``%2C``) breaks the predicate and silently returns
+        zero rows — the bug this function exists to prevent.
+
+        Args:
+            rid_table: ``"schema:table"`` of the table being queried.
+            rid_chunk: List of RID strings (one URL-safe batch).
+
+        Returns:
+            Catalog-relative path string starting at ``/entity/``.
+        """
+        joined = ",".join(urlquote(str(rid)) for rid in rid_chunk)
+        return "/entity/%s/RID=any(%s)" % (rid_table, joined)
+
+    @staticmethod
     def _read_last_csv_record(filepath, fieldnames):
         """Read the last complete CSV record from a file.
 
