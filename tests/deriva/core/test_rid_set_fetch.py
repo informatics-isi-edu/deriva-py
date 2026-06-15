@@ -37,6 +37,71 @@ def _csv(header, rows):
     return "\n".join([header] + rows) + "\n"
 
 
+class _AcceptAwareResponse(_FakeResponse):
+    """Fake response that models the server's content-negotiation: it returns
+    CSV only when the request asked for ``Accept: text/csv``; otherwise it
+    returns JSON (the server's default). This reproduces the real server's
+    behavior that the plain ``_FakeResponse`` (hard-coded CSV) masks.
+    """
+
+    def __init__(self, csv_text, accept):
+        if accept == "text/csv":
+            super().__init__(csv_text)
+            self.headers = {"Content-Type": "text/csv"}
+        else:
+            # Server defaults to JSON when no/other Accept is sent.
+            super().__init__("[]")
+            self.headers = {"Content-Type": "application/json"}
+
+
+def test_get_as_file_rid_set_defaults_accept_to_csv():
+    """REGRESSION: the rid-set path must request ``Accept: text/csv`` even when
+    the caller passes no explicit accept header. Otherwise the server returns
+    JSON, the CSV write-branch is skipped, and the result is silently empty.
+
+    The bug: the ``if rid_set is not None:`` dispatch in ``get_as_file`` runs
+    BEFORE the accept-resolution logic the normal paged path uses, so the
+    rid-set path never defaulted the Accept header.
+    """
+    header = "RID,Name"
+    csv_body = _csv(header, ["r1,Alice", "r2,Bob"])
+
+    cat = ErmrestCatalog.__new__(ErmrestCatalog)
+    cat._server_uri = "https://example.org/ermrest/catalog/1"
+
+    seen_accepts = []
+
+    def fake_get(url, headers=None, stream=False):
+        accept = (headers or {}).get("accept")
+        seen_accepts.append(accept)
+        if "@after" in url:
+            return _AcceptAwareResponse(_csv(header, []), accept)
+        return _AcceptAwareResponse(csv_body, accept)
+
+    cat._session = MagicMock()
+    cat._session.get.side_effect = fake_get
+    cat._response_raise_for_status = lambda r: None
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+        out = f.name
+    try:
+        # Call WITHOUT an explicit accept header (the bug-triggering path).
+        cat.get_as_file(None, out, rid_set=["r1", "r2"], rid_table="S:T")
+        # The fetch must have requested text/csv (the fix), so rows are written.
+        assert all(a == "text/csv" for a in seen_accepts), (
+            "rid-set fetch sent Accept=%r; expected text/csv on every request" % seen_accepts
+        )
+        with open(out, encoding="utf-8") as fh:
+            content = fh.read()
+        assert "r1,Alice" in content and "r2,Bob" in content, (
+            "rid-set fetch produced no rows (server returned JSON because Accept "
+            "was not text/csv): %r" % content
+        )
+    finally:
+        if os.path.exists(out):
+            os.unlink(out)
+
+
 def test_get_as_file_rid_set_appends_chunks_to_one_csv():
     """Two RID chunks each return a CSV page; the result is ONE CSV with the
     header once and all body rows, RID-distinct."""
