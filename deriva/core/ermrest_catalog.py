@@ -644,7 +644,8 @@ class ErmrestCatalog(DerivaBinding):
             return last_record
 
     def _fetch_paged_csv(self, destfile, base_path, headers, callback,
-                         page_size, page_sort_columns, first_page):
+                         page_size, page_sort_columns, first_page,
+                         csv_header=None):
         """Page through ``base_path`` and append rows to an open ``destfile``.
 
         This is the paged-fetch loop extracted verbatim from
@@ -676,13 +677,24 @@ class ErmrestCatalog(DerivaBinding):
             first_page: Whether the next page processed is the first one (i.e.
                 whether to emit the CSV header).
 
+            csv_header: The CSV header row (list of column names) from a prior
+                call, threaded across chunked calls. Used as the ``fieldnames``
+                for :meth:`_read_last_csv_record` on pages that do not re-read
+                the header (every page after the first chunk). Without it, the
+                reverse-read cannot identify a record near EOF and scans back
+                through the entire accumulated file each call -> O(n^2).
+
         Returns:
-            A ``(first_page, total)`` tuple where ``first_page`` is the updated
-            flag (``False`` once any page has been processed) and ``total`` is
-            the number of bytes written by this call.
+            A ``(first_page, total, csv_header)`` tuple: ``first_page`` is the
+            updated flag (``False`` once any page has been processed),
+            ``total`` is the bytes written by this call, and ``csv_header`` is
+            the CSV header (captured here on the first page, or the threaded
+            value passed in) for the caller to thread into subsequent calls.
         """
         total = 0
-        first_line = None
+        # Seed first_line from the threaded header so _read_last_csv_record gets
+        # correct fieldnames even on chunks that don't re-read the header.
+        first_line = csv_header
         last_record = None
         usr = urlsplit(self._server_uri + base_path)
         path = str(usr.path.split('@sort')[0])
@@ -707,7 +719,7 @@ class ErmrestCatalog(DerivaBinding):
                     if callback:
                         if not callback(progress="Retrying query: %s" % url):
                             destfile.close()
-                            return first_page, total
+                            return first_page, total, first_line
                     continue
                 else:
                     self._response_raise_for_status(r)
@@ -773,9 +785,9 @@ class ErmrestCatalog(DerivaBinding):
                     if not callback(progress="Downloading: %.2f MB transferred" %
                                              (float(total) / float(Megabyte))):
                         destfile.close()
-                        return first_page, total
+                        return first_page, total, first_line
 
-        return first_page, total
+        return first_page, total, first_line
 
     def _get_rid_set_as_file(self, rid_set, rid_table, destfilename, *, headers,
                              callback, delete_if_empty, page_size, page_sort_columns):
@@ -809,11 +821,18 @@ class ErmrestCatalog(DerivaBinding):
         try:
             first_page = True
             total = 0
+            csv_header = None
             for chunk in self._rid_set_chunks(rid_set, RID_SET_CHUNK_SIZE):
                 base_path = self._rid_set_query_url(rid_table, chunk)
-                first_page, written = self._fetch_paged_csv(
+                # Thread csv_header across chunks: the header is captured on the
+                # first chunk's first page and reused on every later chunk so
+                # _read_last_csv_record always has correct fieldnames. Without
+                # it, later chunks pass fieldnames=None and the reverse-read
+                # scans the whole accumulated file each time -> O(n^2).
+                first_page, written, csv_header = self._fetch_paged_csv(
                     destfile, base_path, headers, callback,
                     page_size, page_sort_columns, first_page,
+                    csv_header=csv_header,
                 )
                 total += written
             destfile.flush()
@@ -925,7 +944,7 @@ class ErmrestCatalog(DerivaBinding):
                 # here preserves the delete-if-empty epilogue's behavior, which
                 # inspects ``content_type``.
                 content_type = accept
-                _first_page, total = self._fetch_paged_csv(
+                _first_page, total, _csv_header = self._fetch_paged_csv(
                     destfile, path, headers, callback,
                     page_size, page_sort_columns, True,
                 )
