@@ -54,6 +54,79 @@ class _AcceptAwareResponse(_FakeResponse):
             self.headers = {"Content-Type": "application/json"}
 
 
+def test_rid_set_read_last_record_gets_header_on_every_chunk():
+    """REGRESSION (O(n^2) bug): ``_read_last_csv_record`` must receive the CSV
+    header (fieldnames) on EVERY chunk, not just the first.
+
+    Bug: ``_fetch_paged_csv`` captured the header only when ``first_page`` was
+    True. In the rid-set chunk-append, only the first chunk is the first page;
+    every later chunk passed ``fieldnames=None`` to ``_read_last_csv_record``,
+    which then could not identify a record near EOF and scanned back through
+    the ENTIRE accumulated file each call -> O(n^2). With the header threaded,
+    the reverse-read finds a valid record in the first window (bounded, O(1)).
+    """
+    import deriva.core.ermrest_catalog as ec
+
+    header = "RID,Name,Notes"
+    # Three chunks, each returning a multi-row page (so last-record extraction
+    # actually runs — it only runs when last_line != first_line).
+    pages = {
+        "/entity/S:T/RID=any(a1,a2)": _csv(header, ["a1,A,x", "a2,B,y"]),
+        "/entity/S:T/RID=any(a3,a4)": _csv(header, ["a3,C,z", "a4,D,w"]),
+        "/entity/S:T/RID=any(a5,a6)": _csv(header, ["a5,E,v", "a6,F,u"]),
+    }
+
+    cat = ErmrestCatalog.__new__(ErmrestCatalog)
+    cat._server_uri = "https://example.org/ermrest/catalog/1"
+
+    def fake_get(url, headers=None, stream=False):
+        if "@after" in url:
+            return _FakeResponse(_csv(header, []))
+        for path, body in pages.items():
+            if path in url:
+                return _FakeResponse(body)
+        raise AssertionError("unexpected URL: %s" % url)
+
+    cat._session = MagicMock()
+    cat._session.get.side_effect = fake_get
+    cat._response_raise_for_status = lambda r: None
+
+    # Capture the fieldnames passed to _read_last_csv_record on every call.
+    seen_fieldnames = []
+    orig_rlcr = ec.ErmrestCatalog._read_last_csv_record
+
+    def spy_rlcr(filepath, fieldnames):
+        seen_fieldnames.append(fieldnames)
+        return orig_rlcr(filepath, fieldnames)
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+        out = f.name
+    orig_chunk = ec.RID_SET_CHUNK_SIZE
+    ec.ErmrestCatalog._read_last_csv_record = staticmethod(spy_rlcr)
+    ec.RID_SET_CHUNK_SIZE = 2  # 6 RIDs -> 3 chunks
+    try:
+        cat.get_as_file(
+            None, out, rid_set=["a1", "a2", "a3", "a4", "a5", "a6"],
+            rid_table="S:T", headers={"accept": "text/csv"},
+        )
+        # Every _read_last_csv_record call must have received the real header,
+        # never None (None forces the O(n^2) full-file scan).
+        assert seen_fieldnames, "expected _read_last_csv_record to be called"
+        assert all(fn is not None for fn in seen_fieldnames), (
+            "_read_last_csv_record was called with fieldnames=None on some "
+            "chunk (the O(n^2) bug): %r" % seen_fieldnames
+        )
+        # And the threaded header is the real one.
+        assert all(fn == header.split(",") for fn in seen_fieldnames), (
+            "fieldnames threaded incorrectly: %r" % seen_fieldnames
+        )
+    finally:
+        ec.ErmrestCatalog._read_last_csv_record = staticmethod(orig_rlcr)
+        ec.RID_SET_CHUNK_SIZE = orig_chunk
+        if os.path.exists(out):
+            os.unlink(out)
+
+
 def test_get_as_file_rid_set_defaults_accept_to_csv():
     """REGRESSION: the rid-set path must request ``Accept: text/csv`` even when
     the caller passes no explicit accept header. Otherwise the server returns
