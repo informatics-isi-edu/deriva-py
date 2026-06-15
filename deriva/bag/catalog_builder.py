@@ -580,12 +580,27 @@ class CatalogBagBuilder:
                         },
                     }
                 )
-            elif self.rid_sets is not None:
+            elif self.rid_sets is not None and not table_obj.is_vocabulary():
                 # Format B: one rid-set csv processor per table — flat
                 # output_path, RID set carried inline. The engine chunks
                 # the RID set and appends to one clean CSV (get_as_file
                 # rid_set). Replaces the per-FK-path emission; the loader
                 # gets one file per table (no union needed).
+                #
+                # Vocab tables are excluded from this branch: they're
+                # referenced by Name, not RID, so a reachability map
+                # carries no RID set for them. A REFERENCED_ONLY vocab
+                # must fall through to the per-FK-path ``else`` below, or
+                # it would get an empty rid-set CSV and its FK references
+                # wouldn't resolve at the destination.
+                if key not in self.rid_sets:
+                    logger.warning(
+                        "rid_sets has no entry for reached table %s:%s; "
+                        "emitting empty rid-set CSV (possible incomplete "
+                        "reachability map)",
+                        schema_name,
+                        table_name,
+                    )
                 rids = self.rid_sets.get(key, [])
                 query_processors.append(
                     {

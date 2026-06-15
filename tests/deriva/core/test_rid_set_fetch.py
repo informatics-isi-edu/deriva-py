@@ -171,3 +171,60 @@ def test_catalog_query_forwards_rid_set_to_get_as_file():
         proc.catalogQuery()
     assert captured.get("rid_set") == ["r1"]
     assert captured.get("rid_table") == "S:T"
+
+
+def test_catalog_query_with_empty_query_but_rid_set_still_calls_get_as_file():
+    """Format-B processors carry NO query_path: ``self.query`` is empty but
+    ``self.rid_set`` is populated. ``catalogQuery`` must NOT short-circuit on
+    the empty query — it must proceed to ``get_as_file`` so the rid-set fetch
+    actually fires. (Pins FIX 2: the early-return guard only triggers when
+    there is NEITHER a query path NOR a rid_set.)"""
+    from unittest.mock import MagicMock, patch
+
+    proc = BaseQueryProcessor.__new__(BaseQueryProcessor)
+    proc.parameters = {"rid_set": ["r1"], "rid_table": "S:T"}
+    proc.envars = {}
+    proc.rid_set = proc.parameters.get("rid_set")
+    proc.rid_table = proc.parameters.get("rid_table")
+    proc.query = ""  # Format B: no query_path at all.
+    proc.output_abspath = "/tmp/ignored.csv"
+    proc.paged_query = False
+    proc.paged_query_size = 100000
+    proc.paged_query_sort_columns = ["RID"]
+    proc.HEADERS = {}
+    proc.callback = None
+    captured = {}
+    cat = MagicMock()
+
+    def fake_get_as_file(path, dest, **kwargs):
+        captured.update(kwargs)
+        return dest
+
+    cat.get_as_file.side_effect = fake_get_as_file
+    proc.catalog = cat
+    with patch(
+        "deriva.transfer.download.processors.query.base_query_processor.make_dirs"
+    ):
+        proc.catalogQuery()
+    # The guard did NOT return early: get_as_file ran with the rid_set.
+    cat.get_as_file.assert_called_once()
+    assert captured.get("rid_set") == ["r1"]
+    assert captured.get("rid_table") == "S:T"
+
+
+def test_catalog_query_returns_empty_when_no_query_and_no_rid_set():
+    """The early-return guard still fires when there is NEITHER a query path
+    NOR a rid_set — get_as_file must not be called in that case."""
+    from unittest.mock import MagicMock
+
+    proc = BaseQueryProcessor.__new__(BaseQueryProcessor)
+    proc.parameters = {}
+    proc.envars = {}
+    proc.rid_set = None
+    proc.rid_table = None
+    proc.query = ""
+    cat = MagicMock()
+    proc.catalog = cat
+
+    assert proc.catalogQuery() == {}
+    cat.get_as_file.assert_not_called()

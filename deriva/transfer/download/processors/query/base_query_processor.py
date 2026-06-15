@@ -60,7 +60,10 @@ class BaseQueryProcessor(BaseProcessor):
         return self.outputs
 
     def catalogQuery(self, headers=None, as_file=True):
-        if not self.query:
+        # A rid_set-bearing processor (Format B) carries no query_path —
+        # get_as_file ignores ``self.query`` and fetches by RID set. Only
+        # short-circuit when there is NEITHER a query path NOR a rid_set.
+        if not self.query and not self.rid_set:
             return {}
 
         if not headers:
