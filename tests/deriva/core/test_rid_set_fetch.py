@@ -1,6 +1,88 @@
 """Tests for RID-set chunk-append fetch in get_as_file (no live catalog)."""
 
+import os
+import tempfile
+from unittest.mock import MagicMock
+
 from deriva.core.ermrest_catalog import ErmrestCatalog, RID_SET_CHUNK_SIZE
+
+
+class _FakeResponse:
+    """Minimal requests.Response stand-in for a CSV page."""
+
+    def __init__(self, text):
+        self._text = text
+        self.status_code = 200
+        self.headers = {"Content-Type": "text/csv"}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def close(self):
+        pass
+
+    def iter_lines(self, decode_unicode=False):
+        for line in self._text.splitlines():
+            yield line if decode_unicode else line.encode("utf-8")
+
+    @property
+    def text(self):
+        return self._text
+
+
+def _csv(header, rows):
+    return "\n".join([header] + rows) + "\n"
+
+
+def test_get_as_file_rid_set_appends_chunks_to_one_csv():
+    """Two RID chunks each return a CSV page; the result is ONE CSV with the
+    header once and all body rows, RID-distinct."""
+    header = "RID,Name"
+    pages = {
+        "/entity/S:T/RID=any(r1,r2)": _csv(header, ["r1,Alice", "r2,Bob"]),
+        "/entity/S:T/RID=any(r3)": _csv(header, ["r3,Carol"]),
+    }
+
+    cat = ErmrestCatalog.__new__(ErmrestCatalog)  # bypass __init__/network
+    cat._server_uri = "https://example.org/ermrest/catalog/1"
+
+    def fake_get(url, headers=None, stream=False):
+        if "@after" in url:
+            # Second page of any chunk: no more rows -> terminate the page loop.
+            return _FakeResponse(_csv(header, []))
+        for path, body in pages.items():
+            if path in url:
+                return _FakeResponse(body)
+        raise AssertionError("unexpected URL: %s" % url)
+
+    cat._session = MagicMock()
+    cat._session.get.side_effect = fake_get
+    cat._response_raise_for_status = lambda r: None
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+        out = f.name
+    try:
+        # chunk size 2 -> 2 chunks: [r1,r2], [r3]. Patch the module constant
+        # so the test doesn't need 500+ RIDs.
+        import deriva.core.ermrest_catalog as ec
+        orig = ec.RID_SET_CHUNK_SIZE
+        ec.RID_SET_CHUNK_SIZE = 2
+        try:
+            cat.get_as_file(None, out, rid_set=["r1", "r2", "r3"], rid_table="S:T")
+        finally:
+            ec.RID_SET_CHUNK_SIZE = orig
+        with open(out, encoding="utf-8") as fh:
+            content = fh.read()
+        assert content.count("RID,Name") == 1            # header once
+        for rid in ("r1", "r2", "r3"):
+            assert rid in content                        # all rows present
+        nonblank = [ln for ln in content.splitlines() if ln.strip()]
+        assert len(nonblank) == 4                         # 1 header + 3 rows
+    finally:
+        os.unlink(out)
 
 
 def test_rid_set_chunks_splits_at_chunk_size():
