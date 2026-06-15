@@ -86,6 +86,15 @@ class CatalogBagBuilder:
         output_dir: Directory to receive the bag.
         producer: Identifier stamped into the bag's provenance.
             Defaults to ``"deriva.bag.catalog_builder.CatalogBagBuilder"``.
+        rid_sets: Optional ``{(schema, table): [RID, ...]}`` map. When
+            supplied, the export spec emits one rid-set csv processor per
+            reached non-vocab table (flat ``{schema}/{table}`` output,
+            RID set carried inline) instead of one csv processor per FK
+            path. The engine chunks the RID set and appends to a single
+            clean CSV, so the loader gets one file per table with no
+            union needed. When ``None`` (the default), per-FK-path
+            emission is used unchanged. Vocab-FULL and asset-fetch
+            processors are unaffected.
 
     Example:
         Build a bag rooted at a few Subject RIDs::
@@ -113,6 +122,7 @@ class CatalogBagBuilder:
         producer: str = (
             "deriva.bag.catalog_builder.CatalogBagBuilder"
         ),
+        rid_sets: dict[tuple[str, str], list[str]] | None = None,
     ):
         if not anchors:
             raise ValueError(
@@ -124,6 +134,7 @@ class CatalogBagBuilder:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.producer = producer
+        self.rid_sets = rid_sets
 
         # Cached after first build() call.
         self._model: Any | None = None
@@ -565,6 +576,24 @@ class CatalogBagBuilder:
                             "output_path": (
                                 f"{schema_name}/{table_name}"
                             ),
+                            "paged_query": True,
+                        },
+                    }
+                )
+            elif self.rid_sets is not None:
+                # Format B: one rid-set csv processor per table — flat
+                # output_path, RID set carried inline. The engine chunks
+                # the RID set and appends to one clean CSV (get_as_file
+                # rid_set). Replaces the per-FK-path emission; the loader
+                # gets one file per table (no union needed).
+                rids = self.rid_sets.get(key, [])
+                query_processors.append(
+                    {
+                        "processor": "csv",
+                        "processor_params": {
+                            "rid_table": f"{schema_name}:{table_name}",
+                            "rid_set": rids,
+                            "output_path": f"{schema_name}/{table_name}",
                             "paged_query": True,
                         },
                     }
