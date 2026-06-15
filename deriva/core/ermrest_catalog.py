@@ -865,8 +865,17 @@ class ErmrestCatalog(DerivaBinding):
         if rid_set is not None:
             if not rid_table:
                 raise ValueError("rid_table is required when rid_set is provided")
+            # The rid-set path is CSV-only by construction (the RID=any(...)
+            # entity query and the chunk-append/emptiness logic all assume
+            # text/csv). This dispatch runs BEFORE the accept-resolution the
+            # normal paged path does below, so default the Accept header to
+            # text/csv here — otherwise a caller without an explicit accept
+            # gets the server's JSON default, the CSV write-branch is skipped,
+            # and the result is silently empty.
+            rid_set_headers = dict(headers or {})
+            rid_set_headers.setdefault("accept", "text/csv")
             return self._get_rid_set_as_file(
-                rid_set, rid_table, destfilename, headers=headers,
+                rid_set, rid_table, destfilename, headers=rid_set_headers,
                 callback=callback, delete_if_empty=delete_if_empty,
                 page_size=page_size, page_sort_columns=page_sort_columns,
             )
