@@ -815,6 +815,116 @@ def test_rid_set_spec_emits_one_csv_processor_per_table(
     assert params["output_path"] == "demo/Image"  # flat, one file per table
 
 
+def test_rid_set_mode_excludes_referenced_only_vocab(
+    tmp_path: Path,
+) -> None:
+    """A REFERENCED_ONLY vocab table reached under ``rid_sets`` mode must NOT
+    be emitted as a rid-set processor.
+
+    Vocab tables are referenced by Name, not RID, so a reachability map carries
+    no RID set for them — a rid-set processor would emit an empty CSV and FK
+    references into the vocab would not resolve at the destination. The vocab
+    table must stay on the per-FK-path ``else`` branch (its existing, correct
+    behavior): the processor for the vocab carries a ``query_path`` and does
+    NOT carry a ``rid_set``.
+
+    Topology: ``Subject → Species`` (Subject has an FK to the Species vocab).
+    Anchoring at Subject under default (REFERENCED_ONLY) policy with
+    ``rid_sets`` supplied, the Species processor must remain per-path.
+    """
+    species = _make_mock_table(
+        "demo", "Species", is_vocabulary=True
+    )
+    subject = _make_mock_table("demo", "Subject")
+    # Subject → Species FK (Subject declares it; Species is referenced).
+    fk = _fk_mock(src_table=subject, pk_table=species)
+    subject.foreign_keys = [fk]
+    species.referenced_by = [fk]
+
+    model = _make_mock_model(
+        {"demo": {"Subject": subject, "Species": species}}
+    )
+    catalog = _make_mock_catalog(model)
+    cb = CatalogBagBuilder(
+        catalog=catalog,
+        anchors=[RIDAnchor(table="Subject", rids=["S1"])],
+        output_dir=tmp_path,
+        # Default policy ⇒ vocab_export == REFERENCED_ONLY.
+        rid_sets={
+            ("demo", "Subject"): ["S1"],
+            # Note: NO entry for Species — a reachability map never
+            # carries RID sets for vocab (referenced by Name).
+        },
+    )
+    cb._validate_anchors = lambda: None
+    cb._compute_reached_tables()
+    # Sanity: the vocab table really is in the reached set.
+    assert ("demo", "Species") in cb._reached_tables
+    spec = cb._build_export_spec()
+
+    species_procs = [
+        p
+        for p in spec["catalog"]["query_processors"]
+        if p["processor"] == "csv"
+        and p["processor_params"].get("output_path", "").endswith(
+            "/Species"
+        )
+    ]
+    assert len(species_procs) >= 1, [
+        p["processor_params"] for p in spec["catalog"]["query_processors"]
+    ]
+    # Every Species processor stayed on the per-FK-path branch: a
+    # query_path is present, and rid_set is absent. No empty rid-set CSV.
+    for p in species_procs:
+        params = p["processor_params"]
+        assert "rid_set" not in params, params
+        assert "rid_table" not in params, params
+        assert "query_path" in params, params
+
+
+def test_rid_set_mode_warns_on_missing_non_vocab_key(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A reached NON-vocab table absent from ``rid_sets`` logs a warning.
+
+    Silently emitting an empty rid-set CSV for a table the walker proved was
+    in scope is data loss. FIX 3 distinguishes "missing key" (a
+    map-completeness bug) from "present-but-empty" (legitimately
+    reached-but-empty) by warning only on the former.
+    """
+    a = _make_mock_table("demo", "A")
+    b = _make_mock_table("demo", "B")
+    fk = _fk_mock(src_table=a, pk_table=b)
+    a.foreign_keys = [fk]
+    b.referenced_by = [fk]
+    model = _make_mock_model({"demo": {"A": a, "B": b}})
+    catalog = _make_mock_catalog(model)
+    cb = CatalogBagBuilder(
+        catalog=catalog,
+        anchors=[RIDAnchor(table="A", rids=["A1"])],
+        output_dir=tmp_path,
+        # B is reached (FK from A) but absent from the map.
+        rid_sets={("demo", "A"): ["A1"]},
+    )
+    cb._validate_anchors = lambda: None
+    cb._compute_reached_tables()
+    assert ("demo", "B") in cb._reached_tables
+
+    with caplog.at_level("WARNING", logger="deriva.bag.catalog_builder"):
+        cb._build_export_spec()
+
+    assert any(
+        "no entry for reached table demo:B" in rec.message
+        for rec in caplog.records
+    ), [rec.message for rec in caplog.records]
+    # The present key (A) does NOT warn — only the missing one (B).
+    assert not any(
+        "no entry for reached table demo:A" in rec.message
+        for rec in caplog.records
+    )
+
+
 def test_terminal_table_blocks_inbound_but_follows_outbound(
     tmp_path: Path,
 ) -> None:
