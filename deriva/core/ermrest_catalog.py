@@ -149,6 +149,11 @@ _clone_state_url = "tag:isrd.isi.edu,2018:clone-status"
 
 DEFAULT_PAGE_SIZE = 100000
 
+RID_SET_CHUNK_SIZE = 500
+"""URL-safe batch size for RID-set fetches. A ``RID=any(...)`` filter over
+thousands of RIDs exceeds the server's URI length limit (a 225k-RID URL is
+~1.9 MB → HTTP 414); chunking keeps each request URL well within limits."""
+
 class ResolveRidResult (NamedTuple):
     datapath: datapath.DataPath
     table: ermrest_model.Table
@@ -557,6 +562,22 @@ class ErmrestCatalog(DerivaBinding):
            Deprecated, call `get_as_file` instead.
         """
         self.get_as_file(path, destfilename, headers, callback, delete_if_empty, paged, page_size, page_sort_columns)
+
+    @staticmethod
+    def _rid_set_chunks(rid_set, chunk_size):
+        """Yield successive ``chunk_size``-length lists from ``rid_set``.
+
+        Args:
+            rid_set: Iterable of RID strings.
+            chunk_size: Max RIDs per chunk.
+
+        Yields:
+            Lists of at most ``chunk_size`` RIDs, preserving order, no RID
+            lost or duplicated.
+        """
+        rids = list(rid_set)
+        for i in range(0, len(rids), chunk_size):
+            yield rids[i:i + chunk_size]
 
     @staticmethod
     def _read_last_csv_record(filepath, fieldnames):
