@@ -745,6 +745,76 @@ def test_spec_multipath_emits_one_processor_per_fk_route(
     assert len(image_fetches) == 0
 
 
+def test_rid_set_spec_emits_one_csv_processor_per_table(
+    tmp_path: Path,
+) -> None:
+    """With rid_sets supplied, the export spec has ONE csv processor per
+    reached table carrying rid_table+rid_set, not one-per-FK-path.
+
+    Reuses the multi-path topology where ``Image`` is reachable via two
+    FK routes (Dataset → Dataset_Image → Image and the longer route
+    through Subject). Per-path emission would produce 2 csv processors
+    for Image; supplying ``rid_sets`` collapses it to one rid-set
+    processor.
+    """
+    ds = _make_mock_table("demo", "Dataset")
+    di = _make_mock_table("demo", "Dataset_Image")
+    ds_sub = _make_mock_table("demo", "Dataset_Subject")
+    sub = _make_mock_table("demo", "Subject")
+    si = _make_mock_table("demo", "Subject_Image")
+    img = _make_mock_table("demo", "Image")
+
+    di_to_ds = _fk_mock(src_table=di, pk_table=ds)
+    di_to_img = _fk_mock(src_table=di, pk_table=img)
+    dssub_to_ds = _fk_mock(src_table=ds_sub, pk_table=ds)
+    dssub_to_sub = _fk_mock(src_table=ds_sub, pk_table=sub)
+    si_to_sub = _fk_mock(src_table=si, pk_table=sub)
+    si_to_img = _fk_mock(src_table=si, pk_table=img)
+
+    ds.referenced_by = [di_to_ds, dssub_to_ds]
+    di.foreign_keys = [di_to_ds, di_to_img]
+    ds_sub.foreign_keys = [dssub_to_ds, dssub_to_sub]
+    sub.referenced_by = [dssub_to_sub, si_to_sub]
+    si.foreign_keys = [si_to_sub, si_to_img]
+    img.referenced_by = [di_to_img, si_to_img]
+
+    model = _make_mock_model(
+        {
+            "demo": {
+                "Dataset": ds,
+                "Dataset_Image": di,
+                "Dataset_Subject": ds_sub,
+                "Subject": sub,
+                "Subject_Image": si,
+                "Image": img,
+            }
+        }
+    )
+    catalog = _make_mock_catalog(model)
+    cb = CatalogBagBuilder(
+        catalog=catalog,
+        anchors=[RIDAnchor(table="Dataset", rids=["5HE"])],
+        output_dir=tmp_path,
+        rid_sets={("demo", "Image"): ["r1", "r2", "r3"]},
+    )
+    cb._validate_anchors = lambda: None
+    cb._compute_reached_tables()
+    spec = cb._build_export_spec()
+
+    csv_procs = [
+        p
+        for p in spec["catalog"]["query_processors"]
+        if p["processor"] == "csv"
+        and p["processor_params"].get("output_path", "") == "demo/Image"
+    ]
+    assert len(csv_procs) == 1  # ONE, not per-FK-path
+    params = csv_procs[0]["processor_params"]
+    assert params["rid_table"] == "demo:Image"
+    assert params["rid_set"] == ["r1", "r2", "r3"]
+    assert "query_path" not in params  # rid-set replaces query_path
+    assert params["output_path"] == "demo/Image"  # flat, one file per table
+
+
 def test_terminal_table_blocks_inbound_but_follows_outbound(
     tmp_path: Path,
 ) -> None:
