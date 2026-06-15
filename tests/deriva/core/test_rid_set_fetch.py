@@ -119,3 +119,55 @@ def test_rid_set_query_url_quotes_special_chars_in_rid():
     url = ErmrestCatalog._rid_set_query_url("S:T", ["a b", "c"])
     # space in the value is encoded; the comma separator is not.
     assert url == "/entity/S:T/RID=any(a%20b,c)"
+
+
+from deriva.transfer.download.processors.query.base_query_processor import (
+    BaseQueryProcessor,
+)
+
+
+def test_query_processor_reads_rid_set_from_params():
+    """rid_set/rid_table flow from processor_params onto the processor."""
+    proc = BaseQueryProcessor.__new__(BaseQueryProcessor)
+    proc.parameters = {
+        "query_path": "/entity/S:T",
+        "rid_set": ["r1", "r2"],
+        "rid_table": "S:T",
+    }
+    proc.rid_set = proc.parameters.get("rid_set", None)
+    proc.rid_table = proc.parameters.get("rid_table", None)
+    assert proc.rid_set == ["r1", "r2"]
+    assert proc.rid_table == "S:T"
+
+
+def test_catalog_query_forwards_rid_set_to_get_as_file():
+    """catalogQuery must pass rid_set/rid_table into get_as_file."""
+    from unittest.mock import MagicMock, patch
+
+    proc = BaseQueryProcessor.__new__(BaseQueryProcessor)
+    proc.parameters = {"rid_set": ["r1"], "rid_table": "S:T"}
+    proc.envars = {}
+    proc.rid_set = proc.parameters.get("rid_set")
+    proc.rid_table = proc.parameters.get("rid_table")
+    proc.query = "/entity/S:T"
+    proc.output_abspath = "/tmp/ignored.csv"
+    proc.paged_query = False
+    proc.paged_query_size = 100000
+    proc.paged_query_sort_columns = ["RID"]
+    proc.HEADERS = {}
+    proc.callback = None
+    captured = {}
+    cat = MagicMock()
+
+    def fake_get_as_file(path, dest, **kwargs):
+        captured.update(kwargs)
+        return dest
+
+    cat.get_as_file.side_effect = fake_get_as_file
+    proc.catalog = cat
+    with patch(
+        "deriva.transfer.download.processors.query.base_query_processor.make_dirs"
+    ):
+        proc.catalogQuery()
+    assert captured.get("rid_set") == ["r1"]
+    assert captured.get("rid_table") == "S:T"
