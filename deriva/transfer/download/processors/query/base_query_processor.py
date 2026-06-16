@@ -39,6 +39,8 @@ class BaseQueryProcessor(BaseProcessor):
         self.paged_query = self.parameters.get("paged_query", False)
         self.paged_query_size = self.parameters.get("paged_query_size", 100000)
         self.paged_query_sort_columns = self.parameters.get("paged_query_sort_columns", ["RID"])
+        self.rid_set = self.parameters.get("rid_set", None)
+        self.rid_table = self.parameters.get("rid_table", None)
 
     def process(self):
         resp = self.catalogQuery(headers={'accept': self.content_type})
@@ -58,7 +60,10 @@ class BaseQueryProcessor(BaseProcessor):
         return self.outputs
 
     def catalogQuery(self, headers=None, as_file=True):
-        if not self.query:
+        # A rid_set-bearing processor (Format B) carries no query_path —
+        # get_as_file ignores ``self.query`` and fetches by RID set. Only
+        # short-circuit when there is NEITHER a query path NOR a rid_set.
+        if not self.query and not self.rid_set:
             return {}
 
         if not headers:
@@ -77,7 +82,9 @@ class BaseQueryProcessor(BaseProcessor):
                                                 delete_if_empty=True,
                                                 paged=self.paged_query,
                                                 page_size=self.paged_query_size,
-                                                page_sort_columns=self.paged_query_sort_columns)
+                                                page_sort_columns=self.paged_query_sort_columns,
+                                                rid_set=self.rid_set,
+                                                rid_table=self.rid_table)
             else:
                 return self.catalog.get(self.query, headers=headers).json()
         except requests.HTTPError as e:
