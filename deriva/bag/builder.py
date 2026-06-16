@@ -405,6 +405,12 @@ class BagBuilder:
           staging that wants the bag layout but doesn't need to
           be archived to a different machine.
 
+        If ``source_path`` is a symlink, it is resolved to its
+        target before linking/copying — so the bag payload is
+        always a regular file, never a symlink — while the bag
+        entry keeps the symlink's own name unless ``filename``
+        overrides it.
+
         Args:
             table: Asset table name (e.g., ``"Image"``).
             rid: RID of the asset row this file belongs to.
@@ -421,12 +427,22 @@ class BagBuilder:
                 same RID + filename pair).
         """
         self._check_not_finalized()
+        # Resolve symlinks so link=True hardlinks the REAL file, not the symlink
+        # inode. os.link() follows symlinks on macOS/BSD but not on Linux, where
+        # it would otherwise put a symlink-to-an-external-path in the bag payload
+        # (corrupting the bag and tripping bagit's path-safety check
+        # (_path_is_dangerous, run by _validate_bag_contents)). Resolving here
+        # keeps the documented invariant — "hardlinks live
+        # inside the bag as regular files" — true on every platform. We resolve
+        # the *link target* but keep the caller-provided name for the bag entry,
+        # so the asset is still named after the source the caller passed in.
         source_path = Path(source_path)
+        name = filename or source_path.name
+        source_path = source_path.resolve()
         if not source_path.is_file():
             raise FileNotFoundError(
                 f"Asset source not found: {source_path}"
             )
-        name = filename or source_path.name
         rel = ASSET_FILE_TEMPLATE.format(
             table=table, rid=rid, filename=name
         )
