@@ -815,6 +815,95 @@ def test_rid_set_spec_emits_one_csv_processor_per_table(
     assert params["output_path"] == "demo/Image"  # flat, one file per table
 
 
+def test_rid_set_scopes_asset_fetch_processor(tmp_path: Path) -> None:
+    """With rid_sets supplied, an asset table's ``fetch`` processor is
+    RID-scoped — its query_path filters to the rid_set via ``RID=any(...)``,
+    not a bare full-table ``/attribute/{schema}:{table}/...`` scan.
+
+    Regression: previously the csv processor was rid_set-scoped but the
+    fetch processor (which drives fetch.txt / the actual byte download)
+    queried the whole asset table, so a bag downloaded every asset in the
+    table regardless of dataset membership.
+    """
+    img = _make_mock_table("demo", "Image", is_asset=True)
+    model = _make_mock_model({"demo": {"Image": img}})
+    catalog = _make_mock_catalog(model)
+    cb = CatalogBagBuilder(
+        catalog=catalog,
+        anchors=[RIDAnchor(table="Image", rids=["r1", "r2", "r3"])],
+        output_dir=tmp_path,
+        rid_sets={("demo", "Image"): ["r1", "r2", "r3"]},
+    )
+    cb._validate_anchors = lambda: None
+    cb._compute_reached_tables()
+    spec = cb._build_export_spec()
+
+    fetch_procs = [
+        p
+        for p in spec["catalog"]["query_processors"]
+        if p["processor"] == "fetch"
+    ]
+    assert fetch_procs, "asset table must still get a fetch processor"
+    for p in fetch_procs:
+        qpath = p["processor_params"]["query_path"]
+        # Scoped: filters to the rid_set, keeping the asset-column projection.
+        assert "RID=any(" in qpath, (
+            f"fetch processor is not RID-scoped (full-table scan): {qpath!r}"
+        )
+        # The projection (url/length/filename/md5/asset_rid aliases) survives.
+        assert "url:=URL" in qpath and "asset_rid:=RID" in qpath, qpath
+
+    # The union of all fetch chunks' RIDs equals the rid_set exactly.
+    import re
+
+    fetched_rids: set[str] = set()
+    for p in fetch_procs:
+        m = re.search(r"RID=any\(([^)]*)\)", p["processor_params"]["query_path"])
+        assert m, p["processor_params"]["query_path"]
+        fetched_rids |= {r for r in m.group(1).split(",") if r}
+    assert fetched_rids == {"r1", "r2", "r3"}
+
+
+def test_rid_set_chunks_large_asset_fetch(tmp_path: Path) -> None:
+    """An asset rid_set larger than RID_SET_CHUNK_SIZE is split across
+    multiple fetch processors so no single query_path URL grows unbounded
+    (the same URL-length cap get_as_file chunks for)."""
+    from deriva.core.ermrest_catalog import RID_SET_CHUNK_SIZE
+
+    img = _make_mock_table("demo", "Image", is_asset=True)
+    model = _make_mock_model({"demo": {"Image": img}})
+    catalog = _make_mock_catalog(model)
+    big = [f"r{i}" for i in range(RID_SET_CHUNK_SIZE + 50)]
+    cb = CatalogBagBuilder(
+        catalog=catalog,
+        anchors=[RIDAnchor(table="Image", rids=big)],
+        output_dir=tmp_path,
+        rid_sets={("demo", "Image"): big},
+    )
+    cb._validate_anchors = lambda: None
+    cb._compute_reached_tables()
+    spec = cb._build_export_spec()
+
+    fetch_procs = [
+        p
+        for p in spec["catalog"]["query_processors"]
+        if p["processor"] == "fetch"
+    ]
+    # More than one chunk → more than one fetch processor.
+    assert len(fetch_procs) >= 2
+    # No chunk exceeds the chunk size, and together they cover every RID once.
+    import re
+
+    seen: list[str] = []
+    for p in fetch_procs:
+        m = re.search(r"RID=any\(([^)]*)\)", p["processor_params"]["query_path"])
+        assert m
+        chunk = [r for r in m.group(1).split(",") if r]
+        assert len(chunk) <= RID_SET_CHUNK_SIZE
+        seen.extend(chunk)
+    assert sorted(seen) == sorted(big)
+
+
 def test_rid_set_mode_excludes_referenced_only_vocab(
     tmp_path: Path,
 ) -> None:
