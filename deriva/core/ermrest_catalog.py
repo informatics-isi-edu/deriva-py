@@ -149,6 +149,11 @@ _clone_state_url = "tag:isrd.isi.edu,2018:clone-status"
 
 DEFAULT_PAGE_SIZE = 100000
 
+RID_SET_CHUNK_SIZE = 500
+"""URL-safe batch size for RID-set fetches. A ``RID=any(...)`` filter over
+thousands of RIDs exceeds the server's URI length limit (a 225k-RID URL is
+~1.9 MB → HTTP 414); chunking keeps each request URL well within limits."""
+
 class ResolveRidResult (NamedTuple):
     datapath: datapath.DataPath
     table: ermrest_model.Table
@@ -492,6 +497,281 @@ class ErmrestCatalog(DerivaBinding):
         """
         self.get_as_file(path, destfilename, headers, callback, delete_if_empty, paged, page_size, page_sort_columns)
 
+    @staticmethod
+    def _rid_set_chunks(rid_set, chunk_size):
+        """Yield successive ``chunk_size``-length lists from ``rid_set``.
+
+        Args:
+            rid_set: Iterable of RID strings.
+            chunk_size: Max RIDs per chunk.
+
+        Yields:
+            Lists of at most ``chunk_size`` RIDs, preserving order, no RID
+            lost or duplicated.
+        """
+        rids = list(rid_set)
+        for i in range(0, len(rids), chunk_size):
+            yield rids[i:i + chunk_size]
+
+    @staticmethod
+    def _rid_set_query_url(rid_table, rid_chunk):
+        """Build a ``/entity/{rid_table}/RID=any(...)`` path for one RID chunk.
+
+        Each RID *value* is URL-quoted individually; the comma separators are
+        ``any()`` syntax and stay literal. Quoting the joined string instead
+        (encoding commas to ``%2C``) breaks the predicate and silently returns
+        zero rows — the bug this function exists to prevent.
+
+        Args:
+            rid_table: ``"schema:table"`` of the table being queried.
+            rid_chunk: List of RID strings (one URL-safe batch).
+
+        Returns:
+            Catalog-relative path string starting at ``/entity/``.
+        """
+        joined = ",".join(urlquote(str(rid)) for rid in rid_chunk)
+        return "/entity/%s/RID=any(%s)" % (rid_table, joined)
+
+    def _fetch_paged_content(self, destfile, base_path, headers, callback,
+                             page_size, page_sort_columns, first_page,
+                             first_line=None):
+        """Page through ``base_path`` and append rows to an open ``destfile``.
+
+        This is the general paged-fetch loop extracted from :meth:`get_as_file`
+        (it serves both content types, hence ``_content`` not ``_csv``). It
+        walks ``base_path`` page by page using the ``@sort``/``@after``/``limit``
+        cursor, applies the query-runtime-limit page-size backoff, and handles
+        both ``text/csv`` and ``application/x-json-stream`` responses. The CSV
+        header is written only on the first page processed; every later page
+        (including the first page of each later chunk in a RID-set fetch) skips
+        the header line(s).
+
+        The ``@after()`` cursor for each CSV page is the page's last complete
+        record, recovered by parsing the page's data lines forward through one
+        csv.reader so a multi-line quoted field (RFC 4180) reassembles into one
+        record rather than being mistaken for several -- a wrong cursor would
+        skip rows or re-fetch the page forever.
+
+        **Abort contract:** if the progress ``callback`` returns falsy, the loop
+        closes ``destfile`` and returns early. Every caller MUST check
+        ``destfile.closed`` after the call and stop touching the file (see both
+        call sites in :meth:`get_as_file` and :meth:`_get_rid_set_as_file`).
+
+        Passing the caller-managed ``first_page`` in and returning the updated
+        value lets multiple calls append into one CSV with the header written
+        exactly once (used by :meth:`_get_rid_set_as_file` to chunk-append a
+        RID set). ``first_line`` (the parsed CSV header) and the (possibly
+        backed-off) ``page_size`` are likewise threaded in and back out so later
+        chunks reuse the column names and do not re-incur a backoff the previous
+        chunk already paid.
+
+        Returns:
+            A ``(first_page, total, first_line, page_size, content_type)`` tuple:
+            ``first_page`` is the updated flag (``False`` once any page has been
+            processed), ``total`` is the bytes written by this call, ``first_line``
+            is the CSV header (captured here on the first page, or the threaded
+            value passed in), ``page_size`` is the current (possibly reduced) page
+            size to carry into the next call, and ``content_type`` is the response
+            Content-Type observed on the last page (``None`` if no page was
+            processed) -- callers use it to drive their delete-if-empty epilogue
+            instead of guessing from the request ``accept``.
+        """
+        total = 0
+        last_record = None
+        content_type = None
+        usr = urlsplit(self._server_uri + base_path)
+        path = str(usr.path.split('@sort')[0])
+        while True:
+            sort = "@sort(%s)%s" % (",".join(page_sort_columns or ["RID"]),
+                                    ("@after(%s)" % ",".join(last_record)) if last_record is not None else "")
+            limit = "limit=%s" % int(page_size) if page_size > 0 else "none"
+            query = re.sub(r"([^.]*)(limit=.*?)($|[&;])([^.]*)$", r"\1%s\3\4" % limit, usr.query, flags=re.I)
+            url = urlunsplit((usr.scheme, usr.netloc, path + sort, query if query else limit, usr.fragment))
+
+            # 1. Try to get a page worth of data, back-off page size if query run time errors are encountered
+            with self._session.get(url, headers=headers) as r:
+                if r.status_code == 400 and "Query run time limit exceeded" in r.text:
+                    if page_size == 1:
+                        self._response_raise_for_status(r)
+                    r.close()
+                    page_size //= 2
+                    page_size = 1 if page_size < 1 else page_size
+                    logging.warning("Query runtime exceeded while attempting to transfer rows from %s to file "
+                                    "[%s]. The page size is being reduced to %s and the query will be retried."
+                                    % (url, destfile.name, page_size))
+                    if callback:
+                        if not callback(progress="Retrying query: %s" % url):
+                            destfile.close()
+                            return first_page, total, first_line, page_size, content_type
+                    continue
+                else:
+                    self._response_raise_for_status(r)
+
+                # 2. Write the page to disk and check the last record processed in order to get the next page
+                last_line = {}
+                content_type = r.headers.get("Content-Type")
+                logging.debug("Transferring data from [%s] to %s" % (url, destfile.name))
+                if content_type == "text/csv":
+                    skip = 1
+                    line_num = 0
+                    page_lines = []
+                    if first_page:
+                        lines = r.iter_lines(decode_unicode=True)
+                        reader = csv.reader(lines)
+                        first_line = next(reader)
+                        skip = reader.line_num
+                    for line in r.iter_lines():
+                        line_num += 1
+                        # The header line(s) appear on every page; the first page writes them to
+                        # the file but they are never data, so they are excluded from page_lines
+                        # on every page (data cursor only). Subsequent pages also skip writing them.
+                        is_header = line_num <= skip
+                        if not first_page and is_header:
+                            continue
+                        tline = line + b"\n"
+                        destfile.write(tline)
+                        total += len(tline)
+                        if not is_header:
+                            page_lines.append(line.decode("utf-8"))
+                    # Parse this page's data lines forward through a single csv.reader so a multi-line
+                    # quoted field is reassembled into one record; retain only the last record.
+                    last_row = None
+                    for row in csv.reader(page_lines):
+                        last_row = row
+                    last_line = dict(zip(first_line, last_row)) if last_row else {}
+                    first_page = False
+                # JSON-Stream processing writes the entire buffer to the destination file. The last line is
+                # captured by reverse seeking in the buffer from right before the last b'\n' newline to the next
+                # newline or buf[0], then calling readline from the current position
+                elif content_type == "application/x-json-stream":
+                    buf = r.content
+                    # An empty result may be zero bytes OR an empty-array/object marker
+                    # ("[]\n" / "{}\n"). In a chunk-append (RID-set) fetch, writing that
+                    # marker mid-stream would leave a stray "[]" between real records, so
+                    # treat it as an empty page: do not write it, and terminate this call.
+                    if not buf or buf in (b"[]\n", b"{}\n", b"[]", b"{}"):
+                        break
+                    destfile.write(buf)
+                    total += len(buf)
+                    b = io.BytesIO(buf)
+                    b.seek(-2, os.SEEK_END)
+                    while b.read(1) != b'\n':
+                        b.seek(-2, os.SEEK_CUR)
+                        if b.tell() == os.SEEK_SET:
+                            break
+                    last_line = json.loads(b.readline().decode('utf-8'))
+
+                # 3. Save the last record key and flush the destination file buffers to disk.
+                if not last_line:
+                    break
+                destfile.flush()
+                last_record = [urlquote(str(last_line.get(key))) for key in page_sort_columns]
+                if callback:
+                    if not callback(progress="Downloading: %.2f MB transferred" %
+                                             (float(total) / float(Megabyte))):
+                        destfile.close()
+                        return first_page, total, first_line, page_size, content_type
+
+        return first_page, total, first_line, page_size, content_type
+
+    @staticmethod
+    def _is_empty_content(destfile, total, content_type):
+        """Return True when a downloaded file should be treated as "empty".
+
+        Shared by :meth:`get_as_file` and :meth:`_get_rid_set_as_file` so both
+        apply the same delete-if-empty rule keyed on the actual response
+        ``content_type``: zero bytes is always empty; a json/json-stream result
+        is empty when it is just ``[]`` / ``{}``; a CSV result is empty when it
+        holds only the header row (no data). The file is rewound before reading.
+
+        Args:
+            destfile: The open destination file (rewound and read here).
+            total: Bytes written for the transfer.
+            content_type: The response Content-Type observed by the fetch.
+        """
+        if total == 0:
+            return True
+        destfile.seek(0)
+        if content_type in ("application/json", "application/x-json-stream"):
+            buf = destfile.read(16)
+            return buf == b"[]\n" or buf == b"{}\n"
+        if content_type == "text/csv":
+            reader = csv.reader(codecs.iterdecode(destfile, 'utf-8'))
+            rowcount = 0
+            for _ in reader:
+                rowcount += 1
+                if rowcount > 1:
+                    break  # early-break: only need to know "more than the header row?"
+            return rowcount <= 1
+        return False
+
+    def _get_rid_set_as_file(self, rid_set, rid_table, destfilename, *, headers,
+                             callback, delete_if_empty, page_size, page_sort_columns):
+        """Fetch a RID set as one file by chunk-append (see RID_SET_CHUNK_SIZE).
+
+        Chunks ``rid_set`` into URL-safe batches, fetches each chunk's
+        ``RID=any(...)`` page(s) via :meth:`_fetch_paged_content`, and appends
+        all chunks into one file. ``first_page`` persists across chunks so a CSV
+        header is written exactly once, and ``first_line`` (the CSV header) is
+        threaded so every chunk builds its cursor with the right column names.
+
+        The content type follows the caller's ``accept`` header (resolved by
+        :meth:`get_as_file` to ``text/csv`` or ``application/x-json-stream``),
+        so this path supports both formats; the shared emptiness rule
+        (:meth:`_is_empty_content`) is keyed on the actual response type.
+
+        Args:
+            rid_set: The RIDs to fetch rows for.
+            rid_table: Catalog-relative table path the RIDs belong to.
+            destfilename: Path of the file to write.
+            headers: Request headers (accept already resolved by the caller).
+            callback: Optional progress callback; same contract as
+                :meth:`get_as_file`.
+            delete_if_empty: When ``True``, delete the file if the result is
+                empty.
+            page_size: Initial page size for each chunk's paged fetch.
+            page_sort_columns: Columns used for the ``@sort``/``@after`` cursor.
+
+        Returns:
+            The ``destfilename`` on success, or ``None`` when the result was
+            empty and ``delete_if_empty`` deletion applied.
+        """
+        destfile = open(destfilename, 'w+b')
+        content_type = None
+        try:
+            first_page = True
+            first_line = None
+            total = 0
+            for chunk in self._rid_set_chunks(rid_set, RID_SET_CHUNK_SIZE):
+                base_path = self._rid_set_query_url(rid_table, chunk)
+                # Thread first_line (header) and the possibly backed-off page_size across chunks so the
+                # header is written once and a later chunk doesn't re-pay a backoff the previous one earned.
+                first_page, written, first_line, page_size, chunk_ct = self._fetch_paged_content(
+                    destfile, base_path, headers, callback,
+                    page_size, page_sort_columns, first_page,
+                    first_line=first_line,
+                )
+                total += written
+                if chunk_ct is not None:
+                    content_type = chunk_ct
+                if destfile.closed:
+                    # Honor the _fetch_paged_content abort contract: a falsy callback closed destfile and
+                    # aborted early, so stop before writing to (or flushing) a closed file in the next chunk.
+                    return None
+            destfile.flush()
+            # Same rule as get_as_file: always drop a zero-byte file; drop "empty" content
+            # (header-only CSV, []/{} json) only when the caller asked via delete_if_empty.
+            delete_file = True if total == 0 else False
+            if delete_if_empty and total > 0:
+                delete_file = self._is_empty_content(destfile, total, content_type)
+        finally:
+            if not destfile.closed:
+                destfile.close()
+        if delete_file and os.path.exists(destfilename):
+            os.remove(destfilename)
+            return None
+        return destfilename
+
     def get_as_file(self,
                     path,
                     destfilename,
@@ -500,7 +780,9 @@ class ErmrestCatalog(DerivaBinding):
                     delete_if_empty=False,
                     paged=False,
                     page_size=DEFAULT_PAGE_SIZE,
-                    page_sort_columns=frozenset(["RID"])):
+                    page_sort_columns=frozenset(["RID"]),
+                    rid_set=None,
+                    rid_table=None):
         """
            Retrieve catalog data streamed to destination file.
            Caller is responsible to clean up file even on error, when the file may or may not exist.
@@ -508,13 +790,47 @@ class ErmrestCatalog(DerivaBinding):
            json/json-stream content, the presence of a single empty JSON object will be tested for. In the case of
            CSV content, the file will be parsed with CSV reader to determine that only a single header line and no row
            data is present.
+
+           When "rid_set" is provided, "path" is ignored and the rows for those
+           RIDs are fetched from "rid_table" by chunking the RID set into
+           URL-safe ``RID=any(...)`` batches and appending every chunk's page(s)
+           into one file (for CSV the header is written exactly once).
+           "rid_table" is required in this mode. The output format follows the
+           caller's Accept header -- "text/csv" (the default when none is given)
+           or "application/x-json-stream". Returns the destination filename, or
+           None if the result was empty and "delete_if_empty" applied. In this
+           mode the result is always paged, so "paged" is ignored. Rows are
+           sorted by "page_sort_columns" within each chunk but not globally
+           across the RID set, and a RID supplied more than once (or appearing
+           in more than one chunk) yields a duplicated row -- callers that need a
+           globally sorted or de-duplicated result must do so themselves.
         """
+        # Normalize page_size before any dispatch so page_size=0 ("use the default") behaves the same
+        # on the rid-set path as on the normal paged path, rather than becoming an unbounded limit=none.
+        page_size = page_size if page_size > 0 else DEFAULT_PAGE_SIZE
+
+        if rid_set is not None:
+            if not rid_table:
+                raise ValueError("rid_table is required when rid_set is provided")
+            # Resolve the caller's accept the same way the normal paged path does: honor an explicit
+            # text/csv or application/x-json-stream, default to text/csv when unset or unsupported.
+            # Defaulting matters because without it a caller with no accept gets the server's JSON
+            # default, the paged write-branches are skipped, and the result is silently empty.
+            rid_set_headers = dict(headers or {})
+            accept = rid_set_headers.get("accept")
+            if accept not in ("text/csv", "application/x-json-stream"):
+                rid_set_headers["accept"] = "text/csv"
+            return self._get_rid_set_as_file(
+                rid_set, rid_table, destfilename, headers=rid_set_headers,
+                callback=callback, delete_if_empty=delete_if_empty,
+                page_size=page_size, page_sort_columns=page_sort_columns,
+            )
+
         self.check_path(path)
 
         # Only entity API supported with paged mode at this time, otherwise fallback. We fallback rather than raise an
         # exception in the case that the caller might be trying to perform an opportunistic paged request without
         # knowing a priori if paged support for the given query is available.
-        page_size = page_size if page_size > 0 else DEFAULT_PAGE_SIZE
         if not (path.startswith("/entity") or path.startswith("/attribute")) and paged:
             logging.warning("Paged data retrieval only supported for entity or attribute API queries.")
             paged = False
@@ -548,130 +864,27 @@ class ErmrestCatalog(DerivaBinding):
                                 return
                 destfile.flush()
             else:
-                first_page = True
-                first_line = None
-                last_record = None
-                usr = urlsplit(self._server_uri + path)
-                path = str(usr.path.split('@sort')[0])
-                while True:
-                    sort = "@sort(%s)%s" % (",".join(page_sort_columns or ["RID"]),
-                                            ("@after(%s)" % ",".join(last_record)) if last_record is not None else "")
-                    limit = "limit=%s" % int(page_size) if page_size > 0 else "none"
-                    query = re.sub(r"([^.]*)(limit=.*?)($|[&;])([^.]*)$", r"\1%s\3\4" % limit, usr.query, flags=re.I)
-                    url = urlunsplit((usr.scheme, usr.netloc, path + sort, query if query else limit, usr.fragment))
-
-                    # 1. Try to get a page worth of data, back-off page size if query run time errors are encountered
-                    with self._session.get(url, headers=headers) as r:
-                        if r.status_code == 400 and "Query run time limit exceeded" in r.text:
-                            if page_size == 1:
-                                self._response_raise_for_status(r)
-                            r.close()
-                            page_size //= 2
-                            page_size = 1 if page_size < 1 else page_size
-                            logging.warning("Query runtime exceeded while attempting to transfer rows from %s to file "
-                                            "[%s]. The page size is being reduced to %s and the query will be retried."
-                                            % (url, destfilename, page_size))
-                            if callback:
-                                if not callback(progress="Retrying query: %s" % url):
-                                    destfile.close()
-                                    return
-                            continue
-                        else:
-                            self._response_raise_for_status(r)
-
-                        # 2. Write the page to disk and check the last record processed in order to get the next page
-                        last_line = {}
-                        content_type = r.headers.get("Content-Type")
-                        logging.debug("Transferring data from [%s] to %s" % (url, destfilename))
-                        # CSV processing iterates over lines in the response, skipping the header line(s) in all but
-                        # the first page, and captures this page's data lines to determine the last record processed.
-                        # The last complete record cannot be taken from the last raw byte line: a CSV field may contain
-                        # embedded newlines inside a quoted value (RFC 4180, e.g. OCR text with grid data), so the last
-                        # raw line can be a fragment of the record. Instead, the page's kept data lines are parsed
-                        # forward with the csv module -- starting from a known record boundary, it tracks quote state
-                        # correctly across embedded newlines. Using an incorrect record for the @after() cursor would
-                        # skip rows or re-fetch the same page forever.
-                        if content_type == "text/csv":
-                            skip = 1
-                            line_num = 0
-                            page_lines = []
-                            if first_page:
-                                lines = r.iter_lines(decode_unicode=True)
-                                reader = csv.reader(lines)
-                                first_line = next(reader)
-                                skip = reader.line_num
-                            for line in r.iter_lines():
-                                line_num += 1
-                                # The header line(s) appear on every page; the first page writes them to
-                                # the file but they are never data, so they are excluded from page_lines
-                                # on every page (data cursor only). Subsequent pages also skip writing them.
-                                is_header = line_num <= skip
-                                if not first_page and is_header:
-                                    continue
-                                tline = line + b"\n"
-                                destfile.write(tline)
-                                total += len(tline)
-                                if not is_header:
-                                    # Keep this page's data lines so the last complete record can be
-                                    # parsed forward; bounded by one page.
-                                    page_lines.append(line.decode("utf-8"))
-                            # Parse the page's data lines forward through a single csv.reader: starting from
-                            # a known record boundary, it tracks quote state across embedded newlines, so a
-                            # multi-line quoted field is reassembled into one record rather than mistaken
-                            # for several. Retain only the last record for the @after() cursor.
-                            last_row = None
-                            for row in csv.reader(page_lines):
-                                last_row = row
-                            last_line = dict(zip(first_line, last_row)) if last_row else {}
-                            first_page = False
-                        # JSON-Stream processing writes the entire buffer to the destination file. The last line is
-                        # captured by reverse seeking in the buffer from right before the last b'\n' newline to the next
-                        # newline or buf[0], then calling readline from the current position
-                        elif content_type == "application/x-json-stream":
-                            buf = r.content
-                            if not buf:
-                                break
-                            destfile.write(buf)
-                            total += len(buf)
-                            b = io.BytesIO(buf)
-                            b.seek(-2, os.SEEK_END)
-                            while b.read(1) != b'\n':
-                                b.seek(-2, os.SEEK_CUR)
-                                if b.tell() == os.SEEK_SET:
-                                    break
-                            last_line = json.loads(b.readline().decode('utf-8'))
-
-                        # 3. Save the last record key and flush the destination file buffers to disk.
-                        if not last_line:
-                            break
-                        destfile.flush()
-                        last_record = [urlquote(str(last_line.get(key))) for key in page_sort_columns]
-                        if callback:
-                            if not callback(progress="Downloading: %.2f MB transferred" %
-                                                     (float(total) / float(Megabyte))):
-                                destfile.close()
-                                return
+                # _fetch_paged_content returns the response Content-Type it observed; the
+                # delete-if-empty epilogue keys off it. page_size is unused here (only the
+                # rid-set chunk loop threads the backed-off value across calls).
+                _first_page, total, _first_line, _page_size, content_type = self._fetch_paged_content(
+                    destfile, path, headers, callback,
+                    page_size, page_sort_columns, True,
+                )
+                # Honor the _fetch_paged_content abort contract: a falsy callback closed destfile and
+                # aborted early (as the inlined "destfile.close(); return" did before extraction), so
+                # bail out without touching the closed file in the epilogue.
+                if destfile.closed:
+                    return
 
             elapsed = datetime.datetime.now() - start
             summary = get_transfer_summary(total, elapsed)
 
-            # perform automatic file deletion on detected "empty" content, if requested
+            # Always delete a zero-byte file; additionally delete "empty" content (header-only CSV,
+            # []/{} json) only when requested. Shared rule keyed on the response content_type.
             delete_file = True if total == 0 else False
             if delete_if_empty and total > 0:
-                destfile.seek(0)
-                if content_type == "application/json" or content_type == "application/x-json-stream":
-                    buf = destfile.read(16)
-                    if buf == b"[]\n" or buf == b"{}\n":
-                        delete_file = True
-                elif content_type == "text/csv":
-                    reader = csv.reader(codecs.iterdecode(destfile, 'utf-8'))
-                    rowcount = 0
-                    for row in reader:
-                        rowcount += 1
-                        if rowcount > 1:
-                            break
-                    if rowcount <= 1:
-                        delete_file = True
+                delete_file = self._is_empty_content(destfile, total, content_type)
 
             # automatically delete zero-length files or detected "empty" content
             if delete_file:
