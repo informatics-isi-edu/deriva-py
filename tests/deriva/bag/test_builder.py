@@ -248,6 +248,38 @@ def test_builder_add_asset_link_mode_hardlinks_source(tmp_path: Path) -> None:
     assert dest.read_bytes() == b"original bytes"
 
 
+def test_builder_add_asset_link_mode_resolves_symlink_source(
+    tmp_path: Path,
+) -> None:
+    """link=True must embed the REAL file as a regular file in the bag even when
+    the source is a SYMLINK.
+
+    asset_file_path() in deriva-ml stages assets as absolute symlinks. os.link()
+    follows the symlink on macOS/BSD (hardlinks the real file) but hardlinks the
+    SYMLINK INODE on Linux — putting a symlink-to-an-external-path in the bag
+    payload, which corrupts the bag and trips bagit's _path_is_dangerous(). The
+    bag payload must contain the real file's bytes as a regular file on every
+    platform.
+    """
+    real = tmp_path / "real.bin"
+    real.write_bytes(b"real bytes")
+    link = tmp_path / "link.bin"
+    link.symlink_to(real.resolve())  # absolute symlink, as asset_file_path makes
+    assert link.is_symlink()
+
+    out = tmp_path / "bag"
+    bb = BagBuilder(metadata=_two_table_metadata(), output_dir=out)
+    bb.add_asset("Image", "I1", link, link=True)
+    bb.finalize(make_bdbag=False)
+
+    dest = out / "data" / "asset" / "Image" / "I1" / "link.bin"
+    assert dest.is_file()
+    # The load-bearing assertion: the bag payload must not be a symlink.
+    # Fails on Linux pre-fix (hardlink to the symlink inode), passes after.
+    assert not dest.is_symlink(), f"bag payload must not contain a symlink: {dest}"
+    assert dest.read_bytes() == b"real bytes"
+
+
 def test_builder_add_asset_link_mode_survives_source_deletion(
     tmp_path: Path,
 ) -> None:
