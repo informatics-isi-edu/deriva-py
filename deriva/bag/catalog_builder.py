@@ -48,7 +48,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from deriva.core import ErmrestCatalog
+from deriva.core import ErmrestCatalog, urlquote
+from deriva.core.ermrest_catalog import RID_SET_CHUNK_SIZE
 from deriva.core.ermrest_model import Table as DerivaTable
 
 from deriva.bag.anchors import (
@@ -649,26 +650,59 @@ class CatalogBagBuilder:
                 # The engine's ``fetch`` processor reads URL/length/
                 # filename/md5 columns from each asset row and
                 # downloads the bytes to the templated output_path.
-                # One fetch processor per table is enough — assets
-                # are addressed by RID at the destination so the
-                # rows the multi-path CSVs landed already carry
-                # everything ``fetch`` needs.
-                query_processors.append(
-                    {
-                        "processor": "fetch",
-                        "processor_params": {
-                            "query_path": (
-                                f"/attribute/{schema_name}:{table_name}"
-                                f"/url:=URL,length:=Length,"
-                                f"filename:=Filename,md5:=MD5,"
-                                f"asset_rid:=RID"
-                            ),
-                            "output_path": (
-                                f"asset/{{asset_rid}}/{table_name}"
-                            ),
-                        },
-                    }
+                #
+                # The fetch query MUST be scoped to the reachable RID set,
+                # exactly like the csv processor above — otherwise the bag
+                # fetches the bytes of EVERY row in the asset table, not just
+                # the rows reachable from the dataset (a multi-x
+                # over-download on large catalogs). The projection
+                # (url/length/filename/md5/asset_rid) is preserved; only a
+                # ``RID=any(...)`` filter is inserted.
+                #
+                # ``RID=any(...)`` URLs are length-capped, so a large rid set
+                # is split into ``RID_SET_CHUNK_SIZE`` batches — one fetch
+                # processor per chunk. The fetch processors all append to the
+                # same remote-file manifest, so the union across chunks is the
+                # full (scoped) asset set. When no rid set is available
+                # (rid_sets is None), fall back to the unscoped full-table
+                # query — the historical behaviour for non-rid-set callers.
+                projection = (
+                    "url:=URL,length:=Length,filename:=Filename,md5:=MD5,asset_rid:=RID"
                 )
+                output_path = f"asset/{{asset_rid}}/{table_name}"
+                rid_set = None if self.rid_sets is None else self.rid_sets.get(key, [])
+                if rid_set is None:
+                    # No rid-set scoping requested: full-table fetch (legacy).
+                    query_processors.append(
+                        {
+                            "processor": "fetch",
+                            "processor_params": {
+                                "query_path": (
+                                    f"/attribute/{schema_name}:{table_name}/{projection}"
+                                ),
+                                "output_path": output_path,
+                            },
+                        }
+                    )
+                else:
+                    # RID-scoped fetch, chunked to stay under URL-length caps.
+                    # Each RID value is URL-quoted individually; the commas are
+                    # ``any()`` syntax and stay literal (quoting the joined
+                    # string would encode commas and silently return no rows).
+                    for chunk in ErmrestCatalog._rid_set_chunks(rid_set, RID_SET_CHUNK_SIZE):
+                        joined = ",".join(urlquote(str(rid)) for rid in chunk)
+                        query_processors.append(
+                            {
+                                "processor": "fetch",
+                                "processor_params": {
+                                    "query_path": (
+                                        f"/attribute/{schema_name}:{table_name}"
+                                        f"/RID=any({joined})/{projection}"
+                                    ),
+                                    "output_path": output_path,
+                                },
+                            }
+                        )
 
         spec: dict[str, Any] = {
             "bag": {
