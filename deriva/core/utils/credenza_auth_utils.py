@@ -3,6 +3,7 @@ import json
 import base64
 import logging
 import traceback
+from typing import Any
 from argparse import SUPPRESS
 from pprint import pprint
 from requests.exceptions import HTTPError, ConnectionError
@@ -31,7 +32,7 @@ DEVICE_CODE_GRANT           = "urn:ietf:params:oauth:grant-type:device_code"
 TOKEN_ENDPOINT_PATH = "/authn/token"
 
 
-def host_to_url(host, path="/", protocol="https"):
+def host_to_url(host: str | None, path: str = "/", protocol: str = "https") -> str | None:
     if not host:
         return None
     upr = urlparse(host)
@@ -42,7 +43,7 @@ def host_to_url(host, path="/", protocol="https"):
     return url.lower()
 
 
-def _add_resources(url, resources):
+def _add_resources(url: str, resources: str | list[str] | None) -> str:
     """
     Append one or more ?resource=... params to URL.
     Accepts str or list[str]; returns new URL string.
@@ -61,21 +62,21 @@ def _add_resources(url, resources):
 class UsageException(ValueError):
     """Usage exception."""
 
-    def __init__(self, message):
+    def __init__(self, message: str) -> None:
         super(UsageException, self).__init__(message)
 
 
 class ConfidentialClient:
     """Interface for Confidential Client auth methods."""
 
-    def name(self):
+    def name(self) -> str:
         raise NotImplementedError
 
-    def add_cli_args(self, parser):
+    def add_cli_args(self, parser: Any) -> None:
         """Register method-specific CLI flags on the service-token parser."""
         pass
 
-    def prepare(self, session, form, **kwargs):
+    def prepare(self, session: Any, form: list[tuple[str, Any]], **kwargs: Any) -> None:
         """
         Mutate 'form' and/or 'session' headers for /authn/service/token.
 
@@ -89,17 +90,17 @@ class ConfidentialClient:
 _CONFIDENTIAL_CLIENTS = {}  # name -> instance
 
 
-def register_confidential_client(adapter: ConfidentialClient):
+def register_confidential_client(adapter: ConfidentialClient) -> None:
     _CONFIDENTIAL_CLIENTS[adapter.name()] = adapter
 
 
-def get_confidential_client(name):
+def get_confidential_client(name: str) -> ConfidentialClient:
     try:
         return _CONFIDENTIAL_CLIENTS[name]
     except KeyError:
         raise UsageException(f"Unknown auth method: {name}. Available: {', '.join(sorted(_CONFIDENTIAL_CLIENTS))}")
 
-def add_argument_once(parser, *option_strings, **kwargs):
+def add_argument_once(parser: Any, *option_strings: str, **kwargs: Any) -> None:
     """
     Add an argparse option only if none of its option strings are already registered.
 
@@ -112,17 +113,17 @@ def add_argument_once(parser, *option_strings, **kwargs):
 
 
 class AwsPresignedClient(ConfidentialClient):
-    def name(self):
+    def name(self) -> str:
         return "aws_presigned"
 
-    def add_cli_args(self, parser):
+    def add_cli_args(self, parser: Any) -> None:
         parser.add_argument("--aws-region", default="us-west-2",
                        help="STS signing region (default: us-west-2).")
         parser.add_argument("--aws-expires", type=int, default=60,
                        help="Presigned URL validity seconds (default: 60).")
         parser.add_argument("--client-id", help="The client ID. Defaults to %s" % CLIENT_ID, default=CLIENT_ID)
 
-    def prepare(self, session, form, **kwargs):
+    def prepare(self, session: Any, form: list[tuple[str, Any]], **kwargs: Any) -> None:
         aws_region = kwargs.get("aws_region", "us-west-2")
         aws_expires = int(kwargs.get("aws_expires", 60))
         client_id = kwargs.get("client_id")
@@ -148,14 +149,14 @@ class AwsPresignedClient(ConfidentialClient):
             "Successfully generated AWS presigned GetCallerIdentity for client_id %s. URL: %s" % (client_id, url))
 
 class ClientSecretBasicClient(ConfidentialClient):
-    def name(self):
+    def name(self) -> str:
         return "client_secret_basic"
 
-    def add_cli_args(self, parser):
+    def add_cli_args(self, parser: Any) -> None:
         add_argument_once(parser, "--client-id", help="Client ID for client_secret_* methods.")
         add_argument_once(parser, "--client-secret", help="Client secret for client_secret_* methods.")
 
-    def prepare(self, session, form, **kwargs):
+    def prepare(self, session: Any, form: list[tuple[str, Any]], **kwargs: Any) -> None:
         client_id = kwargs.get("client_id")
         client_secret = kwargs.get("client_secret")
         if not client_id or client_secret is None:
@@ -168,14 +169,14 @@ class ClientSecretBasicClient(ConfidentialClient):
 
 
 class ClientSecretPostClient(ConfidentialClient):
-    def name(self):
+    def name(self) -> str:
         return "client_secret_post"
 
-    def add_cli_args(self, parser):
+    def add_cli_args(self, parser: Any) -> None:
         add_argument_once(parser, "--client-id", help="Client ID for client_secret_* methods.")
         add_argument_once(parser, "--client-secret", help="Client secret for client_secret_* methods.")
 
-    def prepare(self, session, form, **kwargs):
+    def prepare(self, session: Any, form: list[tuple[str, Any]], **kwargs: Any) -> None:
         client_id = kwargs.get("client_id")
         client_secret = kwargs.get("client_secret")
         if not client_id or client_secret is None:
@@ -198,13 +199,13 @@ class CredenzaAuthUtil:
     Reusable programmatic API for Credenza auth utilities (no argparse coupling).
     """
 
-    def __init__(self, credential_file = None):
+    def __init__(self, credential_file: str | None = None) -> None:
         self.credential_file = credential_file or DEFAULT_CREDENTIAL_FILE
         self.credentials = None  # loaded lazily
 
 
     @staticmethod
-    def update_bdbag_keychain(token=None, host=None, keychain_file=None, allow_redirects=False, delete=False):
+    def update_bdbag_keychain(token: str | None = None, host: str | None = None, keychain_file: str | None = None, allow_redirects: bool = False, delete: bool = False) -> None:
         if (token is None) or (host is None):
             return
         keychain_file = keychain_file or bdbkc.DEFAULT_KEYCHAIN_FILE
@@ -219,12 +220,12 @@ class CredenzaAuthUtil:
         bdbkc.update_keychain(entry, keychain_file=keychain_file, delete=delete)
 
 
-    def ensure_credentials(self):
+    def ensure_credentials(self) -> None:
         if self.credentials is None:
             self.credentials = read_credential(self.credential_file, create_default=True)
 
 
-    def load_credential(self, host):
+    def load_credential(self, host: str) -> dict[str, Any] | None:
         self.ensure_credentials()
         credential = self.credentials.get(host, self.credentials.get(host.lower()))
         if not credential:
@@ -232,7 +233,7 @@ class CredenzaAuthUtil:
         return credential
 
 
-    def save_credential(self, host, credential=None, auth_type="user"):
+    def save_credential(self, host: str, credential: str | None = None, auth_type: str = "user") -> None:
         self.ensure_credentials()
         if credential is not None:
             self.credentials[host] = {"bearer-token": credential, "auth_type": auth_type}
@@ -241,12 +242,12 @@ class CredenzaAuthUtil:
         write_credential(self.credential_file, self.credentials)
 
 
-    def show_token(self, host: str):
+    def show_token(self, host: str) -> str | None:
         credential = self.load_credential(host) or {}
         return credential.get("bearer-token")
 
 
-    def get_session(self, host: str, *, resources=None):
+    def get_session(self, host: str, *, resources: str | list[str] | None = None) -> dict[str, Any] | None:
         """
         GET /authn/session with Authorization: Bearer <token>.
         Applies default resource (service umbrella) if resources is falsy.
@@ -272,7 +273,7 @@ class CredenzaAuthUtil:
             return None
 
 
-    def put_session(self, host: str, *, refresh_upstream: bool = False, resources=None):
+    def put_session(self, host: str, *, refresh_upstream: bool = False, resources: str | list[str] | None = None) -> dict[str, Any] | None:
         """
         PUT /authn/session to extend the session (or refresh upstream if user session & enabled).
         Applies default resource (service umbrella) if resources is falsy.
@@ -303,13 +304,13 @@ class CredenzaAuthUtil:
     def service_login(self,
                      host: str,
                      *,
-                     auth_method,
-                     resources=None,
-                     scope = None,
-                     requested_ttl_seconds = None,
-                     no_bdbag_keychain= False,
-                     bdbag_keychain_file = None,
-                     **method_kwargs):
+                     auth_method: str,
+                     resources: str | list[str] | None = None,
+                     scope: str | None = None,
+                     requested_ttl_seconds: int | None = None,
+                     no_bdbag_keychain: bool = False,
+                     bdbag_keychain_file: str | None = None,
+                     **method_kwargs: Any) -> dict[str, Any]:
         """
         Issue a service/M2M token via /authn/token.
 
@@ -349,7 +350,7 @@ class CredenzaAuthUtil:
 class CredenzaAuthUtilCLI(BaseCLI):
     """Command-line Interface that wraps CredenzaAuthUtil (API)."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super(CredenzaAuthUtilCLI, self).__init__(*args, **kwargs)
         self.remove_options(['--host', '--token', '--oauth2-token'])
         self.parser.add_argument('--host', required=True, metavar='<host>', help="Fully qualified host name.")
@@ -367,7 +368,7 @@ class CredenzaAuthUtilCLI(BaseCLI):
         self.service_login_init()
 
 
-    def login_init(self):
+    def login_init(self) -> None:
         parser = self.subparsers.add_parser('login',
                                             help="Login with device flow and get tokens for resource access.")
         parser.add_argument("--no-bdbag-keychain", action="store_true",
@@ -389,7 +390,7 @@ class CredenzaAuthUtilCLI(BaseCLI):
         parser.set_defaults(func=self.login)
 
 
-    def logout_init(self):
+    def logout_init(self) -> None:
         parser = self.subparsers.add_parser("logout", help="Logout and revoke all access and refresh tokens.")
         parser.add_argument("--no-bdbag-keychain", action="store_true",
                             help="Do not update the bdbag keychain file by removing access tokens on logout. Default false.")
@@ -398,7 +399,7 @@ class CredenzaAuthUtilCLI(BaseCLI):
         parser.set_defaults(func=self.logout)
 
 
-    def get_session_init(self):
+    def get_session_init(self) -> None:
         parser = self.subparsers.add_parser("get-session",
                                             help="Retrieve information about the current session (user or service).")
         parser.add_argument(
@@ -410,7 +411,7 @@ class CredenzaAuthUtilCLI(BaseCLI):
         parser.set_defaults(func=self.get_session)
 
 
-    def put_session_init(self):
+    def put_session_init(self) -> None:
         parser = self.subparsers.add_parser("put-session",
                                             help="Extend the current session (user or service).")
         parser.add_argument(
@@ -425,13 +426,13 @@ class CredenzaAuthUtilCLI(BaseCLI):
         parser.set_defaults(func=self.put_session)
 
 
-    def show_token_init(self):
+    def show_token_init(self) -> None:
         parser = self.subparsers.add_parser("show-token",
                                             help="Print access token for a given host. Use with caution.")
         parser.set_defaults(func=self.show_token)
 
 
-    def service_login_init(self):
+    def service_login_init(self) -> None:
         parser = self.subparsers.add_parser(
             "service-login",
             help=f"Authenticate as a service/M2M client via {TOKEN_ENDPOINT_PATH} and store the resulting token."
@@ -459,7 +460,7 @@ class CredenzaAuthUtilCLI(BaseCLI):
 
 
     @property
-    def api(self):
+    def api(self) -> CredenzaAuthUtil:
         if self._api is None:
             credential_file = (
                 self.args.credential_file) if hasattr(self.args, "credential_file") else DEFAULT_CREDENTIAL_FILE
@@ -467,11 +468,11 @@ class CredenzaAuthUtilCLI(BaseCLI):
         return self._api
 
 
-    def show_token(self, args):
+    def show_token(self, args: Any) -> str | None:
         return self.api.show_token(args.host)
 
 
-    def get_session(self, args, check_only=False):
+    def get_session(self, args: Any, check_only: bool = False) -> dict[str, Any] | str | None:
         # Default resource if omitted
         resources = args.resource if hasattr(args, "resource") else [DEFAULT_SERVICE_RESOURCE]
         result = self.api.get_session(args.host, resources=resources)
@@ -482,7 +483,7 @@ class CredenzaAuthUtilCLI(BaseCLI):
         return result
 
 
-    def put_session(self, args):
+    def put_session(self, args: Any) -> dict[str, Any] | str:
         resources = args.resource if hasattr(args, "resource") else [DEFAULT_SERVICE_RESOURCE]
         result = self.api.put_session(args.host, refresh_upstream=args.refresh_upstream, resources=resources)
         if result is None:
@@ -491,7 +492,7 @@ class CredenzaAuthUtilCLI(BaseCLI):
 
 
     # Device login/logout are interactive; kept in CLI wrapper for now
-    def login(self, args):
+    def login(self, args: Any) -> str:
         if not sys.stdin.isatty():
             raise RuntimeError("Interactive TTY required for device login.")
 
@@ -562,7 +563,7 @@ class CredenzaAuthUtilCLI(BaseCLI):
         return f"You have been successfully logged in to host '{args.host}'. {token_display}"
 
 
-    def logout(self, args):
+    def logout(self, args: Any) -> str:
         credential = self.api.load_credential(args.host)
         if not credential:
             return "Credential not found. Not logged in."
@@ -585,7 +586,7 @@ class CredenzaAuthUtilCLI(BaseCLI):
         return f"Successfully logged out of host '{args.host}'."
 
 
-    def service_login(self, args):
+    def service_login(self, args: Any) -> str:
         kw = vars(args).copy()
         host = kw.pop("host")
         resources = None
@@ -619,10 +620,10 @@ class CredenzaAuthUtilCLI(BaseCLI):
         return f"Access token ({token_type}) granted by host '{args.host}'. {token_display}"
 
 
-    def main(self):
+    def main(self) -> int:
         args = self.args = self.parse_cli()
 
-        def _cmd_error_message(emsg):
+        def _cmd_error_message(emsg: str) -> str:
             return "{prog} {subcmd}: {msg}".format(
                 prog=self.parser.prog, subcmd=args.subcmd, msg=emsg)
 
@@ -661,7 +662,7 @@ class CredenzaAuthUtilCLI(BaseCLI):
         return 1
 
 
-def main():
+def main() -> int:
     desc = "Credenza Auth Utilities"
     info = "For more information see: https://github.com/informatics-isi-edu/deriva-py"
     return CredenzaAuthUtilCLI(desc, info).main()

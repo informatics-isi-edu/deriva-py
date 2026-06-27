@@ -4,6 +4,7 @@ import sys
 import json
 import requests
 import traceback
+from typing import Any
 from requests.exceptions import HTTPError, ConnectionError
 from deriva.core import __version__ as VERSION, BaseCLI, KeyValuePairArgs, DerivaServer, DerivaPathError, \
     get_credential, format_credential, format_exception, read_config, DEFAULT_SESSION_CONFIG, DEFAULT_HEADERS
@@ -14,7 +15,7 @@ from deriva.core.utils import eprint
 class DerivaCatalogCLIException (Exception):
     """Base exception class for DerivaCatalogCli.
     """
-    def __init__(self, message):
+    def __init__(self, message: str) -> None:
         """Initializes the exception.
         """
         super(DerivaCatalogCLIException, self).__init__(message)
@@ -23,7 +24,7 @@ class DerivaCatalogCLIException (Exception):
 class UsageException (DerivaCatalogCLIException):
     """Usage exception.
     """
-    def __init__(self, message):
+    def __init__(self, message: str) -> None:
         """Initializes the exception.
         """
         super(UsageException, self).__init__(message)
@@ -32,7 +33,7 @@ class UsageException (DerivaCatalogCLIException):
 class ResourceException (DerivaCatalogCLIException):
     """Remote resource exception.
     """
-    def __init__(self, message, cause):
+    def __init__(self, message: str, cause: Any) -> None:
         """Initializes the exception.
         """
         super(ResourceException, self).__init__(message)
@@ -42,7 +43,7 @@ class ResourceException (DerivaCatalogCLIException):
 class DerivaCatalogCLI (BaseCLI):
     """Deriva Catalog Utility Command-line Interface.
     """
-    def __init__(self, description, epilog):
+    def __init__(self, description: str, epilog: str) -> None:
         """Initializes the CLI.
         """
         super(DerivaCatalogCLI, self).__init__(description, epilog, VERSION)
@@ -185,18 +186,18 @@ class DerivaCatalogCLI (BaseCLI):
         del_alias_parser.set_defaults(func=self.catalog_alias_delete)
 
     @staticmethod
-    def _get_credential(host_name, token=None, oauth2_token=None):
+    def _get_credential(host_name: str, token: str | None = None, oauth2_token: str | None = None) -> Any:
         if token or oauth2_token:
             return format_credential(token=token, oauth2_token=oauth2_token)
         else:
             return get_credential(host_name)
 
     @staticmethod
-    def _get_session_config():
+    def _get_session_config() -> Any:
         config = read_config(create_default=True)
         return config.get("session", DEFAULT_SESSION_CONFIG)
 
-    def _post_parser_init(self, args):
+    def _post_parser_init(self, args: Any) -> None:
         """Shared initialization for all sub-commands.
         """
         self.host = args.host if args.host else 'localhost'
@@ -211,7 +212,7 @@ class DerivaCatalogCLI (BaseCLI):
                                    session_config=DerivaCatalogCLI._get_session_config())
 
     @staticmethod
-    def _decorate_headers(headers, file_format, method="get"):
+    def _decorate_headers(headers: dict[str, str], file_format: str, method: str = "get") -> None:
 
         header_format_map = {
             "json": "application/json",
@@ -229,13 +230,13 @@ class DerivaCatalogCLI (BaseCLI):
         else:
             raise UsageException("Unsupported method: %s" % method)
 
-    def catalog_exists(self, args):
+    def catalog_exists(self, args: Any) -> None:
         """Implements the catalog_exists sub-command.
         """
         catalog = self.server.connect_ermrest(self.id)
         print(catalog.exists())
 
-    def catalog_create(self, args):
+    def catalog_create(self, args: Any) -> None:
         """Implements the catalog_create sub-command.
         """
         try:
@@ -257,7 +258,7 @@ class DerivaCatalogCLI (BaseCLI):
             else:
                 raise e
 
-    def catalog_clone(self, args):
+    def catalog_clone(self, args: Any) -> None:
         """Implements the catalog_clone sub-command.
         """
         try:
@@ -275,7 +276,7 @@ class DerivaCatalogCLI (BaseCLI):
             else:
                 raise e
 
-    def catalog_get(self, args):
+    def catalog_get(self, args: Any) -> None:
         """Implements the catalog_get sub-command.
         """
         headers = DEFAULT_HEADERS.copy()
@@ -300,7 +301,7 @@ class DerivaCatalogCLI (BaseCLI):
                 logging.info("Deleting empty output file: %s" % args.output_file)
                 os.remove(args.output_file)
 
-    def catalog_put(self, args):
+    def catalog_put(self, args: Any) -> None:
         """Implements the catalog_put sub-command.
         """
         headers = DEFAULT_HEADERS.copy()
@@ -318,7 +319,7 @@ class DerivaCatalogCLI (BaseCLI):
             else:
                 raise e
 
-    def catalog_post(self, args):
+    def catalog_post(self, args: Any) -> None:
         """Implements the catalog_post sub-command.
         """
         headers = DEFAULT_HEADERS.copy()
@@ -336,7 +337,7 @@ class DerivaCatalogCLI (BaseCLI):
             else:
                 raise e
 
-    def catalog_delete(self, args):
+    def catalog_delete(self, args: Any) -> None:
         """Implements the catalog_delete sub-command.
         """
         headers = DEFAULT_HEADERS.copy()
@@ -350,7 +351,7 @@ class DerivaCatalogCLI (BaseCLI):
             else:
                 raise e
 
-    def catalog_drop(self, args):
+    def catalog_drop(self, args: Any) -> None:
         """Implements the catalog_drop sub-command.
         """
         try:
@@ -362,7 +363,7 @@ class DerivaCatalogCLI (BaseCLI):
             else:
                 raise e
 
-    def catalog_alias_create(self, args):
+    def catalog_alias_create(self, args: Any) -> None:
         """Implements the catalog_alias_create sub-command.
         """
         try:
@@ -389,7 +390,7 @@ class DerivaCatalogCLI (BaseCLI):
             else:
                 raise
 
-    def catalog_alias_get(self, args):
+    def catalog_alias_get(self, args: Any) -> None:
         """Implements the catalog_alias_get sub-command.
         """
         try:
@@ -403,7 +404,7 @@ class DerivaCatalogCLI (BaseCLI):
             else:
                 raise e
 
-    def catalog_alias_update(self, args):
+    def catalog_alias_update(self, args: Any) -> None:
         try:
             owner = args.owner if args.owner else None
             alias = self.server.connect_ermrest_alias(args.id)
@@ -417,7 +418,7 @@ class DerivaCatalogCLI (BaseCLI):
             else:
                 raise
 
-    def catalog_alias_delete(self, args):
+    def catalog_alias_delete(self, args: Any) -> None:
         """Implements the catalog_alias_delete sub-command.
         """
         try:
@@ -429,12 +430,12 @@ class DerivaCatalogCLI (BaseCLI):
             else:
                 raise e
 
-    def main(self):
+    def main(self) -> int:
         """Main routine of the CLI.
         """
         args = self.parse_cli()
 
-        def _resource_error_message(emsg):
+        def _resource_error_message(emsg: Any) -> str:
             return "{prog} {subcmd}: {id}: {msg}".format(
                 prog=self.parser.prog, subcmd=args.subcmd, id=args.id, msg=emsg)
 
@@ -473,7 +474,7 @@ class DerivaCatalogCLI (BaseCLI):
         return 1
 
 
-def main():
+def main() -> int:
     DESC = "DERIVA Catalog Utility Command-Line Interface"
     INFO = "For more information see: https://github.com/informatics-isi-edu/deriva-py"
     return DerivaCatalogCLI(DESC, INFO).main()

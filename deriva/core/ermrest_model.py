@@ -9,12 +9,14 @@ import re
 from collections import OrderedDict
 from collections.abc import Iterable
 from enum import Enum
+from typing import Any, Self
 
 from . import AttrDict, tag, urlquote, stob, mmo
 from . import \
     crockford_b32encode, crockford_b32decode, \
     int_to_uintX, uintX_to_int, \
     datetime_to_epoch_microseconds, epoch_microseconds_to_datetime
+
 
 class NoChange (object):
     """Special class used to distinguish no-change default arguments to methods.
@@ -118,7 +120,7 @@ def sql_literal(v):
 def timestamptz_to_datetime(ts: str) -> datetime.datetime:
     """Convert an ERMrest (i.e. PostgreSQL) timestamptz string to native datetime.
 
-    :param ts: A string in ISO format as serialized by ERMrest.
+    :param str ts: A string in ISO format as serialized by ERMrest.
     """
     # Workaround for fromisoformat() limitations in older Python 3.x:
     # Make sure ISO sring has exactly 6 digits of fractional second
@@ -144,14 +146,14 @@ def timestamptz_to_datetime(ts: str) -> datetime.datetime:
 def datetime_to_timestamptz(dt: datetime.datetime) -> str:
     """Convert a native datetime to an ERMrest timestamptz string.
 
-    :param dt: A timezone-aware datetime.datetime instance.
+    :param datetime.datetime dt: A timezone-aware datetime.datetime instance.
     """
     return dt.isoformat(' ')
 
 def epoch_microseconds_to_snaptime(us: int) -> str:
     """Convert microseconds-since-epoch to ERMrest snaptime format.
 
-    :param us: Signed integer microseconds-since-epoch.
+    :param int us: Signed integer microseconds-since-epoch.
 
     This function includes a bit-shift necessary to introduce the
     padding that ERMrest uses to pack a 64-bit value into a 65-bit
@@ -165,7 +167,7 @@ def epoch_microseconds_to_snaptime(us: int) -> str:
 def snaptime_to_epoch_microseconds(s: str) -> int:
     """Convert ERMrest snaptime format to integer microseconds-since-epoch.
 
-    :param s: The ERMrest snaptime string.
+    :param str s: The ERMrest snaptime string.
 
     This function includes a bit-shift necessary to strip the
     padding that ERMrest uses to pack a 64-bit value into a 65-bit
@@ -176,21 +178,21 @@ def snaptime_to_epoch_microseconds(s: str) -> int:
 def datetime_to_snaptime(dt: datetime.datetime) -> str:
     """Convert a datetime to ERMrest snaptime format.
 
-    :param dt: A timezone-aware datetime.datetime instance.
+    :param datetime.datetime dt: A timezone-aware datetime.datetime instance.
     """
     return epoch_microseconds_to_snaptime(datetime_to_epoch_microseconds(dt))
 
 def snaptime_to_datetime(s: str) -> datetime.datetime:
     """Convert ERMrest snatime format to datetime.
 
-    :param s: The ERMrest snaptime string.
+    :param str s: The ERMrest snaptime string.
     """
     return epoch_microseconds_to_datetime(snaptime_to_epoch_microseconds(s))
 
 def snaptime_to_timestamptz(s: str) -> str:
     """Convert ERMrest stamptime format to ERMrest timestamptz string.
 
-    :param s: The ERMrest snaptime string.
+    :param str s: The ERMrest snaptime string.
 
     """
     return datetime_to_timestamptz(snaptime_to_datetime(s))
@@ -198,7 +200,7 @@ def snaptime_to_timestamptz(s: str) -> str:
 def timestamptz_to_snaptime(ts: str) -> str:
     """Convert ERMrest timestamptz str to ERMrest snaptime format.
 
-    :param ts: A string in ISO datetime format as serialized by ERMrest.
+    :param str ts: A string in ISO datetime format as serialized by ERMrest.
     """
     return datetime_to_snaptime(timestamptz_to_datetime(ts))
 
@@ -410,13 +412,19 @@ class Model (object):
         for sname, schema in self.schemas.items():
             schema.apply(existing.schemas[sname])
 
-    def create_schema(self, schema_def):
+    def create_schema(self, schema_def: dict[str, Any]) -> Schema:
         """Add a new schema to this model in the remote database based on schema_def.
 
-           Returns a new Schema instance based on the server-supplied
-           representation of the newly created schema.
+        Args:
+            schema_def: Schema definition as a dict from Schema.define().
 
-           The returned Schema is also added to self.schemas.
+        Returns:
+            A new Schema instance based on the server-supplied representation
+            of the newly created schema. The returned Schema is also added
+            to self.schemas.
+
+        Raises:
+            ValueError: If a schema with the same name already exists.
         """
         sname = schema_def['schema_name']
         if sname in self.schemas:
@@ -745,16 +753,26 @@ class Schema (object):
         for tname, table in self.tables.items():
             table.apply(existing.tables[tname] if existing else None)
 
-    def alter(self, schema_name=nochange, comment=nochange, acls=nochange, annotations=nochange, update_mappings=UpdateMappings.no_update):
+    def alter(
+        self,
+        schema_name: str | NoChange = nochange,
+        comment: str | None | NoChange = nochange,
+        acls: dict[str, list[str]] | NoChange = nochange,
+        annotations: dict[str, Any] | NoChange = nochange,
+        update_mappings: UpdateMappings = UpdateMappings.no_update,
+    ) -> Self:
         """Alter existing schema definition.
 
-        :param schema_name: Replacement schema name (default nochange)
-        :param comment: Replacement comment (default nochange)
-        :param acls: Replacement ACL configuration (default nochange)
-        :param annotations: Replacement annotations (default nochange)
-        :param update_mappings: Update annotations to reflect changes (default UpdateMappings.no_updates)
+        Args:
+            schema_name: Replacement schema name (default nochange).
+            comment: Replacement comment (default nochange).
+            acls: Replacement ACL configuration (default nochange).
+            annotations: Replacement annotations (default nochange).
+            update_mappings: Update annotations to reflect changes
+                (default UpdateMappings.no_update).
 
-        Returns self (to allow for optional chained access).
+        Returns:
+            Self, to allow for optional chained access.
         """
         changes = strip_nochange({
             'schema_name': schema_name,
@@ -790,13 +808,20 @@ class Schema (object):
 
         return self
 
-    def create_table(self, table_def):
+    def create_table(self, table_def: dict[str, Any]) -> Table:
         """Add a new table to this schema in the remote database based on table_def.
 
-           Returns a new Table instance based on the server-supplied
-           representation of the newly created table.
+        Args:
+            table_def: Table definition as a dict from Table.define() and
+                related methods.
 
-           The returned Table is also added to self.tables.
+        Returns:
+            A new Table instance based on the server-supplied representation
+            of the newly created table. The returned Table is also added
+            to self.tables.
+
+        Raises:
+            ValueError: If a table with the same name already exists.
         """
         tname = table_def['table_name']
         if tname in self.tables:
@@ -1017,10 +1042,10 @@ class Table (object):
     ):
         """Expand implicit references in column_defs into actual column and fkey definitions.
 
-        :param table_name: Name of table, needed to build fkey constraint names
-        :param column_defs: List of column definitions and/or reference targets (see below)
-        :param fkey_defs: List of foreign key definitions
-        :param used_names: Set of reference base names to consider already in use
+        :param str table_name: Name of table, needed to build fkey constraint names
+        :param list[Key | Table | dict | tuple[str, bool, Key | Table] | tuple[str, Key | Table]] column_defs: List of column definitions and/or reference targets (see below)
+        :param Iterable[dict] fkey_defs: List of foreign key definitions
+        :param set[str] used_names: Set of reference base names to consider already in use
 
         Each reference target may be one of:
            - Key
@@ -1168,22 +1193,22 @@ class Table (object):
         acl_bindings: dict = {},
         annotations: dict = {},
         provide_system: bool = True,
-        provide_system_fkeys: book = True,
+        provide_system_fkeys: bool = True,
         key_column_search_order: Iterable[str] | None = None,
     ):
         """Build a table definition.
 
-        :param tname: the name of the newly defined table
-        :param column_defs: a list of custom Column.define() results and/or reference targets (see below)
-        :param key_defs: a list of Key.define() results for extra or overridden key constraint definitions
-        :param fkey_defs: a list of ForeignKey.define() results for foreign key definitions
-        :param comment: a comment string for the table
-        :param acls: a dictionary of ACLs for specific access modes
-        :param acl_bindings: a dictionary of dynamic ACL bindings
-        :param annotations: a dictionary of annotations
-        :param provide_system: whether to inject standard system column definitions when missing from column_defs
-        :param provide_system_fkeys: whether to also inject foreign key definitions for RCB/RMB
-        :param key_column_search_order: override heuristic for choosing a Key from a Table input
+        :param str tname: the name of the newly defined table
+        :param Iterable[dict | Key | Table | tuple[str, bool, Key | Table] | tuple[str, Key | Table]] column_defs: a list of custom Column.define() results and/or reference targets (see below)
+        :param Iterable[dict] key_defs: a list of Key.define() results for extra or overridden key constraint definitions
+        :param Iterable[dict] fkey_defs: a list of ForeignKey.define() results for foreign key definitions
+        :param str | None comment: a comment string for the table
+        :param dict acls: a dictionary of ACLs for specific access modes
+        :param dict acl_bindings: a dictionary of dynamic ACL bindings
+        :param dict annotations: a dictionary of annotations
+        :param bool provide_system: whether to inject standard system column definitions when missing from column_defs
+        :param bool provide_system_fkeys: whether to also inject foreign key definitions for RCB/RMB
+        :param Iterable[str] | None key_column_search_order: override heuristic for choosing a Key from a Table input
 
         Each reference target may be one of:
            - Key
@@ -1246,20 +1271,20 @@ class Table (object):
     ):
         """Build a vocabulary table definition.
 
-        :param tname: the name of the newly defined table
-        :param curie_template: the RID-based template for the CURIE of locally-defined terms, e.g. 'MYPROJECT:{RID}'
-        :param uri_template: the RID-based template for the URI of locally-defined terms, e.g. 'https://server.example.org/id/{RID}'
-        :param column_defs: a list of Column.define() results and/or reference targets (see below)
+        :param str tname: the name of the newly defined table
+        :param str curie_template: the RID-based template for the CURIE of locally-defined terms, e.g. 'MYPROJECT:{RID}'
+        :param str uri_template: the RID-based template for the URI of locally-defined terms, e.g. 'https://server.example.org/id/{RID}'
+        :param Iterable[dict | Key | Table | tuple[str, bool, Key | Table] | tuple[str, Key | Table]] column_defs: a list of Column.define() results and/or reference targets (see below)
         :param key_defs: a list of Key.define() results for extra or overridden key constraint definitions
         :param fkey_defs: a list of ForeignKey.define() results for foreign key definitions
-        :param comment: a comment string for the table
-        :param acls: a dictionary of ACLs for specific access modes
-        :param acl_bindings: a dictionary of dynamic ACL bindings
-        :param annotations: a dictionary of annotations
-        :param provide_system: whether to inject standard system column definitions when missing from column_defs
-        :param provide_system_fkeys: whether to also inject foreign key definitions for RCB/RMB
-        :param provide_name_key: whether to inject a key definition for the Name column
-        :param key_column_search_order: override heuristic for choosing a Key from a Table input
+        :param str | None comment: a comment string for the table
+        :param dict acls: a dictionary of ACLs for specific access modes
+        :param dict acl_bindings: a dictionary of dynamic ACL bindings
+        :param dict annotations: a dictionary of annotations
+        :param bool provide_system: whether to inject standard system column definitions when missing from column_defs
+        :param bool provide_system_fkeys: whether to also inject foreign key definitions for RCB/RMB
+        :param bool provide_name_key: whether to inject a key definition for the Name column
+        :param Iterable[str] | None key_column_search_order: override heuristic for choosing a Key from a Table input
 
         These core vocabulary columns are generated automatically if
         absent from the input column_defs.
@@ -1371,23 +1396,23 @@ class Table (object):
     ):
         """Build an asset  table definition.
 
-          :param sname: the name of the schema for the asset table
-          :param tname: the name of the newly defined table
+          :param str sname: the name of the schema for the asset table
+          :param str tname: the name of the newly defined table
           :param hatrac_template: template for the hatrac URL.  Will undergo substitution to template can include
                  elmenents such at {{{MD5}}} or {{{Filename}}}. The default template puts files in
                      /hatrac/schema_name/table_name/md5.filename
                  where the filename and md5 value is computed on upload and the schema_name and table_name are the
                  values of the provided arguments.  If value is set to False, no hatrac_template is used.
-          :param column_defs: a list of Column.define() results and/or reference targets (see below)
+          :param Iterable[dict | Key | Table | tuple[str, bool, Key | Table] | tuple[str, Key | Table]] column_defs: a list of Column.define() results and/or reference targets (see below)
           :param key_defs: a list of Key.define() results for extra or overridden key constraint definitions
           :param fkey_defs: a list of ForeignKey.define() results for foreign key definitions
-          :param comment: a comment string for the table
-          :param acls: a dictionary of ACLs for specific access modes
-          :param acl_bindings: a dictionary of dynamic ACL bindings
-          :param annotations: a dictionary of annotations
-          :param provide_system: whether to inject standard system column definitions when missing from column_defs
-          :param provide_system_fkeys: whether to also inject foreign key definitions for RCB/RMB
-          :param key_column_search_order: override heuristic for choosing a Key from a Table input
+          :param str | None comment: a comment string for the table
+          :param dict acls: a dictionary of ACLs for specific access modes
+          :param dict acl_bindings: a dictionary of dynamic ACL bindings
+          :param dict annotations: a dictionary of annotations
+          :param bool provide_system: whether to inject standard system column definitions when missing from column_defs
+          :param bool provide_system_fkeys: whether to also inject foreign key definitions for RCB/RMB
+          :param Iterable[str] | None key_column_search_order: override heuristic for choosing a Key from a Table input
 
           These core asset table columns are generated automatically if
           absent from the input column_defs.
@@ -1497,16 +1522,16 @@ class Table (object):
         """Build a wiki-like "page" table definition.
 
         :param tname: the name of the newly defined table
-        :param column_defs: a list of Column.define() results for extra or overridden column definitions
+        :param Iterable[dict | Key | Table | tuple[str, bool, Key | Table] | tuple[str, Key | Table]] column_defs: a list of Column.define() results for extra or overridden column definitions
         :param key_defs: a list of Key.define() results and/or reference targets (see below)
         :param fkey_defs: a list of ForeignKey.define() results for foreign key definitions
-        :param comment: a comment string for the table
-        :param acls: a dictionary of ACLs for specific access modes
-        :param acl_bindings: a dictionary of dynamic ACL bindings
-        :param annotations: a dictionary of annotations
-        :param provide_system: whether to inject standard system column definitions when missing from column_defs
-        :param provide_system_fkeys: whether to also inject foreign key definitions for RCB/RMB
-        :param key_column_search_order: override heuristic for choosing a Key from a Table input
+        :param str | None comment: a comment string for the table
+        :param dict acls: a dictionary of ACLs for specific access modes
+        :param dict acl_bindings: a dictionary of dynamic ACL bindings
+        :param dict annotations: a dictionary of annotations
+        :param bool provide_system: whether to inject standard system column definitions when missing from column_defs
+        :param bool provide_system_fkeys: whether to also inject foreign key definitions for RCB/RMB
+        :param Iterable[str] | None key_column_search_order: override heuristic for choosing a Key from a Table input
 
         These core page columns are generated automatically if absent from the input column_defs.
 
@@ -1601,13 +1626,13 @@ class Table (object):
     ) -> dict:
         """Build an association table definition.
 
-        :param associates: reference targets being associated (see below)
-        :param metadata: additional metadata fields and/or reference targets for impure associations
-        :param table_name: name for the association table or None for default naming
-        :param comment: comment for the association table or None for default comment
-        :param provide_system: add ERMrest system columns when True
-        :param provide_system_fkeys: whether to also inject foreign key definitions for RCB/RMB
-        :param key_column_search_order: override heuristic for choosing a Key from a Table input
+        :param Iterable[Key | Table | tuple[str, Key | Table]] associates: reference targets being associated (see below)
+        :param Iterable[Key | Table | dict | tuple[str, bool, Key | Table]] metadata: additional metadata fields and/or reference targets for impure associations
+        :param str | None table_name: name for the association table or None for default naming
+        :param str | None comment: comment for the association table or None for default comment
+        :param bool provide_system: add ERMrest system columns when True
+        :param bool provide_system_fkeys: whether to also inject foreign key definitions for RCB/RMB
+        :param Iterable[str] | None key_column_search_order: override heuristic for choosing a Key from a Table input
 
         This is a utility function to help build an association table
         definition. It simplifies the task, but removes some
@@ -1782,31 +1807,32 @@ class Table (object):
             fkey.apply(existing.foreign_keys[fkey.name_in_model(existing.schema.model)] if existing else None)
 
     def alter(
-            self,
-            schema_name=nochange,
-            table_name=nochange,
-            comment=nochange,
-            acls=nochange,
-            acl_bindings=nochange,
-            annotations=nochange,
-            update_mappings=UpdateMappings.no_update
-    ):
-        """Alter existing schema definition.
+        self,
+        schema_name: str | NoChange = nochange,
+        table_name: str | NoChange = nochange,
+        comment: str | None | NoChange = nochange,
+        acls: dict[str, list[str]] | NoChange = nochange,
+        acl_bindings: dict[str, Any] | NoChange = nochange,
+        annotations: dict[str, Any] | NoChange = nochange,
+        update_mappings: UpdateMappings = UpdateMappings.no_update,
+    ) -> Self:
+        """Alter existing table definition.
 
-        :param schema_name: Destination schema name (default nochange)
-        :param table_name: Replacement table name (default nochange)
-        :param comment: Replacement comment (default nochange)
-        :param acls: Replacement ACL configuration (default nochange)
-        :param acl_bindings: Replacement ACL bindings (default nochange)
-        :param annotations: Replacement annotations (default nochange)
-        :param update_mappings: Update annotations to reflect changes (default UpdateMappings.no_updates)
+        Args:
+            schema_name: Destination schema name (default nochange).
+                A change of schema name is a transfer of the existing table to
+                an existing destination schema (not a rename of the current
+                containing schema).
+            table_name: Replacement table name (default nochange).
+            comment: Replacement comment (default nochange).
+            acls: Replacement ACL configuration (default nochange).
+            acl_bindings: Replacement ACL bindings (default nochange).
+            annotations: Replacement annotations (default nochange).
+            update_mappings: Update annotations to reflect changes
+                (default UpdateMappings.no_update).
 
-        A change of schema name is a transfer of the existing table to
-        an existing destination schema (not a rename of the current
-        containing schema).
-
-        Returns self (to allow for optional chained access).
-
+        Returns:
+            Self, to allow for optional chained access.
         """
         changes = strip_nochange({
             'schema_name': schema_name,
@@ -1886,12 +1912,18 @@ class Table (object):
             created = created[0]
         return registerfunc(constructor(self, created))
 
-    def create_column(self, column_def: dict) -> Column:
+    def create_column(self, column_def: dict[str, Any]) -> Column:
         """Add a new column to this table in the remote database based on column_def.
 
-           Returns a new Column instance based on the server-supplied
-           representation of the new column, and adds it to
-           self.column_definitions too.
+        Args:
+            column_def: Column definition as a dict from Column.define().
+
+        Returns:
+            A new Column instance based on the server-supplied representation
+            of the new column. The column is also added to self.column_definitions.
+
+        Raises:
+            ValueError: If a column with the same name already exists.
         """
         cname = column_def['name']
         if cname in self.column_definitions.elements:
@@ -1901,26 +1933,30 @@ class Table (object):
             return col
         return self._create_table_part('column', add_column, Column, column_def)
 
-    def create_key(self, key_def: dict) -> Key:
+    def create_key(self, key_def: dict[str, Any]) -> Key:
         """Add a new key to this table in the remote database based on key_def.
 
-           Returns a new Key instance based on the server-supplied
-           representation of the new key, and adds it to self.keys
-           too.
+        Args:
+            key_def: Key definition as a dict from Key.define().
 
+        Returns:
+            A new Key instance based on the server-supplied representation
+            of the new key. The key is also added to self.keys.
         """
         def add_key(key):
             self.keys.append(key)
             return key
         return self._create_table_part('key', add_key, Key, key_def)
 
-    def create_fkey(self, fkey_def: dict) -> ForeignKey:
+    def create_fkey(self, fkey_def: dict[str, Any]) -> ForeignKey:
         """Add a new foreign key to this table in the remote database based on fkey_def.
 
-           Returns a new ForeignKey instance based on the
-           server-supplied representation of the new foreign key, and
-           adds it to self.foreign_keys too.
+        Args:
+            fkey_def: Foreign key definition as a dict from ForeignKey.define().
 
+        Returns:
+            A new ForeignKey instance based on the server-supplied representation
+            of the new foreign key. The foreign key is also added to self.foreign_keys.
         """
         def add_fkey(fkey):
             self.foreign_keys.append(fkey)
@@ -2175,7 +2211,7 @@ class Table (object):
     def sqlite3_ddl(self, keys: bool=True) -> str:
         """Return SQLite3 table definition DDL statement for this table.
 
-        :param keys: If true, include unique constraints for each table key
+        :param bool keys: If true, include unique constraints for each table key
 
         Caveat: this utility does not produce:
         - column default expressions
@@ -2253,8 +2289,8 @@ class Quantifier (str, Enum):
 def find_tables_with_foreign_keys(target_tables: Iterable[Table], quantifier: Quantifier=Quantifier.all) -> set[Table]:
     """Return set of tables with foreign key references to target tables.
 
-    :param target_tables: an iterable of ermrest_model.Table instances
-    :param quantifier: one of the Quantifiers 'any' or 'all' (default 'all')
+    :param Iterable[Table] target_tables: an iterable of ermrest_model.Table instances
+    :param Quantifier quantifier: one of the Quantifiers 'any' or 'all' (default 'all')
 
     Each returned Table instance will be a table that references the
     targets according to the selected quantifier. A reference is a
@@ -2391,31 +2427,33 @@ class Column (object):
             self.alter(**changes)
 
     def alter(
-            self,
-            name=nochange,
-            type=nochange,
-            nullok=nochange,
-            default=nochange,
-            comment=nochange,
-            acls=nochange,
-            acl_bindings=nochange,
-            annotations=nochange,
-            update_mappings=UpdateMappings.no_update
-    ):
-        """Alter existing schema definition.
+        self,
+        name: str | NoChange = nochange,
+        type: Type | NoChange = nochange,
+        nullok: bool | NoChange = nochange,
+        default: Any | NoChange = nochange,
+        comment: str | None | NoChange = nochange,
+        acls: dict[str, list[str]] | NoChange = nochange,
+        acl_bindings: dict[str, Any] | NoChange = nochange,
+        annotations: dict[str, Any] | NoChange = nochange,
+        update_mappings: UpdateMappings = UpdateMappings.no_update,
+    ) -> Self:
+        """Alter existing column definition.
 
-        :param name: Replacement column name (default nochange)
-        :param type: Replacement Type instance (default nochange)
-        :param nullok: Replacement nullok value (default nochange)
-        :param default: Replacement default value (default nochange)
-        :param comment: Replacement comment (default nochange)
-        :param acls: Replacement ACL configuration (default nochange)
-        :param acl_bindings: Replacement ACL bindings (default nochange)
-        :param annotations: Replacement annotations (default nochange)
-        :param update_mappings: Update annotations to reflect changes (default UpdateMappings.no_updates)
+        Args:
+            name: Replacement column name (default nochange).
+            type: Replacement Type instance (default nochange).
+            nullok: Replacement nullok value (default nochange).
+            default: Replacement default value (default nochange).
+            comment: Replacement comment (default nochange).
+            acls: Replacement ACL configuration (default nochange).
+            acl_bindings: Replacement ACL bindings (default nochange).
+            annotations: Replacement annotations (default nochange).
+            update_mappings: Update annotations to reflect changes
+                (default UpdateMappings.no_update).
 
-        Returns self (to allow for optional chained access).
-
+        Returns:
+            Self, to allow for optional chained access.
         """
         if type is not nochange:
             if not isinstance(type, Type):
@@ -2694,21 +2732,23 @@ class Key (object):
             self.alter(**changes)
 
     def alter(
-            self,
-            constraint_name=nochange,
-            comment=nochange,
-            annotations=nochange,
-            update_mappings=UpdateMappings.no_update
-    ):
-        """Alter existing schema definition.
+        self,
+        constraint_name: str | NoChange = nochange,
+        comment: str | None | NoChange = nochange,
+        annotations: dict[str, Any] | NoChange = nochange,
+        update_mappings: UpdateMappings = UpdateMappings.no_update,
+    ) -> Self:
+        """Alter existing key definition.
 
-        :param constraint_name: Unqualified constraint name string
-        :param comment: Replacement comment (default nochange)
-        :param annotations: Replacement annotations (default nochange)
-        :param update_mappings: Update annotations to reflect changes (default UpdateMappings.no_updates)
+        Args:
+            constraint_name: Unqualified constraint name string.
+            comment: Replacement comment (default nochange).
+            annotations: Replacement annotations (default nochange).
+            update_mappings: Update annotations to reflect changes
+                (default UpdateMappings.no_update).
 
-        Returns self (to allow for optional chained access).
-
+        Returns:
+            Self, to allow for optional chained access.
         """
         changes = strip_nochange({
             'comment': comment,
@@ -2998,28 +3038,31 @@ class ForeignKey (object):
             self.alter(**changes)
 
     def alter(
-            self,
-            constraint_name=nochange,
-            on_update=nochange,
-            on_delete=nochange,
-            comment=nochange,
-            acls=nochange,
-            acl_bindings=nochange,
-            annotations=nochange,
-            update_mappings=UpdateMappings.no_update
-    ):
-        """Alter existing schema definition.
+        self,
+        constraint_name: str | NoChange = nochange,
+        on_update: str | NoChange = nochange,
+        on_delete: str | NoChange = nochange,
+        comment: str | None | NoChange = nochange,
+        acls: dict[str, list[str]] | NoChange = nochange,
+        acl_bindings: dict[str, Any] | NoChange = nochange,
+        annotations: dict[str, Any] | NoChange = nochange,
+        update_mappings: UpdateMappings = UpdateMappings.no_update,
+    ) -> Self:
+        """Alter existing foreign key definition.
 
-        :param constraint_name: Replacement constraint name string
-        :param on_update: Replacement on-update action string
-        :param on_delete: Replacement on-delete action string
-        :param comment: Replacement comment (default nochange)
-        :param acls: Replacement ACL configuration (default nochange)
-        :param acl_bindings: Replacement ACL bindings (default nochange)
-        :param annotations: Replacement annotations (default nochange)
-        :param update_mappings: Update annotations to reflect changes (default UpdateMappings.no_updates)
+        Args:
+            constraint_name: Replacement constraint name string.
+            on_update: Replacement on-update action string.
+            on_delete: Replacement on-delete action string.
+            comment: Replacement comment (default nochange).
+            acls: Replacement ACL configuration (default nochange).
+            acl_bindings: Replacement ACL bindings (default nochange).
+            annotations: Replacement annotations (default nochange).
+            update_mappings: Update annotations to reflect changes
+                (default UpdateMappings.no_update).
 
-        Returns self (to allow for optional chained access).
+        Returns:
+            Self, to allow for optional chained access.
 
         """
         changes = strip_nochange({

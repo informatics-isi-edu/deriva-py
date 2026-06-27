@@ -3,6 +3,7 @@ import uuid
 import sys
 import os
 import json
+from typing import Any
 import requests
 from multiprocessing import Queue
 from . import get_new_requests_session, urlquote_dcctx, ConcurrentUpdate, NotModified, DEFAULT_HEADERS, DEFAULT_SESSION_CONFIG
@@ -40,7 +41,7 @@ class DerivaClientContext (dict):
         'wid': uuid.uuid4().hex,
     }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Initialize DerivaClientContext from keywords or dict-like.
 
            Class-wide defaults are used for fields not set explicitly during construction.
@@ -49,7 +50,7 @@ class DerivaClientContext (dict):
         self.set_defaults()
         self.prune()
 
-    def set_defaults(self, defaults=None):
+    def set_defaults(self, defaults: dict[str, Any] | None = None) -> None:
         """Set default key-values in self if key not already set."""
         if defaults is None:
             defaults = self.defaults
@@ -57,7 +58,7 @@ class DerivaClientContext (dict):
             if v is not None and (k not in self or self[k] is None):
                 self[k] = v
 
-    def prune(self):
+    def prune(self) -> None:
         """Prune redundant keys to shorten context representation.
 
            Keys with None value or uinit=False are unnecessary as these
@@ -70,14 +71,14 @@ class DerivaClientContext (dict):
         if 'uinit' in self and not self['uinit']:
             del self['uinit']
 
-    def encoded(self):
+    def encoded(self) -> str:
         """Encode self as string suitable for Deriva-Client-Context HTTP header."""
         self.set_defaults()
         self.prune()
         x = urlquote_dcctx(json.dumps(self, indent=None, separators=(',', ':')))
         return x
 
-    def merged(self, overrides):
+    def merged(self, overrides: dict[str, Any]) -> "DerivaClientContext":
         c = DerivaClientContext(self)
         c.update(overrides)
         return c
@@ -109,7 +110,14 @@ def _response_raise_for_status(self):
 class DerivaBinding (object):
     """This is a base-class for implementation purposes. Not useful for clients."""
 
-    def __init__(self, scheme, server, credentials=None, caching=True, session_config=None):
+    def __init__(
+        self,
+        scheme: str,
+        server: str,
+        credentials: dict[str, Any] | None = None,
+        caching: bool = True,
+        session_config: dict[str, Any] | None = None,
+    ) -> None:
         """Create HTTP(S) server binding.
 
            Arguments:
@@ -154,15 +162,15 @@ class DerivaBinding (object):
 
         self.set_credentials(credentials, server)
 
-    def get_server_uri(self):
+    def get_server_uri(self) -> str:
         return self._server_uri
 
-    def _get_new_session(self, session_config=None):
+    def _get_new_session(self, session_config: dict[str, Any] | None = None) -> None:
         self._close_session()
         self._session = get_new_requests_session(self._server_uri + '/',
                                                  session_config if session_config else self.session_config)
 
-    def _pre_get(self, path, headers):
+    def _pre_get(self, path: str, headers: dict[str, Any]) -> tuple[str, dict[str, Any], requests.Response | None]:
         self.check_path(path)
         url = self._server_uri + path
         headers = headers.copy()
@@ -175,7 +183,12 @@ class DerivaBinding (object):
         headers['deriva-client-context'] = self.dcctx.merged(headers.get('deriva-client-context', {})).encoded()
         return url, headers, prev_response
 
-    def _pre_mutate(self, path, headers, guard_response=None):
+    def _pre_mutate(
+        self,
+        path: str,
+        headers: dict[str, Any],
+        guard_response: requests.Response | None = None,
+    ) -> tuple[str, dict[str, Any]]:
         self.check_path(path)
         url = self._server_uri + path
         headers = headers.copy()
@@ -185,7 +198,7 @@ class DerivaBinding (object):
         return url, headers
 
     @staticmethod
-    def check_path(path):
+    def check_path(path: str) -> None:
         if not path:
             raise DerivaPathError("Path not specified")
 
@@ -193,7 +206,11 @@ class DerivaBinding (object):
             raise DerivaPathError("Malformed path error (not rooted with \"/\"): %s" % path)
 
     @staticmethod
-    def _raise_for_status_304(r, p, raise_not_modified):
+    def _raise_for_status_304(
+        r: requests.Response,
+        p: requests.Response | None,
+        raise_not_modified: bool,
+    ) -> requests.Response:
         if r.status_code == 304:
             if raise_not_modified:
                 raise NotModified(p or r)
@@ -205,14 +222,14 @@ class DerivaBinding (object):
         return r
 
     @staticmethod
-    def _raise_for_status_412(r):
+    def _raise_for_status_412(r: requests.Response) -> requests.Response:
         if r.status_code == 412:
             raise ConcurrentUpdate(r)
         _response_raise_for_status(r)
         setattr(r, 'raise_for_status', _response_raise_for_status.__get__(r))
         return r
 
-    def set_credentials(self, credentials, server):
+    def set_credentials(self, credentials: dict[str, Any] | None, server: str) -> None:
         if not credentials:
             return
         assert self._session is not None
@@ -226,19 +243,24 @@ class DerivaBinding (object):
         elif 'username' in credentials and 'password' in credentials:
             self.post_authn_session(credentials)
 
-    def get_authn_session(self):
+    def get_authn_session(self) -> requests.Response:
         headers = { 'deriva-client-context': self.dcctx.encoded() }
         r = self._session.get(self._auth_uri, headers=headers)
         _response_raise_for_status(r)
         return r
 
-    def post_authn_session(self, credentials):
+    def post_authn_session(self, credentials: dict[str, Any]) -> requests.Response:
         headers = { 'deriva-client-context': self.dcctx.encoded() }
         r = self._session.post(self._auth_uri, data=credentials, headers=headers)
         _response_raise_for_status(r)
         return r
 
-    def head(self, path, headers=DEFAULT_HEADERS, raise_not_modified=False):
+    def head(
+        self,
+        path: str,
+        headers: dict[str, Any] = DEFAULT_HEADERS,
+        raise_not_modified: bool = False,
+    ) -> requests.Response:
         """Perform HEAD request, returning response object.
 
            Arguments:
@@ -261,7 +283,13 @@ class DerivaBinding (object):
             raise_not_modified
         )
         
-    def get(self, path, headers=DEFAULT_HEADERS, raise_not_modified=False, stream=False):
+    def get(
+        self,
+        path: str,
+        headers: dict[str, Any] = DEFAULT_HEADERS,
+        raise_not_modified: bool = False,
+        stream: bool = False,
+    ) -> requests.Response:
         """Perform GET request, returning response object.
 
            Arguments:
@@ -292,7 +320,13 @@ class DerivaBinding (object):
             self._cache[url] = r
         return r
 
-    def post(self, path, data=None, json=None, headers=DEFAULT_HEADERS):
+    def post(
+        self,
+        path: str,
+        data: Any = None,
+        json: Any = None,
+        headers: dict[str, Any] = DEFAULT_HEADERS,
+    ) -> requests.Response:
         """Perform POST request, returning response object.
 
            Arguments:
@@ -308,7 +342,14 @@ class DerivaBinding (object):
         r = self._session.post(url, data=data, json=json, headers=headers)
         return self._raise_for_status_412(r)
 
-    def put(self, path, data=None, json=None, headers=DEFAULT_HEADERS, guard_response=None):
+    def put(
+        self,
+        path: str,
+        data: Any = None,
+        json: Any = None,
+        headers: dict[str, Any] = DEFAULT_HEADERS,
+        guard_response: requests.Response | None = None,
+    ) -> requests.Response:
         """Perform PUT request, returning response object.
 
            Arguments:
@@ -329,7 +370,12 @@ class DerivaBinding (object):
         r = self._session.put(url, data=data, json=json, headers=headers)
         return self._raise_for_status_412(r)
    
-    def delete(self, path, headers=DEFAULT_HEADERS, guard_response=None):
+    def delete(
+        self,
+        path: str,
+        headers: dict[str, Any] = DEFAULT_HEADERS,
+        guard_response: requests.Response | None = None,
+    ) -> requests.Response:
         """Perform DELETE request, returning response object.
 
            Arguments:
@@ -348,10 +394,10 @@ class DerivaBinding (object):
         r = self._session.delete(url, headers=headers)
         return self._raise_for_status_412(r)
 
-    def _close_session(self):
+    def _close_session(self) -> None:
         if self._session is not None:
             self._session.close()
             self._session = None
 
-    def __del__(self):
+    def __del__(self) -> None:
         self._close_session()

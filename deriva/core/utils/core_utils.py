@@ -17,6 +17,7 @@ from urllib.parse import quote as _urlquote, unquote as urlunquote
 from urllib.parse import urlparse, urlsplit, urlunsplit, urljoin
 from http.cookiejar import MozillaCookieJar
 from typing import Any, Union
+from typing import Callable
 from collections.abc import Iterable
 
 Kilobyte = 1024
@@ -80,7 +81,7 @@ class ConcurrentUpdate (ValueError):
     pass
 
 
-def urlquote(s, safe=''):
+def urlquote(s: str, safe: str = '') -> str:
     """Quote all reserved characters according to RFC3986 unless told otherwise.
 
        The urllib.urlquote has a weird default which excludes '/' from
@@ -93,7 +94,7 @@ def urlquote(s, safe=''):
     return _urlquote(s.encode('utf-8'), safe=safe)
 
 
-def urlquote_dcctx(s, safe='~{}",:'):
+def urlquote_dcctx(s: str, safe: str = '~{}",:') -> str:
     """Quote for use with Deriva-Client-Context or other HTTP headers.
 
        Defaults to allow additional safe characters for less
@@ -104,7 +105,7 @@ def urlquote_dcctx(s, safe='~{}",:'):
     return urlquote(s, safe=safe)
 
 
-def stob(val):
+def stob(val: Any) -> bool:
     """Convert a string representation of truth to True or False. Lifted and slightly modified from distutils.
 
     True values are 'y', 'yes', 't', 'true', 'on', and '1'; false values
@@ -119,7 +120,7 @@ def stob(val):
     else:
         raise ValueError("invalid truth value %r" % (val,))
 
-def format_exception(e):
+def format_exception(e: Exception) -> str:
     if not isinstance(e, Exception):
         return str(e)
     exc = "".join(("[", type(e).__name__, "] "))
@@ -129,7 +130,7 @@ def format_exception(e):
     return "".join((exc, str(e)))
 
 
-def add_logging_level(level_name, level_num, method_name=None):
+def add_logging_level(level_name: str, level_num: int, method_name: str | None = None) -> None:
     if not method_name:
         method_name = level_name.lower()
 
@@ -143,11 +144,11 @@ def add_logging_level(level_name, level_num, method_name=None):
         logging.warning('{} already defined in logger class'.format(method_name))
         return
 
-    def log_for_level(self, message, *args, **kwargs):
+    def log_for_level(self, message: object, *args: Any, **kwargs: Any) -> None:
         if self.isEnabledFor(level_num):
             self._log(level_num, message, args, **kwargs)
 
-    def log_to_root(message, *args, **kwargs):
+    def log_to_root(message: object, *args: Any, **kwargs: Any) -> None:
         logging.log(level_num, message, *args, **kwargs)
 
     logging.addLevelName(level_num, level_name)
@@ -156,12 +157,12 @@ def add_logging_level(level_name, level_num, method_name=None):
     setattr(logging, method_name, log_to_root)
 
 
-def init_logging(level=logging.INFO,
-                 log_format=None,
-                 file_path=None,
-                 file_mode='w',
-                 capture_warnings=True,
-                 logger_config=DEFAULT_LOGGER_OVERRIDES):
+def init_logging(level: int = logging.INFO,
+                 log_format: str | None = None,
+                 file_path: str | None = None,
+                 file_mode: str = 'w',
+                 capture_warnings: bool = True,
+                 logger_config: dict[str, int] = DEFAULT_LOGGER_OVERRIDES) -> None:
     add_logging_level("TRACE", logging.DEBUG-5)
     logging.captureWarnings(capture_warnings)
     if log_format is None:
@@ -176,7 +177,7 @@ def init_logging(level=logging.INFO,
 
 
 class TimeoutHTTPAdapter(HTTPAdapter):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         self.timeout = DEFAULT_REQUESTS_TIMEOUT
         if "timeout" in kwargs:
             timeout = kwargs["timeout"]
@@ -184,14 +185,15 @@ class TimeoutHTTPAdapter(HTTPAdapter):
             del kwargs["timeout"]
         super().__init__(*args, **kwargs)
 
-    def send(self, request, **kwargs):
+    def send(self, request: requests.PreparedRequest, **kwargs: Any) -> requests.Response:
         timeout = kwargs.get("timeout")
         if timeout is None:
             kwargs["timeout"] = self.timeout
         return super().send(request, **kwargs)
 
 
-def get_new_requests_session(url=None, session_config=DEFAULT_SESSION_CONFIG):
+def get_new_requests_session(url: str | None = None,
+                             session_config: dict[str, Any] = DEFAULT_SESSION_CONFIG) -> requests.Session:
     session = requests.session()
     retries = Retry(connect=session_config['retry_connect'],
                     read=session_config['retry_read'],
@@ -215,7 +217,7 @@ def get_new_requests_session(url=None, session_config=DEFAULT_SESSION_CONFIG):
     return session
 
 
-def make_dirs(path, mode=0o777):
+def make_dirs(path: str, mode: int = 0o777) -> None:
     if not os.path.isdir(path):
         try:
             os.makedirs(path, mode=mode)
@@ -224,13 +226,13 @@ def make_dirs(path, mode=0o777):
                 raise
 
 
-def copy_config(src, dst):
+def copy_config(src: str, dst: str) -> None:
     config_dir = os.path.dirname(dst)
     make_dirs(config_dir, mode=0o750)
     shutil.copy2(src, dst)
 
 
-def write_config(config_file=DEFAULT_CONFIG_FILE, config=DEFAULT_CONFIG):
+def write_config(config_file: str = DEFAULT_CONFIG_FILE, config: dict[str, Any] = DEFAULT_CONFIG) -> None:
     config_dir = os.path.dirname(config_file)
     make_dirs(config_dir, mode=0o750)
     with io.open(config_file, 'w', newline='\n', encoding='utf-8') as cf:
@@ -239,7 +241,9 @@ def write_config(config_file=DEFAULT_CONFIG_FILE, config=DEFAULT_CONFIG):
         cf.close()
 
 
-def read_config(config_file=DEFAULT_CONFIG_FILE, create_default=False, default=DEFAULT_CONFIG):
+def read_config(config_file: str = DEFAULT_CONFIG_FILE,
+                create_default: bool = False,
+                default: dict[str, Any] = DEFAULT_CONFIG) -> dict[str, Any]:
     if not config_file:
         config_file = DEFAULT_CONFIG_FILE
 
@@ -260,13 +264,14 @@ def read_config(config_file=DEFAULT_CONFIG_FILE, create_default=False, default=D
         return default
 
 
-def lock_file(file_path, mode, exclusive=True, timeout=60):
+def lock_file(file_path: str, mode: str, exclusive: bool = True, timeout: float = 60) -> portalocker.Lock:
     return portalocker.Lock(file_path, mode=mode, timeout=timeout, fail_when_locked=True,
                             flags=(portalocker.LOCK_EX | portalocker.LOCK_NB) if exclusive else
                             (portalocker.LOCK_SH | portalocker.LOCK_NB))
 
 
-def write_credential(credential_file=DEFAULT_CREDENTIAL_FILE, credential=DEFAULT_CREDENTIAL):
+def write_credential(credential_file: str = DEFAULT_CREDENTIAL_FILE,
+                     credential: dict[str, Any] = DEFAULT_CREDENTIAL) -> None:
     credential_dir = os.path.dirname(credential_file)
     make_dirs(credential_dir, mode=0o750)
     with lock_file(credential_file, mode='w', exclusive=True) as cf:
@@ -277,7 +282,9 @@ def write_credential(credential_file=DEFAULT_CREDENTIAL_FILE, credential=DEFAULT
         os.fsync(cf.fileno())
 
 
-def read_credential(credential_file=DEFAULT_CREDENTIAL_FILE, create_default=False, default=DEFAULT_CREDENTIAL):
+def read_credential(credential_file: str = DEFAULT_CREDENTIAL_FILE,
+                    create_default: bool = False,
+                    default: dict[str, Any] = DEFAULT_CREDENTIAL) -> dict[str, Any]:
     if not credential_file:
         credential_file = DEFAULT_CREDENTIAL_FILE
 
@@ -298,10 +305,10 @@ def read_credential(credential_file=DEFAULT_CREDENTIAL_FILE, create_default=Fals
         return default
 
 
-def get_oauth_scopes_for_host(host,
-                              config_file=DEFAULT_CONFIG_FILE,
-                              force_refresh=False,
-                              warn_on_discovery_failure=False):
+def get_oauth_scopes_for_host(host: str,
+                              config_file: str = DEFAULT_CONFIG_FILE,
+                              force_refresh: bool = False,
+                              warn_on_discovery_failure: bool = False) -> Any:
     config = read_config(config_file or DEFAULT_CONFIG_FILE, create_default=True)
     required_scopes = config.get(OAUTH2_SCOPES_KEY)
     result = dict()
@@ -343,7 +350,10 @@ def get_oauth_scopes_for_host(host,
     return result
 
 
-def format_credential(token=None, oauth2_token=None, username=None, password=None):
+def format_credential(token: str | None = None,
+                      oauth2_token: str | None = None,
+                      username: str | None = None,
+                      password: str | None = None) -> dict[str, str]:
     if username and password:
         return {"username": username, "password": password}
     credential = dict()
@@ -358,13 +368,13 @@ def format_credential(token=None, oauth2_token=None, username=None, password=Non
     return credential
 
 
-def bootstrap(logging_level=logging.INFO):
+def bootstrap(logging_level: int = logging.INFO) -> None:
     init_logging(level=logging_level)
     read_config(create_default=True)
     read_credential(create_default=True)
 
 
-def load_cookies_from_file(cookie_file=None):
+def load_cookies_from_file(cookie_file: str | None = None) -> MozillaCookieJar:
     if not cookie_file:
         cookie_file = DEFAULT_SESSION_CONFIG["cookie_jar"]
     cookies = MozillaCookieJar()
@@ -383,13 +393,13 @@ def load_cookies_from_file(cookie_file=None):
     return cookies
 
 
-def resource_path(relative_path, default=os.path.abspath(".")):
+def resource_path(relative_path: str, default: str | None = os.path.abspath(".")) -> str:
     if default is None:
         return relative_path
     return os.path.join(default, relative_path)
 
 
-def get_transfer_summary(total_bytes, elapsed_time):
+def get_transfer_summary(total_bytes: int, elapsed_time: datetime.timedelta) -> str:
     total_secs = elapsed_time.total_seconds()
     transferred = \
         float(total_bytes) / float(Kilobyte) if total_bytes < Megabyte else float(total_bytes) / float(Megabyte)
@@ -400,10 +410,10 @@ def get_transfer_summary(total_bytes, elapsed_time):
     return summary
 
 
-def calculate_optimal_transfer_shape(size,
-                                     chunk_limit=DEFAULT_MAX_CHUNK_LIMIT,
-                                     requested_chunk_size=DEFAULT_CHUNK_SIZE,
-                                     byte_align=Kilobyte * 64):
+def calculate_optimal_transfer_shape(size: int,
+                                     chunk_limit: int = DEFAULT_MAX_CHUNK_LIMIT,
+                                     requested_chunk_size: int = DEFAULT_CHUNK_SIZE,
+                                     byte_align: int = Kilobyte * 64) -> tuple[int, int, int]:
     if size == 0:
         return DEFAULT_CHUNK_SIZE, 1, 0
     if size < 0:
@@ -425,7 +435,7 @@ def calculate_optimal_transfer_shape(size,
     return chosen_chunk_size, chunk_count, remainder
 
 
-def json_item_handler(input_file, callback):
+def json_item_handler(input_file: str, callback: Callable[[Any], Any] | None) -> None:
     with io.open(input_file, "r", encoding='utf-8') as infile:
         line = infile.readline().lstrip()
         infile.seek(0)
@@ -447,7 +457,7 @@ def json_item_handler(input_file, callback):
 def topo_ranked(depmap: dict[Any,Union[set,Iterable]]) -> list[set]:
     """Return list-of-sets representing values in ranked tiers as a topological partial order.
 
-    :param depmap: Dictionary mapping of values to required values.
+    :param dict[Any,Union[set,Iterable]] depmap: Dictionary mapping of values to required values.
 
     The entire set of values to rank must be represented as keys in
     depmap, and therefore must be hashable. For each depmap key, the
@@ -464,7 +474,7 @@ def topo_ranked(depmap: dict[Any,Union[set,Iterable]]) -> list[set]:
     Raises ValueError if a requirement cannot be satisfied in any order.
 
     """
-    def opportunistic_set(s):
+    def opportunistic_set(s: set | Iterable) -> set:
         if isinstance(s, set):
             return s
         elif isinstance(s, Iterable):
@@ -504,7 +514,7 @@ def topo_ranked(depmap: dict[Any,Union[set,Iterable]]) -> list[set]:
 def topo_sorted(depmap: dict[Any,Union[set,Iterable]]) -> list:
     """Return list of items topologically sorted.
 
-    :param depmap: Dictionary mapping of values to required values.
+    :param dict[Any,Union[set,Iterable]] depmap: Dictionary mapping of values to required values.
 
     This is a simple wrapper to flatten the partially ordered output
     of topo_ranked(depmap) into an arbitrary total order.
@@ -530,8 +540,8 @@ _crockford_base32_codex = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
 def crockford_b32encode(v: int, grplen: int=4) -> str:
     """Encode a non-negative integer using the Crockford Base-32 representation.
 
-    :param v: Non-negative integer value to encode.
-    :param grplen: Non-negative number of output symbols in each group.
+    :param int v: Non-negative integer value to encode.
+    :param int grplen: Non-negative number of output symbols in each group.
 
     The input integer value is interpreted as an arbitrary-length bit
     stream of length v.bit_length(). The input integer is
@@ -590,7 +600,7 @@ def crockford_b32encode(v: int, grplen: int=4) -> str:
 def crockford_b32decode(s: str) -> int:
     """Decode Crockford base-32 string representation to non-negative integer.
 
-    :param s: String to decode.
+    :param str s: String to decode.
 
     The input string is decoded as a sequence of Crockford Base-32
     symbols, each encoding 5 bits, such that the first symbol
@@ -642,8 +652,8 @@ def crockford_b32decode(s: str) -> int:
 def int_to_uintX(i: int, nbits: int) -> int:
     """Cast integer to an unsigned integer of desired width.
 
-    :param i: Signed integer to encode.
-    :param nbits: Number output bits.
+    :param int i: Signed integer to encode.
+    :param int nbits: Number output bits.
 
     For negative inputs, the requested nbits must be equal or greater
     than i.bit_length(). For non-negative inputs, the requested nbits
@@ -678,8 +688,8 @@ def int_to_uintX(i: int, nbits: int) -> int:
 def uintX_to_int(b: int, nbits: int) -> int:
     """Cast unsigned integer of known width into signed integer.
 
-    :param b: The non-negative integer holding bits to convert.
-    :param nbits: The number of input bits.
+    :param int b: The non-negative integer holding bits to convert.
+    :param int nbits: The number of input bits.
 
     The specified input nbits must be equal or greater than
     i.bit_length(). The input bits are interpreted as 2's complement,
@@ -715,7 +725,7 @@ def uintX_to_int(b: int, nbits: int) -> int:
 def datetime_to_epoch_microseconds(dt: datetime.datetime) -> int:
     """Convert a datatime to integer microseconds-since-epoch.
 
-    :param dt: A timezone-aware datetime.datetime instance.
+    :param datetime.datetime dt: A timezone-aware datetime.datetime instance.
     """
     # maintain exact microsecond precision in integer result
     delta = dt - datetime.datetime(
@@ -727,7 +737,7 @@ def datetime_to_epoch_microseconds(dt: datetime.datetime) -> int:
 def epoch_microseconds_to_datetime(us: int) -> datetime.datetime:
     """Convert integer microseconds-since-epoch to timezone-aware datetime.
 
-    :param us: Integer microseconds-since-epoch.
+    :param int us: Integer microseconds-since-epoch.
     """
     return datetime.datetime(
         1970, 1, 1, tzinfo=datetime.timezone.utc
@@ -742,16 +752,16 @@ class AttrDict (dict):
        For keys that are valid attributes, self.key is equivalent to
        self[key].
     """
-    def __getattr__(self, a):
+    def __getattr__(self, a: str) -> Any:
         try:
             return self[a]
         except KeyError as e:
             raise AttributeError(str(e))
 
-    def __setattr__(self, a, v):
+    def __setattr__(self, a: str, v: Any) -> None:
         self[a] = v
 
-    def update(self, d):
+    def update(self, d: dict) -> None:
         dict.update(self, d)
 
 

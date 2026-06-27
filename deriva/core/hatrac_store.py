@@ -2,6 +2,7 @@ import os
 import datetime
 import requests
 import logging
+from typing import Any, BinaryIO, Callable
 from . import format_exception, NotModified, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, DEFAULT_MAX_CHUNK_LIMIT, \
     DEFAULT_MAX_REQUEST_SIZE, urlquote, Megabyte, get_transfer_summary, calculate_optimal_transfer_shape
 from .deriva_binding import DerivaBinding
@@ -25,7 +26,8 @@ class HatracJobTimeout (Exception):
 
 
 class HatracStore(DerivaBinding):
-    def __init__(self, scheme, server, credentials=None, session_config=None):
+    def __init__(self, scheme: str, server: str, credentials: dict | None = None,
+                 session_config: dict | None = None) -> None:
         """Create Hatrac server binding.
 
            Arguments:
@@ -50,12 +52,14 @@ class HatracStore(DerivaBinding):
         """
         DerivaBinding.__init__(self, scheme, server, credentials, caching=False, session_config=session_config)
 
-    def content_equals(self, path, filename=None, md5=None, sha256=None):
+    def content_equals(self, path: str, filename: str | None = None, md5: str | None = None,
+                       sha256: str | None = None) -> bool:
         """
         Check if a remote object's content is equal to the content of the at least one of the specified input file,
         input md5, or input sha256 by comparing MD5 hashes.
         :return: True IFF the object exists and the MD5 or SHA256 hash matches the MD5 or SHA256 hash of the input file
                  or the passed MD5 or SHA256 parameters.
+        :rtype: bool
         """
         self.check_path(path)
 
@@ -72,11 +76,11 @@ class HatracStore(DerivaBinding):
         else:
             return False
 
-    def get_obj(self, path,
-                headers=DEFAULT_HEADERS,
-                destfilename=None,
-                callback=None,
-                chunk_size=DEFAULT_CHUNK_SIZE):
+    def get_obj(self, path: str,
+                headers: dict = DEFAULT_HEADERS,
+                destfilename: str | None = None,
+                callback: Callable | None = None,
+                chunk_size: int = DEFAULT_CHUNK_SIZE) -> requests.Response | None:
         """Retrieve resource optionally streamed to destination file.
 
            If destfilename is provided, download content to file with
@@ -152,16 +156,16 @@ class HatracStore(DerivaBinding):
                 destfile.close()
 
     def put_obj(self,
-                path,
-                data,
-                headers=DEFAULT_HEADERS,
-                md5=None,
-                sha256=None,
-                parents=True,
-                content_type=None,
-                content_disposition=None,
-                allow_versioning=True,
-                force=False):
+                path: str,
+                data: str | BinaryIO,
+                headers: dict = DEFAULT_HEADERS,
+                md5: str | None = None,
+                sha256: str | None = None,
+                parents: bool = True,
+                content_type: str | None = None,
+                content_disposition: str | None = None,
+                allow_versioning: bool = True,
+                force: bool = False) -> str:
         """Idempotent upload of object, returning object location URI.
 
            Arguments:
@@ -246,7 +250,7 @@ class HatracStore(DerivaBinding):
             loc = loc[len(self._server_uri):]
         return loc
 
-    def del_obj(self, path):
+    def del_obj(self, path: str) -> None:
         """Delete an object.
         """
         self.check_path(path)
@@ -254,19 +258,20 @@ class HatracStore(DerivaBinding):
         logging.debug('Deleted object "%s%s".' % (self._server_uri, path))
 
     def rename_obj(self,
-                   source_path,
-                   path,
-                   versions=None,
-                   copy_acls=False,
-                   headers=DEFAULT_HEADERS):
+                   source_path: str,
+                   path: str,
+                   versions: list[str] | None = None,
+                   copy_acls: bool = False,
+                   headers: dict = DEFAULT_HEADERS) -> str:
         """Rename object optionally specifying versions to process and whether to copy acls.
 
-        :param source_path: source object path
-        :param path: new path for object
-        :param versions: list of object versions to process, by default it processes all versions
-        :param copy_acls: if true, copy all source acls, else default to set basic ownership like a new object version
-        :param headers: headers to send to hatrac
+        :param str source_path: source object path
+        :param str path: new path for object
+        :param list[str] | None versions: list of object versions to process, by default it processes all versions
+        :param bool copy_acls: if true, copy all source acls, else default to set basic ownership like a new object version
+        :param dict headers: headers to send to hatrac
         :return: resource location
+        :rtype: str
         """
         self.check_path(source_path)
         self.check_path(path)
@@ -302,36 +307,37 @@ class HatracStore(DerivaBinding):
         return loc
 
     def put_loc(self,
-                path,
-                file_path,
-                headers=DEFAULT_HEADERS,
-                md5=None,
-                sha256=None,
-                content_type=None,
-                content_disposition=None,
-                chunked=False,
-                chunk_size=DEFAULT_CHUNK_SIZE,
-                create_parents=True,
-                allow_versioning=True,
-                callback=None,
-                cancel_job_on_error=True,
-                force=False):
+                path: str,
+                file_path: str,
+                headers: dict = DEFAULT_HEADERS,
+                md5: str | None = None,
+                sha256: str | None = None,
+                content_type: str | None = None,
+                content_disposition: str | None = None,
+                chunked: bool = False,
+                chunk_size: int = DEFAULT_CHUNK_SIZE,
+                create_parents: bool = True,
+                allow_versioning: bool = True,
+                callback: Callable | None = None,
+                cancel_job_on_error: bool = True,
+                force: bool = False) -> str:
         """
-        :param path:
-        :param file_path:
-        :param headers:
-        :param md5:
-        :param sha256:
-        :param content_type:
-        :param content_disposition:
-        :param chunked:
-        :param chunk_size:
-        :param create_parents:
-        :param allow_versioning:
-        :param callback:
-        :param cancel_job_on_error:
-        :param force:
+        :param str path:
+        :param str file_path:
+        :param dict headers:
+        :param str | None md5:
+        :param str | None sha256:
+        :param str | None content_type:
+        :param str | None content_disposition:
+        :param bool chunked:
+        :param int chunk_size:
+        :param bool create_parents:
+        :param bool allow_versioning:
+        :param Callable | None callback:
+        :param bool cancel_job_on_error:
+        :param bool force:
         :return:
+        :rtype: str
         """
         self.check_path(path)
 
@@ -385,8 +391,9 @@ class HatracStore(DerivaBinding):
         except (requests.Timeout, requests.ConnectionError, requests.exceptions.RetryError) as e:
             raise HatracJobTimeout(e)
 
-    def put_obj_chunked(self, path, file_path, job_id,
-                        chunk_size=DEFAULT_CHUNK_SIZE, callback=None, start_chunk=0, cancel_job_on_error=True):
+    def put_obj_chunked(self, path: str, file_path: str, job_id: str,
+                        chunk_size: int = DEFAULT_CHUNK_SIZE, callback: Callable | None = None,
+                        start_chunk: int = 0, cancel_job_on_error: bool = True) -> None:
         self.check_path(path)
         job_info = self.get_upload_job(path, job_id).json()
         chunk_size = job_info.get("chunk-length", chunk_size)
@@ -439,14 +446,14 @@ class HatracStore(DerivaBinding):
             raise
 
     def create_upload_job(self,
-                          path,
-                          file_path,
-                          md5,
-                          sha256,
-                          create_parents=True,
-                          chunk_size=DEFAULT_CHUNK_SIZE,
-                          content_type=None,
-                          content_disposition=None):
+                          path: str,
+                          file_path: str,
+                          md5: str | None,
+                          sha256: str | None,
+                          create_parents: bool = True,
+                          chunk_size: int = DEFAULT_CHUNK_SIZE,
+                          content_type: str | None = None,
+                          content_disposition: str | None = None) -> str:
         self.check_path(path)
         max_chunk_size, chunk_count, remainder = \
             calculate_optimal_transfer_shape(os.path.getsize(file_path),
@@ -472,27 +479,27 @@ class HatracStore(DerivaBinding):
         logging.debug('Created job_id "%s" for url "%s".' % (job_id,  url))
         return job_id
 
-    def get_upload_job(self, path, job_id):
+    def get_upload_job(self, path: str, job_id: str) -> requests.Response:
         self.check_path(path)
         url = '%s;upload/%s' % (path, job_id)
         headers = {}
         r = self.get(url, headers=headers)
         return r
 
-    def finalize_upload_job(self, path, job_id):
+    def finalize_upload_job(self, path: str, job_id: str) -> str:
         self.check_path(path)
         url = '%s;upload/%s' % (path, job_id)
         headers = {}
         r = self.post(url, headers=headers)
         return r.text.strip()
 
-    def cancel_upload_job(self, path, job_id):
+    def cancel_upload_job(self, path: str, job_id: str) -> None:
         self.check_path(path)
         url = '%s;upload/%s' % (path, job_id)
         headers = {}
         self.delete(url, headers=headers)
 
-    def is_valid_namespace(self, namespace_path):
+    def is_valid_namespace(self, namespace_path: str) -> bool:
         """Check if a namespace already exists.
         """
         headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
@@ -504,14 +511,14 @@ class HatracStore(DerivaBinding):
                 return False
             raise
 
-    def retrieve_namespace(self, namespace_path):
+    def retrieve_namespace(self, namespace_path: str) -> Any:
         """Retrieve a namespace.
         """
         headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
         resp = self.get(namespace_path, headers)
         return resp.json()
 
-    def create_namespace(self, namespace_path, parents=True):
+    def create_namespace(self, namespace_path: str, parents: bool = True) -> None:
         """Create a namespace.
         """
         self.check_path(namespace_path)
@@ -520,7 +527,7 @@ class HatracStore(DerivaBinding):
         self.put(url, headers=headers)
         logging.debug('Created namespace "%s%s".' % (self._server_uri, namespace_path))
 
-    def delete_namespace(self, namespace_path):
+    def delete_namespace(self, namespace_path: str) -> None:
         """Delete a namespace.
         """
         self.check_path(namespace_path)
@@ -528,7 +535,7 @@ class HatracStore(DerivaBinding):
         self.delete(namespace_path, headers=headers)
         logging.debug('Deleted namespace "%s%s".' % (self._server_uri, namespace_path))
 
-    def get_acl(self, resource_name, access=None, role=None):
+    def get_acl(self, resource_name: str, access: str | None = None, role: str | None = None) -> dict[str, Any]:
         """Get the object or namespace ACL resource.
         """
         headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
@@ -547,7 +554,7 @@ class HatracStore(DerivaBinding):
         else:
             return resp.json()
 
-    def set_acl(self, resource_name, access, roles, add_role=False):
+    def set_acl(self, resource_name: str, access: str, roles: list[str], add_role: bool = False) -> None:
         """Set the object or namespace ACL resource.
 
         if 'add_role' is True, the operation will add a single role to the ACL, else it will attempt to replace
@@ -565,7 +572,7 @@ class HatracStore(DerivaBinding):
         self.put(url, json=roles_obj, headers=headers)
         return None
 
-    def del_acl(self, resource_name, access, role=None):
+    def del_acl(self, resource_name: str, access: str, role: str | None = None) -> None:
         """Delete the object or namespace ACL resource.
         """
         headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}

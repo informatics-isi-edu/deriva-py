@@ -1,5 +1,6 @@
 __version__ = "1.7.13"
 
+from typing import Any
 from deriva.core.utils.core_utils import *
 from deriva.core.base_cli import BaseCLI, KeyValuePairArgs
 from deriva.core.deriva_binding import DerivaBinding, DerivaPathError, DerivaClientContext
@@ -11,36 +12,37 @@ from deriva.core.hatrac_store import HatracStore, HatracHashMismatch, HatracJobP
 from deriva.core.utils.globus_auth_utils import GlobusNativeLogin
 
 
-def get_credential(host,
-                   credential_file=DEFAULT_CREDENTIAL_FILE,
-                   globus_credential_file=DEFAULT_GLOBUS_CREDENTIAL_FILE,
-                   config_file=DEFAULT_CONFIG_FILE,
-                   requested_scope=None,
-                   force_scope_lookup=False,
-                   match_scope_tag="deriva-all",
-                   update_bdbag_keychain=True):
+def get_credential(host: str,
+                   credential_file: str = DEFAULT_CREDENTIAL_FILE,
+                   globus_credential_file: str = DEFAULT_GLOBUS_CREDENTIAL_FILE,
+                   config_file: str = DEFAULT_CONFIG_FILE,
+                   requested_scope: str | None = None,
+                   force_scope_lookup: bool = False,
+                   match_scope_tag: str = "deriva-all",
+                   update_bdbag_keychain: bool = True) -> dict[str, Any] | None:
     """
     This function is used to get authorization credentials (in dict form) for use with various deriva-py API calls
     which take it as a parameter. A user must have already authenticated to the target host using either `deriva-auth`
     or `deriva-globus-auth-utils login` prior to calling this function, or the credential set for the host will not be
     found.
 
-    :param host: The hostname to retrieve the credential set for.
-    :param credential_file: Optional path to non-default location of the webauthn cookie credential file.
-    :param globus_credential_file: Optional path to non-default location of the GlobusAuth bearer token store.
-    :param config_file: Optional path to the non-default location of the deriva-py config file.
-    :param requested_scope: Optional, specific scope request string for the given host. If not specified, the webauthn
+    :param str host: The hostname to retrieve the credential set for.
+    :param str credential_file: Optional path to non-default location of the webauthn cookie credential file.
+    :param str globus_credential_file: Optional path to non-default location of the GlobusAuth bearer token store.
+    :param str config_file: Optional path to the non-default location of the deriva-py config file.
+    :param str | None requested_scope: Optional, specific scope request string for the given host. If not specified, the webauthn
         service on the host will be queried to determine the host-to-scope mapping that should be used.
-    :param force_scope_lookup: Optional parameter to force the webauthn scope query and update the cached value in the
+    :param bool force_scope_lookup: Optional parameter to force the webauthn scope query and update the cached value in the
         deriva-py config file. A scope lookup will always be performed the first time a host-to-scope mapping is needed
         and is not already present in the configuration file for a given host.
-    :param match_scope_tag: In the case that a host-to-scope mapping request returns multiple scopes, this is the key
+    :param str match_scope_tag: In the case that a host-to-scope mapping request returns multiple scopes, this is the key
         value ("tag") to match against in the result dict. By convention, the default is set to "deriva-all", which is
         the expected response from webauthn.
-    :param update_bdbag_keychain: Updates the bdbag keychain file with the bearer token mapped to `host`. This is
+    :param bool update_bdbag_keychain: Updates the bdbag keychain file with the bearer token mapped to `host`. This is
         done to ensure that the bdbag keychain is updated when a refreshable bearer-token gets refreshed during the
         login check. Defaults to True.
     :return: A dict containing credential authorization values mapped by authorization type
+    :rtype: dict[str, Any] | None
     """
     # load deriva credential set first
     credentials = read_credential(credential_file or DEFAULT_CREDENTIAL_FILE, create_default=True)
