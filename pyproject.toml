@@ -42,6 +42,11 @@ dependencies = [
     "fair-research-login>=0.3.1",
     "fair-identifiers-client>=0.5.1",
     "jsonschema>=3.1",
+    # deriva.bag submodule runtime deps (carried over from deriva-ml's setup.py
+    # when this branch was rebased onto the pyproject/uv migration):
+    "sqlalchemy>=2.0",       # deriva.bag SQLite mirror
+    "pydantic>=2.0",         # deriva.bag traversal/anchors
+    "python-dateutil>=2.8",  # deriva.bag _column_types
     # Required at runtime on Python 3.12+ because `fair-identifiers-client`
     # imports `distutils.version.LooseVersion` at module load. `distutils`
     # was removed from the stdlib in 3.12; setuptools ships a vendored copy
@@ -82,10 +87,14 @@ docs = [
     "nbsphinx",
     "ipykernel",
 ]
+test = [
+    "pytest>=9.0",
+]
 
 [dependency-groups]
 dev = [
-    "pytest>=8",
+    "pytest>=9.0",
+    "ruff",
 ]
 
 [tool.setuptools.packages.find]
