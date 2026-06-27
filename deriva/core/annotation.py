@@ -6,6 +6,8 @@ import pkgutil
 import jsonschema
 import warnings
 
+from typing import Any, Callable
+
 from .. import core
 from . import tag
 
@@ -17,12 +19,12 @@ class _AnnotationSchemas (object):
 
     # TODO: inherit from 'collections.abc.Mapping'
 
-    def __init__(self):
+    def __init__(self) -> None:
         super(_AnnotationSchemas, self).__init__()
         self._abbrev = dict((v, k) for k, v in tag.items())
         self._schemas = {}
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str) -> Any:
         try:
             return self._schemas[key]
         except KeyError:
@@ -32,10 +34,10 @@ class _AnnotationSchemas (object):
             self._schemas[key] = v
             return v
 
-    def __iter__(self):
+    def __iter__(self) -> Any:
         return iter(self._schemas)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._schemas)
 
 
@@ -49,12 +51,12 @@ except FileNotFoundError as e:
     warnings.warn("Unable to read base schemas. Error: %s" % e)
 
 
-def _nop(validator, value, instance, schema):
+def _nop(validator: Any, value: Any, instance: Any, schema: Any) -> None:
     """NOP validator function."""
     return
 
 
-def validate(model_obj, tag_name=None, validate_model_names=True):
+def validate(model_obj: Any, tag_name: str | None = None, validate_model_names: bool = True) -> list[Any]:
     """Validate the annotation(s) of the model object.
 
     :param model_obj: model object container of annotations
@@ -74,7 +76,7 @@ def validate(model_obj, tag_name=None, validate_model_names=True):
         return []
 
 
-def _validate(model_obj, tag_name, validate_model_names):
+def _validate(model_obj: Any, tag_name: str, validate_model_names: bool) -> list[Any]:
     """Validate an annotation of the model object.
 
     :param model_obj: model object container of annotations
@@ -116,7 +118,7 @@ def _validate(model_obj, tag_name, validate_model_names):
     return []
 
 
-def _printable_name(model_obj):
+def _printable_name(model_obj: Any) -> str:
     """Returns a print-frendly name for a model object.
 
     :param model_obj: a model, schema, table, column, key, or foreign key object.
@@ -135,12 +137,12 @@ def _printable_name(model_obj):
     return 'unnamed model object'
 
 
-def _is_qualified_name(value):
+def _is_qualified_name(value: Any) -> bool:
     """Tests if the given value looks like a schema-qualified name."""
     return isinstance(value, list) and len(value) == 2 and all(isinstance(item, str) for item in value)
 
 
-def _validate_column_fn(model_obj):
+def _validate_column_fn(model_obj: Any) -> Callable[..., None]:
     """Produces a column name validation function for the model object
 
     :param model_obj: expects column object
@@ -151,7 +153,7 @@ def _validate_column_fn(model_obj):
     if not hasattr(model_obj, 'column_definitions'):
         return _nop
 
-    def _validation_func(validator, value, instance, schema):
+    def _validation_func(validator: Any, value: Any, instance: Any, schema: Any) -> None:
         if not (value and isinstance(instance, str)):
             return
 
@@ -165,7 +167,7 @@ def _validate_column_fn(model_obj):
     return _validation_func
 
 
-def _validate_table_fn(model_obj):
+def _validate_table_fn(model_obj: Any) -> Callable[..., None]:
     """Produces a table name validation function for the model object
 
     :param model_obj: expects table object
@@ -174,7 +176,7 @@ def _validate_table_fn(model_obj):
     if not hasattr(model_obj, 'schema'):
         return _nop
 
-    def _validation_func(validator, value, instance, schema):
+    def _validation_func(validator: Any, value: Any, instance: Any, schema: Any) -> None:
         if not (value and _is_qualified_name(instance)):
             return
 
@@ -188,7 +190,7 @@ def _validate_table_fn(model_obj):
     return _validation_func
 
 
-def _validate_constraint_fn(model_obj):
+def _validate_constraint_fn(model_obj: Any) -> Callable[..., None]:
     """Produces a constraint validation function for the model object.
 
     The directive takes a list value that may include one or all of the following strings:
@@ -206,7 +208,7 @@ def _validate_constraint_fn(model_obj):
     model = table.schema.model
 
     # define a validation function for the model object
-    def _validation_func(validator, value, instance, schema):
+    def _validation_func(validator: Any, value: Any, instance: Any, schema: Any) -> None:
         if not value or not _is_qualified_name(instance):
             return
 
@@ -241,7 +243,7 @@ def _validate_constraint_fn(model_obj):
     return _validation_func
 
 
-def _validate_source_key_fn(model_obj):
+def _validate_source_key_fn(model_obj: Any) -> Callable[..., None]:
     """Produces a source key validation function for the model object.
 
     :param model_obj: model object
@@ -250,7 +252,7 @@ def _validate_source_key_fn(model_obj):
     sourcekeys = model_obj.annotations.get(tag.source_definitions, {}).get('sources', {})
 
     # define a validation function for the model object
-    def _validation_func(validator, value, instance, schema):
+    def _validation_func(validator: Any, value: Any, instance: Any, schema: Any) -> None:
         if value and isinstance(instance, str) and instance not in sourcekeys:
             raise jsonschema.ValidationError("'%s' not found in source definitions" % instance,
                                              validator=validator, validator_value=value, instance=instance, schema=schema)
@@ -258,7 +260,7 @@ def _validate_source_key_fn(model_obj):
     return _validation_func
 
 
-def _validate_source_path_fn(model_obj):
+def _validate_source_path_fn(model_obj: Any) -> Callable[..., None]:
     """Produces a source path validation function for the model object.
 
     :param model_obj: model object
@@ -270,7 +272,7 @@ def _validate_source_path_fn(model_obj):
     _model = model_obj.schema.model
 
     # define a validation function for the model object
-    def _validation_func(validator, value, instance, schema):
+    def _validation_func(validator: Any, value: Any, instance: Any, schema: Any) -> None:
         if not value:  # 'true' to indicate desire to validate model
             return
 
