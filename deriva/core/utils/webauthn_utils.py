@@ -1,13 +1,15 @@
 from copy import deepcopy
+from typing import Any
 """Utility functions that really belong in webauthn, but that are here to avoid having deriva-py depend on webauthn"""
 
 
-def get_wallet_entries(wallet, credential_type="oauth2", **kwargs):
+def get_wallet_entries(wallet: dict[str, Any] | None, credential_type: str = "oauth2", **kwargs: Any) -> list[dict[str, Any]]:
     """
-    :param wallet: wallet - the wallet to examine (from a Client object)
-    :param credential_type: the type of credential requested from the wallet
+    :param dict wallet: wallet - the wallet to examine (from a Client object)
+    :param str credential_type: the type of credential requested from the wallet
     :param kwargs: keyword arguments
     :return: a list of oauth2 credentials obtained from auth.globus.org with the requested scope
+    :rtype: list
 
     Currently, only "oauth2" is supported as a credential type, and the following keyword args are supported
     (all of these are optional):

@@ -8,6 +8,7 @@ import csv
 import json
 import requests
 from typing import NamedTuple
+from typing import Any, BinaryIO, Callable, Iterable, Iterator
 
 from . import urlquote, urlsplit, urlunsplit, datapath, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, DEFAULT_SESSION_CONFIG, \
     Megabyte, Kilobyte, get_transfer_summary
@@ -18,7 +19,7 @@ from .ermrest_model import nochange
 class DerivaServer (DerivaBinding):
     """Persistent handle for a Deriva server."""
 
-    def __init__(self, scheme, server, credentials=None, caching=True, session_config=None):
+    def __init__(self, scheme: str, server: str, credentials: Any = None, caching: bool = True, session_config: dict[str, Any] | None = None) -> None:
         """Create a Deriva server binding.
 
            Arguments:
@@ -34,11 +35,11 @@ class DerivaServer (DerivaBinding):
         self.caching = caching
         self.session_config = session_config
 
-    def connect_ermrest(self, catalog_id, snaptime=None):
+    def connect_ermrest(self, catalog_id: str, snaptime: str | None = None) -> "ErmrestCatalog":
         """Connect to an ERMrest catalog and return the catalog binding.
 
-        :param catalog_id: The id (or alias) of the existing catalog
-        :param snaptime: The id for a desired catalog snapshot (default None)
+        :param str catalog_id: The id (or alias) of the existing catalog
+        :param str | None snaptime: The id for a desired catalog snapshot (default None)
 
         The catalog_id is normally a bare id (str), and the optional
         snaptime is a bare snapshot id (str). If the snaptime is None,
@@ -53,15 +54,15 @@ class DerivaServer (DerivaBinding):
         """
         return ErmrestCatalog.connect(self, catalog_id, snaptime)
 
-    def create_ermrest_catalog(self, id=None, owner=None, name=None, description=None, is_persistent=None, clone_source=None):
+    def create_ermrest_catalog(self, id: str | None = None, owner: list[str] | None = None, name: str | None = None, description: str | None = None, is_persistent: bool | None = None, clone_source: Any = None) -> "ErmrestCatalog":
         """Create an ERMrest catalog.
 
-        :param id: The (str) id desired by the client (default None)
-        :param owner: The initial (list of str) ACL desired by the client (default None)
-        :param name: Initial (str) catalog name if not None
-        :param description: Initial (str) catalog description if not None
-        :param is_persistent: Initial (bool) catalog persistence flag if not None
-        :param clone_source: Initial catalog clone_source if not None
+        :param str | None id: The (str) id desired by the client (default None)
+        :param list[str] | None owner: The initial (list of str) ACL desired by the client (default None)
+        :param str | None name: Initial (str) catalog name if not None
+        :param str | None description: Initial (str) catalog description if not None
+        :param bool | None is_persistent: Initial (bool) catalog persistence flag if not None
+        :param Any clone_source: Initial catalog clone_source if not None
 
         The new catalog id will be returned in the response, and used
         in future catalog access. The use of the id parameter
@@ -93,22 +94,22 @@ class DerivaServer (DerivaBinding):
         """
         return ErmrestCatalog.create(self, id, owner, name, description, is_persistent, clone_source)
 
-    def connect_ermrest_alias(self, id):
+    def connect_ermrest_alias(self, id: str) -> "ErmrestAlias":
         """Connect to an ERMrest alias and return the alias binding.
 
-        :param id: The id of the existing alias
+        :param str id: The id of the existing alias
 
         """
         return ErmrestAlias.connect(self, id)
 
-    def create_ermrest_alias(self, id=None, owner=None, alias_target=None, name=None, description=None):
+    def create_ermrest_alias(self, id: str | None = None, owner: list[str] | None = None, alias_target: str | None = None, name: str | None = None, description: str | None = None) -> "ErmrestAlias":
         """Create an ERMrest catalog alias.
 
-        :param id: The (str) id desired by the client (default None)
-        :param owner: The initial (list of str) ACL desired by the client (default None)
-        :param alias_target: The initial target catalog id binding desired by the client (default None)
-        :param name: Initial (str) catalog name if not None
-        :param description: Initial (str) catalog description if not None
+        :param str | None id: The (str) id desired by the client (default None)
+        :param list[str] | None owner: The initial (list of str) ACL desired by the client (default None)
+        :param str | None alias_target: The initial target catalog id binding desired by the client (default None)
+        :param str | None name: Initial (str) catalog name if not None
+        :param str | None description: Initial (str) catalog description if not None
 
         The new alias id will be returned in the response, and used
         in future alias access. The use of the id parameter
@@ -172,7 +173,7 @@ class ErmrestCatalog(DerivaBinding):
     table_schemas = dict()
 
     @property
-    def deriva_server(self):
+    def deriva_server(self) -> DerivaServer:
         """Return DerivaServer binding for the same server this catalog belongs to."""
         return DerivaServer(
             self._scheme,
@@ -183,12 +184,12 @@ class ErmrestCatalog(DerivaBinding):
         )
 
     @classmethod
-    def connect(cls, deriva_server, catalog_id, snaptime=None):
+    def connect(cls, deriva_server: DerivaServer, catalog_id: str, snaptime: str | None = None) -> "ErmrestCatalog":
         """Connect to an ERMrest catalog and return the catalog binding.
 
-        :param deriva_server: The DerivaServer binding which hosts ermrest
-        :param catalog_id: The id (or alias) of the existing catalog
-        :param snaptime: The id for a desired catalog snapshot (default None)
+        :param DerivaServer deriva_server: The DerivaServer binding which hosts ermrest
+        :param str catalog_id: The id (or alias) of the existing catalog
+        :param str | None snaptime: The id for a desired catalog snapshot (default None)
 
         The catalog_id is normally a bare id (str), and the optional
         snaptime is a bare snapshot id (str). If the snaptime is None,
@@ -229,7 +230,7 @@ class ErmrestCatalog(DerivaBinding):
         )
 
     @classmethod
-    def _digest_catalog_args(cls, id, owner, name=None, description=None, is_persistent=None, clone_source=None):
+    def _digest_catalog_args(cls, id: Any, owner: Any, name: Any = None, description: Any = None, is_persistent: Any = None, clone_source: Any = None) -> dict[str, Any]:
         rep = dict()
 
         for v, k, typ in [
@@ -259,16 +260,16 @@ class ErmrestCatalog(DerivaBinding):
         return rep
 
     @classmethod
-    def create(cls, deriva_server, id=None, owner=None, name=None, description=None, is_persistent=None, clone_source=None):
+    def create(cls, deriva_server: DerivaServer, id: str | None = None, owner: list[str] | None = None, name: str | None = None, description: str | None = None, is_persistent: bool | None = None, clone_source: Any = None) -> "ErmrestCatalog":
         """Create an ERMrest catalog and return the ERMrest catalog binding.
 
-        :param deriva_server: The DerivaServer binding which hosts ermrest.
-        :param id: The (str) id desired by the client (default None)
-        :param owner: The initial (list of str) ACL desired by the client (default None)
-        :param name: Initial (str) catalog name if not None
-        :param description: Initial (str) catalog description if not None
-        :param is_persistent: Initial (bool) catalog persistence flag if not None
-        :param clone_source: Initial catalog clone_source if not None
+        :param DerivaServer deriva_server: The DerivaServer binding which hosts ermrest.
+        :param str | None id: The (str) id desired by the client (default None)
+        :param list[str] | None owner: The initial (list of str) ACL desired by the client (default None)
+        :param str | None name: Initial (str) catalog name if not None
+        :param str | None description: Initial (str) catalog description if not None
+        :param bool | None is_persistent: Initial (bool) catalog persistence flag if not None
+        :param Any clone_source: Initial catalog clone_source if not None
 
         The new catalog id will be returned in the response, and used
         in future catalog access. The use of the id parameter
@@ -303,7 +304,7 @@ class ErmrestCatalog(DerivaBinding):
         r.raise_for_status()
         return cls.connect(deriva_server, r.json()['id'])
 
-    def __init__(self, scheme, server, catalog_id, credentials=None, caching=True, session_config=None):
+    def __init__(self, scheme: str, server: str, catalog_id: str | int, credentials: Any = None, caching: bool = True, session_config: dict[str, Any] | None = None) -> None:
         """Create ERMrest catalog binding.
 
            Arguments:
@@ -339,20 +340,21 @@ class ErmrestCatalog(DerivaBinding):
             scheme, server, catalog_id, credentials, caching, session_config
 
     @property
-    def catalog_id(self):
+    def catalog_id(self) -> str:
         return self._catalog_id
 
     @property
-    def alias_target(self):
+    def alias_target(self) -> Any:
         r = self.get('/')
         r.raise_for_status()
         rep = r.json()
         return rep.get('alias_target')
 
-    def exists(self):
+    def exists(self) -> bool:
         """Simple boolean test for catalog existence.
 
         :return: True if exists, False if not (404), otherwise raises exception
+        :rtype: bool
         """
         try:
             self.get('/')
@@ -363,7 +365,7 @@ class ErmrestCatalog(DerivaBinding):
             else:
                 raise
 
-    def latest_snapshot(self):
+    def latest_snapshot(self) -> "ErmrestSnapshot":
         """Gets a handle to this catalog's latest snapshot.
         """
         r = self.get('/')
@@ -371,20 +373,20 @@ class ErmrestCatalog(DerivaBinding):
         return ErmrestSnapshot(self._scheme, self._server, self._catalog_id, r.json()['snaptime'],
                                self._credentials, self._caching, self._session_config)
 
-    def getCatalogModel(self):
+    def getCatalogModel(self) -> ermrest_model.Model:
         return ermrest_model.Model.fromcatalog(self)
 
-    def getCatalogSchema(self):
+    def getCatalogSchema(self) -> dict[str, Any]:
         path = '/schema'
         r = self.get(path)
         r.raise_for_status()
         return r.json()
 
-    def getPathBuilder(self):
+    def getPathBuilder(self) -> datapath._CatalogWrapper:
         """Returns the 'path builder' interface for this catalog."""
         return datapath.from_catalog(self)
 
-    def getTableSchema(self, fq_table_name):
+    def getTableSchema(self, fq_table_name: str) -> dict[str, Any]:
         # first try to get from cache(s)
         s, t = self.splitQualifiedCatalogName(fq_table_name)
         cat = self.getCatalogSchema()
@@ -403,7 +405,7 @@ class ErmrestCatalog(DerivaBinding):
 
         return resp
 
-    def getTableColumns(self, fq_table_name):
+    def getTableColumns(self, fq_table_name: str) -> set[str]:
         columns = set()
         schema = self.getTableSchema(fq_table_name)
         for column in schema['column_definitions']:
@@ -411,11 +413,11 @@ class ErmrestCatalog(DerivaBinding):
 
         return columns
 
-    def validateRowColumns(self, row, fq_tableName):
+    def validateRowColumns(self, row: dict[str, Any], fq_tableName: str) -> set[str]:
         columns = self.getTableColumns(fq_tableName)
         return set(row.keys()) - columns
 
-    def getDefaultColumns(self, row, table, exclude=None, quote_url=True):
+    def getDefaultColumns(self, row: dict[str, Any], table: str, exclude: list[str] | None = None, quote_url: bool = True) -> list[str]:
         columns = self.getTableColumns(table)
         if isinstance(exclude, list):
             for col in exclude:
@@ -430,7 +432,7 @@ class ErmrestCatalog(DerivaBinding):
         return defaults
 
     @staticmethod
-    def splitQualifiedCatalogName(name):
+    def splitQualifiedCatalogName(name: str) -> tuple[str, str] | None:
         entity = name.split(':')
         if len(entity) != 2:
             logging.debug("Unable to tokenize %s into a fully qualified <schema:table> name." % name)
@@ -440,9 +442,9 @@ class ErmrestCatalog(DerivaBinding):
     def resolve_rid(self, rid: str, model: ermrest_model.Model=None, builder: datapath._CatalogWrapper=None) -> ResolveRidResult:
         """Resolve a RID value to return a ResolveRidResult (a named tuple).
 
-        :param rid: The RID (str) to resolve
-        :param model: A result from self.getCatalogModel() to reuse
-        :param builder: A result from self.getPathBuilder() to reuse
+        :param str rid: The RID (str) to resolve
+        :param ermrest_model.Model model: A result from self.getCatalogModel() to reuse
+        :param datapath._CatalogWrapper builder: A result from self.getPathBuilder() to reuse
 
         Raises KeyError if RID is not found in the catalog.
 
@@ -484,26 +486,26 @@ class ErmrestCatalog(DerivaBinding):
             raise
 
     def getAsFile(self,
-                  path,
-                  destfilename,
-                  headers = DEFAULT_HEADERS,
-                  callback = None,
-                  delete_if_empty = False,
-                  paged = False,
-                  page_size = DEFAULT_PAGE_SIZE,
-                  page_sort_columns = frozenset(["RID"])):
+                  path: str,
+                  destfilename: str,
+                  headers: dict[str, str] = DEFAULT_HEADERS,
+                  callback: Callable[..., Any] | None = None,
+                  delete_if_empty: bool = False,
+                  paged: bool = False,
+                  page_size: int = DEFAULT_PAGE_SIZE,
+                  page_sort_columns: Iterable[str] = frozenset(["RID"])) -> None:
         """
            Deprecated, call `get_as_file` instead.
         """
         self.get_as_file(path, destfilename, headers, callback, delete_if_empty, paged, page_size, page_sort_columns)
 
     @staticmethod
-    def _rid_set_chunks(rid_set, chunk_size):
+    def _rid_set_chunks(rid_set: Iterable[str], chunk_size: int) -> Iterator[list[str]]:
         """Yield successive ``chunk_size``-length lists from ``rid_set``.
 
         Args:
-            rid_set: Iterable of RID strings.
-            chunk_size: Max RIDs per chunk.
+            rid_set (Iterable[str]): Iterable of RID strings.
+            chunk_size (int): Max RIDs per chunk.
 
         Yields:
             Lists of at most ``chunk_size`` RIDs, preserving order, no RID
@@ -514,7 +516,7 @@ class ErmrestCatalog(DerivaBinding):
             yield rids[i:i + chunk_size]
 
     @staticmethod
-    def _rid_set_query_url(rid_table, rid_chunk):
+    def _rid_set_query_url(rid_table: str, rid_chunk: list[str]) -> str:
         """Build a ``/entity/{rid_table}/RID=any(...)`` path for one RID chunk.
 
         Each RID *value* is URL-quoted individually; the comma separators are
@@ -523,18 +525,19 @@ class ErmrestCatalog(DerivaBinding):
         zero rows — the bug this function exists to prevent.
 
         Args:
-            rid_table: ``"schema:table"`` of the table being queried.
-            rid_chunk: List of RID strings (one URL-safe batch).
+            rid_table (str): ``"schema:table"`` of the table being queried.
+            rid_chunk (list[str]): List of RID strings (one URL-safe batch).
 
         Returns:
-            Catalog-relative path string starting at ``/entity/``.
+            str: Catalog-relative path string starting at ``/entity/``.
         """
         joined = ",".join(urlquote(str(rid)) for rid in rid_chunk)
         return "/entity/%s/RID=any(%s)" % (rid_table, joined)
 
-    def _fetch_paged_content(self, destfile, base_path, headers, callback,
-                             page_size, page_sort_columns, first_page,
-                             first_line=None):
+    def _fetch_paged_content(self, destfile: BinaryIO, base_path: str, headers: dict[str, str],
+                             callback: Callable[..., Any] | None,
+                             page_size: int, page_sort_columns: Iterable[str] | None, first_page: bool,
+                             first_line: list[str] | None = None) -> tuple[bool, int, list[str] | None, int, str | None]:
         """Page through ``base_path`` and append rows to an open ``destfile``.
 
         This is the general paged-fetch loop extracted from :meth:`get_as_file`
@@ -675,7 +678,7 @@ class ErmrestCatalog(DerivaBinding):
         return first_page, total, first_line, page_size, content_type
 
     @staticmethod
-    def _is_empty_content(destfile, total, content_type):
+    def _is_empty_content(destfile: BinaryIO, total: int, content_type: str | None) -> bool:
         """Return True when a downloaded file should be treated as "empty".
 
         Shared by :meth:`get_as_file` and :meth:`_get_rid_set_as_file` so both
@@ -685,9 +688,9 @@ class ErmrestCatalog(DerivaBinding):
         holds only the header row (no data). The file is rewound before reading.
 
         Args:
-            destfile: The open destination file (rewound and read here).
-            total: Bytes written for the transfer.
-            content_type: The response Content-Type observed by the fetch.
+            destfile (BinaryIO): The open destination file (rewound and read here).
+            total (int): Bytes written for the transfer.
+            content_type (str | None): The response Content-Type observed by the fetch.
         """
         if total == 0:
             return True
@@ -705,8 +708,10 @@ class ErmrestCatalog(DerivaBinding):
             return rowcount <= 1
         return False
 
-    def _get_rid_set_as_file(self, rid_set, rid_table, destfilename, *, headers,
-                             callback, delete_if_empty, page_size, page_sort_columns):
+    def _get_rid_set_as_file(self, rid_set: Iterable[str], rid_table: str, destfilename: str, *,
+                             headers: dict[str, str],
+                             callback: Callable[..., Any] | None, delete_if_empty: bool,
+                             page_size: int, page_sort_columns: Iterable[str]) -> str | None:
         """Fetch a RID set as one file by chunk-append (see RID_SET_CHUNK_SIZE).
 
         Chunks ``rid_set`` into URL-safe batches, fetches each chunk's
@@ -721,19 +726,19 @@ class ErmrestCatalog(DerivaBinding):
         (:meth:`_is_empty_content`) is keyed on the actual response type.
 
         Args:
-            rid_set: The RIDs to fetch rows for.
-            rid_table: Catalog-relative table path the RIDs belong to.
-            destfilename: Path of the file to write.
-            headers: Request headers (accept already resolved by the caller).
-            callback: Optional progress callback; same contract as
+            rid_set (Iterable[str]): The RIDs to fetch rows for.
+            rid_table (str): Catalog-relative table path the RIDs belong to.
+            destfilename (str): Path of the file to write.
+            headers (dict[str, str]): Request headers (accept already resolved by the caller).
+            callback (Callable[..., Any] | None): Optional progress callback; same contract as
                 :meth:`get_as_file`.
-            delete_if_empty: When ``True``, delete the file if the result is
+            delete_if_empty (bool): When ``True``, delete the file if the result is
                 empty.
-            page_size: Initial page size for each chunk's paged fetch.
-            page_sort_columns: Columns used for the ``@sort``/``@after`` cursor.
+            page_size (int): Initial page size for each chunk's paged fetch.
+            page_sort_columns (Iterable[str]): Columns used for the ``@sort``/``@after`` cursor.
 
         Returns:
-            The ``destfilename`` on success, or ``None`` when the result was
+            str | None: The ``destfilename`` on success, or ``None`` when the result was
             empty and ``delete_if_empty`` deletion applied.
         """
         destfile = open(destfilename, 'w+b')
@@ -773,16 +778,16 @@ class ErmrestCatalog(DerivaBinding):
         return destfilename
 
     def get_as_file(self,
-                    path,
-                    destfilename,
-                    headers=DEFAULT_HEADERS,
-                    callback=None,
-                    delete_if_empty=False,
-                    paged=False,
-                    page_size=DEFAULT_PAGE_SIZE,
-                    page_sort_columns=frozenset(["RID"]),
-                    rid_set=None,
-                    rid_table=None):
+                    path: str,
+                    destfilename: str,
+                    headers: dict[str, str] = DEFAULT_HEADERS,
+                    callback: Callable[..., Any] | None = None,
+                    delete_if_empty: bool = False,
+                    paged: bool = False,
+                    page_size: int = DEFAULT_PAGE_SIZE,
+                    page_sort_columns: Iterable[str] = frozenset(["RID"]),
+                    rid_set: Iterable[str] | None = None,
+                    rid_table: str | None = None) -> str | None:
         """
            Retrieve catalog data streamed to destination file.
            Caller is responsible to clean up file even on error, when the file may or may not exist.
@@ -903,7 +908,7 @@ class ErmrestCatalog(DerivaBinding):
             if destfile:
                 destfile.close()
 
-    def delete(self, path, headers=DEFAULT_HEADERS, guard_response=None):
+    def delete(self, path: str, headers: dict[str, str] = DEFAULT_HEADERS, guard_response: Any = None) -> requests.Response:
         """Perform DELETE request, returning response object.
 
            Arguments:
@@ -922,7 +927,7 @@ class ErmrestCatalog(DerivaBinding):
             raise DerivaPathError('See self.delete_ermrest_catalog() if you really want to destroy this catalog.')
         return DerivaBinding.delete(self, path, headers=headers, guard_response=guard_response)
 
-    def delete_ermrest_catalog(self, really=False):
+    def delete_ermrest_catalog(self, really: bool = False) -> requests.Response:
         """Perform DELETE request, destroying catalog on server.
 
            Arguments:
@@ -935,22 +940,22 @@ class ErmrestCatalog(DerivaBinding):
             raise ValueError('Catalog deletion refused when really is %s.' % really)
 
     def clone_catalog(self,
-                      dst_catalog=None,
-                      copy_data=True,
-                      copy_annotations=True,
-                      copy_policy=True,
-                      truncate_after=True,
-                      exclude_schemas=None,
-                      dst_properties=None):
+                      dst_catalog: "ErmrestCatalog | None" = None,
+                      copy_data: bool = True,
+                      copy_annotations: bool = True,
+                      copy_policy: bool = True,
+                      truncate_after: bool = True,
+                      exclude_schemas: list[str] | None = None,
+                      dst_properties: dict[str, Any] | None = None) -> "ErmrestCatalog":
         """Clone this catalog's content into dest_catalog, creating a new catalog if needed.
 
-        :param dst_catalog: Destination catalog or None to request creation of new destination (default).
-        :param copy_data: Copy table contents when True (default).
-        :param copy_annotations: Copy annotations when True (default).
-        :param copy_policy: Copy access-control policies when True (default).
-        :param truncate_after: Truncate destination history after cloning when True (default).
-        :param exclude_schemas: A list of schema names to exclude from the cloning process.
-        :param dst_properties: A dictionary of custom catalog-creation properties.
+        :param ErmrestCatalog | None dst_catalog: Destination catalog or None to request creation of new destination (default).
+        :param bool copy_data: Copy table contents when True (default).
+        :param bool copy_annotations: Copy annotations when True (default).
+        :param bool copy_policy: Copy access-control policies when True (default).
+        :param bool truncate_after: Truncate destination history after cloning when True (default).
+        :param list[str] | None exclude_schemas: A list of schema names to exclude from the cloning process.
+        :param dict[str, Any] | None dst_properties: A dictionary of custom catalog-creation properties.
 
         When dst_catalog is provided, attempt an idempotent clone,
         assuming content MAY be partially cloned already using the
@@ -1034,7 +1039,7 @@ class ErmrestCatalog(DerivaBinding):
         fkeys_deferred = {}
         exclude_schemas = [] if exclude_schemas is None else exclude_schemas
 
-        def prune_parts(d, *extra_victims):
+        def prune_parts(d: dict[str, Any], *extra_victims: str) -> dict[str, Any]:
             victims = set(extra_victims)
             # we will apply config as a second pass after extending dest model
             # but loading bulk first may speed that up
@@ -1046,12 +1051,12 @@ class ErmrestCatalog(DerivaBinding):
                 d.pop(k, None)
             return d
 
-        def copy_sdef(s):
+        def copy_sdef(s: Any) -> dict[str, Any]:
             """Copy schema definition structure with conditional parts for cloning."""
             d = prune_parts(s.prejson(), 'tables')
             return d
 
-        def copy_tdef_core(t):
+        def copy_tdef_core(t: Any) -> dict[str, Any]:
             """Copy table definition structure with conditional parts excluding fkeys."""
             d = prune_parts(t.prejson(), 'foreign_keys')
             d['column_definitions'] = [ prune_parts(c) for c in d['column_definitions'] ]
@@ -1059,9 +1064,9 @@ class ErmrestCatalog(DerivaBinding):
             d.setdefault('annotations', {})[_clone_state_url] = 1 if copy_data else None
             return d
 
-        def copy_tdef_fkeys(t):
+        def copy_tdef_fkeys(t: Any) -> list[dict[str, Any]]:
             """Copy table fkeys structure."""
-            def check(fkdef):
+            def check(fkdef: dict[str, Any]) -> dict[str, Any]:
                 for fkc in fkdef['referenced_columns']:
                     if fkc['schema_name'] == 'public' \
                        and fkc['table_name'] in {'ERMrest_Client', 'ERMrest_Group', 'ERMrest_RID_Lease'} \
@@ -1070,13 +1075,13 @@ class ErmrestCatalog(DerivaBinding):
                 return fkdef
             return [ prune_parts(check(d)) for d in t.prejson().get('foreign_keys', []) ]
 
-        def copy_cdef(c):
+        def copy_cdef(c: Any) -> tuple[str, str, dict[str, Any]]:
             """Copy column definition with conditional parts."""
             return (sname, tname, prune_parts(c.prejson()))
 
-        def check_column_compatibility(src, dst):
+        def check_column_compatibility(src: Any, dst: Any) -> None:
             """Check compatibility of source and destination column definitions."""
-            def error(fieldname, sv, dv):
+            def error(fieldname: str, sv: Any, dv: Any) -> ValueError:
                 return ValueError("Source/dest column %s mismatch %s != %s for %s:%s:%s" % (
                     fieldname,
                     sv, dv,
@@ -1089,7 +1094,7 @@ class ErmrestCatalog(DerivaBinding):
             if src.default != dst.default:
                 raise error("default", src.default, dst.default)
 
-        def copy_kdef(k):
+        def copy_kdef(k: Any) -> tuple[str, str, dict[str, Any]]:
             return (sname, tname, prune_parts(k.prejson()))
 
         for sname, schema in src_model.schemas.items():
@@ -1271,7 +1276,7 @@ class ErmrestCatalog(DerivaBinding):
                         dst_key.annotations.clear()
                         dst_key.annotations.update(src_key.annotations)
 
-                def xlate_column_map(fkey):
+                def xlate_column_map(fkey: Any) -> dict[Any, Any]:
                     dst_from_table = dst_table
                     dst_to_schema = dst_model.schemas[fkey.pk_table.schema.name]
                     dst_to_table = dst_to_schema.tables[fkey.pk_table.name]
@@ -1310,7 +1315,7 @@ class ErmrestSnapshot(ErmrestCatalog):
     except that the interfaces are now bound to a fixed snapshot
     of the catalog.
     """
-    def __init__(self, scheme, server, catalog_id, snaptime, credentials=None, caching=True, session_config=None):
+    def __init__(self, scheme: str, server: str, catalog_id: str | int, snaptime: str, credentials: Any = None, caching: bool = True, session_config: dict[str, Any] | None = None) -> None:
         """Create ERMrest catalog snapshot binding.
 
            Arguments:
@@ -1329,11 +1334,11 @@ class ErmrestSnapshot(ErmrestCatalog):
         self._snaptime = snaptime
 
     @property
-    def snaptime(self):
+    def snaptime(self) -> str:
         """The snaptime for this catalog snapshot instance."""
         return self._snaptime
 
-    def _pre_mutate(self, path, headers, guard_response=None):
+    def _pre_mutate(self, path: str, headers: dict[str, str], guard_response: Any = None) -> None:
         """Override and disable mutation operations.
 
         When called by the super-class, this method raises an exception.
@@ -1350,11 +1355,11 @@ class ErmrestAlias(DerivaBinding):
        Additional utility methods provided for accessing alias metadata.
     """
     @classmethod
-    def connect(cls, deriva_server, alias_id):
+    def connect(cls, deriva_server: DerivaServer, alias_id: str) -> "ErmrestAlias":
         """Connect to an ERMrest alias and return the alias binding.
 
-        :param deriva_server: The DerivaServer binding which hosts ermrest
-        :param alias_id: The id of the existing alias
+        :param DerivaServer deriva_server: The DerivaServer binding which hosts ermrest
+        :param str alias_id: The id of the existing alias
 
         The alias_id is a bare id (str).
 
@@ -1369,7 +1374,7 @@ class ErmrestAlias(DerivaBinding):
         )
 
     @classmethod
-    def _digest_alias_args(cls, id, owner, alias_target, name=None, description=None):
+    def _digest_alias_args(cls, id: Any, owner: Any, alias_target: Any, name: Any = None, description: Any = None) -> dict[str, Any]:
         rep = ErmrestCatalog._digest_catalog_args(id, owner, name, description)
 
         if isinstance(alias_target, (str, type(None))):
@@ -1382,15 +1387,15 @@ class ErmrestAlias(DerivaBinding):
         return rep
 
     @classmethod
-    def create(cls, deriva_server, id=None, owner=None, alias_target=None, name=None, description=None):
+    def create(cls, deriva_server: DerivaServer, id: str | None = None, owner: list[str] | None = None, alias_target: str | None = None, name: str | None = None, description: str | None = None) -> "ErmrestAlias":
         """Create an ERMrest catalog alias.
 
-        :param deriva_server: The DerivaServer binding which hosts ermrest
-        :param id: The (str) id desired by the client (default None)
-        :param owner: The initial (list of str) ACL desired by the client (default None)
-        :param alias_target: The initial target catalog id desired by the client (default None)
-        :param name: Initial (str) catalog name if not None
-        :param description: Initial (str) catalog description if not None
+        :param DerivaServer deriva_server: The DerivaServer binding which hosts ermrest
+        :param str | None id: The (str) id desired by the client (default None)
+        :param list[str] | None owner: The initial (list of str) ACL desired by the client (default None)
+        :param str | None alias_target: The initial target catalog id desired by the client (default None)
+        :param str | None name: Initial (str) catalog name if not None
+        :param str | None description: Initial (str) catalog description if not None
 
         The new alias id will be returned in the response, and used
         in future alias access. The use of the id parameter
@@ -1426,14 +1431,14 @@ class ErmrestAlias(DerivaBinding):
         r.raise_for_status()
         return cls.connect(deriva_server, r.json()['id'])
 
-    def __init__(self, scheme, server, alias_id, credentials=None, caching=True, session_config=None):
+    def __init__(self, scheme: str, server: str, alias_id: str, credentials: Any = None, caching: bool = True, session_config: dict[str, Any] | None = None) -> None:
         """Create ERMrest alias binding.
 
-        :param scheme: 'http' or 'https'
-        :param server: server FQDN string
-        :param alias_id: e.g. '1'
-        :param credentials: credential secrets, e.g. cookie
-        :param caching: whether to retain a GET response cache
+        :param str scheme: 'http' or 'https'
+        :param str server: server FQDN string
+        :param str alias_id: e.g. '1'
+        :param Any credentials: credential secrets, e.g. cookie
+        :param bool caching: whether to retain a GET response cache
 
         """
         super(ErmrestAlias, self).__init__(scheme, server, credentials, caching, session_config)
@@ -1445,14 +1450,14 @@ class ErmrestAlias(DerivaBinding):
             scheme, server, alias_id, credentials, caching, session_config
 
     @property
-    def alias_id(self):
+    def alias_id(self) -> str:
         return self._alias_id
 
-    def check_path(self, path):
+    def check_path(self, path: str) -> None:
         if path != '':
             raise ValueError('ErmrestAlias requires "" relative path')
 
-    def retrieve(self):
+    def retrieve(self) -> dict[str, Any]:
         """Retrieve current alias binding state as a dict.
 
         The returned dictionary is suitable for local revision and
@@ -1465,12 +1470,12 @@ class ErmrestAlias(DerivaBinding):
         """
         return self.get('').json()
 
-    def update(self, owner=nochange, alias_target=nochange, id=None):
+    def update(self, owner: Any = nochange, alias_target: Any = nochange, id: str | None = None) -> dict[str, Any]:
         """Update alias binding state in server, returning the response message dict.
 
-        :param owner: Revised owner ACL for binding or nochange (default None)
-        :param alias_target: Revised target for binding or nochange (default None)
-        :param id: Current self.alias_id or None (default None)
+        :param Any owner: Revised owner ACL for binding or nochange (default None)
+        :param Any alias_target: Revised target for binding or nochange (default None)
+        :param str | None id: Current self.alias_id or None (default None)
 
         The optional id parameter must be None or self.alias_id and
         does not affect state changes to the server. It is only
@@ -1489,10 +1494,10 @@ class ErmrestAlias(DerivaBinding):
             raise ValueError('parameter id must be None or %r, not %r' % (self.alias_id, id))
         return self.put('', json=rep).json()
 
-    def delete_ermrest_alias(self, really=False):
+    def delete_ermrest_alias(self, really: bool = False) -> requests.Response:
         """Perform DELETE request, destroying alias on server.
 
-        :param really: delete when True, abort when False (default)
+        :param bool really: delete when True, abort when False (default)
 
         """
         if really is True:

@@ -1,5 +1,6 @@
 import argparse
 import logging
+from typing import Any
 
 from . import init_logging, __version__
 from .utils.version_utils import get_installed_version
@@ -7,7 +8,7 @@ from .utils.version_utils import get_installed_version
 
 class BaseCLI(object):
 
-    def __init__(self, description, epilog, version=__version__, hostname_required=False, config_file_required=False):
+    def __init__(self, description: str, epilog: str, version: str = __version__, hostname_required: bool = False, config_file_required: bool = False) -> None:
 
         self.version = get_installed_version(version)
 
@@ -40,14 +41,14 @@ class BaseCLI(object):
             'config_file' if config_file_required else '--config-file',
             metavar='<config file>', help="Path to a configuration file.")
 
-    def remove_options(self, options):
+    def remove_options(self, options: list[str]) -> None:
         for option in options:
             for action in self.parser._actions:
                 if option in vars(action)['option_strings']:
                     self.parser._handle_conflict_resolve(None, [(option, action)])
                     break
 
-    def parse_cli(self):
+    def parse_cli(self) -> Any:
         args = self.parser.parse_args()
         init_logging(level=logging.CRITICAL if args.quiet else (logging.DEBUG if args.debug else logging.INFO))
 
@@ -55,16 +56,16 @@ class BaseCLI(object):
 
     # Function to convert comma-separated CLI input into a tuple
     @staticmethod
-    def parse_tuple(value):
+    def parse_tuple(value: str) -> tuple[float, ...]:
         # Split the input by commas and convert to a tuple
         return tuple(map(float, value.split(',')))
 
 class KeyValuePairArgs(argparse.Action):
-    def __init__(self, option_strings, dest, nargs=None, **kwargs):
+    def __init__(self, option_strings: Any, dest: str, nargs: Any = None, **kwargs: Any) -> None:
         self._nargs = nargs
         super(KeyValuePairArgs, self).__init__(option_strings, dest, nargs=nargs, **kwargs)
 
-    def __call__(self, parser, namespace, values, option_string=None):
+    def __call__(self, parser: Any, namespace: Any, values: Any, option_string: str | None = None) -> None:
         kwargs = dict()
         for kv in values:
             arg = kv.split("=", 1)

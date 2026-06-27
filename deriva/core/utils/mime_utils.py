@@ -6,7 +6,7 @@ if not mimetypes.inited:
     mimetypes.init()
 
 
-def add_types(types):
+def add_types(types: dict[str, list[str]] | None) -> None:
     if not types:
         return
     for t in types.keys():
@@ -14,7 +14,7 @@ def add_types(types):
             mimetypes.add_type(type=t, ext=e if e.startswith(".") else "".join([".", e]))
 
 
-def guess_content_type(file_path):
+def guess_content_type(file_path: str) -> str:
     mtype = mimetypes.guess_type(file_path, strict=False)
     content_type = 'application/octet-stream'
     if mtype[0] is not None and mtype[1] is not None:
@@ -27,7 +27,7 @@ def guess_content_type(file_path):
     return content_type
 
 
-def parse_content_disposition(value):
+def parse_content_disposition(value: str) -> str:
     m = re.match("^filename[*]=UTF-8''(?P<name>[-_.~A-Za-z0-9%]+)$", value)
     if not m:
         raise ValueError('Cannot parse content-disposition "%s".' % value)

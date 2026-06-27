@@ -3,9 +3,10 @@ import hashlib
 import base64
 import binascii
 import logging
+from typing import Any
 
 
-def compute_hashes(obj, hashes=frozenset(['md5'])):
+def compute_hashes(obj: Any, hashes: frozenset[str] = frozenset(['md5'])) -> dict[str, tuple[str, str]]:
     """
        Digests input data read from file-like object fd or passed directly as bytes-like object.
        Compute hashes for multiple algorithms. Default is MD5.
@@ -44,7 +45,7 @@ def compute_hashes(obj, hashes=frozenset(['md5'])):
     return hashes
 
 
-def compute_file_hashes(file_path, hashes=frozenset(['md5'])):
+def compute_file_hashes(file_path: str, hashes: frozenset[str] = frozenset(['md5'])) -> dict[str, tuple[str, str]]:
     """
        Digests data read from file denoted by file_path.
     """
@@ -61,7 +62,7 @@ def compute_file_hashes(file_path, hashes=frozenset(['md5'])):
         raise
 
 
-def decodeBase64toHex(base64str):
+def decodeBase64toHex(base64str: str | bytes) -> str:
     result = binascii.hexlify(base64.standard_b64decode(base64str))
     if isinstance(result, bytes):
         result = result.decode('ascii')

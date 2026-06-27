@@ -5,6 +5,7 @@ import requests
 from requests.exceptions import HTTPError, ConnectionError
 import sys
 import traceback
+from typing import Any
 from deriva.core import __version__ as VERSION, BaseCLI, DerivaPathError, HatracStore, HatracHashMismatch, \
     get_credential, format_credential, format_exception, DEFAULT_CHUNK_SIZE
 from deriva.core.utils import eprint, mime_utils as mu
@@ -13,7 +14,7 @@ from deriva.core.utils import eprint, mime_utils as mu
 class DerivaHatracCLIException (Exception):
     """Base exception class for DerivaHatracCli.
     """
-    def __init__(self, message):
+    def __init__(self, message: str) -> None:
         """Initializes the exception.
         """
         super(DerivaHatracCLIException, self).__init__(message)
@@ -22,7 +23,7 @@ class DerivaHatracCLIException (Exception):
 class UsageException (DerivaHatracCLIException):
     """Usage exception.
     """
-    def __init__(self, message):
+    def __init__(self, message: str) -> None:
         """Initializes the exception.
         """
         super(UsageException, self).__init__(message)
@@ -31,7 +32,7 @@ class UsageException (DerivaHatracCLIException):
 class ResourceException (DerivaHatracCLIException):
     """Remote resource exception.
     """
-    def __init__(self, message, cause):
+    def __init__(self, message: str, cause: Any) -> None:
         """Initializes the exception.
         """
         super(ResourceException, self).__init__(message)
@@ -41,7 +42,7 @@ class ResourceException (DerivaHatracCLIException):
 class DerivaHatracCLI (BaseCLI):
     """Deriva Hatrac Command-line Interface.
     """
-    def __init__(self, description, epilog):
+    def __init__(self, description: str, epilog: str) -> None:
         """Initializes the CLI.
         """
         super(DerivaHatracCLI, self).__init__(description, epilog, VERSION)
@@ -129,13 +130,13 @@ class DerivaHatracCLI (BaseCLI):
         renobj_parser.set_defaults(func=self.renobj)
 
     @staticmethod
-    def _get_credential(host_name, token=None, oauth2_token=None):
+    def _get_credential(host_name: str, token: str | None = None, oauth2_token: str | None = None) -> dict[str, Any]:
         if token or oauth2_token:
             return format_credential(token=token, oauth2_token=oauth2_token)
         else:
             return get_credential(host_name)
 
-    def _post_parser_init(self, args):
+    def _post_parser_init(self, args: Any) -> None:
         """Shared initialization for all sub-commands.
         """
         self.host = args.host if args.host else 'localhost'
@@ -144,7 +145,7 @@ class DerivaHatracCLI (BaseCLI):
                                                                                      token=args.token,
                                                                                      oauth2_token=args.oauth2_token))
 
-    def list(self, args):
+    def list(self, args: Any) -> None:
         """Implements the list sub-command.
         """
         try:
@@ -160,7 +161,7 @@ class DerivaHatracCLI (BaseCLI):
         except ValueError as e:
             raise ResourceException('Not a namespace', e)
 
-    def mkdir(self, args):
+    def mkdir(self, args: Any) -> None:
         """Implements the mkdir sub-command.
         """
         try:
@@ -173,7 +174,7 @@ class DerivaHatracCLI (BaseCLI):
             else:
                 raise e
 
-    def rmdir(self, args):
+    def rmdir(self, args: Any) -> None:
         """Implements the mkdir sub-command.
         """
         try:
@@ -186,7 +187,7 @@ class DerivaHatracCLI (BaseCLI):
             else:
                 raise e
 
-    def getacl(self, args):
+    def getacl(self, args: Any) -> None:
         """Implements the getacl sub-command.
         """
         if args.role and not args.access:
@@ -206,7 +207,7 @@ class DerivaHatracCLI (BaseCLI):
             else:
                 raise e
 
-    def setacl(self, args):
+    def setacl(self, args: Any) -> None:
         """Implements the setacl sub-command.
         """
         if args.add and len(args.roles) > 1:
@@ -222,7 +223,7 @@ class DerivaHatracCLI (BaseCLI):
             else:
                 raise e
 
-    def delacl(self, args):
+    def delacl(self, args: Any) -> None:
         """Implements the getacl sub-command.
         """
         try:
@@ -235,7 +236,7 @@ class DerivaHatracCLI (BaseCLI):
             else:
                 raise e
 
-    def getobj(self, args):
+    def getobj(self, args: Any) -> None:
         """Implements the getobj sub-command.
         """
         try:
@@ -253,7 +254,7 @@ class DerivaHatracCLI (BaseCLI):
             else:
                 raise e
 
-    def putobj(self, args):
+    def putobj(self, args: Any) -> None:
         """Implements the putobj sub-command.
         """
         try:
@@ -277,7 +278,7 @@ class DerivaHatracCLI (BaseCLI):
             else:
                 raise e
 
-    def delobj(self, args):
+    def delobj(self, args: Any) -> None:
         """Implements the delobj sub-command.
         """
         try:
@@ -288,7 +289,7 @@ class DerivaHatracCLI (BaseCLI):
             else:
                 raise e
 
-    def renobj(self, args):
+    def renobj(self, args: Any) -> None:
         """Implements the renobj sub-command.
         """
         try:
@@ -306,12 +307,12 @@ class DerivaHatracCLI (BaseCLI):
             else:
                 raise e
 
-    def main(self):
+    def main(self) -> int:
         """Main routine of the CLI.
         """
         args = self.parse_cli()
 
-        def _resource_error_message(emsg):
+        def _resource_error_message(emsg: Any) -> str:
             return "{prog} {subcmd}: {resource}: {msg}".format(
                 prog=self.parser.prog, subcmd=args.subcmd, resource=args.resource, msg=emsg)
 
@@ -353,7 +354,7 @@ class DerivaHatracCLI (BaseCLI):
         return 1
 
 
-def main():
+def main() -> int:
     DESC = "DERIVA HATRAC Command-Line Interface"
     INFO = "For more information see: https://github.com/informatics-isi-edu/deriva-py"
     return DerivaHatracCLI(DESC, INFO).main()

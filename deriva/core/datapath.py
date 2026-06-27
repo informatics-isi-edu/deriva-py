@@ -9,6 +9,8 @@ import time
 import re
 from requests import HTTPError
 import warnings
+from typing import Any, Callable, Iterable, Iterator, Optional
+from typing import Any as _Any  # alias preserved for use after the `Any` quantifier class shadows the name
 from . import DEFAULT_HEADERS, ermrest_model as _erm
 
 __all__ = ['DataPathException', 'Min', 'Max', 'Sum', 'Avg', 'Cnt', 'CntD', 'Array', 'ArrayD', 'Bin', 'All', 'Any',
@@ -21,29 +23,30 @@ _system_defaults = {'RID', 'RCT', 'RCB', 'RMT', 'RMB'}
 """Set of system default column names"""
 
 
-def deprecated(f):
+def deprecated(f: Callable) -> Callable:
     """A simple 'deprecated' function decorator."""
-    def wrapper(*args, **kwargs):
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
         warnings.warn("'%s' has been deprecated" % f.__name__, DeprecationWarning, stacklevel=2)
         return f(*args, **kwargs)
     return wrapper
 
 
-def from_catalog(catalog):
+def from_catalog(catalog: Any) -> "_CatalogWrapper":
     """Wraps an ErmrestCatalog object for use in datapath expressions.
 
-    :param catalog: an ErmrestCatalog object
+    :param Any catalog: an ErmrestCatalog object
     :return: a datapath._CatalogWrapper object
+    :rtype: _CatalogWrapper
     """
     return _CatalogWrapper(catalog)
 
 
-def _isidentifier(a):
+def _isidentifier(a: Any) -> bool:
     """Tests if string is a valid python identifier.
 
     This function is intended for internal usage within this module.
 
-    :param a: a string
+    :param Any a: a string
     """
     if hasattr(a, 'isidentifier'):
         return a.isidentifier()
@@ -51,16 +54,17 @@ def _isidentifier(a):
         return re.match("[_A-Za-z][_a-zA-Z0-9]*$", a) is not None
 
 
-def _identifier_for_name(name, *reserveds):
+def _identifier_for_name(name: str, *reserveds: Iterable[str]) -> str:
     """Makes an identifier from a given name and disambiguates if it is reserved.
 
     1. replace invalid identifier characters with '_'
     2. prepend with '_' if first character is a digit
     3. append a disambiguating positive integer if it is reserved
 
-    :param name: a string of any format
-    :param *reserveds: iterable collections of reserved strings
+    :param str name: a string of any format
+    :param Iterable[str] *reserveds: iterable collections of reserved strings
     :return: a valid identifier string for the given name
+    :rtype: str
     """
     assert len(name) > 0, 'empty strings are not allowed'
 
@@ -81,7 +85,7 @@ def _identifier_for_name(name, *reserveds):
     return identifier
 
 
-def _make_identifier_to_name_mapping(names, reserved):
+def _make_identifier_to_name_mapping(names: Iterable[str], reserved: Iterable[str]) -> dict[str, str]:
     """Makes a dictionary of (valid) identifiers to (original) names.
 
     Try to favor the names that require the least modification:
@@ -89,9 +93,10 @@ def _make_identifier_to_name_mapping(names, reserved):
     2. add all names that are valid identifiers but do conflict with reserved names by appending a disambiguator
     3. add an unambiguous identifier made from the name, when the name is not already a valid identifier
 
-    :param names: iterable collection of strings
-    :param reserved: iterable collection of reserved identifiers
+    :param Iterable[str] names: iterable collection of strings
+    :param Iterable[str] reserved: iterable collection of reserved identifiers
     :return: a dictionary to map from identifier to name
+    :rtype: dict[str, str]
     """
     reserved = set(reserved)
     assert all(_isidentifier(r) for r in reserved), 'all reserved names must be valid identifiers'
@@ -113,7 +118,7 @@ def _make_identifier_to_name_mapping(names, reserved):
     return mappings
 
 
-def _http_error_message(e):
+def _http_error_message(e: HTTPError) -> str:
     """Returns a formatted error message from the raw HTTPError.
     """
     return '\n'.join(e.response.text.splitlines()[1:]) + '\n' + str(e)
@@ -122,22 +127,22 @@ def _http_error_message(e):
 class DataPathException (Exception):
     """Exception in a datapath expression.
     """
-    def __init__(self, message, reason=None):
+    def __init__(self, message: str, reason: Any = None) -> None:
         super(DataPathException, self).__init__(message, reason)
         self.message = message
         self.reason = reason
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.message
 
 
 class _CatalogWrapper (object):
     """Wraps a Catalog for datapath expressions.
     """
-    def __init__(self, catalog):
+    def __init__(self, catalog: Any) -> None:
         """Creates the _CatalogWrapper.
 
-        :param catalog: ErmrestCatalog object
+        :param Any catalog: ErmrestCatalog object
         """
         super(_CatalogWrapper, self).__init__()
         self._wrapped_catalog = catalog
@@ -150,13 +155,13 @@ class _CatalogWrapper (object):
             self.schemas.keys(),
             super(_CatalogWrapper, self).__dir__())
 
-    def __dir__(self):
+    def __dir__(self) -> Iterator[str]:
         return itertools.chain(
             super(_CatalogWrapper, self).__dir__(),
             self._identifiers.keys()
         )
 
-    def __getattr__(self, a):
+    def __getattr__(self, a: str) -> Any:
         if a in self._identifiers:
             return self.schemas[self._identifiers[a]]
         elif hasattr(super(_CatalogWrapper, self), a):
@@ -165,7 +170,7 @@ class _CatalogWrapper (object):
             raise AttributeError("'%s' object for catalog '%s' has no attribute or schema '%s'" % (type(self).__name__, self._wrapped_catalog.catalog_id, a))
 
     @classmethod
-    def compose(cls, *paths):
+    def compose(cls, *paths: "DataPath") -> "DataPath":
         """Compose path fragments into a path.
 
         The root of any path fragment must be found in the table instances of the currently composed path from left
@@ -176,8 +181,9 @@ class _CatalogWrapper (object):
 
         No input path in 'paths' will be mutated.
 
-        :param paths: instances of `DataPath`
+        :param DataPath paths: instances of `DataPath`
         :return: a new `DataPath` instance composed from the 'paths'
+        :rtype: DataPath
         """
         if not paths:
             raise ValueError("No input path(s) given")
@@ -192,11 +198,11 @@ class _CatalogWrapper (object):
 class _SchemaWrapper (object):
     """Wraps a Schema for datapath expressions.
     """
-    def __init__(self, catalog, schema):
+    def __init__(self, catalog: "_CatalogWrapper", schema: Any) -> None:
         """Creates the _SchemaWrapper.
 
-        :param catalog: the catalog wrapper to which this schema wrapper belongs
-        :param schema: the wrapped schema object
+        :param _CatalogWrapper catalog: the catalog wrapper to which this schema wrapper belongs
+        :param Any schema: the wrapped schema object
         """
         super(_SchemaWrapper, self).__init__()
         self._catalog = catalog
@@ -210,13 +216,13 @@ class _SchemaWrapper (object):
             self.tables.keys(),
             super(_SchemaWrapper, self).__dir__())
 
-    def __dir__(self):
+    def __dir__(self) -> Iterator[str]:
         return itertools.chain(
             super(_SchemaWrapper, self).__dir__(),
             self._identifiers.keys()
         )
 
-    def __getattr__(self, a):
+    def __getattr__(self, a: str) -> Any:
         if a in self._identifiers:
             return self.tables[self._identifiers[a]]
         elif hasattr(super(_SchemaWrapper, self), a):
@@ -225,10 +231,11 @@ class _SchemaWrapper (object):
             raise AttributeError("'%s' object for schema '%s' has no attribute or table '%s'" % (type(self).__name__, self._name, a))
 
     @deprecated
-    def describe(self):
+    def describe(self) -> str:
         """Provides a description of the model element.
 
         :return: a user-friendly string representation of the model element.
+        :rtype: str
         """
         s = "_SchemaWrapper name: '%s'\nList of tables:\n" % self._name
         if len(self.tables) == 0:
@@ -238,14 +245,14 @@ class _SchemaWrapper (object):
         return s
 
     @deprecated
-    def _repr_html_(self):
+    def _repr_html_(self) -> str:
         return self.describe()
 
 
 class DataPath (object):
     """Represents a datapath expression.
     """
-    def __init__(self, root):
+    def __init__(self, root: "_TableAlias") -> None:
         assert isinstance(root, _TableAlias)
         self._path_expression = _Root(root)
         self._root = root
@@ -255,13 +262,13 @@ class DataPath (object):
         self._identifiers = {}
         self._bind_table_instance(root)
 
-    def __dir__(self):
+    def __dir__(self) -> Iterator[str]:
         return itertools.chain(
             super(DataPath, self).__dir__(),
             self._identifiers.keys()
         )
 
-    def __getattr__(self, a):
+    def __getattr__(self, a: str) -> Any:
         if a in self._identifiers:
             return self._table_instances[self._identifiers[a]]
         elif hasattr(super(DataPath, self), a):
@@ -269,7 +276,7 @@ class DataPath (object):
         else:
             raise AttributeError("'%s' object has no attribute or table instance '%s'" % (type(self).__name__, a))
 
-    def __deepcopy__(self, memodict={}):
+    def __deepcopy__(self, memodict: dict = {}) -> "DataPath":
         cp = DataPath(copy.deepcopy(self._root, memo=memodict))
         for alias in copy.deepcopy(self._table_instances, memo=memodict).values():
             if alias != cp._root:
@@ -290,17 +297,17 @@ class DataPath (object):
         return cp
 
     @property
-    def table_instances(self):
+    def table_instances(self) -> dict[str, "_TableAlias"]:
         """Collection of the table instances in this datapath expression."""
         return self._table_instances
 
     @property
-    def context(self):
+    def context(self) -> "_TableAlias":
         """Context (i.e., last bound table instance) of this datapath expression."""
         return self._context
 
     @context.setter
-    def context(self, value):
+    def context(self, value: "_TableAlias") -> None:
         """Updates the context of this datapath expression (must be a table instance bound to this expression)."""
         if not isinstance(value, _TableAlias):
             raise TypeError('context must be a table alias object')
@@ -311,15 +318,16 @@ class DataPath (object):
             self._context = value
 
     @property
-    def uri(self):
+    def uri(self) -> str:
         """The current URI serialization of this datapath expression."""
         return self._base_uri + str(self._path_expression)
 
-    def _contextualized_uri(self, context):
+    def _contextualized_uri(self, context: "_TableAlias") -> str:
         """Returns a path uri for the specified context.
 
-        :param context: a table instance that is bound to this path
+        :param _TableAlias context: a table instance that is bound to this path
         :return: string representation of the path uri
+        :rtype: str
         """
         assert isinstance(context, _TableAlias)
         assert context._name in self._table_instances
@@ -328,7 +336,7 @@ class DataPath (object):
         else:
             return self.uri
 
-    def _bind_table_instance(self, alias):
+    def _bind_table_instance(self, alias: "_TableAlias") -> None:
         """Binds a new table instance into this path.
         """
         assert isinstance(alias, _TableAlias)
@@ -336,7 +344,7 @@ class DataPath (object):
         self._table_instances[alias._name] = self._context = alias
         self._identifiers[_identifier_for_name(alias._name, self._identifiers.keys(), super(DataPath, self).__dir__())] = alias._name
 
-    def delete(self):
+    def delete(self) -> None:
         """Deletes the entity set referenced by the data path.
         """
         try:
@@ -350,17 +358,18 @@ class DataPath (object):
             else:
                 raise e
 
-    def filter(self, filter_expression):
+    def filter(self, filter_expression: "_Predicate") -> "DataPath":
         """Filters the path based on the specified formula.
 
-        :param filter_expression: should be a valid _Predicate object
+        :param _Predicate filter_expression: should be a valid _Predicate object
         :return: self
+        :rtype: DataPath
         """
         assert isinstance(filter_expression, _Predicate)
         self._path_expression = _Filter(self._path_expression, filter_expression)
         return self
 
-    def link(self, right, on=None, join_type=''):
+    def link(self, right: "_TableWrapper", on: Any = None, join_type: str = '') -> "DataPath":
         """Links this path with another table.
 
         To link a table with an unambigious relationship where table A is related to table B via a single foreign key
@@ -397,12 +406,13 @@ class DataPath (object):
         By default links use inner join semantics on the foreign key / key equality comparison. The `join_type`
         parameter can be used to specify `left`, `right`, or `full` outer join semantics.
 
-        :param right: the right hand table of the link expression; if the table or alias name is in use, an incremental
+        :param _TableWrapper right: the right hand table of the link expression; if the table or alias name is in use, an incremental
         number will be used to disambiguate tables instances of the same original name.
-        :param on: an equality comparison between key and foreign key columns, a conjunction of such comparisons, or a foreign key object
-        :param join_type: the join type of this link which may be 'left', 'right', 'full' outer joins or '' for inner
+        :param Any on: an equality comparison between key and foreign key columns, a conjunction of such comparisons, or a foreign key object
+        :param str join_type: the join type of this link which may be 'left', 'right', 'full' outer joins or '' for inner
         join link by default.
         :return: self
+        :rtype: DataPath
         """
         if not isinstance(right, _TableWrapper):
             raise TypeError("'right' must be a '_TableWrapper' instance")
@@ -461,7 +471,7 @@ class DataPath (object):
 
         return self
 
-    def entities(self):
+    def entities(self) -> "_ResultSet":
         """Returns a results set of whole entities from this data path's current context.
 
         ```
@@ -469,10 +479,11 @@ class DataPath (object):
         ```
 
         :return: a result set of entities where each element is a whole entity per the table definition and policy.
+        :rtype: _ResultSet
         """
         return self._query()
 
-    def aggregates(self, *functions):
+    def aggregates(self, *functions: "_AggregateFunctionAlias") -> "_ResultSet":
         """Returns a results set of computed aggregates from this data path.
 
         By using the built-in subclasses of the `AggregateFunction` class, including `Min`, `Max`, `Sum`, `Avg`, `Cnt`,
@@ -485,12 +496,13 @@ class DataPath (object):
         results3 = my_path.aggregates(col1, Array(col2).alias('arrcol2'))  # Error! Cannot mix columns and aggregate functions.
         ```
 
-        :param functions: aliased aggregate functions
+        :param _AggregateFunctionAlias functions: aliased aggregate functions
         :return: a results set with a single row of results.
+        :rtype: _ResultSet
         """
         return self._query(mode=_Project.AGGREGATE, projection=list(functions))
 
-    def attributes(self, *attributes):
+    def attributes(self, *attributes: Any) -> "_ResultSet":
         """Returns a results set of attributes projected and optionally renamed from this data path.
 
         ```
@@ -499,12 +511,13 @@ class DataPath (object):
         results3 = my_path.attributes(col1, col2.alias('col_2'))  # rename some but not others
         ```
 
-        :param attributes: a list of Columns.
+        :param Any attributes: a list of Columns.
         :return: a results set of the projected attributes from this data path.
+        :rtype: _ResultSet
         """
         return self._query(mode=_Project.ATTRIBUTE, projection=list(attributes))
 
-    def groupby(self, *keys):
+    def groupby(self, *keys: Any) -> "_AttributeGroup":
         """Returns an attribute group object.
 
         The attribute group object returned by this method can be used to get a results set of computed aggregates for
@@ -532,20 +545,22 @@ class DataPath (object):
                           .attributes(Min(col3).alias('min_col1'), Array(col4).alias('arr_col2'))
         ```
 
-        :param keys: a list of columns, aliased columns, or aliased bins, to be used as the grouping key.
+        :param Any keys: a list of columns, aliased columns, or aliased bins, to be used as the grouping key.
         :return: an attribute group that supports an `.attributes(...)` method that accepts columns, aliased columns,
         and/or aliased aggregate functions as its arguments.
+        :rtype: _AttributeGroup
         """
         return _AttributeGroup(self, self._query, keys)
 
-    def _query(self, mode='entity', projection=[], group_key=[], context=None):
+    def _query(self, mode: str = 'entity', projection: list = [], group_key: list = [], context: Optional["_TableAlias"] = None) -> "_ResultSet":
         """Internal method for querying the data path from the perspective of the given 'context'.
 
-        :param mode: a valid mode in Project.MODES
-        :param projection: a projection list.
-        :param group_key: a group key list (only for attributegroup queries).
-        :param context: optional context for the query.
+        :param str mode: a valid mode in Project.MODES
+        :param list projection: a projection list.
+        :param list group_key: a group key list (only for attributegroup queries).
+        :param Optional[_TableAlias] context: optional context for the query.
         :return: a results set.
+        :rtype: _ResultSet
         """
         assert context is None or isinstance(context, _TableAlias)
         catalog = self._root._schema._catalog._wrapped_catalog
@@ -557,7 +572,7 @@ class DataPath (object):
             expression = _Project(expression, mode, projection, group_key)
         base_path = str(expression)
 
-        def fetcher(limit=None, sort=None, headers=DEFAULT_HEADERS):
+        def fetcher(limit: Optional[int] = None, sort: Any = None, headers: Any = DEFAULT_HEADERS) -> Any:
             assert limit is None or isinstance(limit, int)
             assert sort is None or hasattr(sort, '__iter__')
             limiting = '?limit=%d' % limit if limit else ''
@@ -576,14 +591,15 @@ class DataPath (object):
 
         return _ResultSet(self._base_uri + base_path, fetcher)
 
-    def merge(self, path):
+    def merge(self, path: "DataPath") -> "DataPath":
         """Merges the current path with the given path.
 
         The right-hand 'path' must be rooted on a `_TableAlias` object that exists (by alias name) within this path
         (the left-hand path). It _must not_ have other shared table aliases.
 
-        :param path: a `DataPath` object rooted on a table alias that can be found in this path
+        :param DataPath path: a `DataPath` object rooted on a table alias that can be found in this path
         :return: this path merged with the given (right-hand) path
+        :rtype: DataPath
         """
         if not isinstance(path, DataPath):
             raise TypeError("'path' must be an instance of %s" % type(self).__name__)
@@ -609,15 +625,16 @@ class DataPath (object):
 
         return self
 
-    def denormalize(self, context_name=None, heuristic=None, groupkey_name='RID'):
+    def denormalize(self, context_name: Optional[str] = None, heuristic: Optional[Callable] = None, groupkey_name: str = 'RID') -> "_ResultSet":
         """Denormalizes a path based on a visible-columns annotation 'context' or a heuristic approach.
 
         This method does not mutate this object. It returns a result set representing the denormalization of the path.
 
-        :param context_name: name of the visible-columns context or if none given, will attempt apply heuristics
-        :param heuristic: heuristic to apply if no context name specified
-        :param groupkey_name: column name for the group by key of the generated query expression (default: 'RID')
+        :param Optional[str] context_name: name of the visible-columns context or if none given, will attempt apply heuristics
+        :param Optional[Callable] heuristic: heuristic to apply if no context name specified
+        :param str groupkey_name: column name for the group by key of the generated query expression (default: 'RID')
         :return: a results set.
+        :rtype: _ResultSet
         """
         return _datapath_denormalize(self, context_name=context_name, heuristic=heuristic, groupkey_name=groupkey_name)
 
@@ -629,10 +646,10 @@ class _ResultSet (object):
     container. If the result set has not been fetched explicitly, on first use of container operations, it will
     be implicitly fetched from the catalog.
     """
-    def __init__(self, uri, fetcher_fn):
+    def __init__(self, uri: str, fetcher_fn: Callable) -> None:
         """Initializes the _ResultSet.
-        :param uri: the uri for the entity set in the catalog.
-        :param fetcher_fn: a function that fetches the entities from the catalog.
+        :param str uri: the uri for the entity set in the catalog.
+        :param Callable fetcher_fn: a function that fetches the entities from the catalog.
         """
         assert fetcher_fn is not None
         self._fetcher_fn = fetcher_fn
@@ -642,26 +659,27 @@ class _ResultSet (object):
         self.uri = uri
 
     @property
-    def _results(self):
+    def _results(self) -> Any:
         if self._results_doc is None:
             self.fetch()
         return self._results_doc
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._results)
 
-    def __getitem__(self, item):
+    def __getitem__(self, item: Any) -> Any:
         return self._results[item]
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator:
         return iter(self._results)
 
-    def sort(self, *attributes):
+    def sort(self, *attributes: Any) -> "_ResultSet":
         """Orders the results set by the given attributes.
 
         :param keys: Columns, column aliases, or aggregate function aliases. The sort attributes must be projected by
         the originating query.
         :return: self
+        :rtype: _ResultSet
         """
         if not attributes:
             raise ValueError("No sort attributes given.")
@@ -672,11 +690,12 @@ class _ResultSet (object):
         self._results_doc = None
         return self
 
-    def limit(self, n):
+    def limit(self, n: Optional[int]) -> "_ResultSet":
         """Set a limit on the number of results to be returned.
 
-        :param n: integer or None.
+        :param Optional[int] n: integer or None.
         :return: self
+        :rtype: _ResultSet
         """
         try:
             self._limit = None if n is None else int(n)
@@ -685,19 +704,20 @@ class _ResultSet (object):
         except ValueError:
             raise ValueError('limit argument "n" must be an integer or None')
 
-    def fetch(self, limit=None, headers=DEFAULT_HEADERS):
+    def fetch(self, limit: Optional[int] = None, headers: Any = DEFAULT_HEADERS) -> "_ResultSet":
         """Fetches the results from the catalog.
 
-        :param limit: maximum number of results to fetch from the catalog.
-        :param headers: headers to send in request to server
+        :param Optional[int] limit: maximum number of results to fetch from the catalog.
+        :param Any headers: headers to send in request to server
         :return: self
+        :rtype: _ResultSet
         """
         limit = int(limit) if limit else self._limit
         self._results_doc = self._fetcher_fn(limit, self._sort_keys, headers)
         logger.debug("Fetched %d entities" % len(self._results_doc))
         return self
 
-def _json_size_approx(data):
+def _json_size_approx(data: Any) -> int:
     """Return approximate byte count for minimal JSON encoding of data
 
     Minimal encoding has no optional whitespace/indentation.
@@ -719,7 +739,7 @@ def _json_size_approx(data):
 
     return nbytes
 
-def _generate_batches(entities, max_batch_rows=1000, max_batch_bytes=250*1024):
+def _generate_batches(entities: Any, max_batch_rows: int = 1000, max_batch_bytes: int = 250*1024) -> Any:
     """Generate a series of entity batches as slices of the input entities
 
     """
@@ -752,13 +772,13 @@ def _generate_batches(entities, max_batch_rows=1000, max_batch_bytes=250*1024):
         yield entities[lower:upper]
         lower = upper
 
-def _request_with_retry(request_func, retry_codes={408, 429, 500, 502, 503, 504}, backoff_factor=4, max_attempts=5):
+def _request_with_retry(request_func: Callable, retry_codes: set = {408, 429, 500, 502, 503, 504}, backoff_factor: int = 4, max_attempts: int = 5) -> Any:
     """Perform request func with exponential backoff and retry.
 
-    :param request_func: A function returning a requests.Response object or raising HTTPError
-    :param retry_codes: HTTPError status codes on which to attempt retry
-    :param backoff_factor: Base number of seconds for factor**attempt exponential backoff
-    :param max_attempts: Max number of request attempts.
+    :param Callable request_func: A function returning a requests.Response object or raising HTTPError
+    :param set retry_codes: HTTPError status codes on which to attempt retry
+    :param int backoff_factor: Base number of seconds for factor**attempt exponential backoff
+    :param int max_attempts: Max number of request attempts.
 
     Retry will be attempted on HTTPError exceptions which match retry_codes and
     also on other unknown exceptions, presumed to be transport errors.
@@ -797,11 +817,11 @@ def _request_with_retry(request_func, retry_codes={408, 429, 500, 502, 503, 504}
 class _TableWrapper (object):
     """Wraps a Table for datapath expressions.
     """
-    def __init__(self, schema, table):
+    def __init__(self, schema: "_SchemaWrapper", table: Any) -> None:
         """Creates a _TableWrapper object.
 
-        :param schema: the schema objec to which this table belongs
-        :param table: the wrapped table
+        :param _SchemaWrapper schema: the schema objec to which this table belongs
+        :param Any table: the wrapped table
         """
         self._schema = schema
         self._wrapped_table = table
@@ -819,13 +839,13 @@ class _TableWrapper (object):
             self.column_definitions.keys(),
             super(_TableWrapper, self).__dir__())
 
-    def __dir__(self):
+    def __dir__(self) -> Iterator[str]:
         return itertools.chain(
             super(_TableWrapper, self).__dir__(),
             self._identifiers.keys()
         )
 
-    def __getattr__(self, a):
+    def __getattr__(self, a: str) -> Any:
         if a in self._identifiers:
             return self.column_definitions[self._identifiers[a]]
         elif hasattr(super(_TableWrapper, self), a):
@@ -834,10 +854,11 @@ class _TableWrapper (object):
             raise AttributeError("'%s' object for table '%s' has no attribute or column '%s'" % (type(self).__name__, self._wrapped_table.name, a))
 
     @deprecated
-    def describe(self):
+    def describe(self) -> str:
         """Provides a description of the model element.
 
         :return: a user-friendly string representation of the model element.
+        :rtype: str
         """
         s = "_TableWrapper name: '%s'\nList of columns:\n" % self._name
         if len(self.column_definitions) == 0:
@@ -847,16 +868,16 @@ class _TableWrapper (object):
         return s
 
     @deprecated
-    def _repr_html_(self):
+    def _repr_html_(self) -> str:
         return self.describe()
 
     @property
-    def columns(self):
+    def columns(self) -> dict[str, "_ColumnWrapper"]:
         """Sugared access to self.column_definitions"""
         return self.column_definitions
 
     @property
-    def path(self):
+    def path(self) -> "DataPath":
         """Always a new DataPath instance that is rooted at this table.
 
         Note that this table will be automatically aliased using its own table name.
@@ -864,7 +885,7 @@ class _TableWrapper (object):
         return DataPath(self.alias(self._name))
 
     @property
-    def _contextualized_path(self):
+    def _contextualized_path(self) -> "DataPath":
         """Returns the path as contextualized for this table instance.
 
         Conditionally updates the context of the path to which this table instance is bound.
@@ -873,80 +894,81 @@ class _TableWrapper (object):
 
     @property
     @deprecated
-    def uri(self):
+    def uri(self) -> str:
         return self.path.uri
 
-    def alias(self, alias_name):
+    def alias(self, alias_name: str) -> "_TableAlias":
         """Returns a table alias object.
-        :param alias_name: a string to use as the alias name
+        :param str alias_name: a string to use as the alias name
         """
         return _TableAlias(self, alias_name)
 
-    def filter(self, filter_expression):
+    def filter(self, filter_expression: "_Predicate") -> "DataPath":
         """See the docs for this method in `DataPath` for more information."""
         return self._contextualized_path.filter(filter_expression)
 
-    def link(self, right, on=None, join_type=''):
+    def link(self, right: "_TableWrapper", on: Any = None, join_type: str = '') -> "DataPath":
         """See the docs for this method in `DataPath` for more information."""
         return self._contextualized_path.link(right, on, join_type)
 
-    def _query(self, mode='entity', projection=[], group_key=[], context=None):
+    def _query(self, mode: str = 'entity', projection: list = [], group_key: list = [], context: Optional["_TableAlias"] = None) -> "_ResultSet":
         """Invokes query on the path for this table."""
         return self.path._query(mode, projection, group_key=group_key, context=context)
 
-    def entities(self):
+    def entities(self) -> "_ResultSet":
         """Returns a results set of whole entities from this data path's current context.
 
         See the docs for this method in `DataPath` for more information.
         """
         return self._query()
 
-    def aggregates(self, *functions):
+    def aggregates(self, *functions: "_AggregateFunctionAlias") -> "_ResultSet":
         """Returns a results set of computed aggregates from this data path.
 
         See the docs for this method in `DataPath` for more information.
         """
         return self._query(mode=_Project.AGGREGATE, projection=list(functions))
 
-    def attributes(self, *attributes):
+    def attributes(self, *attributes: Any) -> "_ResultSet":
         """Returns a results set of attributes projected and optionally renamed from this data path.
 
         See the docs for this method in `DataPath` for more information.
         """
         return self._query(mode=_Project.ATTRIBUTE, projection=list(attributes))
 
-    def groupby(self, *keys):
+    def groupby(self, *keys: Any) -> "_AttributeGroup":
         """Returns an attribute group object.
 
         See the docs for this method in `DataPath` for more information.
         """
         return _AttributeGroup(self, self._query, keys)
 
-    def denormalize(self, context_name=None, heuristic=None, groupkey_name='RID'):
+    def denormalize(self, context_name: Optional[str] = None, heuristic: Optional[Callable] = None, groupkey_name: str = 'RID') -> "_ResultSet":
         """Denormalizes a path based on a visible-columns annotation 'context' or a heuristic approach.
 
         This method does not mutate this object. It returns a result set representing the denormalization of the path.
 
-        :param context_name: name of the visible-columns context or if none given, will attempt apply heuristics
-        :param heuristic: heuristic to apply if no context name specified
-        :param groupkey_name: column name for the group by key of the generated query expression (default: 'RID')
+        :param Optional[str] context_name: name of the visible-columns context or if none given, will attempt apply heuristics
+        :param Optional[Callable] heuristic: heuristic to apply if no context name specified
+        :param str groupkey_name: column name for the group by key of the generated query expression (default: 'RID')
         :return: a results set.
+        :rtype: _ResultSet
         """
         return self.path.denormalize(context_name=context_name, heuristic=heuristic, groupkey_name=groupkey_name)
 
-    def insert(self, entities, defaults=set(), nondefaults=set(), add_system_defaults=True, on_conflict_skip=False, retry_codes={408, 429, 500, 502, 503, 504}, backoff_factor=4, max_attempts=5, max_batch_rows=1000, max_batch_bytes=250*1024):
+    def insert(self, entities: Iterable, defaults: set = set(), nondefaults: set = set(), add_system_defaults: bool = True, on_conflict_skip: bool = False, retry_codes: set = {408, 429, 500, 502, 503, 504}, backoff_factor: int = 4, max_attempts: int = 5, max_batch_rows: int = 1000, max_batch_bytes: int = 250*1024) -> "_ResultSet":
         """Inserts entities into the table.
 
-        :param entities: an iterable collection of entities (i.e., rows) to be inserted into the table.
-        :param defaults: optional, set of column names to be assigned the default expression value.
-        :param nondefaults: optional, set of columns names to override implicit system defaults
-        :param add_system_defaults: flag to add system columns to the set of default columns.
-        :param on_conflict_skip: flag to skip entities that violate uniqueness constraints.
-        :param retry_codes: set of HTTP status codes for which retry should be considered.
-        :param backoff_factor: number of seconds for base of exponential retry backoff.
-        :param max_attempts: maximum number of requests attempts with retry.
-        :param max_batch_rows: maximum number of rows for one request, or False to disable batching.
-        :param max_batch_bytes: approximate maximum number of bytes for one request.
+        :param Iterable entities: an iterable collection of entities (i.e., rows) to be inserted into the table.
+        :param set defaults: optional, set of column names to be assigned the default expression value.
+        :param set nondefaults: optional, set of columns names to override implicit system defaults
+        :param bool add_system_defaults: flag to add system columns to the set of default columns.
+        :param bool on_conflict_skip: flag to skip entities that violate uniqueness constraints.
+        :param set retry_codes: set of HTTP status codes for which retry should be considered.
+        :param int backoff_factor: number of seconds for base of exponential retry backoff.
+        :param int max_attempts: maximum number of requests attempts with retry.
+        :param int max_batch_rows: maximum number of rows for one request, or False to disable batching.
+        :param int max_batch_bytes: approximate maximum number of bytes for one request.
         :return a collection of newly created entities.
 
         Retry will only be attempted for idempotent insertion
@@ -994,10 +1016,10 @@ class _TableWrapper (object):
             raise TypeError('entities[0] does not look like a dictionary -- does not have a "keys()" method')
 
         # perform one batch request in a helper we can hand to retry helper
-        def request_func(batch):
+        def request_func(batch: Any) -> Any:
             return self._schema._catalog._wrapped_catalog.post(path, json=batch, headers={'Content-Type': 'application/json'})
 
-        def _has_user_pkey(table):
+        def _has_user_pkey(table: Any) -> bool:
             """Return True if table has at least one primary key other than the system RID key"""
             for key in table.keys:
                 if { c.name for c in key.unique_columns } != {'RID'}:
@@ -1038,7 +1060,7 @@ class _TableWrapper (object):
         return result
 
 
-    def update(self, entities, correlation={'RID'}, targets=None, retry_codes={408, 429, 500, 502, 503, 504}, backoff_factor=4, max_attempts=5, max_batch_rows=1000, max_batch_bytes=250*1024):
+    def update(self, entities: Iterable, correlation: Iterable = {'RID'}, targets: Optional[Iterable] = None, retry_codes: set = {408, 429, 500, 502, 503, 504}, backoff_factor: int = 4, max_attempts: int = 5, max_batch_rows: int = 1000, max_batch_bytes: int = 250*1024) -> "_ResultSet":
         """Update entities of a table.
 
         For more information see the ERMrest protocol for the `attributegroup` interface. By default, this method will
@@ -1046,15 +1068,15 @@ class _TableWrapper (object):
         column names found in the first row of the `entities` input, which are not found in the `correlation` set and
         not defined as 'system columns' by ERMrest, as the targets if `targets` is not set.
 
-        :param entities: an iterable collection of entities (i.e., rows) to be updated in the table.
-        :param correlation: an iterable collection of column names used to correlate input set to the set of rows to be
+        :param Iterable entities: an iterable collection of entities (i.e., rows) to be updated in the table.
+        :param Iterable correlation: an iterable collection of column names used to correlate input set to the set of rows to be
         updated in the catalog. E.g., `{'col name'}` or `{mytable.mycolumn}` will work if you pass a _ColumnWrapper object.
-        :param targets: an iterable collection of column names used as the targets of the update operation.
-        :param retry_codes: set of HTTP status codes for which retry should be considered.
-        :param backoff_factor: number of seconds for base of exponential retry backoff.
-        :param max_attempts: maximum number of requests attempts with retry.
-        :param max_batch_rows: maximum number of rows for one request, or False to disable batching.
-        :param max_batch_bytes: approximate maximum number of bytes for one request.
+        :param Optional[Iterable] targets: an iterable collection of column names used as the targets of the update operation.
+        :param set retry_codes: set of HTTP status codes for which retry should be considered.
+        :param int backoff_factor: number of seconds for base of exponential retry backoff.
+        :param int max_attempts: maximum number of requests attempts with retry.
+        :param int max_batch_rows: maximum number of rows for one request, or False to disable batching.
+        :param int max_batch_bytes: approximate maximum number of bytes for one request.
         :return a collection of newly created entities.
 
         When performing retries, an exponential backoff delay is
@@ -1096,7 +1118,7 @@ class _TableWrapper (object):
         )
 
         # perform one batch request in a helper we can hand to retry helper
-        def request_func(batch):
+        def request_func(batch: Any) -> Any:
             return self._schema._catalog._wrapped_catalog.put(path, json=batch, headers={'Content-Type': 'application/json'})
 
         # perform all requests synchronously so the caller can get exceptions
@@ -1124,7 +1146,7 @@ class _TableWrapper (object):
         result = _ResultSet(self.path.uri, lambda ignore1, ignore2, ignore3: results)
         return result
 
-    def delete(self):
+    def delete(self) -> None:
         """Deletes the entity set referenced by the Table.
         """
         self.path.delete()
@@ -1133,11 +1155,11 @@ class _TableWrapper (object):
 class _TableAlias (_TableWrapper):
     """Represents a table alias in datapath expressions.
     """
-    def __init__(self, base_table, alias_name):
+    def __init__(self, base_table: "_TableWrapper", alias_name: str) -> None:
         """Initializes the table alias.
 
-        :param base_table: the base table to be given an alias name
-        :param alias_name: the alias name
+        :param _TableWrapper base_table: the base table to be given an alias name
+        :param str alias_name: the alias name
         """
         assert isinstance(base_table, _TableWrapper)
         super(_TableAlias, self).__init__(base_table._schema, base_table._wrapped_table)
@@ -1150,29 +1172,30 @@ class _TableAlias (_TableWrapper):
         self._projection_name = self._instancename
         self._fromname = "%s:=%s" % (self._uname, self._base_table._fqname)
 
-    def __deepcopy__(self, memodict={}):
+    def __deepcopy__(self, memodict: dict = {}) -> "_TableAlias":
         # deep copy implementation of a table alias should not make copies of model objects (ie, the base table)
         return _TableAlias(self._base_table, self._name)
 
-    def _equivalent(self, alias):
+    def _equivalent(self, alias: "_TableAlias") -> bool:
         """Equivalence comparison between table aliases.
 
-        :param alias: another table alias
+        :param _TableAlias alias: another table alias
         :return: True, if the base table and alias name match, else False
+        :rtype: bool
         """
         if not isinstance(alias, _TableAlias):
             raise TypeError("'alias' must be an instance of '%s'" % type(self).__name__)
         return self._name == alias._name and self._base_table == alias._base_table
 
     @property
-    def path(self):
+    def path(self) -> "DataPath":
         """Returns the parent path for this alias.
         """
         if not self._parent:
             self._parent = DataPath(self)
         return self._parent
 
-    def _bind(self, parent_path):
+    def _bind(self, parent_path: "DataPath") -> None:
         """Binds this table instance to the given parent path."""
         if self._parent:
             raise ValueError("Cannot bind a table instance that has already been bound.")
@@ -1181,7 +1204,7 @@ class _TableAlias (_TableWrapper):
         self._parent = parent_path
 
     @property
-    def _contextualized_path(self):
+    def _contextualized_path(self) -> "DataPath":
         """Returns the path as contextualized for this table instance.
 
         Conditionally updates the context of the path to which this table instance is bound.
@@ -1193,10 +1216,10 @@ class _TableAlias (_TableWrapper):
 
     @property
     @deprecated
-    def uri(self):
+    def uri(self) -> str:
         return self.path._contextualized_uri(self)
 
-    def _query(self, mode='entity', projection=[], group_key=[], context=None):
+    def _query(self, mode: str = 'entity', projection: list = [], group_key: list = [], context: Optional["_TableAlias"] = None) -> "_ResultSet":
         """Overridden method to set context of query to this table instance."""
         return self.path._query(mode, projection, group_key=group_key, context=self)
 
@@ -1205,11 +1228,11 @@ class _ColumnWrapper (object):
     """Wraps a Column for datapath expressions.
     """
 
-    def __init__(self, table, column):
+    def __init__(self, table: "_TableWrapper", column: Any) -> None:
         """Creates a _ColumnWrapper object.
 
-        :param table: the table to which this column belongs
-        :param column: the wrapped column
+        :param _TableWrapper table: the table to which this column belongs
+        :param Any column: the wrapped column
         """
         super(_ColumnWrapper, self).__init__()
         self._table = table
@@ -1218,46 +1241,48 @@ class _ColumnWrapper (object):
         self._uname = urlquote(self._name)
 
     @property
-    def _fqname(self):
+    def _fqname(self) -> str:
         """Late binding needed for table alias instances."""
         return "%s:%s" % (self._table._fqname, self._uname)
 
     @property
-    def _instancename(self):
+    def _instancename(self) -> str:
         """Late binding needed for table alias instances."""
         return "%s:%s" % (self._table._uname, self._uname) if isinstance(self._table, _TableAlias) else self._uname
 
     @property
-    def _projection_name(self):
+    def _projection_name(self) -> str:
         """Late binding needed for table alias instances."""
         return self._instancename
 
     @deprecated
-    def describe(self):
+    def describe(self) -> str:
         """Provides a description of the model element.
 
         :return: a user-friendly string representation of the model element.
+        :rtype: str
         """
         return "_ColumnWrapper name: '%s'\tType: %s\tComment: '%s'" % \
                (self._name, self._wrapped_column.type.typename, self._wrapped_column.comment)
 
     @deprecated
-    def _repr_html_(self):
+    def _repr_html_(self) -> str:
         return self.describe()
 
     @property
-    def desc(self):
+    def desc(self) -> "_SortDescending":
         """A descending sort modifier based on this column."""
         return _SortDescending(self)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self._name
 
-    def eq(self, other):
+    def eq(self, other: Any) -> "_ComparisonPredicate":
         """Returns an 'equality' comparison predicate.
 
-        :param other: `None` or any other literal value.
+        :param Any other: `None` or any other literal value.
         :return: a filter predicate object
+        :rtype: _ComparisonPredicate
         """
         if other is None:
             return _ComparisonPredicate(self, "::null::", '')
@@ -1266,11 +1291,12 @@ class _ColumnWrapper (object):
 
     __eq__ = eq
 
-    def ne(self, other):
+    def ne(self, other: Any) -> "_NegationPredicate":
         """Returns a 'not equal' comparison predicate.
 
-        :param other: `None` or any other literal value.
+        :param Any other: `None` or any other literal value.
         :return: a filter predicate object
+        :rtype: _NegationPredicate
         """
         if other is None:
             return _ComparisonPredicate(self, "::null::", '').negate()
@@ -1279,71 +1305,78 @@ class _ColumnWrapper (object):
 
     __ne__ = ne
 
-    def lt(self, other):
+    def lt(self, other: Any) -> "_ComparisonPredicate":
         """Returns a 'less than' comparison predicate.
 
-        :param other: a literal value.
+        :param Any other: a literal value.
         :return: a filter predicate object
+        :rtype: _ComparisonPredicate
         """
         return _ComparisonPredicate(self, "::lt::", other)
 
     __lt__ = lt
 
-    def le(self, other):
+    def le(self, other: Any) -> "_ComparisonPredicate":
         """Returns a 'less than or equal' comparison predicate.
 
-        :param other: a literal value.
+        :param Any other: a literal value.
         :return: a filter predicate object
+        :rtype: _ComparisonPredicate
         """
         return _ComparisonPredicate(self, "::leq::", other)
 
     __le__ = le
 
-    def gt(self, other):
+    def gt(self, other: Any) -> "_ComparisonPredicate":
         """Returns a 'greater than' comparison predicate.
 
-        :param other: a literal value.
+        :param Any other: a literal value.
         :return: a filter predicate object
+        :rtype: _ComparisonPredicate
         """
         return _ComparisonPredicate(self, "::gt::", other)
 
     __gt__ = gt
 
-    def ge(self, other):
+    def ge(self, other: Any) -> "_ComparisonPredicate":
         """Returns a 'greater than or equal' comparison predicate.
 
-        :param other: a literal value.
+        :param Any other: a literal value.
         :return: a filter predicate object
+        :rtype: _ComparisonPredicate
         """
         return _ComparisonPredicate(self, "::geq::", other)
 
     __ge__ = ge
 
-    def regexp(self, other):
+    def regexp(self, other: Any) -> "_ComparisonPredicate":
         """Returns a 'regular expression' comparison predicate.
 
-        :param other: a _string_ literal value.
+        :param Any other: a _string_ literal value.
         :return: a filter predicate object
+        :rtype: _ComparisonPredicate
         """
         return _ComparisonPredicate(self, "::regexp::", other)
 
-    def ciregexp(self, other):
+    def ciregexp(self, other: Any) -> "_ComparisonPredicate":
         """Returns a 'case-insensitive regular expression' comparison predicate.
 
-        :param other: a _string_ literal value.
+        :param Any other: a _string_ literal value.
         :return: a filter predicate object
+        :rtype: _ComparisonPredicate
         """
         return _ComparisonPredicate(self, "::ciregexp::", other)
 
-    def ts(self, other):
+    def ts(self, other: Any) -> "_ComparisonPredicate":
         """Returns a 'text search' comparison predicate.
 
-        :param other: a _string_ literal value.
+        :param Any other: a _string_ literal value.
         :return: a filter predicate object
+        :rtype: _ComparisonPredicate
         """
         return _ComparisonPredicate(self, "::ts::", other)
 
-    def alias(self, name):
+    def alias(self, name: str) -> "_ColumnAlias":
         """Returns an alias for this column."""
         return _ColumnAlias(self, name)
 
@@ -1351,11 +1384,11 @@ class _ColumnWrapper (object):
 class _ColumnAlias (object):
     """Represents an (output) alias for a column instance in a datapath expression.
     """
-    def __init__(self, base_column, alias_name):
+    def __init__(self, base_column: "_ColumnWrapper", alias_name: str) -> None:
         """Initializes the column alias.
 
-        :param base_column: the base column to be given an alias name
-        :param alias_name: the alias name
+        :param _ColumnWrapper base_column: the base column to be given an alias name
+        :param str alias_name: the alias name
         """
         assert isinstance(base_column, _ColumnWrapper)
         super(_ColumnAlias, self).__init__()
@@ -1364,116 +1397,126 @@ class _ColumnAlias (object):
         self._uname = urlquote(self._name)
 
     @property
-    def _projection_name(self):
+    def _projection_name(self) -> str:
         """Late binding needed for table alias instances."""
         return "%s:=%s" % (self._uname, self._base_column._instancename)
 
-    def __deepcopy__(self, memodict={}):
+    def __deepcopy__(self, memodict: dict = {}) -> "_ColumnAlias":
         # deep copy implementation of a column alias should not make copies of model objects (ie, the base column)
         return _ColumnAlias(self._base_column, self._name)
 
     @deprecated
-    def describe(self):
+    def describe(self) -> str:
         """Provides a description of the model element.
 
         :return: a user-friendly string representation of the model element.
+        :rtype: str
         """
         return "_ColumnWrapper name: '%s'\tAlias for: %s" % \
                (self._name, self._base_column.describe())
 
     @deprecated
-    def _repr_html_(self):
+    def _repr_html_(self) -> str:
         return self.describe()
 
     @property
-    def desc(self):
+    def desc(self) -> "_SortDescending":
         """A descending sort modifier based on this column."""
         return _SortDescending(self)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self._name
 
-    def eq(self, other):
+    def eq(self, other: Any) -> "_ComparisonPredicate":
         """Returns an 'equality' comparison predicate.
 
-        :param other: `None` or any other literal value.
+        :param Any other: `None` or any other literal value.
         :return: a filter predicate object
+        :rtype: _ComparisonPredicate
         """
         return self._base_column.eq(other)
 
     __eq__ = eq
 
-    def ne(self, other):
+    def ne(self, other: Any) -> "_NegationPredicate":
         """Returns a 'not equal' comparison predicate.
 
-        :param other: `None` or any other literal value.
+        :param Any other: `None` or any other literal value.
         :return: a filter predicate object
+        :rtype: _NegationPredicate
         """
         return self._base_column.ne(other)
 
     __ne__ = ne
 
-    def lt(self, other):
+    def lt(self, other: Any) -> "_ComparisonPredicate":
         """Returns a 'less than' comparison predicate.
 
-        :param other: a literal value.
+        :param Any other: a literal value.
         :return: a filter predicate object
+        :rtype: _ComparisonPredicate
         """
         return self._base_column.lt(other)
 
     __lt__ = lt
 
-    def le(self, other):
+    def le(self, other: Any) -> "_ComparisonPredicate":
         """Returns a 'less than or equal' comparison predicate.
 
-        :param other: a literal value.
+        :param Any other: a literal value.
         :return: a filter predicate object
+        :rtype: _ComparisonPredicate
         """
         return self._base_column.le(other)
 
     __le__ = le
 
-    def gt(self, other):
+    def gt(self, other: Any) -> "_ComparisonPredicate":
         """Returns a 'greater than' comparison predicate.
 
-        :param other: a literal value.
+        :param Any other: a literal value.
         :return: a filter predicate object
+        :rtype: _ComparisonPredicate
         """
         return self._base_column.gt(other)
 
     __gt__ = gt
 
-    def ge(self, other):
+    def ge(self, other: Any) -> "_ComparisonPredicate":
         """Returns a 'greater than or equal' comparison predicate.
 
-        :param other: a literal value.
+        :param Any other: a literal value.
         :return: a filter predicate object
+        :rtype: _ComparisonPredicate
         """
         return self._base_column.ge(other)
 
     __ge__ = ge
 
-    def regexp(self, other):
+    def regexp(self, other: Any) -> "_ComparisonPredicate":
         """Returns a 'regular expression' comparison predicate.
 
-        :param other: a _string_ literal value.
+        :param Any other: a _string_ literal value.
         :return: a filter predicate object
+        :rtype: _ComparisonPredicate
         """
         return self._base_column.regexp(other)
 
-    def ciregexp(self, other):
+    def ciregexp(self, other: Any) -> "_ComparisonPredicate":
         """Returns a 'case-insensitive regular expression' comparison predicate.
 
-        :param other: a _string_ literal value.
+        :param Any other: a _string_ literal value.
         :return: a filter predicate object
+        :rtype: _ComparisonPredicate
         """
         return self._base_column.ciregexp(other)
 
-    def ts(self, other):
+    def ts(self, other: Any) -> "_ComparisonPredicate":
         """Returns a 'text search' comparison predicate.
 
-        :param other: a _string_ literal value.
+        :param Any other: a _string_ literal value.
         :return: a filter predicate object
+        :rtype: _ComparisonPredicate
         """
         return self._base_column.ts(other)
 
@@ -1481,10 +1524,10 @@ class _ColumnAlias (object):
 class _SortDescending (object):
     """A descending sort condition."""
 
-    def __init__(self, attr):
+    def __init__(self, attr: Any) -> None:
         """Creates sort descending object.
 
-        :param attr: a column, column alias, or aggrfn alias object
+        :param Any attr: a column, column alias, or aggrfn alias object
         """
         assert isinstance(attr, _ColumnWrapper) or isinstance(attr, _ColumnAlias) or isinstance(attr, _AggregateFunctionAlias)
         self._attr = attr
@@ -1492,34 +1535,35 @@ class _SortDescending (object):
 
 
 class _PathOperator (object):
-    def __init__(self, r):
+    def __init__(self, r: Any) -> None:
         assert isinstance(r, _PathOperator) or isinstance(r, _TableAlias)
         if isinstance(r, _Project):
             raise Exception("Cannot extend a path after an attribute projection")
         self._r = r
 
-    def __deepcopy__(self, memodict={}):
+    def __deepcopy__(self, memodict: dict = {}) -> "_PathOperator":
         return type(self)(copy.deepcopy(self._r, memo=memodict))
 
     @property
-    def _path(self):
+    def _path(self) -> str:
         assert isinstance(self._r, _PathOperator)
         return self._r._path
 
     @property
-    def _mode(self):
+    def _mode(self) -> str:
         assert isinstance(self._r, _PathOperator)
         return self._r._mode
 
-    def __str__(self):
+    def __str__(self) -> str:
         return "/%s/%s" % (self._mode, self._path)
 
-    def rebase(self, base, root_context):
+    def rebase(self, base: "_PathOperator", root_context: "_TableAlias") -> "_PathOperator":
         """Rebases the current path expression to begin as a reset context following 'base'.
 
-        :param base: a valid path expresion
-        :param root_context: root context on which to rebase this path expression
+        :param _PathOperator base: a valid path expresion
+        :param _TableAlias root_context: root context on which to rebase this path expression
         :return: rebased expresion _or_ a new `_ResetContext` instance if `self` was the root
+        :rtype: _PathOperator
         """
         assert isinstance(base, _PathOperator)
         assert isinstance(root_context, _TableAlias)
@@ -1535,48 +1579,48 @@ class _PathOperator (object):
 
 
 class _Root (_PathOperator):
-    def __init__(self, r):
+    def __init__(self, r: "_TableAlias") -> None:
         super(_Root, self).__init__(r)
         assert isinstance(r, _TableAlias)
         self._table = r
 
     @property
-    def _path(self):
+    def _path(self) -> str:
         return self._table._fromname
 
     @property
-    def _mode(self):
+    def _mode(self) -> str:
         return 'entity'
 
 
 class _ResetContext (_PathOperator):
-    def __init__(self, r, alias):
+    def __init__(self, r: Any, alias: "_TableAlias") -> None:
         if isinstance(r, _ResetContext):
             r = r._r  # discard the previous context reset operator
         super(_ResetContext, self).__init__(r)
         assert isinstance(alias, _TableAlias)
         self._alias = alias
 
-    def __deepcopy__(self, memodict={}):
+    def __deepcopy__(self, memodict: dict = {}) -> "_ResetContext":
         return _ResetContext(copy.deepcopy(self._r, memo=memodict), copy.deepcopy(self._alias, memo=memodict))
 
     @property
-    def _path(self):
+    def _path(self) -> str:
         assert isinstance(self._r, _PathOperator)
         return "%s/$%s" % (self._r._path, self._alias._uname)
 
 
 class _Filter(_PathOperator):
-    def __init__(self, r, formula):
+    def __init__(self, r: Any, formula: "_Predicate") -> None:
         super(_Filter, self).__init__(r)
         assert isinstance(formula, _Predicate)
         self._formula = formula
 
-    def __deepcopy__(self, memodict={}):
+    def __deepcopy__(self, memodict: dict = {}) -> "_Filter":
         return _Filter(copy.deepcopy(self._r, memo=memodict), copy.deepcopy(self._formula, memo=memodict))
 
     @property
-    def _path(self):
+    def _path(self) -> str:
         assert isinstance(self._r, _PathOperator)
         return "%s/%s" % (self._r._path, str(self._formula))
 
@@ -1590,13 +1634,13 @@ class _Project (_PathOperator):
     ATTRGROUP = 'attributegroup'
     MODES = (ENTITY, ATTRIBUTE, AGGREGATE, ATTRGROUP)
 
-    def __init__(self, r, mode=ENTITY, projection=[], group_key=[]):
+    def __init__(self, r: Any, mode: str = ENTITY, projection: list = [], group_key: list = []) -> None:
         """Initializes the projection component.
 
-        :param r: the parent path component.
-        :param r: the 'mode' of the projection (entity, attribute, etc.)
-        :param projection: projection list.
-        :param group_key: grouping keys list.
+        :param Any r: the parent path component.
+        :param Any r: the 'mode' of the projection (entity, attribute, etc.)
+        :param list projection: projection list.
+        :param list group_key: grouping keys list.
         """
         super(_Project, self).__init__(r)
         assert mode in self.MODES
@@ -1621,7 +1665,7 @@ class _Project (_PathOperator):
 
         self._projection = [obj._projection_name for obj in projection]
 
-    def __deepcopy__(self, memodict={}):
+    def __deepcopy__(self, memodict: dict = {}) -> "_Project":
         cp = super(_Project, self).__deepcopy__(memodict=memodict)
         cp._projection_mode = self._projection_mode
         cp._projection = copy.deepcopy(self._projection, memo=memodict)
@@ -1629,7 +1673,7 @@ class _Project (_PathOperator):
         return cp
 
     @property
-    def _path(self):
+    def _path(self) -> str:
         assert isinstance(self._r, _PathOperator)
         projection = ','.join(self._projection)
         if self._projection_mode == self.ATTRGROUP:
@@ -1640,18 +1684,18 @@ class _Project (_PathOperator):
             return "%s/%s" % (self._r._path, projection)
 
     @property
-    def _mode(self):
+    def _mode(self) -> str:
         return self._projection_mode
 
 
 class _Link (_PathOperator):
-    def __init__(self, r, on, as_=None, join_type=''):
+    def __init__(self, r: Any, on: Any, as_: Optional["_TableAlias"] = None, join_type: str = '') -> None:
         """Initialize the _Link operator
 
-        :param r: parent path operator
-        :param on: a table alias, a comparison predicate, or a conjunction of comparisons
-        :param as_: table alias
-        :param join_type: left, right or full for outer join semantics, or '' for inner join semantics
+        :param Any r: parent path operator
+        :param Any on: a table alias, a comparison predicate, or a conjunction of comparisons
+        :param Optional[_TableAlias] as_: table alias
+        :param str join_type: left, right or full for outer join semantics, or '' for inner join semantics
         """
         super(_Link, self).__init__(r)
         assert isinstance(on, _ComparisonPredicate) or isinstance(on, _TableAlias) or (
@@ -1662,7 +1706,7 @@ class _Link (_PathOperator):
         self._as = as_
         self._join_type = join_type
 
-    def __deepcopy__(self, memodict={}):
+    def __deepcopy__(self, memodict: dict = {}) -> "_Link":
         return _Link(
             copy.deepcopy(self._r, memo=memodict),
             copy.deepcopy(self._on, memo=memodict),
@@ -1671,7 +1715,7 @@ class _Link (_PathOperator):
         )
 
     @property
-    def _path(self):
+    def _path(self) -> str:
         assert isinstance(self._r, _PathOperator)
         assign = '' if self._as is None else "%s:=" % self._as._uname
         if isinstance(self._on, _TableWrapper):
@@ -1688,11 +1732,12 @@ class _Link (_PathOperator):
 class _Predicate (object):
     """Common base class for all predicate types."""
 
-    def and_(self, other):
+    def and_(self, other: "_Predicate") -> "_ConjunctionPredicate":
         """Returns a conjunction predicate.
 
-        :param other: a predicate object.
+        :param _Predicate other: a predicate object.
         :return: a junction predicate object.
+        :rtype: _ConjunctionPredicate
         """
         if not isinstance(other, _Predicate):
             raise TypeError("Invalid comparison with object that is not a _Predicate instance.")
@@ -1700,11 +1745,12 @@ class _Predicate (object):
 
     __and__ = and_
 
-    def or_(self, other):
+    def or_(self, other: "_Predicate") -> "_DisjunctionPredicate":
         """Returns a disjunction predicate.
 
-        :param other: a predicate object.
+        :param _Predicate other: a predicate object.
         :return: a junction predicate object.
+        :rtype: _DisjunctionPredicate
         """
         if not isinstance(other, _Predicate):
             raise TypeError("Invalid comparison with object that is not a _Predicate instance.")
@@ -1712,12 +1758,13 @@ class _Predicate (object):
 
     __or__ = or_
 
-    def negate(self):
+    def negate(self) -> "_NegationPredicate":
         """Returns a negation predicate.
 
         This predicate is wrapped in a negation predicate which is returned to the caller.
 
         :return: a negation predicate object.
+        :rtype: _NegationPredicate
         """
         return _NegationPredicate(self)
 
@@ -1726,7 +1773,7 @@ class _Predicate (object):
 
 class _ComparisonPredicate (_Predicate):
     """Comparison (left-operand operator right-operand) predicate"""
-    def __init__(self, lop, op, rop):
+    def __init__(self, lop: "_ColumnWrapper", op: str, rop: Any) -> None:
         super(_ComparisonPredicate, self).__init__()
         assert isinstance(lop, _ColumnWrapper)
         assert isinstance(rop, _ColumnWrapper) or isinstance(rop, int) or \
@@ -1737,23 +1784,23 @@ class _ComparisonPredicate (_Predicate):
         self._op = op
         self._rop = rop
 
-    def __deepcopy__(self, memodict={}):
+    def __deepcopy__(self, memodict: dict = {}) -> "_ComparisonPredicate":
         # deep copy of predicate should not deep copy the model object references (i.e., _ColumnWrapper objects)
         return _ComparisonPredicate(self._lop, self._op, self._rop)
 
     @property
-    def is_equality(self):
+    def is_equality(self) -> bool:
         return self._op == '='
 
     @property
-    def left(self):
+    def left(self) -> "_ColumnWrapper":
         return self._lop
 
     @property
-    def right(self):
+    def right(self) -> Any:
         return self._rop
 
-    def __str__(self):
+    def __str__(self) -> str:
         if isinstance(self._rop, _ColumnWrapper):
             # The only valid circumstance for a _ColumnWrapper rop is in a link 'on' predicate for simple key/fkey joins
             return "(%s)=(%s)" % (self._lop._instancename, self._rop._fqname)
@@ -1767,7 +1814,7 @@ class _ComparisonPredicate (_Predicate):
 
 class _JunctionPredicate (_Predicate):
     """Junction (and/or) of child predicates."""
-    def __init__(self, op, operands):
+    def __init__(self, op: str, operands: list) -> None:
         super(_JunctionPredicate, self).__init__()
         assert operands and hasattr(operands, '__iter__') and len(operands) > 1
         assert all(isinstance(operand, _Predicate) for operand in operands)
@@ -1775,25 +1822,25 @@ class _JunctionPredicate (_Predicate):
         self._operands = operands
         self._op = op
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self._op.join(["(%s)" % operand for operand in self._operands])
 
 
 class _ConjunctionPredicate (_JunctionPredicate):
     """Conjunction (and) or child predicates."""
-    def __init__(self, operands):
+    def __init__(self, operands: list) -> None:
         super(_ConjunctionPredicate, self).__init__('&', operands)
 
-    def and_(self, other):
+    def and_(self, other: "_Predicate") -> "_ConjunctionPredicate":
         return _ConjunctionPredicate(self._operands + [other])
 
     @property
-    def is_valid_join_condition(self):
+    def is_valid_join_condition(self) -> bool:
         """Tests if this conjunction is a valid join condition."""
         return all(isinstance(o, _ComparisonPredicate) and o.is_equality for o in self._operands)
 
     @property
-    def as_join_condition(self):
+    def as_join_condition(self) -> str:
         """Returns the conjunction in the 'join condition' serialized format."""
         lhs = []
         rhs = []
@@ -1813,136 +1860,136 @@ class _ConjunctionPredicate (_JunctionPredicate):
 
 class _DisjunctionPredicate (_JunctionPredicate):
     """Disjunction (or) of child predicates."""
-    def __init__(self, operands):
+    def __init__(self, operands: list) -> None:
         super(_DisjunctionPredicate, self).__init__(';', operands)
 
-    def or_(self, other):
+    def or_(self, other: "_Predicate") -> "_DisjunctionPredicate":
         return _DisjunctionPredicate(self._operands + [other])
 
 
 class _NegationPredicate (_Predicate):
     """Negates the child predicate."""
-    def __init__(self, child):
+    def __init__(self, child: "_Predicate") -> None:
         super(_NegationPredicate, self).__init__()
         assert isinstance(child, _Predicate)
         self._child = child
 
-    def __str__(self):
+    def __str__(self) -> str:
         return "!(%s)" % self._child
 
 
 class _Quantifier (object):
     """Base class of quantifiers."""
-    def __init__(self, quantifier_name, *args):
+    def __init__(self, quantifier_name: str, *args: Any) -> None:
         """Initializes the quantifier object.
 
-        :param quantifier_name: name of the quantifier per ERMrest specification.
-        :param args: arguments of the quantifier per ERMrest specification.
+        :param str quantifier_name: name of the quantifier per ERMrest specification.
+        :param Any args: arguments of the quantifier per ERMrest specification.
         """
         super(_Quantifier, self).__init__()
         self._quantifier_name = quantifier_name
         self._args = args
 
-    def __str__(self):
+    def __str__(self) -> str:
         return "%s(%s)" % (self._quantifier_name, ','.join([urlquote(str(arg)) for arg in self._args]))
 
 
 class All (_Quantifier):
     """Universal quantifier."""
-    def __init__(self, *args):
+    def __init__(self, *args: Any) -> None:
         super(All, self).__init__('all', *args)
 
 
 class Any (_Quantifier):
     """Existential quantifier."""
-    def __init__(self, *args):
+    def __init__(self, *args: Any) -> None:
         super(Any, self).__init__('any', *args)
 
 
 class AggregateFunction (object):
     """Base class of all aggregate functions."""
-    def __init__(self, fn_name, arg):
+    def __init__(self, fn_name: str, arg: _Any) -> None:
         """Initializes the aggregate function.
 
-        :param fn_name: name of the function per ERMrest specification.
-        :param arg: argument of the function per ERMrest specification.
+        :param str fn_name: name of the function per ERMrest specification.
+        :param Any arg: argument of the function per ERMrest specification.
         """
         super(AggregateFunction, self).__init__()
         self._fn_name = fn_name
         self._arg = arg
 
-    def __str__(self):
+    def __str__(self) -> str:
         return "%s(%s)" % (self._fn_name, self._arg)
 
     @property
-    def _instancename(self):
+    def _instancename(self) -> str:
         return "%s(%s)" % (self._fn_name, self._arg._instancename)
 
-    def alias(self, alias_name):
+    def alias(self, alias_name: str) -> "_AggregateFunctionAlias":
         """Returns an (output) alias for this aggregate function instance."""
         return _AggregateFunctionAlias(self, alias_name)
 
 
 class Min (AggregateFunction):
     """Aggregate function for minimum non-NULL value."""
-    def __init__(self, arg):
+    def __init__(self, arg: _Any) -> None:
         super(Min, self).__init__('min', arg)
 
 
 class Max (AggregateFunction):
     """Aggregate function for maximum non-NULL value."""
-    def __init__(self, arg):
+    def __init__(self, arg: _Any) -> None:
         super(Max, self).__init__('max', arg)
 
 
 class Sum (AggregateFunction):
     """Aggregate function for sum of non-NULL values."""
-    def __init__(self, arg):
+    def __init__(self, arg: _Any) -> None:
         super(Sum, self).__init__('sum', arg)
 
 
 class Avg (AggregateFunction):
     """Aggregate function for average of non-NULL values."""
-    def __init__(self, arg):
+    def __init__(self, arg: _Any) -> None:
         super(Avg, self).__init__('avg', arg)
 
 
 class Cnt (AggregateFunction):
     """Aggregate function for count of non-NULL values."""
-    def __init__(self, arg):
+    def __init__(self, arg: _Any) -> None:
         super(Cnt, self).__init__('cnt', arg)
 
 
 class CntD (AggregateFunction):
     """Aggregate function for count of distinct non-NULL values."""
-    def __init__(self, arg):
+    def __init__(self, arg: _Any) -> None:
         super(CntD, self).__init__('cnt_d', arg)
 
 
 class Array (AggregateFunction):
     """Aggregate function for an array containing all values (including NULL)."""
-    def __init__(self, arg):
+    def __init__(self, arg: _Any) -> None:
         super(Array, self).__init__('array', arg)
 
 
 class ArrayD (AggregateFunction):
     """Aggregate function for an array containing distinct values (including NULL)."""
-    def __init__(self, arg):
+    def __init__(self, arg: _Any) -> None:
         super(ArrayD, self).__init__('array_d', arg)
 
 
 class Bin (AggregateFunction):
     """Binning function."""
-    def __init__(self, arg, nbins, minval=None, maxval=None):
+    def __init__(self, arg: _Any, nbins: int, minval: _Any = None, maxval: _Any = None) -> None:
         """Initialize the bin function.
 
         If `minval` or `maxval` are not given, they will be set based on the min and/or max values for the column
         (`operand` parameter) as determined by issuing an aggregate query over the current data path.
 
-        :param arg: a column or aliased column instance
-        :param nbins: number of bins
-        :param minval: minimum value (optional)
-        :param maxval: maximum value (optional)
+        :param Any arg: a column or aliased column instance
+        :param int nbins: number of bins
+        :param Any minval: minimum value (optional)
+        :param Any maxval: maximum value (optional)
         """
         super(Bin, self).__init__('bin', arg)
         if not (isinstance(arg, _ColumnWrapper) or isinstance(arg, _ColumnAlias)):
@@ -1951,21 +1998,21 @@ class Bin (AggregateFunction):
         self.minval = minval
         self.maxval = maxval
 
-    def __str__(self):
+    def __str__(self) -> str:
         return "%s(%s;%s;%s;%s)" % (self._fn_name, self._arg, self.nbins, self.minval, self.maxval)
 
     @property
-    def _instancename(self):
+    def _instancename(self) -> str:
         return "%s(%s;%s;%s;%s)" % (self._fn_name, self._arg._instancename, self.nbins, self.minval, self.maxval)
 
 
 class _AggregateFunctionAlias (object):
     """Alias for aggregate functions."""
-    def __init__(self, fn, alias_name):
+    def __init__(self, fn: "AggregateFunction", alias_name: str) -> None:
         """Initializes the aggregate function alias.
 
-        :param fn: aggregate function instance
-        :param alias_name: alias name
+        :param AggregateFunction fn: aggregate function instance
+        :param str alias_name: alias name
         """
         super(_AggregateFunctionAlias, self).__init__()
         assert isinstance(fn, AggregateFunction)
@@ -1973,28 +2020,28 @@ class _AggregateFunctionAlias (object):
         self._name = alias_name
         self._uname = urlquote(self._name)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return str(self._fn)
 
     @property
-    def _projection_name(self):
+    def _projection_name(self) -> str:
         """In a projection, the object uses this name."""
         return "%s:=%s" % (self._uname, self._fn._instancename)
 
     @property
-    def desc(self):
+    def desc(self) -> "_SortDescending":
         """A descending sort modifier based on this alias."""
         return _SortDescending(self)
 
 
 class _AttributeGroup (object):
     """A computed attribute group."""
-    def __init__(self, source, queryfn, keys):
+    def __init__(self, source: _Any, queryfn: Callable, keys: tuple) -> None:
         """Initializes an attribute group instance.
 
-        :param source: the source object for the group (DataPath, _TableWrapper, _TableAlias)
-        :param queryfn: a query function that takes mode, projection, and group_key parameters
-        :param keys: an iterable collection of group keys
+        :param Any source: the source object for the group (DataPath, _TableWrapper, _TableAlias)
+        :param Callable queryfn: a query function that takes mode, projection, and group_key parameters
+        :param tuple keys: an iterable collection of group keys
         """
         super(_AttributeGroup, self).__init__()
         assert any(isinstance(source, valid_type) for valid_type in [DataPath, _TableWrapper, _TableAlias])
@@ -2005,16 +2052,17 @@ class _AttributeGroup (object):
         self._queryfn = queryfn
         self._grouping_keys = list(keys)
 
-    def attributes(self, *attributes):
+    def attributes(self, *attributes: _Any) -> "_ResultSet":
         """Returns a results set of attributes projected and optionally renamed from this group.
 
-        :param attributes: the columns, aliased columns, and/or aliased aggregate functions to be retrieved for this group.
+        :param Any attributes: the columns, aliased columns, and/or aliased aggregate functions to be retrieved for this group.
         :return: a results set of the projected attributes from this group.
+        :rtype: _ResultSet
         """
         self._resolve_binning_ranges()
         return self._queryfn(mode=_Project.ATTRGROUP, projection=list(attributes), group_key=self._grouping_keys)
 
-    def _resolve_binning_ranges(self):
+    def _resolve_binning_ranges(self) -> None:
         """Helper method to resolve any unspecified binning ranges."""
         for key in self._grouping_keys:
             if isinstance(key, _AggregateFunctionAlias) and isinstance(key._fn, Bin):
@@ -2035,12 +2083,12 @@ class _AttributeGroup (object):
 ## UTILITIES FOR DENORMALIZATION ##############################################
 ##
 
-def _datapath_left_outer_join_by_fkey(path, fk, alias_name=None):
+def _datapath_left_outer_join_by_fkey(path: "DataPath", fk: _Any, alias_name: Optional[str] = None) -> None:
     """Link a table to the path based on a foreign key reference.
 
-    :param path: a DataPath object
-    :param fk: an ermrest_model.ForeignKey object
-    :param alias_name: an optional 'alias' name to use for the foreign table
+    :param DataPath path: a DataPath object
+    :param Any fk: an ermrest_model.ForeignKey object
+    :param Optional[str] alias_name: an optional 'alias' name to use for the foreign table
     """
     assert isinstance(path, DataPath)
     assert isinstance(fk, _erm.ForeignKey)
@@ -2071,15 +2119,16 @@ def _datapath_left_outer_join_by_fkey(path, fk, alias_name=None):
     path.link(right.alias(alias_name) if alias_name else right, on=on, join_type='left')
 
 
-def _datapath_deserialize_vizcolumn(path, vizcol, sources=None):
+def _datapath_deserialize_vizcolumn(path: "DataPath", vizcol: _Any, sources: Optional[dict] = None) -> _Any:
     """Deserializes a visual column specification.
 
     If the visible column specifies a foreign key path, the datapath object
     will be changed by linking the foreign keys in the path.
 
-    :param path: a datapath object
-    :param vizcol: a visible column specification
+    :param DataPath path: a datapath object
+    :param Any vizcol: a visible column specification
     :return: the element to be projected from the datapath or None
+    :rtype: Any
     """
     assert isinstance(path, DataPath)
     sources = sources if sources else {}
@@ -2161,14 +2210,15 @@ def _datapath_deserialize_vizcolumn(path, vizcol, sources=None):
         raise ValueError('Malformed visible column: %s' % str(vizcol))
 
 
-def _datapath_contextualize(path, context_name='*', context_body=None, groupkey_name='RID'):
+def _datapath_contextualize(path: "DataPath", context_name: str = '*', context_body: Optional[list] = None, groupkey_name: str = 'RID') -> _Any:
     """Contextualizes a data path to a named visible columns context.
 
-    :param path: a datapath object
-    :param context_name: name of the context within the path's terminating table's "visible columns" annotations
-    :param context_body: a list of visible column definitions, if given, the `context_name` will be ignored
-    :param groupkey_name: column name for the group by key of the generated query expression (default: 'RID')
+    :param DataPath path: a datapath object
+    :param str context_name: name of the context within the path's terminating table's "visible columns" annotations
+    :param Optional[list] context_body: a list of visible column definitions, if given, the `context_name` will be ignored
+    :param str groupkey_name: column name for the group by key of the generated query expression (default: 'RID')
     :return: a 'contextualized' attribute group query object
+    :rtype: Any
     """
     assert isinstance(path, DataPath)
     path = copy.deepcopy(path)
@@ -2188,7 +2238,7 @@ def _datapath_contextualize(path, context_name='*', context_body=None, groupkey_
         except ValueError as e:
             logger.warning(str(e))
 
-    def not_same_as_group_key(x):
+    def not_same_as_group_key(x: _Any) -> bool:
         assert isinstance(groupkey, _ColumnWrapper)
         if not isinstance(x, _ColumnWrapper):
             return True
@@ -2199,12 +2249,13 @@ def _datapath_contextualize(path, context_name='*', context_body=None, groupkey_
     return query
 
 
-def _datapath_generate_simple_denormalization(path, include_whole_entities=False):
+def _datapath_generate_simple_denormalization(path: "DataPath", include_whole_entities: bool = False) -> list:
     """Generates a denormalized form of the table expressed in a visible columns specification.
 
-    :param path: a datapath object
-    :param include_whole_entities: if a denormalization cannot find a 'name' like terminal, include the whole entity (i.e., all attributes), else return just the 'RID'
+    :param DataPath path: a datapath object
+    :param bool include_whole_entities: if a denormalization cannot find a 'name' like terminal, include the whole entity (i.e., all attributes), else return just the 'RID'
     :return: a generated visible columns specification based on a denormalization heuristic
+    :rtype: list
     """
     assert isinstance(path, DataPath)
     context = path.context
@@ -2216,7 +2267,7 @@ def _datapath_generate_simple_denormalization(path, include_whole_entities=False
         for fkey in table.foreign_keys if len(fkey.foreign_key_columns) == 1
     }
 
-    def _fkey_to_vizcol(name, fk, inbound=None):
+    def _fkey_to_vizcol(name: _Any, fk: _Any, inbound: _Any = None) -> dict:
         # name columns to look for in related tables
         name_candidates = [
             'displayname',
@@ -2275,21 +2326,21 @@ def _datapath_generate_simple_denormalization(path, include_whole_entities=False
 
     return vizcols
 
-def simple_denormalization(path):
+def simple_denormalization(path: "DataPath") -> list:
     """A simple heuristic denormalization."""
     return _datapath_generate_simple_denormalization(path)
 
-def simple_denormalization_with_whole_entities(path):
+def simple_denormalization_with_whole_entities(path: "DataPath") -> list:
     """A simple heuristic denormalization with related and associated entities."""
     return _datapath_generate_simple_denormalization(path, include_whole_entities=True)
 
-def _datapath_denormalize(path, context_name=None, heuristic=None, groupkey_name='RID'):
+def _datapath_denormalize(path: "DataPath", context_name: Optional[str] = None, heuristic: Optional[Callable] = None, groupkey_name: str = 'RID') -> _Any:
     """Denormalizes a path based on annotations or heuristics.
 
-    :param path: a DataPath object
-    :param context_name: name of the visible-columns context or if none given, will attempt apply heuristics
-    :param heuristic: heuristic to apply if no context name specified
-    :param groupkey_name: column name for the group by key of the generated query expression (default: 'RID')
+    :param DataPath path: a DataPath object
+    :param Optional[str] context_name: name of the visible-columns context or if none given, will attempt apply heuristics
+    :param Optional[Callable] heuristic: heuristic to apply if no context name specified
+    :param str groupkey_name: column name for the group by key of the generated query expression (default: 'RID')
     """
     assert isinstance(path, DataPath)
     assert context_name is None or isinstance(context_name, str)

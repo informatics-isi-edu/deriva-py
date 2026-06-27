@@ -2,6 +2,7 @@ import sys
 import json
 import pika
 import time
+from typing import Any, Callable
 from . import NotModified, ConcurrentUpdate
 from .ermrest_catalog import ErmrestCatalog
 
@@ -46,15 +47,15 @@ class PollingErmrestCatalog(ErmrestCatalog):
 
     """
 
-    def __init__(self, scheme, server, catalog_id, credentials={}, caching=True, session_config=None, amqp_server=None):
+    def __init__(self, scheme: str, server: str, catalog_id: str, credentials: dict[str, Any] = {}, caching: bool = True, session_config: dict[str, Any] | None = None, amqp_server: str | None = None) -> None:
         """Create ERMrest catalog binding.
 
            Arguments:
-             scheme: 'http' or 'https'
-             server: server FQDN string
-             catalog_id: e.g. '1'
-             credentials: credential secrets, e.g. cookie
-             caching: whether to retain a GET response cache
+             scheme (str): 'http' or 'https'
+             server (str): server FQDN string
+             catalog_id (str): e.g. '1'
+             credentials (dict[str, Any]): credential secrets, e.g. cookie
+             caching (bool): whether to retain a GET response cache
 
         """
         ErmrestCatalog.__init__(self, scheme, server, catalog_id, credentials, caching, session_config)
@@ -62,7 +63,7 @@ class PollingErmrestCatalog(ErmrestCatalog):
         self.amqp_connection = None
         self.notice_exchange = "ermrest_changes"
 
-    def _amqp_bind(self):
+    def _amqp_bind(self) -> None:
         """Bind or rebind to AMQP for change notice monitoring."""
         if self.amqp_connection is not None:
             try:
@@ -91,7 +92,7 @@ class PollingErmrestCatalog(ErmrestCatalog):
         sys.stderr.write('ERMrest change-notice channel open.\n')
 
     @staticmethod
-    def _run_notice_event(look_for_work):
+    def _run_notice_event(look_for_work: Callable[[], Any]) -> None:
         """Consume all available work before returning."""
         while True:
             try:
@@ -103,7 +104,7 @@ class PollingErmrestCatalog(ErmrestCatalog):
                 sys.stderr.write('Handling ErmrestConcurrentUpdate exception...\n')
                 pass
 
-    def blocking_poll(self, look_for_work, polling_seconds=600, coalesce_seconds=0.1):
+    def blocking_poll(self, look_for_work: Callable[[], Any], polling_seconds: int = 600, coalesce_seconds: float = 0.1) -> None:
         """Use ERMrest change-notice monitoring to optimize polled work processing.
 
            Client-provided look_for_work function finds actual work in
@@ -129,14 +130,14 @@ class PollingErmrestCatalog(ErmrestCatalog):
         amqp_retry_count = 0
         last_notice_event = 0
 
-        def next_poll_time():
+        def next_poll_time() -> float:
             return max(
                 1,
                 polling_seconds
                 - (time.time() - last_notice_event)
             )
 
-        def next_amqp_time():
+        def next_amqp_time() -> float:
             if amqp_failed_at is None:
                 return 0
             return max(
@@ -198,14 +199,14 @@ class PollingErmrestCatalog(ErmrestCatalog):
                 sys.stderr.write('Got error %s in main event loop.' % e)
                 raise
 
-    def state_change_once(self, query_datapath, update_datapath, row_transform_func, idle_etag=None):
+    def state_change_once(self, query_datapath: str, update_datapath: str, row_transform_func: Callable[[dict[str, Any]], dict[str, Any] | None], idle_etag: str | None = None) -> tuple[str | None, list[tuple[dict[str, Any], dict[str, Any]]]]:
         """Perform generic conditional state update via GET-PUT sequence.
 
            Arguments:
-             query_datapath: a query for candidate rows
-             update_datapath: an update to consume update rows
-             row_transform_func: maps candidate to update rows
-             idle_etag: no-op if table is still in this state
+             query_datapath (str): a query for candidate rows
+             update_datapath (str): an update to consume update rows
+             row_transform_func (Callable[[dict[str, Any]], dict[str, Any] | None]): maps candidate to update rows
+             idle_etag (str | None): no-op if table is still in this state
 
            Returns: (idle_etag, [(candidate, update)...])
              idle_etag: value to thread to future calls

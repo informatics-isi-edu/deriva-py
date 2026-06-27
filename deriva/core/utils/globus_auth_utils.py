@@ -18,6 +18,7 @@ from deriva.core.utils import eprint
 from globus_sdk import ConfidentialAppAuthClient, AuthClient, AccessTokenAuthorizer, RefreshTokenAuthorizer, \
     GlobusError, GlobusAPIError, AuthAPIError
 from fair_research_login.client import NativeClient, LoadError, NoSavedTokens, TokensExpired
+from typing import Any
 
 NATIVE_APP_CLIENT_ID = "8ef15ba9-2b4a-469c-a163-7fd910c9d111"
 LEGACY_GROUPS_SCOPE_ID = "69a73d8f-cd45-4e37-bb3b-43678424aeb7"
@@ -32,7 +33,7 @@ class UsageException(ValueError):
     """Usage exception.
     """
 
-    def __init__(self, message):
+    def __init__(self, message: str) -> None:
         """Initializes the exception.
         """
         super(UsageException, self).__init__(message)
@@ -42,14 +43,14 @@ class DependencyError(ImportError):
     """Dependency exception.
     """
 
-    def __init__(self, message):
+    def __init__(self, message: str) -> None:
         """Initializes the exception.
         """
         super(DependencyError, self).__init__(message)
 
 
 class GlobusAuthUtil:
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any) -> None:
         client_id = kwargs.get("client_id")
         client_secret = kwargs.get("client_secret")
         if not (client_id and client_secret):
@@ -70,7 +71,7 @@ class GlobusAuthUtil:
         self.client_id = client_id
 
     @staticmethod
-    def from_json(obj):
+    def from_json(obj: Any) -> Any:
         # if "obj" is a dict, use it. Otherwise, see if it's a JSON string or a file containing json.
         if isinstance(obj, dict):
             return obj
@@ -83,15 +84,15 @@ class GlobusAuthUtil:
             f.close()
         return result
 
-    def list_all_scopes(self):
+    def list_all_scopes(self) -> Any:
         r = self.client.get("/v2/api/scopes")
         return r.data
 
-    def list_scope(self, scope):
+    def list_scope(self, scope: str) -> Any:
         r = self.client.get("/v2/api/scopes/{s}".format(s=scope))
         return r.data
 
-    def create_scope(self, scope):
+    def create_scope(self, scope: Any) -> Any:
         if not scope:
             raise UsageException("A supported scope argument is required.")
 
@@ -99,67 +100,67 @@ class GlobusAuthUtil:
                              data=self.from_json(scope))
         return r.data
 
-    def update_scope(self, scope_id, scope):
+    def update_scope(self, scope_id: str, scope: Any) -> Any:
         if not (scope_id and scope):
             raise UsageException("The scope_id and scope arguments are required.")
 
         r = self.client.put("/v2/api/scopes/{scope_id}".format(scope_id=scope_id), data=self.from_json(scope))
         return r.data
 
-    def add_fqdn_to_client(self, fqdn):
+    def add_fqdn_to_client(self, fqdn: str) -> Any:
         if not fqdn:
             raise UsageException("A fqdn (fully qualified domain name) argument is required.")
         r = self.client.post('/v2/api/clients/{client_id}/fqdns'.format(client_id=self.client_id),
                              data={'fqdn': fqdn})
         return r.data
 
-    def get_client_for_fqdn(self, fqdn):
+    def get_client_for_fqdn(self, fqdn: str) -> Any:
         if not fqdn:
             raise UsageException("A fqdn (fully qualified domain name) argument is required.")
         r = self.client.get('/v2/api/clients', query_params={"fqdn": fqdn})
         return r.data
 
-    def get_client(self, client_id):
+    def get_client(self, client_id: str | None) -> Any:
         r = self.client.get('/v2/api/clients/{client_id}'.format(client_id=client_id if client_id else self.client_id))
         return r.data
 
-    def get_clients(self):
+    def get_clients(self) -> Any:
         r = self.client.get('/v2/api/clients')
         return r.data
 
-    def verify_access_token(self, token):
+    def verify_access_token(self, token: str) -> Any:
         if not token:
             raise UsageException("A token argument is required.")
         r = self.client.oauth2_validate_token(token)
         return r.data
 
-    def introspect_access_token(self, token):
+    def introspect_access_token(self, token: str) -> Any:
         if not token:
             raise UsageException("A token argument is required.")
         r = self.client.oauth2_token_introspect(token, include="identity_set,identity_set_detail,session_info")
         return r.data
 
-    def get_dependent_access_tokens(self, token, refresh=False):
+    def get_dependent_access_tokens(self, token: str, refresh: bool = False) -> Any:
         if not token:
             raise UsageException("A token argument is required.")
         additional_params = {"access_type": "offline"} if refresh else None
         r = self.client.oauth2_get_dependent_tokens(token, additional_params=additional_params)
         return r.data
 
-    def new_client(self, client):
+    def new_client(self, client: Any) -> Any:
         r = self.client.post("/v2/api/clients", data=self.from_json(client))
         return r.data
 
     def create_client(self,
-                      name,
-                      redirect_uris,
-                      public=False,
-                      visibility="private",
-                      project=None,
-                      required_idp=None,
-                      preselect_idp=None,
-                      terms_of_service=None,
-                      privacy_policy=None):
+                      name: str,
+                      redirect_uris: list[str],
+                      public: bool = False,
+                      visibility: str = "private",
+                      project: str | None = None,
+                      required_idp: str | None = None,
+                      preselect_idp: str | None = None,
+                      terms_of_service: str | None = None,
+                      privacy_policy: str | None = None) -> Any:
         if not (name and redirect_uris):
             raise UsageException("The name and redirect_uris arguments are required.")
         client = {
@@ -181,7 +182,7 @@ class GlobusAuthUtil:
                                                "privacy_policy": privacy_policy}})
         return self.new_client(client)
 
-    def update_client(self, client, client_id=None):
+    def update_client(self, client: Any, client_id: str | None = None) -> Any:
         if not client:
             raise UsageException("A client argument is required.")
 
@@ -189,14 +190,14 @@ class GlobusAuthUtil:
                             data=self.from_json(client))
         return r.data
 
-    def delete_client(self, client_id):
+    def delete_client(self, client_id: str) -> Any:
         if not client_id:
             raise UsageException("A client argument is required.")
 
         r = self.client.delete("/v2/api/clients/{client_id}".format(client_id=client_id))
         return r.data
 
-    def add_redirect_uris(self, redirect_uris):
+    def add_redirect_uris(self, redirect_uris: list[str]) -> Any:
         if not redirect_uris:
             raise UsageException("A redirect_uris argument is required.")
         d = {
@@ -206,11 +207,11 @@ class GlobusAuthUtil:
         }
         return self.update_client(d)
 
-    def get_my_client(self):
+    def get_my_client(self) -> Any:
         r = self.client.get('/v2/api/clients/{client_id}'.format(client_id=self.client_id))
         return r.data
 
-    def get_scopes_by_name(self, scope_name):
+    def get_scopes_by_name(self, scope_name: str) -> Any:
         if not scope_name:
             raise UsageException("A scope_name argument is required.")
         scopes = self.client.get('/v2/api/scopes', query_params={"scope_strings": {scope_name}})
@@ -219,7 +220,7 @@ class GlobusAuthUtil:
         else:
             return scopes.get("scopes")
 
-    def get_scopes_by_id(self, id_string):
+    def get_scopes_by_id(self, id_string: str) -> Any:
         if not id_string:
             raise UsageException("A id_string argument is required.")
         scopes = self.client.get('/v2/api/scopes', query_params={"ids": id_string})
@@ -228,7 +229,7 @@ class GlobusAuthUtil:
         else:
             return scopes.get("scopes")
 
-    def my_scope_ids(self):
+    def my_scope_ids(self) -> Any:
         c = self.client.get('/v2/api/clients/{client_id}'.format(client_id=self.client_id))
         me = c.get("client")
         if me is None or me.get('scopes') is None:
@@ -236,7 +237,7 @@ class GlobusAuthUtil:
         else:
             return me.get('scopes')
 
-    def my_scope_names(self):
+    def my_scope_names(self) -> list[Any]:
         scope_names = []
         scope_ids = self.my_scope_ids()
         if scope_ids is not None:
@@ -247,7 +248,7 @@ class GlobusAuthUtil:
                 scope_names.append(scope.get('scope_string'))
         return scope_names
 
-    def get_grant_types(self):
+    def get_grant_types(self) -> Any:
         grant_types = None
         c = self.client.get('/v2/api/clients/{client_id}'.format(client_id=self.client_id))
         me = c.get("client")
@@ -255,7 +256,7 @@ class GlobusAuthUtil:
             grant_types = me.get('grant_types')
         return grant_types
 
-    def add_scopes(self, new_scopes, by_id=False, overwrite=False):
+    def add_scopes(self, new_scopes: list[str], by_id: bool = False, overwrite: bool = False) -> Any:
         if not new_scopes:
             raise UsageException("A new_scopes argument is required.")
         scopes = set() if overwrite else set(self.my_scope_ids())
@@ -276,8 +277,8 @@ class GlobusAuthUtil:
         r = self.client.put('/v2/api/clients/{client_id}'.format(client_id=self.client_id), data=d)
         return r.data
 
-    def add_dependent_scopes(self, parent_scope_name, child_scopes,
-                             by_id=False, optional=False, requires_refresh_token=False, overwrite=False):
+    def add_dependent_scopes(self, parent_scope_name: str, child_scopes: list[str],
+                             by_id: bool = False, optional: bool = False, requires_refresh_token: bool = False, overwrite: bool = False) -> Any:
         if not (parent_scope_name and child_scopes):
             raise UsageException("The parent_scope_name and child_scope_names arguments are required.")
 
@@ -315,8 +316,8 @@ class GlobusAuthUtil:
         r = self.client.put('/v2/api/scopes/{i}'.format(i=parent_scope_id), data=d)
         return r.data
 
-    def create_scope_with_deps(self, name, description, suffix, dependent_scopes=[], advertised=True,
-                               allow_refresh_tokens=True):
+    def create_scope_with_deps(self, name: str, description: str, suffix: str, dependent_scopes: list[str] = [], advertised: bool = True,
+                               allow_refresh_tokens: bool = True) -> Any:
         if not (name and description and suffix):
             raise UsageException("The name, description and suffix arguments are required.")
         dependent_scope_arg = []
@@ -345,7 +346,7 @@ class GlobusAuthUtil:
         r = self.client.post("/v2/api/clients/{client_id}/scopes".format(client_id=self.client_id), data=scope)
         return r.data
 
-    def delete_scope(self, scope_name):
+    def delete_scope(self, scope_name: str) -> Any:
         if not scope_name:
             raise UsageException("A scope_name argument is required.")
         scopes = self.get_scopes_by_name(scope_name)
@@ -357,7 +358,7 @@ class GlobusAuthUtil:
         r = self.client.delete('/v2/api/scopes/{scope_id}'.format(scope_id=scope_id))
         return r.data
 
-    def get_dependent_scopes(self, scope):
+    def get_dependent_scopes(self, scope: Any) -> dict[str, Any]:
         if not scope:
             raise UsageException("A supported scope argument is required.")
         result = {"scope_string": scope.get("scope_string"), "dependent_scopes": []}
@@ -371,7 +372,7 @@ class GlobusAuthUtil:
         return result
 
     @staticmethod
-    def get_groups_for_token(token):
+    def get_groups_for_token(token: str) -> Any:
         if not token:
             raise UsageException("A token argument is required.")
         session = get_new_requests_session()
@@ -388,7 +389,7 @@ class GlobusAuthUtil:
         finally:
             session.close()
 
-    def get_userinfo_for_token(self, token, qualified_ids=True):
+    def get_userinfo_for_token(self, token: str, qualified_ids: bool = True) -> Any:
         client = dict()
         attributes = list()
         userinfo = dict()
@@ -440,11 +441,11 @@ class DerivaJSONTokenStorage(object):
     """
     Stores tokens in json format on disk in the local directory by default.
     """
-    def __init__(self, filename=None, permission=None):
+    def __init__(self, filename: str | None = None, permission: int | None = None) -> None:
         self.filename = filename or DEFAULT_GLOBUS_CREDENTIAL_FILE
         self.permission = permission or stat.S_IRUSR | stat.S_IWUSR
 
-    def write_tokens(self, tokens, overwrite=False):
+    def write_tokens(self, tokens: dict[str, Any], overwrite: bool = False) -> None:
         all_tokens = self.read_tokens() if not overwrite else dict()
         for k, v in tokens.items():
             ckey = "%s:(%s)" % (v["resource_server"], v["scope"])
@@ -453,13 +454,13 @@ class DerivaJSONTokenStorage(object):
             json.dump(all_tokens, fh, indent=2)
         os.chmod(self.filename, self.permission)
 
-    def read_tokens(self):
+    def read_tokens(self) -> dict[str, Any]:
         if not os.path.exists(self.filename):
             return dict()
         with open(self.filename) as fh:
             return json.load(fh)
 
-    def clear_tokens(self, requested_scopes=()):
+    def clear_tokens(self, requested_scopes: Any = ()) -> None:
         if not requested_scopes and os.path.exists(self.filename):
             os.remove(self.filename)
             return
@@ -477,7 +478,7 @@ class DerivaJSONTokenStorage(object):
 
 
 class GlobusNativeLogin:
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any) -> None:
         self.client = None
         self.native_app_client_id = kwargs.get("native_app_client_id") or NATIVE_APP_CLIENT_ID
         self.hosts = kwargs.get("hosts", [kwargs.get("host")] if kwargs.get("host") else [])
@@ -500,7 +501,7 @@ class GlobusNativeLogin:
         except Exception as e:
             logging.error("Unable to instantiate a required class: %s" % format_exception(e))
 
-    def user_info(self, show_tokens=False):
+    def user_info(self, show_tokens: bool = False) -> Any:
         tokens = dict()
         token_set = list()
         client = dict()
@@ -575,10 +576,10 @@ class GlobusNativeLogin:
         return userinfo
 
     def is_logged_in(self,
-                     hosts=None,
-                     requested_scopes=(),
-                     hosts_to_scope_map=None,
-                     exclude_defaults=False):
+                     hosts: list[str] | None = None,
+                     requested_scopes: Any = (),
+                     hosts_to_scope_map: dict[str, Any] | None = None,
+                     exclude_defaults: bool = False) -> Any:
         scopes = set(requested_scopes)
         scope_map = hosts_to_scope_map if hosts_to_scope_map else self.hosts_to_scope_map(hosts or self.hosts)
         scopes.update(self.scope_set_from_scope_map(scope_map))
@@ -594,7 +595,7 @@ class GlobusNativeLogin:
                           (scopes, format_exception(e)))
             return None
 
-    def refresh_tokens_preemptively(self, tokens, time_before_expiry=0):
+    def refresh_tokens_preemptively(self, tokens: dict[str, Any], time_before_expiry: int = 0) -> dict[str, Any]:
         needs_refresh = {}
 
         for rs, ts in {t: ts for t, ts in tokens.items() if bool(ts['refresh_token'])}.items():
@@ -629,11 +630,11 @@ class GlobusNativeLogin:
         return result
 
     def hosts_to_scope_map(self,
-                           hosts,
-                           match_scope_tag=None,
-                           all_tagged_scopes=False,
-                           force_refresh=False,
-                           warn_on_discovery_failure=True):
+                           hosts: list[str],
+                           match_scope_tag: str | None = None,
+                           all_tagged_scopes: bool = False,
+                           force_refresh: bool = False,
+                           warn_on_discovery_failure: bool = True) -> dict[str, Any]:
         scope_map = dict()
         if not hosts:
             return scope_map
@@ -662,11 +663,11 @@ class GlobusNativeLogin:
         return scope_map
 
     @staticmethod
-    def scope_set_from_scope_map(scope_map):
+    def scope_set_from_scope_map(scope_map: dict[str, Any]) -> set[Any]:
         return set([scope for scope_list in [scope_list for scope_list in scope_map.values()] for scope in scope_list])
 
     @staticmethod
-    def host_to_url(host, path="/"):
+    def host_to_url(host: str, path: str = "/") -> str | None:
         if not host:
             return None
         upr = urlparse(host)
@@ -677,7 +678,7 @@ class GlobusNativeLogin:
         return url.lower()
 
     @staticmethod
-    def find_access_token_for_host(host, scope_map, tokens, match_scope_tag=None):
+    def find_access_token_for_host(host: str, scope_map: dict[str, Any], tokens: dict[str, Any], match_scope_tag: str | None = None) -> str | None:
         scope = None
         scopes = scope_map.get(host)
         if not scopes:
@@ -692,7 +693,7 @@ class GlobusNativeLogin:
         return GlobusNativeLogin.find_access_token_for_scope(scope, tokens)
 
     @staticmethod
-    def find_access_token_for_scope(scope, tokens):
+    def find_access_token_for_scope(scope: str | None, tokens: dict[str, Any]) -> str | None:
         for token in tokens.values():
             token_scope = token.get("scope")
             access_token = token.get("access_token")
@@ -700,7 +701,7 @@ class GlobusNativeLogin:
                 return access_token
         return None
 
-    def update_bdbag_keychain(self, token=None, host=None, keychain_file=None, allow_redirects=False, delete=False):
+    def update_bdbag_keychain(self, token: str | None = None, host: str | None = None, keychain_file: str | None = None, allow_redirects: bool = False, delete: bool = False) -> None:
         if (token is None) or (host is None):
             return
         keychain_file = keychain_file or bdbkc.DEFAULT_KEYCHAIN_FILE
@@ -715,18 +716,18 @@ class GlobusNativeLogin:
         bdbkc.update_keychain(entry, keychain_file=keychain_file, delete=delete)
 
     def login(self,
-              hosts=(),
-              no_local_server=False,
-              no_browser=False,
-              requested_scopes=(),
-              refresh_tokens=None,
-              prefill_named_grant=None,
-              additional_params=None,
-              force=False,
-              match_scope_tag=None,
-              exclude_defaults=False,
-              update_bdbag_keychain=True,
-              bdbag_keychain_file=None):
+              hosts: Any = (),
+              no_local_server: bool = False,
+              no_browser: bool = False,
+              requested_scopes: Any = (),
+              refresh_tokens: bool | None = None,
+              prefill_named_grant: str | None = None,
+              additional_params: dict[str, Any] | None = None,
+              force: bool = False,
+              match_scope_tag: str | None = None,
+              exclude_defaults: bool = False,
+              update_bdbag_keychain: bool = True,
+              bdbag_keychain_file: str | None = None) -> Any:
         scopes = set(requested_scopes)
         scope_map = self.hosts_to_scope_map(hosts, match_scope_tag, force_refresh=True)
         scopes.update(self.scope_set_from_scope_map(scope_map))
@@ -748,8 +749,8 @@ class GlobusNativeLogin:
                     self.update_bdbag_keychain(token=access_token, host=host, keychain_file=bdbag_keychain_file)
         return tokens
 
-    def logout(self, hosts=(), requested_scopes=(), exclude_defaults=False, bdbag_keychain_file=None,
-               include_browser_logout=False):
+    def logout(self, hosts: Any = (), requested_scopes: Any = (), exclude_defaults: bool = False, bdbag_keychain_file: str | None = None,
+               include_browser_logout: bool = False) -> None:
         tokens = self.client._load_raw_tokens()
 
         scopes = set(requested_scopes)
@@ -787,7 +788,7 @@ class GlobusNativeLogin:
 
 
 class DerivaGlobusAuthUtilCLIException(Exception):
-    def __init__(self, message):
+    def __init__(self, message: str) -> None:
         super(DerivaGlobusAuthUtilCLIException, self).__init__(message)
 
 
@@ -795,7 +796,7 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
     """Deriva GlobusClientUtil Command-line Interface.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super(DerivaGlobusAuthUtilCLI, self).__init__(*args, **kwargs)
 
         self.gau = None
@@ -832,8 +833,8 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
         self.logout_init()
         self.user_info_init()
 
-    def get_scopes_init(self):
-        def get_scopes(args):
+    def get_scopes_init(self) -> None:
+        def get_scopes(args: Any) -> Any:
             if args.scope_ids:
                 return self.gau.get_scopes_by_id(args.scope_ids)
             elif args.scope_names:
@@ -851,8 +852,8 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                             help="A comma-delimited list of scope names to retrieve.")
         parser.set_defaults(func=get_scopes)
 
-    def put_scope_init(self):
-        def put_scope(args):
+    def put_scope_init(self) -> None:
+        def put_scope(args: Any) -> Any:
             if args.scope_id:
                 return self.gau.update_scope(args.scope_id, args.scope_config)
             else:
@@ -867,8 +868,8 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                             help="A valid JSON scope configuration in string form, or a path to an equivalent file.")
         parser.set_defaults(func=put_scope)
 
-    def add_scopes_init(self):
-        def add_scopes(args):
+    def add_scopes_init(self) -> None:
+        def add_scopes(args: Any) -> Any:
             if args.parent_scope:
                 return self.gau.add_dependent_scopes(args.parent_scope,
                                                      args.scope_names,
@@ -900,8 +901,8 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                             help="Overwrite any existing scopes. Default false.")
         parser.set_defaults(func=add_scopes)
 
-    def create_scope_init(self):
-        def create_scope(args):
+    def create_scope_init(self) -> None:
+        def create_scope(args: Any) -> Any:
             return self.gau.create_scope_with_deps(args.name,
                                                    args.description,
                                                    args.suffix,
@@ -926,8 +927,8 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                             help="Whether or not the scope allows refresh tokens to be issued. Default: True")
         parser.set_defaults(func=create_scope)
 
-    def delete_scope_init(self):
-        def delete_scope(args):
+    def delete_scope_init(self) -> None:
+        def delete_scope(args: Any) -> Any:
             return self.gau.delete_scope(args.scope_name)
 
         parser = self.subparsers.add_parser(
@@ -938,8 +939,8 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
         parser.add_argument("scope_name", metavar="<scope_name>", help="The scope name to delete.")
         parser.set_defaults(func=delete_scope)
 
-    def get_client_init(self):
-        def get_client(args):
+    def get_client_init(self) -> None:
+        def get_client(args: Any) -> Any:
             if args.get_client_id:
                 return self.gau.get_client(args.get_client_id)
             else:
@@ -953,8 +954,8 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                             help="Retrieve client information for the specified client ID.")
         parser.set_defaults(func=get_client)
 
-    def put_client_init(self):
-        def put_client(args):
+    def put_client_init(self) -> None:
+        def put_client(args: Any) -> Any:
             if args.create:
                 return self.gau.new_client(args.client_config)
             else:
@@ -972,8 +973,8 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                             help="Create a new child client from the input client config.")
         parser.set_defaults(func=put_client)
 
-    def create_client_init(self):
-        def create_client(args):
+    def create_client_init(self) -> None:
+        def create_client(args: Any) -> Any:
             return self.gau.create_client(args.name,
                                           args.redirect_uris,
                                           args.public,
@@ -1010,8 +1011,8 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                             help="A URL to the privacy policy for this client.")
         parser.set_defaults(func=create_client)
 
-    def delete_client_init(self):
-        def delete_client(args):
+    def delete_client_init(self) -> None:
+        def delete_client(args: Any) -> Any:
             return self.gau.delete_client(args.del_client_id)
 
         parser = self.subparsers.add_parser(
@@ -1025,8 +1026,8 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                             help="The client ID to update, or implicitly this client's ID if not specified.")
         parser.set_defaults(func=delete_client)
 
-    def client_fqdn_init(self):
-        def client_fqdn(args):
+    def client_fqdn_init(self) -> None:
+        def client_fqdn(args: Any) -> Any:
             if args.add:
                 return self.gau.add_fqdn_to_client(args.fqdn)
             else:
@@ -1041,8 +1042,8 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                             help="The fully qualified domain name to lookup or add to this client.")
         parser.set_defaults(func=client_fqdn)
 
-    def token_init(self):
-        def token(args):
+    def token_init(self) -> None:
+        def token(args: Any) -> Any:
             if args.validate:
                 return self.gau.verify_access_token(args.token)
             elif args.dependent:
@@ -1061,8 +1062,8 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                             help="The access token to introspect (or validate).")
         parser.set_defaults(func=token)
 
-    def login_init(self):
-        def login(args):
+    def login_init(self) -> None:
+        def login(args: Any) -> Any:
             if self.gnl.is_logged_in([args.host] if args.host else [], args.requested_scopes,
                                      exclude_defaults=args.exclude_defaults) and not args.force:
                 return "You are already logged in."
@@ -1121,8 +1122,8 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                                  "default set of scopes: [%s]" % ", ".join(DEFAULT_SCOPES))
         parser.set_defaults(func=login)
 
-    def logout_init(self):
-        def logout(args):
+    def logout_init(self) -> None:
+        def logout(args: Any) -> Any:
             self.gnl.logout(hosts=[args.host] if args.host else [],
                             requested_scopes=args.requested_scopes,
                             exclude_defaults=args.exclude_defaults,
@@ -1152,8 +1153,8 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
                                  "identity-related browser cookies.")
         parser.set_defaults(func=logout)
 
-    def user_info_init(self):
-        def user_info(args):
+    def user_info_init(self) -> None:
+        def user_info(args: Any) -> Any:
             return self.gnl.user_info(args.show_tokens)
 
         parser = self.subparsers.add_parser("user-info",
@@ -1161,10 +1162,10 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
         parser.add_argument("--show-tokens", action="store_true", help="Display access tokens in output.")
         parser.set_defaults(func=user_info)
 
-    def main(self):
+    def main(self) -> int:
         args = self.parse_cli()
 
-        def _cmd_error_message(emsg):
+        def _cmd_error_message(emsg: Any) -> str:
             return "{prog} {subcmd}: {msg}".format(
                 prog=self.parser.prog, subcmd=args.subcmd, msg=emsg)
 
@@ -1211,7 +1212,7 @@ class DerivaGlobusAuthUtilCLI(BaseCLI):
         return 1
 
 
-def main():
+def main() -> int:
     desc = "DERIVA Globus Auth Utilities"
     info = "For more information see: https://github.com/informatics-isi-edu/deriva-py"
     return DerivaGlobusAuthUtilCLI(desc, info).main()

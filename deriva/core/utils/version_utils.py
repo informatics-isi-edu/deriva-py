@@ -1,9 +1,10 @@
 import re
 import sys
+from typing import Any
 from packaging import version
 
 
-def get_installed_version(ver):
+def get_installed_version(ver: Any) -> str:
     """
     Generates an external version string from an internal one. This is currently only being used to determine
     whether we are operating in a "frozen" environment or not, but other decorators could be added.
@@ -12,13 +13,13 @@ def get_installed_version(ver):
     return version_str if not getattr(sys, 'frozen', False) else version_str + '-frozen'
 
 
-def is_compatible(source_version, compat_versions):
+def is_compatible(source_version: str, compat_versions: list[list[str]]) -> bool:
     """
     Compare a source version string to a set of target version string specifications. Supports semantic versioning
     comparison via setuptools version comparison logic (http://setuptools.readthedocs.io/en/latest/setuptools.html#id7).
 
-    :param source_version: a source version string
-    :param compat_versions:
+    :param str source_version: a source version string
+    :param list compat_versions:
         an array of tuples with each tuple consisting of a set of strings of the form
         `<operator><version>`. The source_version is evaluated in a conjunction against each
         `<operator><version>` string in the tuple, using the packaging module version comparison
@@ -26,6 +27,7 @@ def is_compatible(source_version, compat_versions):
         against other tuples in the array.  If any one of the tuples evaluates to True, then the
         returned disjunction is logically true, and the source version is assumed to be compatible.
     :return: boolean indicating compatibility
+    :rtype: bool
 
     Example 1:
     ::

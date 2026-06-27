@@ -2,6 +2,7 @@
 """
 import logging
 from collections import namedtuple
+from typing import Any
 
 from deriva.core import tag as tags
 
@@ -12,7 +13,7 @@ Match = namedtuple('Match', 'anchor tag context container mapping')
 __search_box__ = 'search-box'
 
 
-def replace(model, symbol, replacement):
+def replace(model: Any, symbol: list[str | None], replacement: list[str | None]) -> None:
     """Replaces `symbol` with `replacement` where symbol is found in mappings.
 
     See the 'find' function for notes on what are 'symbols' and how symbols are found in the model.
@@ -60,7 +61,7 @@ def replace(model, symbol, replacement):
             logger.warning(f'Unhandled case for replace operation')
 
 
-def prune(model, symbol):
+def prune(model: Any, symbol: list[str | None]) -> None:
     """Prunes mappings from a model where symbol found in mapping.
 
     See the 'find' function for notes on what are 'symbols' and how symbols are found in the model.
@@ -102,7 +103,7 @@ def prune(model, symbol):
             logger.warning(f'Unhandled tag "{tag}".')
 
 
-def find(model, symbol):
+def find(model: Any, symbol: list[str | None]) -> list[Match]:
     """Finds mappings within a model where the mapping contains a given symbol.
 
     Searches the following annotation tags:
@@ -187,11 +188,11 @@ def find(model, symbol):
     return matches
 
 
-def _is_constraint_match(constraint_name, symbol):
+def _is_constraint_match(constraint_name: Any, symbol: Any) -> bool:
     """Tests if the constraint name matches the given symbol.
 
-    :param constraint_name: a constraint name pair
-    :param symbol: either a constraint name part or a schema name
+    :param list[str] constraint_name: a constraint name pair
+    :param list[str | None] symbol: either a constraint name part or a schema name
     """
     if not (isinstance(constraint_name, list) and len(constraint_name) == 2):
         # case: malformed constraint name
@@ -207,7 +208,7 @@ def _is_constraint_match(constraint_name, symbol):
         return constraint_name[0] == symbol[0]
 
 
-def _is_symbol_in_source(table, source, symbol):
+def _is_symbol_in_source(table: Any, source: Any, symbol: list[str | None]) -> bool:
     """Finds symbol in a source mapping.
     """
 
@@ -252,7 +253,7 @@ def _is_symbol_in_source(table, source, symbol):
     return False
 
 
-def _find_sourcekey(table, sourcekey):
+def _find_sourcekey(table: Any, sourcekey: str) -> list[Match]:
     """Find usages of `sourcekey` in `table`'s annotations.
     """
     matches = []
@@ -300,7 +301,7 @@ def _find_sourcekey(table, sourcekey):
     return matches
 
 
-def _find_dependent_sourcekeys(sourcekey, sources, deps=None):
+def _find_dependent_sourcekeys(sourcekey: str, sources: dict[str, Any], deps: set[str] | None = None) -> set[str]:
     """Find 'sourcekey' dependencies in 'sources' source definitions.
     """
     # initialize deps to empty set
@@ -330,7 +331,7 @@ def _find_dependent_sourcekeys(sourcekey, sources, deps=None):
     return deps
 
 
-def _is_dependent_on_sourcekey(sourcekey, source_def):
+def _is_dependent_on_sourcekey(sourcekey: str, source_def: Any) -> bool:
     """Tests if 'source_def' is dependent on 'sourcekey'.
     """
     # case: source_def is not a pseudo-column
@@ -349,7 +350,7 @@ def _is_dependent_on_sourcekey(sourcekey, source_def):
     return False
 
 
-def _rewrite_constraint_name(constraint_name, replacement):
+def _rewrite_constraint_name(constraint_name: list[str], replacement: list[str | None]) -> list[str]:
     """Rewrites constraint name according to replacement symbol.
     """
     return [
@@ -358,7 +359,7 @@ def _rewrite_constraint_name(constraint_name, replacement):
     ]
 
 
-def _replace_symbol_in_source_path(anchor, source, symbol, replacement):
+def _replace_symbol_in_source_path(anchor: Any, source: list[Any], symbol: list[str | None], replacement: list[str | None]) -> None:
     """Replaces `symbol` with `replacement` in `source`.
     """
     assert isinstance(source, list), 'expected source to be a list'
