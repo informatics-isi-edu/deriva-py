@@ -2555,3 +2555,121 @@ def test_mirror_keeps_rows_with_all_null_unique_column(tmp_path: Path) -> None:
     by_rid = {r["RID"]: r for r in widget_rows}
     assert by_rid["W1"]["Image"] == "I-DST-A"
     assert by_rid["W2"]["Image"] == "I-SRC-B"
+
+
+def _build_dup_url_bag(tmp_path: Path) -> Path:
+    """Bag whose Image table has TWO rows with the same (uniquely-keyed)
+    ``URL`` — genuinely duplicate business keys, i.e. real data loss if
+    the mirror deduped them silently."""
+    bag = tmp_path / "dup_url_bag" / "bag"
+    (bag / "data" / "demo").mkdir(parents=True)
+    doc = {
+        "snaptime": "2026-01-01T00:00:00",
+        "schemas": {
+            "demo": {
+                "schema_name": "demo",
+                "tables": {
+                    "Image": {
+                        "schema_name": "demo",
+                        "table_name": "Image",
+                        "kind": "table",
+                        "column_definitions": [
+                            {
+                                "name": "RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "URL",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                        ],
+                        "keys": [
+                            {
+                                "names": [["demo", "Image_RID_key"]],
+                                "unique_columns": ["RID"],
+                            },
+                            {
+                                "names": [["demo", "Image_URL_key"]],
+                                "unique_columns": ["URL"],
+                            },
+                        ],
+                        "foreign_keys": [],
+                    },
+                },
+            }
+        },
+    }
+    (bag / "data" / "schema.json").write_text(json.dumps(doc))
+    with (bag / "data" / "demo" / "Image.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["RID", "URL"])
+        w.writerow(["I-SRC-A", "/hatrac/demo/same.png"])
+        w.writerow(["I-SRC-B", "/hatrac/demo/same.png"])  # duplicate URL
+    return bag
+
+
+def test_mirror_raises_on_non_pk_unique_collision(tmp_path: Path) -> None:
+    """A collision on a NON-PK unique constraint (duplicate business key)
+    must abort the load loudly, not silently thin the mirror.
+
+    Before the ON CONFLICT clause was scoped to the primary key, the
+    ``ignore`` policy absorbed this collision and shipped one row fewer
+    than the bag carried — the silent-loss failure mode behind #285.
+    """
+    bag = _build_dup_url_bag(tmp_path)
+    catalog = _mock_catalog()
+
+    with pytest.raises(Exception) as excinfo:
+        loader = BagCatalogLoader(
+            catalog=catalog,
+            bag=bag,
+            policy=FKTraversalPolicy(asset_mode=AssetMode.ROWS_ONLY),
+            database_dir=tmp_path / "db",
+        )
+        try:
+            loader.run()
+        finally:
+            loader.dispose()
+    assert "IntegrityError" in type(excinfo.value).__name__ or "unique" in str(
+        excinfo.value
+    ).lower(), f"expected a unique-constraint failure, got: {excinfo.value!r}"
+
+
+def test_mirror_still_dedups_pk_duplicates_silently(tmp_path: Path) -> None:
+    """The legitimate multi-path-emission dedup (same RID arriving twice)
+    still works: no raise, row counted once, loader proceeds."""
+    bag = _build_dup_url_bag(tmp_path)
+    # Rewrite the CSV: same RID twice (identical row) with DISTINCT URLs
+    # is impossible for one RID — the multi-path case is the *same row*
+    # twice, so duplicate the whole row verbatim.
+    with (bag / "data" / "demo" / "Image.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["RID", "URL"])
+        w.writerow(["I-SRC-A", "/hatrac/demo/a.png"])
+        w.writerow(["I-SRC-A", "/hatrac/demo/a.png"])  # same row, twice
+
+    catalog = _mock_catalog()
+    image_tw = _pb_table(catalog, "demo", "Image")
+    image_tw.attributes.return_value.fetch.return_value = []
+    _stub_insert_result(image_tw, [{"RID": "I-SRC-A"}])
+
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=FKTraversalPolicy(asset_mode=AssetMode.ROWS_ONLY),
+        database_dir=tmp_path / "db",
+    )
+    try:
+        report = loader.run()
+    finally:
+        loader.dispose()
+
+    # One logical row made it through the mirror and to the destination.
+    image_stats = report.table_stats["demo.Image"]
+    assert image_stats.rows_inserted == 1
