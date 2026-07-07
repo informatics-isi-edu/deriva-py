@@ -483,9 +483,10 @@ class Sink(Protocol):
         """Write a batch of rows for ``table``. Return how many landed.
 
         The sink may legitimately drop rows (e.g., SQLiteSink with
-        ``on_conflict="ignore"`` drops PK collisions). The return
-        value is the number of rows the sink wrote, not the number
-        it was given.
+        ``on_conflict="ignore"`` dedups primary-key collisions from
+        multi-path emission). The return value is the number of rows
+        the sink wrote, not the number it was given. Anything that
+        would lose *distinct* data must raise rather than drop.
         """
         ...
 
@@ -501,10 +502,15 @@ class SQLiteSink:
     Args:
         orm: A :class:`SchemaORM` from
             :class:`~deriva.bag.schema.SchemaBuilder`.
-        on_conflict: How to handle PK collisions during insert.
-            One of ``"ignore"`` (skip the conflicting row),
-            ``"replace"`` (upsert non-PK columns), or ``"error"``
-            (raise).
+        on_conflict: How to handle **primary-key** collisions during
+            insert. One of ``"ignore"`` (skip the conflicting row —
+            the multi-path-emission dedup), ``"replace"`` (upsert
+            non-PK columns), or ``"error"`` (raise). Collisions on
+            any *other* unique constraint, and FK violations, always
+            raise ``IntegrityError`` regardless of this setting —
+            those mean the mirror would silently end up thinner than
+            the bag (issue #285's failure mode), so they abort the
+            load loudly rather than dropping data.
     """
 
     def __init__(
@@ -563,7 +569,25 @@ class SQLiteSink:
 
         try:
             if self.on_conflict == "ignore":
-                stmt = sqlite_insert(sql_table).on_conflict_do_nothing()
+                # Scope the DO NOTHING to the *primary key* only. The
+                # legitimate dedup case is the same row arriving twice
+                # via multi-path emission (identical RID); dropping
+                # those is by design. A collision on any OTHER unique
+                # constraint is data loss — before this was scoped, a
+                # non-PK unique collision was silently absorbed and the
+                # mirror shipped fewer rows than the bag carried
+                # (issue #285's failure mode). Non-PK collisions now
+                # raise IntegrityError and abort the load loudly.
+                pk_cols = [c.name for c in sql_table.primary_key.columns]
+                if pk_cols:
+                    stmt = sqlite_insert(sql_table).on_conflict_do_nothing(
+                        index_elements=pk_cols
+                    )
+                else:
+                    # No PK on the mirror table → there is no
+                    # legitimate dedup; insert plainly so any
+                    # conflict raises.
+                    stmt = sql_table.insert()
             elif self.on_conflict == "replace":
                 # Derive the conflict-key column set from the actual
                 # primary-key definition rather than hard-coding
@@ -600,11 +624,15 @@ class SQLiteSink:
                 else len(rows)
             )
             if inserted < len(rows):
-                logger.warning(
-                    "Sink: %d of %d rows for %s.%s were dropped by the "
-                    "mirror's ON CONFLICT policy (duplicate primary/unique "
-                    "key values). Child rows referencing the dropped rows "
-                    "will fail at load time.",
+                # With the ON CONFLICT clause scoped to the primary
+                # key, a dropped row means the same RID arrived more
+                # than once (multi-path emission) — the row already
+                # landed, so child FK references still resolve. This
+                # is expected dedup, not data loss; anything that IS
+                # data loss raises IntegrityError below instead.
+                logger.info(
+                    "Sink: deduplicated %d of %d rows for %s.%s by "
+                    "primary key (same row emitted via multiple paths).",
                     len(rows) - inserted,
                     len(rows),
                     table.schema.name,
@@ -612,19 +640,21 @@ class SQLiteSink:
                 )
             return inserted
         except IntegrityError as e:
-            # FK / unique constraint violations are the conflict
-            # case the ``on_conflict`` knob is supposed to handle.
-            # For ``ignore`` and ``replace`` the SQLite-side ON
-            # CONFLICT clause already absorbs them, so reaching this
-            # branch means the conflict was something the clause
-            # didn't catch (e.g. an FK violation, which ON CONFLICT
-            # doesn't suppress). Log and surface per the policy.
+            # Reaching this branch means the conflict was something
+            # the PK-scoped ON CONFLICT clause didn't absorb: a
+            # non-PK unique-constraint collision (duplicate business
+            # key in the bag) or an FK violation. Either way the
+            # mirror would end up thinner than the bag — silently
+            # returning 0 here is exactly the failure mode that made
+            # issue #285 so hard to localize (the loss only surfaced
+            # much later as an FK 409 at the destination). Data loss
+            # aborts the load, loudly, for every on_conflict mode.
             logger.error(
-                f"Sink: integrity error inserting into {sql_table.name}: {e}"
+                f"Sink: integrity error inserting into {sql_table.name} "
+                f"— the bag's rows conflict with the mirror's "
+                f"constraints and would be lost: {e}"
             )
-            if self.on_conflict == "error":
-                raise
-            return 0
+            raise
 
 
 class CSVSink:
