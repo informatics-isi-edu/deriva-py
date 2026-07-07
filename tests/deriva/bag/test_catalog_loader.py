@@ -2673,3 +2673,325 @@ def test_mirror_still_dedups_pk_duplicates_silently(tmp_path: Path) -> None:
     # One logical row made it through the mirror and to the destination.
     image_stats = report.table_stats["demo.Image"]
     assert image_stats.rows_inserted == 1
+
+
+# ---------------------------------------------------------------------------
+# Production-shaped bag fixture (issue #285 postmortem)
+#
+# The #285 postmortem found that every loader-test schema was "too clean":
+# minimal synthetic tables whose columns are always populated and whose only
+# unique keys (RID, URL) never collide. The bug lived in the gap between
+# those idealized schemas and real deriva-ml commit bags. This fixture
+# mirrors the *actual* failing bag (execution 7-B6V0 on eye-ai) structurally:
+#
+#   * two schemas, one with a hyphen in its name ("deriva-ml");
+#   * an asset table with empty-string system columns (RCT/RMT/RCB/RMB),
+#     an all-NULL uniquely-keyed business column (Image_ID), and an FK to a
+#     parent (Observation) that has NO CSV in the bag;
+#   * association tables whose FKs cross schemas, some referencing RID and
+#     some referencing Name (Asset_Type / Asset_Role);
+#   * CSVs ONLY for the three tables the execution produced — every parent
+#     row (Execution, Asset_Type, Asset_Role, Observation) lives at the
+#     destination only, exercising DanglingFKStrategy.PRESERVE;
+#   * the exact commit-mode policy bag_commit.py configures.
+# ---------------------------------------------------------------------------
+
+
+def _prod_col(name: str, nullok: bool = True) -> dict[str, Any]:
+    return {
+        "name": name,
+        "type": {"typename": "text"},
+        "nullok": nullok,
+        "default": None,
+        "comment": None,
+    }
+
+
+def _prod_fk(
+    schema: str, table: str, col: str, ref_schema: str, ref_table: str, ref_col: str
+) -> dict[str, Any]:
+    return {
+        "names": [[schema, f"{table}_{col}_fkey"]],
+        "foreign_key_columns": [
+            {"schema_name": schema, "table_name": table, "column_name": col}
+        ],
+        "referenced_columns": [
+            {
+                "schema_name": ref_schema,
+                "table_name": ref_table,
+                "column_name": ref_col,
+            }
+        ],
+    }
+
+
+_PROD_SYSTEM_COLS = ["RCT", "RMT", "RCB", "RMB"]
+
+
+def _build_production_shaped_bag(tmp_path: Path) -> Path:
+    """Bag structurally faithful to a real deriva-ml commit bag."""
+    bag = tmp_path / "prod_bag" / "bag"
+    (bag / "data" / "eye-ai").mkdir(parents=True)
+
+    def _t(schema, name, cols, keys, fks):
+        return {
+            "schema_name": schema,
+            "table_name": name,
+            "kind": "table",
+            "column_definitions": cols,
+            "keys": keys,
+            "foreign_keys": fks,
+        }
+
+    sys_cols = [_prod_col(c) for c in _PROD_SYSTEM_COLS]
+    doc = {
+        "snaptime": "2026-01-01T00:00:00",
+        "schemas": {
+            "deriva-ml": {
+                "schema_name": "deriva-ml",
+                "tables": {
+                    "Execution": _t(
+                        "deriva-ml",
+                        "Execution",
+                        [_prod_col("RID", False), *sys_cols, _prod_col("Description")],
+                        [{"names": [["deriva-ml", "Execution_RID_key"]],
+                          "unique_columns": ["RID"]}],
+                        [],
+                    ),
+                    "Asset_Type": _t(
+                        "deriva-ml",
+                        "Asset_Type",
+                        [_prod_col("RID", False), *sys_cols, _prod_col("Name", False)],
+                        [{"names": [["deriva-ml", "Asset_Type_RID_key"]],
+                          "unique_columns": ["RID"]},
+                         {"names": [["deriva-ml", "Asset_Type_Name_key"]],
+                          "unique_columns": ["Name"]}],
+                        [],
+                    ),
+                    "Asset_Role": _t(
+                        "deriva-ml",
+                        "Asset_Role",
+                        [_prod_col("RID", False), *sys_cols, _prod_col("Name", False)],
+                        [{"names": [["deriva-ml", "Asset_Role_RID_key"]],
+                          "unique_columns": ["RID"]},
+                         {"names": [["deriva-ml", "Asset_Role_Name_key"]],
+                          "unique_columns": ["Name"]}],
+                        [],
+                    ),
+                },
+            },
+            "eye-ai": {
+                "schema_name": "eye-ai",
+                "tables": {
+                    "Observation": _t(
+                        "eye-ai",
+                        "Observation",
+                        [_prod_col("RID", False), *sys_cols,
+                         _prod_col("Observation_ID")],
+                        [{"names": [["eye-ai", "Observation_RID_key"]],
+                          "unique_columns": ["RID"]}],
+                        [],
+                    ),
+                    "Image": _t(
+                        "eye-ai",
+                        "Image",
+                        [_prod_col("RID", False), *sys_cols,
+                         _prod_col("URL", False), _prod_col("Filename"),
+                         _prod_col("Description"), _prod_col("Length"),
+                         _prod_col("MD5"), _prod_col("Observation"),
+                         _prod_col("Image_ID")],
+                        [{"names": [["eye-ai", "Image_RID_key"]],
+                          "unique_columns": ["RID"]},
+                         {"names": [["eye-ai", "Image_URL_key"]],
+                          "unique_columns": ["URL"]},
+                         {"names": [["eye-ai", "Image_Image_ID_key"]],
+                          "unique_columns": ["Image_ID"]}],
+                        [_prod_fk("eye-ai", "Image", "Observation",
+                                  "eye-ai", "Observation", "RID")],
+                    ),
+                    "Image_Execution": _t(
+                        "eye-ai",
+                        "Image_Execution",
+                        [_prod_col("RID", False), *sys_cols,
+                         _prod_col("Image", False),
+                         _prod_col("Execution", False),
+                         _prod_col("Asset_Role", False)],
+                        [{"names": [["eye-ai", "Image_Execution_RID_key"]],
+                          "unique_columns": ["RID"]},
+                         {"names": [["eye-ai", "Image_Execution_key"]],
+                          "unique_columns": ["Image", "Execution"]}],
+                        [_prod_fk("eye-ai", "Image_Execution", "Image",
+                                  "eye-ai", "Image", "RID"),
+                         _prod_fk("eye-ai", "Image_Execution", "Execution",
+                                  "deriva-ml", "Execution", "RID"),
+                         _prod_fk("eye-ai", "Image_Execution", "Asset_Role",
+                                  "deriva-ml", "Asset_Role", "Name")],
+                    ),
+                    "Image_Asset_Type": _t(
+                        "eye-ai",
+                        "Image_Asset_Type",
+                        [_prod_col("RID", False), *sys_cols,
+                         _prod_col("Image", False),
+                         _prod_col("Asset_Type", False)],
+                        [{"names": [["eye-ai", "Image_Asset_Type_RID_key"]],
+                          "unique_columns": ["RID"]},
+                         {"names": [["eye-ai", "Image_Asset_Type_key"]],
+                          "unique_columns": ["Image", "Asset_Type"]}],
+                        [_prod_fk("eye-ai", "Image_Asset_Type", "Image",
+                                  "eye-ai", "Image", "RID"),
+                         _prod_fk("eye-ai", "Image_Asset_Type", "Asset_Type",
+                                  "deriva-ml", "Asset_Type", "Name")],
+                    ),
+                },
+            },
+        },
+    }
+    (bag / "data" / "schema.json").write_text(json.dumps(doc))
+
+    # CSVs for ONLY the three produced tables — exactly like a real commit
+    # bag. System columns serialized as empty strings; Image_ID NULL ('')
+    # in every row; Observation references parents that are not in the bag.
+    d = bag / "data" / "eye-ai"
+    with (d / "Image.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["RID", *_PROD_SYSTEM_COLS, "URL", "Filename", "Description",
+                    "Length", "MD5", "Observation", "Image_ID"])
+        w.writerow(["IMG-1", "", "", "", "",
+                    "/hatrac/Image/aaa111.img_0.png", "img_0.png", "",
+                    "10", "aaa111", "OBS-1", ""])
+        w.writerow(["IMG-2", "", "", "", "",
+                    "/hatrac/Image/bbb222.img_1.png", "img_1.png", "",
+                    "11", "bbb222", "OBS-2", ""])
+    with (d / "Image_Execution.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["RID", *_PROD_SYSTEM_COLS, "Image", "Execution", "Asset_Role"])
+        w.writerow(["IE-1", "", "", "", "", "IMG-1", "EXEC-1", "Output"])
+        w.writerow(["IE-2", "", "", "", "", "IMG-2", "EXEC-1", "Output"])
+    with (d / "Image_Asset_Type.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["RID", *_PROD_SYSTEM_COLS, "Image", "Asset_Type"])
+        w.writerow(["IAT-1", "", "", "", "", "IMG-1", "Image"])
+        w.writerow(["IAT-2", "", "", "", "", "IMG-1", "Output_File"])
+        w.writerow(["IAT-3", "", "", "", "", "IMG-2", "Image"])
+        w.writerow(["IAT-4", "", "", "", "", "IMG-2", "Output_File"])
+    return bag
+
+
+def _production_policy() -> FKTraversalPolicy:
+    """The exact commit-mode policy deriva-ml's bag_commit.py configures."""
+    return FKTraversalPolicy(
+        asset_mode=AssetMode.ROWS_ONLY,  # bytes-path mocked out of scope
+        dangling_fk_strategy=DanglingFKStrategy.PRESERVE,
+        preserve_provenance=False,
+        match_by_columns={
+            ("eye-ai", "Image"): ["URL"],
+            ("eye-ai", "Image_Asset_Type"): ["Image", "Asset_Type"],
+        },
+    )
+
+
+def test_production_shaped_bag_n2_net_new(tmp_path: Path) -> None:
+    """N=2 net-new commit bag loads fully through the whole pipeline.
+
+    Pins the axes the #285 postmortem found untested: empty-string system
+    columns, an all-NULL uniquely-keyed business column, PRESERVE for
+    out-of-bag parents, by-Name FKs, and a cross-schema FK into a
+    hyphen-named schema.
+    """
+    bag = _build_production_shaped_bag(tmp_path)
+    catalog = _mock_catalog()
+
+    image_tw = _pb_table(catalog, "eye-ai", "Image")
+    image_tw.attributes.return_value.fetch.return_value = []
+    _stub_insert_result(image_tw, [{"RID": "IMG-1"}, {"RID": "IMG-2"}])
+    iat_tw = _pb_table(catalog, "eye-ai", "Image_Asset_Type")
+    iat_tw.attributes.return_value.fetch.return_value = []
+    _stub_insert_result(iat_tw, [{"RID": f"IAT-{i}"} for i in range(1, 5)])
+    ie_tw = _pb_table(catalog, "eye-ai", "Image_Execution")
+    _stub_insert_result(ie_tw, [{"RID": "IE-1"}, {"RID": "IE-2"}])
+
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=_production_policy(),
+        database_dir=tmp_path / "db",
+    )
+    try:
+        report = loader.run()
+    finally:
+        loader.dispose()
+
+    # Both images survive the mirror (the #285 regression axis) and land.
+    assert report.table_stats["eye-ai.Image"].rows_inserted == 2
+    remap = loader._rid_remap[("eye-ai", "Image")]
+    assert remap == {"IMG-1": "IMG-1", "IMG-2": "IMG-2"}
+
+    image_rows = image_tw.insert.call_args.args[0]
+    for row in image_rows:
+        # Commit semantics strip system columns entirely (empty strings
+        # would 400 at ERMrest for timestamp/client columns).
+        for col in _PROD_SYSTEM_COLS:
+            assert col not in row, f"system column {col} leaked: {row!r}"
+        # PRESERVE: out-of-bag Observation parents pass through verbatim.
+        assert row["Observation"] in ("OBS-1", "OBS-2")
+
+    # All four association rows land with valid Image references and
+    # untouched by-Name Asset_Type values.
+    iat_rows = iat_tw.insert.call_args.args[0]
+    assert len(iat_rows) == 4
+    assert {r["Image"] for r in iat_rows} == {"IMG-1", "IMG-2"}
+    assert {r["Asset_Type"] for r in iat_rows} == {"Image", "Output_File"}
+
+    ie_rows = ie_tw.insert.call_args.args[0]
+    assert len(ie_rows) == 2
+    assert {r["Image"] for r in ie_rows} == {"IMG-1", "IMG-2"}
+    assert all(r["Execution"] == "EXEC-1" for r in ie_rows)
+    assert all(r["Asset_Role"] == "Output" for r in ie_rows)
+
+
+def test_production_shaped_bag_rerun_remaps_matched_asset(tmp_path: Path) -> None:
+    """Re-run shape (the #285 bisect): one image's URL already exists at the
+    destination under a different RID. Every association row for it must be
+    rewritten to the destination RID — zero stale bag-lease RIDs."""
+    bag = _build_production_shaped_bag(tmp_path)
+    catalog = _mock_catalog()
+
+    image_tw = _pb_table(catalog, "eye-ai", "Image")
+    image_tw.attributes.return_value.fetch.return_value = [
+        {"URL": "/hatrac/Image/bbb222.img_1.png", "RID": "IMG-DST-2"},
+    ]
+    _stub_insert_result(image_tw, [{"RID": "IMG-1"}])
+    iat_tw = _pb_table(catalog, "eye-ai", "Image_Asset_Type")
+    iat_tw.attributes.return_value.fetch.return_value = []
+    _stub_insert_result(iat_tw, [{"RID": f"IAT-{i}"} for i in range(1, 5)])
+    ie_tw = _pb_table(catalog, "eye-ai", "Image_Execution")
+    _stub_insert_result(ie_tw, [{"RID": "IE-1"}, {"RID": "IE-2"}])
+
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=_production_policy(),
+        database_dir=tmp_path / "db",
+    )
+    try:
+        report = loader.run()
+    finally:
+        loader.dispose()
+
+    stats = report.table_stats["eye-ai.Image"]
+    assert stats.rows_matched_by_columns == 1
+    assert stats.rows_inserted == 1
+    assert loader._rid_remap[("eye-ai", "Image")] == {
+        "IMG-1": "IMG-1",
+        "IMG-2": "IMG-DST-2",
+    }
+
+    # No association row may carry the stale bag RID (the exact #285
+    # destination-side failure: FK 409 on a RID that never landed).
+    for tw, n in ((iat_tw, 4), (ie_tw, 2)):
+        rows = tw.insert.call_args.args[0]
+        assert len(rows) == n
+        assert not [r for r in rows if r.get("Image") == "IMG-2"], (
+            "stale bag-lease RID leaked into association payload"
+        )
+        assert {r["Image"] for r in rows} == {"IMG-1", "IMG-DST-2"}
