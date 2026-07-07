@@ -538,6 +538,29 @@ class SQLiteSink:
             )
             return 0
 
+        # Coerce empty strings on nullable columns to real NULLs
+        # before the mirror insert — the write-side twin of
+        # ``BagCatalogLoader._coerce_empty_to_null``. Bag CSVs
+        # serialize NULL as ``""`` (CSV has no NULL sentinel), and
+        # SQLite — unlike ERMrest/Postgres — treats ``""`` as a
+        # comparable value in unique indexes. A unique key over a
+        # column that is NULL in every source row (e.g. an optional
+        # ``Image_ID`` on an asset table) would otherwise collide on
+        # ``""`` from the second row on, and the ``ignore``
+        # conflict policy would silently drop those rows — the
+        # loader then never sees them, and child rows that FK-
+        # reference the dropped rows fail at the destination with
+        # an FK violation (issue #285).
+        nullable_cols = {c.name for c in table.columns if c.nullok}
+        if nullable_cols:
+            rows = [
+                {
+                    k: (None if k in nullable_cols and v == "" else v)
+                    for k, v in row.items()
+                }
+                for row in rows
+            ]
+
         try:
             if self.on_conflict == "ignore":
                 stmt = sqlite_insert(sql_table).on_conflict_do_nothing()
@@ -562,8 +585,32 @@ class SQLiteSink:
                 stmt = sql_table.insert()
 
             with self.orm.engine.begin() as conn:
-                conn.execute(stmt, rows)
-            return len(rows)
+                result = conn.execute(stmt, rows)
+            # Report the number of rows that actually landed, per the
+            # ``Sink`` protocol contract. With ``on_conflict="ignore"``
+            # SQLite silently skips conflicting rows; returning
+            # ``len(rows)`` here would hide the drop from every
+            # downstream count. A drop is legal but must be LOUD —
+            # a silently thinner mirror is exactly how issue #285
+            # stayed invisible (child tables kept FK-referencing rows
+            # the mirror had dropped).
+            rowcount = result.rowcount
+            inserted = (
+                rowcount if rowcount is not None and rowcount >= 0
+                else len(rows)
+            )
+            if inserted < len(rows):
+                logger.warning(
+                    "Sink: %d of %d rows for %s.%s were dropped by the "
+                    "mirror's ON CONFLICT policy (duplicate primary/unique "
+                    "key values). Child rows referencing the dropped rows "
+                    "will fail at load time.",
+                    len(rows) - inserted,
+                    len(rows),
+                    table.schema.name,
+                    table.name,
+                )
+            return inserted
         except IntegrityError as e:
             # FK / unique constraint violations are the conflict
             # case the ``on_conflict`` knob is supposed to handle.
