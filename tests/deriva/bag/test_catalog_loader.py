@@ -2364,3 +2364,194 @@ def test_rewrite_fks_returns_row_unchanged_for_composite_fk(
         assert out is not row
     finally:
         loader.dispose()
+
+
+# ---------------------------------------------------------------------------
+# Issue #285 — mirror must not drop rows whose nullable unique-keyed column
+# is NULL ('' in the bag CSV)
+# ---------------------------------------------------------------------------
+
+
+def _build_null_unique_asset_bag(tmp_path: Path) -> Path:
+    """Bag whose asset table carries a nullable, uniquely-keyed column
+    (``Image_ID``) that is NULL (serialized ``""``) in every row.
+
+    Mirrors the eye-ai ``Image`` shape from issue #285: SQLite treats
+    ``""`` as a comparable value in unique indexes (unlike
+    ERMrest/Postgres, where NULLs never collide), so without the
+    sink-side empty-string coercion the mirror silently drops every
+    Image row after the first and child rows FK-reference rows the
+    loader never saw.
+    """
+    bag = tmp_path / "null_unique_bag" / "bag"
+    (bag / "data" / "demo").mkdir(parents=True)
+
+    doc = {
+        "snaptime": "2026-01-01T00:00:00",
+        "schemas": {
+            "demo": {
+                "schema_name": "demo",
+                "tables": {
+                    "Image": {
+                        "schema_name": "demo",
+                        "table_name": "Image",
+                        "kind": "table",
+                        "column_definitions": [
+                            {
+                                "name": "RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "URL",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "Image_ID",
+                                "type": {"typename": "text"},
+                                "nullok": True,
+                                "default": None,
+                                "comment": None,
+                            },
+                        ],
+                        "keys": [
+                            {
+                                "names": [["demo", "Image_RID_key"]],
+                                "unique_columns": ["RID"],
+                            },
+                            {
+                                "names": [["demo", "Image_URL_key"]],
+                                "unique_columns": ["URL"],
+                            },
+                            {
+                                "names": [["demo", "Image_Image_ID_key"]],
+                                "unique_columns": ["Image_ID"],
+                            },
+                        ],
+                        "foreign_keys": [],
+                    },
+                    "Widget": {
+                        "schema_name": "demo",
+                        "table_name": "Widget",
+                        "kind": "table",
+                        "column_definitions": [
+                            {
+                                "name": "RID",
+                                "type": {"typename": "text"},
+                                "nullok": False,
+                                "default": None,
+                                "comment": None,
+                            },
+                            {
+                                "name": "Image",
+                                "type": {"typename": "text"},
+                                "nullok": True,
+                                "default": None,
+                                "comment": None,
+                            },
+                        ],
+                        "keys": [
+                            {
+                                "names": [["demo", "Widget_RID_key"]],
+                                "unique_columns": ["RID"],
+                            }
+                        ],
+                        "foreign_keys": [
+                            {
+                                "names": [["demo", "Widget_Image_fkey"]],
+                                "foreign_key_columns": [
+                                    {
+                                        "schema_name": "demo",
+                                        "table_name": "Widget",
+                                        "column_name": "Image",
+                                    }
+                                ],
+                                "referenced_columns": [
+                                    {
+                                        "schema_name": "demo",
+                                        "table_name": "Image",
+                                        "column_name": "RID",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                },
+            }
+        },
+    }
+    (bag / "data" / "schema.json").write_text(json.dumps(doc))
+    with (bag / "data" / "demo" / "Image.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["RID", "URL", "Image_ID"])
+        # Image_ID is NULL ('') in BOTH rows — the #285 trigger.
+        w.writerow(["I-SRC-A", "/hatrac/demo/abc.a.png", ""])
+        w.writerow(["I-SRC-B", "/hatrac/demo/def.b.png", ""])
+    with (bag / "data" / "demo" / "Widget.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["RID", "Image"])
+        w.writerow(["W1", "I-SRC-A"])
+        w.writerow(["W2", "I-SRC-B"])
+    return bag
+
+
+def test_mirror_keeps_rows_with_all_null_unique_column(tmp_path: Path) -> None:
+    """REGRESSION (#285): N>=2 rows whose uniquely-keyed nullable column is
+    NULL in every row must all survive the mirror, populate the remap, and
+    have child FK references rewritten.
+
+    Before the sink-side empty-string coercion, the mirror's unique index
+    on ``Image_ID`` collided on ``""`` and ``ON CONFLICT DO NOTHING``
+    silently dropped every Image row after the first: the loader loaded 1
+    of N images, the remap had a single entry, and child rows referencing
+    the dropped images failed at the destination with an FK violation.
+    """
+    bag = _build_null_unique_asset_bag(tmp_path)
+    catalog = _mock_catalog()
+
+    image_tw = _pb_table(catalog, "demo", "Image")
+    # One image already exists at the destination by URL — the exact
+    # remap-required shape from the issue's bisect (a re-run after a
+    # prior partially-failed commit).
+    image_tw.attributes.return_value.fetch.return_value = [
+        {"URL": "/hatrac/demo/abc.a.png", "RID": "I-DST-A"},
+    ]
+    _stub_insert_result(image_tw, [{"RID": "I-SRC-B"}])
+
+    widget_tw = _pb_table(catalog, "demo", "Widget")
+    _stub_insert_result(widget_tw, [{"RID": "W1"}, {"RID": "W2"}])
+
+    loader = BagCatalogLoader(
+        catalog=catalog,
+        bag=bag,
+        policy=FKTraversalPolicy(
+            asset_mode=AssetMode.ROWS_ONLY,
+            match_by_columns={("demo", "Image"): ["URL"]},
+        ),
+        database_dir=tmp_path / "db",
+    )
+    try:
+        report = loader.run()
+    finally:
+        loader.dispose()
+
+    # BOTH images made it through the mirror: one matched, one inserted.
+    image_stats = report.table_stats["demo.Image"]
+    assert image_stats.rows_matched_by_columns == 1
+    assert image_stats.rows_inserted == 1
+
+    # The remap is complete — this is what breaks under #285 (only the
+    # first row survived, so the second entry was missing).
+    remap = loader._rid_remap[("demo", "Image")]
+    assert remap == {"I-SRC-A": "I-DST-A", "I-SRC-B": "I-SRC-B"}
+
+    # Child FK references rewritten through the complete remap.
+    widget_rows = widget_tw.insert.call_args.args[0]
+    by_rid = {r["RID"]: r for r in widget_rows}
+    assert by_rid["W1"]["Image"] == "I-DST-A"
+    assert by_rid["W2"]["Image"] == "I-SRC-B"
