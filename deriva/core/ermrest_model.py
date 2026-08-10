@@ -1663,7 +1663,7 @@ class Table (object):
         # first pass: build "pure" association table parts
         # HACK: use dummy table name if we don't have one yet
         tname = table_name if table_name is not None else "dummy"
-        cdefs, fkdefs = cls._expand_references(tname, associates, [], used_names)
+        cdefs, fkdefs = cls._expand_references(tname, associates, [], used_names, key_column_search_order)
 
         if table_name is None:
             # use first pass results to build table_name
@@ -1680,7 +1680,7 @@ class Table (object):
             table_name = make_id(*[ get_assoc_name(assoc) for assoc in associates ])
             # HACK: repeat first pass to make proper fkey def constraint names
             used_names = set()
-            cdefs, fkdefs = cls._expand_references(table_name, associates, [], used_names)
+            cdefs, fkdefs = cls._expand_references(table_name, associates, [], used_names, key_column_search_order)
 
         # build assoc key from union of associates' foreign key columns
         k_cnames = []
@@ -1695,7 +1695,7 @@ class Table (object):
         ]
 
         # run second pass to expand out metadata targets
-        cdefs, fkdefs = cls._expand_references(table_name, cdefs + metadata, fkdefs, used_names)
+        cdefs, fkdefs = cls._expand_references(table_name, cdefs + metadata, fkdefs, used_names, key_column_search_order)
 
         return Table.define(
             table_name,
