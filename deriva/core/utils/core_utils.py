@@ -783,4 +783,5 @@ tag = AttrDict({
     'google_dataset':     'tag:isrd.isi.edu,2021:google-dataset',
     'column_defaults':    'tag:isrd.isi.edu,2023:column-defaults',
     'viz_3d_display':     'tag:isrd.isi.edu,2021:viz-3d-display',
+    'strict_preallocated_rid': 'tag:isrd.isi.edu,2026:strict-preallocated-rid',
 })

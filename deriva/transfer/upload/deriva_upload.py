@@ -700,7 +700,7 @@ class DerivaUpload(object):
         #    one if necessary. Otherwise, delay this logic until after the file upload.
         result = record = None
         if stob(asset_mapping.get("create_record_before_upload", False)):
-            record = self._getFileRecord(asset_mapping)
+            record, result = self._getFileRecord(asset_mapping)
 
         # 6. Perform the Hatrac upload
         self._getFileHatracMetadata(asset_mapping)
@@ -749,7 +749,7 @@ class DerivaUpload(object):
         safe_overrides = asset_mapping.get("url_encoding_safe_overrides", {}).get("URI", "")
         self.metadata["URI_urlencoded"] = urlquote(self.metadata["URI"], safe=safe_overrides)
 
-        # 7. Check for an existing record and create a new one if necessary
+        # 7. Check for an existing record and create a new one if necessary.
         if not record:
             record, result = self._getFileRecord(asset_mapping)
 
@@ -788,7 +788,29 @@ class DerivaUpload(object):
             default_columns = asset_mapping.get("default_columns")
             if not default_columns:
                 default_columns = self.catalog.getDefaultColumns({}, self.metadata['target_table'])
+            # Optional ``nondefaults`` parameter on the asset_mapping mirrors
+            # the same-named parameter on :meth:`_catalogRecordCreate` (single
+            # row insert). Callers use it to install bulk rows with
+            # caller-supplied values for normally-auto-assigned columns —
+            # most commonly ``nondefaults=["RID"]`` so pre-leased RIDs from
+            # ERMrest_RID_Lease survive the insert. Without this, the server
+            # assigns new RIDs and any FK reference in another table pointing
+            # at the leased RID would break.
+            #
+            # Deduplicate: any column in both ``default_columns`` and
+            # ``nondefaults`` should be treated as nondefault. The asset
+            # mapping's intent is "auto-default these, but explicitly NOT
+            # those" — overlap on a column means "explicit wins."
+            nondefaults = asset_mapping.get("nondefaults") or []
+            if nondefaults:
+                default_columns = [c for c in default_columns if c not in nondefaults]
             default_param = ('?defaults=%s' % ','.join(default_columns)) if len(default_columns) > 0 else ''
+            if nondefaults:
+                nondefaults_str = ','.join(nondefaults)
+                if default_param:
+                    default_param += '&nondefaults=%s' % nondefaults_str
+                else:
+                    default_param = '?nondefaults=%s' % nondefaults_str
             file_ext = self.metadata['file_ext']
             file_ext = file_ext.lower()
             if file_ext == 'csv':
@@ -810,11 +832,20 @@ class DerivaUpload(object):
     def _getFileRecord(self, asset_mapping):
         """
         Helper function that queries the catalog to get a record linked to the asset, or create it if it doesn't exist.
+
+        When ``asset_mapping["use_pre_allocated_rid"]`` is true, the caller has supplied a pre-allocated
+        RID in ``self.metadata["RID"]``. The retrieve branch then enforces RID-authoritative semantics:
+        if the existing row's RID matches the caller's, return idempotently; if it differs and the target
+        table carries ``tag:isrd.isi.edu,2026:strict-preallocated-rid``, raise; otherwise (soft default)
+        adopt the existing row's RID. The create branch passes ``nondefaults=["RID"]`` so ERMrest honors
+        the caller-supplied RID instead of assigning a fresh one.
+
         :return: the file record
         """
         record = None
         column_map = asset_mapping.get("column_map", {})
         allow_none_col_list = asset_mapping.get("allow_empty_columns_on_update", [])
+        use_pre_allocated_rid = stob(asset_mapping.get("use_pre_allocated_rid", False))
         rqt = asset_mapping['record_query_template']
         try:
             path = rqt.format(**self.metadata)
@@ -823,15 +854,63 @@ class DerivaUpload(object):
         result = self.catalog.get(path).json()
         if result:
             record = result[0]
+            if use_pre_allocated_rid:
+                target_table = self.metadata['target_table']
+                caller_rid = self.metadata["RID"]
+                existing_rid = record.get("RID")
+                if existing_rid != caller_rid:
+                    if self._is_strict_preallocated_rid(target_table):
+                        raise DerivaUploadCatalogCreateError(
+                            "Pre-allocated RID %r cannot be used for file %r: "
+                            "the catalog already has a matching row with RID %r. "
+                            "The target table has tag:isrd.isi.edu,2026:strict-preallocated-rid set, "
+                            "so silently substituting the existing RID would break FK references the "
+                            "caller captured at lease-time. Either re-lease this asset with the "
+                            "existing RID, or reconcile the catalog state." % (
+                                caller_rid, self.metadata.get("file_name", ""), existing_rid,
+                            )
+                        )
+                    # Soft mode (default): adopt the existing row's RID.
+                    self.metadata["RID"] = existing_rid
             self._updateFileMetadata(record, no_overwrite=True)
             return self.pruneDict(record, column_map, allow_none_col_list), record
         else:
             row = self.interpolateDict(self.metadata, column_map)
-            result = self._catalogRecordCreate(self.metadata['target_table'], row)
+            # When the caller supplied a pre-allocated RID (typically from
+            # ERMrest_RID_Lease), pass nondefaults=["RID"] so ERMrest honors
+            # it instead of assigning a fresh one on insert.
+            nondefaults = ["RID"] if use_pre_allocated_rid else None
+            result = self._catalogRecordCreate(self.metadata['target_table'], row, nondefaults=nondefaults)
             if result:
                 record = result[0]
                 self._updateFileMetadata(record)
             return self.interpolateDict(self.metadata, column_map, allow_none_column_list=allow_none_col_list), record
+
+    def _is_strict_preallocated_rid(self, target_table):
+        """Return True if the table has the strict-preallocated-rid annotation.
+
+        Looks up the table's annotation via the lazily-loaded
+        ``catalog_model``. The annotation
+        ``tag:isrd.isi.edu,2026:strict-preallocated-rid`` with value
+        ``{"strict": true}`` opts the table into strict mode — RID
+        mismatches between caller-supplied pre-allocated RIDs and
+        existing catalog rows raise an error rather than falling back
+        to the existing row's RID.
+
+        Annotation absent or ``{"strict": false}`` → soft mode.
+        """
+        from deriva.core.utils.core_utils import tag as _tag
+        if not self.catalog_model:
+            self.catalog_model = self.catalog.getCatalogModel()
+        schema_name, table_name = self.catalog.splitQualifiedCatalogName(target_table)
+        schema_obj = self.catalog_model.schemas.get(schema_name)
+        if not schema_obj:
+            return False
+        table_obj = schema_obj.tables.get(table_name)
+        if not table_obj:
+            return False
+        anno = table_obj.annotations.get(_tag.strict_preallocated_rid, {})
+        return bool(anno.get("strict", False)) if isinstance(anno, dict) else False
 
     def _urlEncodeMetadata(self, safe_overrides=None):
         urlencoded = dict()
@@ -846,6 +925,36 @@ class DerivaUpload(object):
     def _initFileMetadata(self, file_path, asset_mapping, match_groupdict):
         self.metadata.clear()
         self._updateFileMetadata(match_groupdict)
+        # Optional caller-supplied metadata overlay. Useful when row metadata
+        # is known externally (e.g., from a bag's CSV row) rather than
+        # derivable from a filename regex. Values here override any
+        # equivalently-named groupdict captures — the caller's prepopulated
+        # values are treated as authoritative because they typically come
+        # from a structured source rather than from path parsing.
+        #
+        # Interaction with framework-derived fields: this overlay runs
+        # before the unconditional writes below for ``file_name``,
+        # ``file_size``, ``file_ext``, ``base_path``, ``base_name``,
+        # ``_upload_*``, and ``_identity_*``. Those framework writes are
+        # last-wins, so the overlay cannot override them — supplying any
+        # of those keys here is harmless but has no effect. The overlay
+        # CAN supply reserved keys that are written *later* in the upload
+        # pipeline (e.g., ``URI``, ``md5``, ``md5_base64``); those values
+        # may be overwritten by later steps (``_getFileHatracMetadata``,
+        # the hash-computation step in ``_uploadAsset``) but reach the
+        # column_map interpolation and any template references that fire
+        # before those later steps run.
+        self._updateFileMetadata(asset_mapping.get("prepopulated_metadata", {}))
+        # Fast-fail check for pre-allocated-RID asset mappings: the caller
+        # opted in via ``use_pre_allocated_rid: true`` and must supply the
+        # RID via a ``(?P<RID>...)`` named group in the file_pattern regex.
+        if stob(asset_mapping.get("use_pre_allocated_rid", False)):
+            if not self.metadata.get("RID"):
+                raise DerivaUploadConfigurationError(
+                    "Asset mapping has use_pre_allocated_rid=true but no RID "
+                    "was captured by the file_pattern regex. Ensure the pattern "
+                    "includes a (?P<RID>[A-Z0-9-]+) named group."
+                )
         self.metadata['target_table'] = self.getCatalogTable(asset_mapping, match_groupdict)
 
         self.metadata["file_name"] = self.getFileDisplayName(file_path)
@@ -1064,12 +1173,13 @@ class DerivaUpload(object):
 
         return defaults
 
-    def _catalogRecordCreate(self, catalog_table, row, default_columns=None):
+    def _catalogRecordCreate(self, catalog_table, row, default_columns=None, nondefaults=None):
         """
 
         :param catalog_table:
         :param row:
         :param default_columns:
+        :param nondefaults:
         :return:
         """
         if self.cancelled:
@@ -1084,6 +1194,16 @@ class DerivaUpload(object):
             if not default_columns:
                 default_columns = self._get_catalog_default_columns(row, catalog_table)
             default_param = ('?defaults=%s' % ','.join(default_columns)) if len(default_columns) > 0 else ''
+            # Bug E.2: opt out of implicit RID-is-default behavior when
+            # the caller is supplying a pre-allocated RID from
+            # ERMrest_RID_Lease. The server validates the RID against
+            # the lease table and uses the supplied value.
+            if nondefaults:
+                nondefaults_str = ','.join(nondefaults)
+                if default_param:
+                    default_param += '&nondefaults=%s' % nondefaults_str
+                else:
+                    default_param = '?nondefaults=%s' % nondefaults_str
             # for default in default_columns:
             #    row[default] = None
             create_uri = '/entity/%s%s' % (catalog_table, default_param)
