@@ -11,6 +11,7 @@ from collections.abc import Iterable
 from enum import Enum
 
 from . import AttrDict, tag, urlquote, stob, mmo
+from .utils.sqlite3_utils import sql_identifier, sql_literal
 from . import \
     crockford_b32encode, crockford_b32decode, \
     int_to_uintX, uintX_to_int, \
@@ -101,19 +102,6 @@ def make_id(*components):
 
     # last-ditch (e.g. multibyte unicode suffix worst case)
     return truncate(naive_result, 55) + naive_hash
-
-def sql_identifier(s):
-    # double " to protect from SQL
-    return '"%s"' % (s.replace('"', '""'))
-
-def sql_literal(v):
-    if v is None:
-        return 'NULL'
-    if type(v) is list:
-        s = json.dumps(v)
-    # double ' to protect from SQL
-    s = '%s' % v
-    return "'%s'" % (s.replace("'", "''"))
 
 def timestamptz_to_datetime(ts: str) -> datetime.datetime:
     """Convert an ERMrest (i.e. PostgreSQL) timestamptz string to native datetime.

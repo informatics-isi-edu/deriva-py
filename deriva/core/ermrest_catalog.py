@@ -11,7 +11,9 @@ from typing import NamedTuple
 
 from . import urlquote, urlsplit, urlunsplit, datapath, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, DEFAULT_SESSION_CONFIG, \
     Megabyte, Kilobyte, get_transfer_summary
-from .deriva_binding import DerivaBinding, DerivaPathError
+
+from .utils.sqlite3_utils import SqlConstraint, SqlType
+from .deriva_binding import DerivaBinding, DerivaPathError, AbstractObserver
 from . import ermrest_model
 from .ermrest_model import nochange
 
@@ -1500,3 +1502,70 @@ class ErmrestAlias(DerivaBinding):
         else:
             raise ValueError('Alias deletion refused when really is %s.' % really)
 
+class ErmrestTableObserver (AbstractObserver):
+    """Observer for an ERMrest catalog table.
+    """
+
+    sort_cnames = ["RMT", "RID"]
+    sort_pos0 = ["-infinity", ""]
+
+    @classmethod
+    def type_ermrest2sqlite3(cls, typ):
+        if typ.get('is_domain', False):
+            typ = typ['base_type']
+        if typ.get('is_array', False):
+            return SqlType.JSON
+        return {
+            "int4": SqlType.INT,
+            "int8": SqlType.INT,
+            "float4": SqlType.REAL,
+            "float8": SqlType.REAL,
+            "json": SqlType.JSON,
+            "jsonb": SqlType.JSON,
+        }.get(typ["typename"], SqlType.TEXT)
+    
+    def __init__(self, catalog, sname, tname):
+        r = catalog.get(f"/schema/{urlquote(sname)}/table/{urlquote(tname)}")
+        tdef = r.json()
+
+        keys = set([
+            tuple(sorted(kdef["unique_columns"]))
+            for kdef in tdef["keys"]
+        ])
+
+        column_defs = {
+            cdef["name"]: [
+                cdef["name"],
+                self.type_ermrest2sqlite3(cdef["type"]),
+                (
+                    (SqlConstraint.NOTNULL if not cdef["nullok"] else 0)
+                    | (SqlConstraint.UNIQUE if (cdef["name"],) in keys else 0)
+                    | (SqlConstraint.PRIMARYKEY if cdef["name"] == "RID" else 0)
+                ),
+            ]
+            for cdef in tdef['column_definitions']
+        }
+
+        if "RID" not in column_defs or "RMT" not in column_defs:
+            raise ValueError(f"table {sname}.{tname} lacks required RID and RMT columns")
+
+        self.column_defs = list(column_defs.values())
+
+        super(ErmrestTableObserver, self).__init__(f"{sname}_{tname}")
+        self.catalog = catalog
+        self.ermrest_sname = sname
+        self.ermrest_tname = tname
+
+    def _get_page(self, last_rmt, last_rid):
+        """Return next page (array of row dicts) from last position.
+
+        :param last_rmt: The "RMT" column of the last seen row.
+        :param last_rid: The "RID" column of the last seen row.
+        """
+        url_sname = urlquote(self.ermrest_sname)
+        url_tname = urlquote(self.ermrest_tname)
+        url_last_rid = urlquote(str(last_rid))
+        url_last_rmt = urlquote(str(last_rmt))
+        r = self.catalog.get(f"/entity/{url_sname}:{url_tname}/RMT::gt::{url_last_rmt}/RID::gt::{url_last_rid}@sort(RMT,RID)?limit={self.pagesize}")
+        rows = r.json()
+        return rows

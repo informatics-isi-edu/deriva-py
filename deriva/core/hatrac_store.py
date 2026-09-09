@@ -4,7 +4,8 @@ import requests
 import logging
 from . import format_exception, NotModified, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, DEFAULT_MAX_CHUNK_LIMIT, \
     DEFAULT_MAX_REQUEST_SIZE, urlquote, Megabyte, get_transfer_summary, calculate_optimal_transfer_shape
-from .deriva_binding import DerivaBinding
+from .deriva_binding import DerivaBinding, AbstractObserver
+from .utils.sqlite3_utils import SqlConstraint, SqlType
 from .utils import hash_utils as hu, mime_utils as mu
 
 
@@ -575,3 +576,113 @@ class HatracStore(DerivaBinding):
         self.delete(url, headers)
         return None
 
+    def get_bulk_names(self, last_modified_at, last_id, page_size=1000, namespace='/hatrac/'):
+        """Return next names page (array of row dicts) from last position.
+
+        :param last_modified_at: The "modified_at" column of the last seen row.
+        :param last_id: The "id" column of the last seen row.
+        :param page size: The maximum number of rows
+        :param namespace: The namespace root for listings
+        """
+        if not isinstance(page_size, int) or page_size < 1:
+            raise ValueError(f"page_size {page_size} must me positive integer")
+
+        url_last_id = urlquote(str(last_id))
+        url_last_modified_at = urlquote(str(last_modified_at))
+        url = f"{namespace};bulk/name?limit={page_size}&last_id={url_last_id}&last_modified_at={url_last_modified_at}"
+        r = self.get(url)
+        rows = r.json()
+        return rows
+
+    def get_bulk_versions(self, last_modified_at, last_id, page_size=1000, namespace='/hatrac/'):
+        """Return next versions page (array of row dicts) from last position.
+
+        :param last_modified_at: The "modified_at" column of the last seen row.
+        :param last_id: The "id" column of the last seen row.
+        :param page size: The maximum number of rows
+        :param namespace: The namespace root for listings
+        """
+        if not isinstance(page_size, int) or page_size < 1:
+            raise ValueError(f"page_size {page_size} must me positive integer")
+
+        url_last_id = urlquote(str(last_id))
+        url_last_modified_at = urlquote(str(last_modified_at))
+        url = f"{namespace};bulk/version?limit={page_size}&last_id={url_last_id}&last_modified_at={url_last_modified_at}"
+        r = self.get(url)
+        rows = r.json()
+        return rows
+
+class HatracTableObserver (AbstractObserver):
+    """Extensible observer for Hatrac directory tables.
+    
+    """
+    sort_cnames = ["modified_at", "id"]
+    sort_pos0 = ["-infinity", 0]
+    hatrac_api = None
+
+    def __init__(self, hatrac_store):
+        """Initialize a hatrac table polling observer.
+
+        :param hatrac_store: Bound instance of HatracStore
+        """
+        super(HatracTableObserver, self).__init__(f"hatrac_{self.hatrac_api}")
+        self.hatrac_store = hatrac_store
+
+class HatracNameObserver (HatracTableObserver):
+    """Observer for Hatrac name directory.
+    """
+    hatrac_api = "name"
+    column_defs = [
+        # (name, type, flags, refconstr?)
+        ("id", SqlType.INT, SqlConstraint.PRIMARYKEY),
+        ("pid", SqlType.INT, 0, "REFERENCES hatrac_name (id)"),
+        ("created_at", SqlType.TEXT, SqlConstraint.NOTNULL),
+        ("modified_at", SqlType.TEXT, SqlConstraint.NOTNULL),
+        ("ancestors", SqlType.JSON, SqlConstraint.NOTNULL),
+        ("name", SqlType.TEXT, SqlConstraint.NOTNULL | SqlConstraint.UNIQUE),
+        ("subtype", SqlType.INT, SqlConstraint.NOTNULL),
+        ("is_deleted", SqlType.BOOLEAN, SqlConstraint.NOTNULL),
+        ("owner", SqlType.JSON, 0),
+        ("create", SqlType.JSON, 0),
+        ("read", SqlType.JSON, 0),
+        ("subtree-owner", SqlType.JSON, 0),
+        ("subtree-create", SqlType.JSON, 0),
+        ("subtree-update", SqlType.JSON, 0),
+        ("subtree-read", SqlType.JSON , 0),
+    ]
+
+    def _get_page(self, last_modified_at, last_id):
+        """Return next page (array of row dicts) from last position.
+
+        :param last_modified_at: The "modified_at" column of the last seen row.
+        :param last_id: The "id" column of the last seen row.
+        """
+        return self.hatrac_store.get_bulk_names(last_modified_at, last_id, page_size=self.pagesize)
+
+class HatracVersionObserver (HatracTableObserver):
+    """Observer for Hatrac version directory.
+    """
+    hatrac_api = "version"
+    column_defs = [
+        # (name, type, flags, refconstr?)
+        ("id", SqlType.INT, SqlConstraint.PRIMARYKEY),
+        ("nameid", SqlType.INT, SqlConstraint.NOTNULL, "REFERENCES hatrac_name (id)"),
+        ("created_at", SqlType.TEXT, SqlConstraint.NOTNULL),
+        ("modified_at", SqlType.TEXT, SqlConstraint.NOTNULL),
+        ("version", SqlType.TEXT, SqlConstraint.NOTNULL),
+        ("nbytes", SqlType.INT, SqlConstraint.NOTNULL),
+        ("metadata", SqlType.JSON, 0),
+        ("is_deleted", SqlType.BOOLEAN, SqlConstraint.NOTNULL),
+        ("owner", SqlType.JSON, 0),
+        ("read", SqlType.JSON, 0),
+        ("aux", SqlType.JSON, 0),
+    ]
+    table_constraints = "UNIQUE(nameid, version)"
+
+    def _get_page(self, last_modified_at, last_id):
+        """Return next page (array of row dicts) from last position.
+
+        :param last_modified_at: The "modified_at" column of the last seen row.
+        :param last_id: The "id" column of the last seen row.
+        """
+        return self.hatrac_store.get_bulk_versions(last_modified_at, last_id, page_size=self.pagesize)
