@@ -4,7 +4,7 @@ import requests
 import logging
 from . import format_exception, NotModified, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, DEFAULT_MAX_CHUNK_LIMIT, \
     DEFAULT_MAX_REQUEST_SIZE, urlquote, Megabyte, get_transfer_summary, calculate_optimal_transfer_shape
-from .deriva_binding import DerivaBinding, AbstractObserver
+from .deriva_binding import DerivaBinding, AbstractObserver, CompositeObserver
 from .utils.sqlite3_utils import SqlConstraint, SqlType
 from .utils import hash_utils as hu, mime_utils as mu
 
@@ -612,7 +612,7 @@ class HatracStore(DerivaBinding):
         rows = r.json()
         return rows
 
-class HatracTableObserver (AbstractObserver):
+class _HatracTableObserver (AbstractObserver):
     """Extensible observer for Hatrac directory tables.
     
     """
@@ -625,10 +625,10 @@ class HatracTableObserver (AbstractObserver):
 
         :param hatrac_store: Bound instance of HatracStore
         """
-        super(HatracTableObserver, self).__init__(f"hatrac_{self.hatrac_api}")
+        super(_HatracTableObserver, self).__init__(f"hatrac_{self.hatrac_api}")
         self.hatrac_store = hatrac_store
 
-class HatracNameObserver (HatracTableObserver):
+class HatracNameObserver (_HatracTableObserver):
     """Observer for Hatrac name directory.
     """
     hatrac_api = "name"
@@ -659,7 +659,7 @@ class HatracNameObserver (HatracTableObserver):
         """
         return self.hatrac_store.get_bulk_names(last_modified_at, last_id, page_size=self.pagesize)
 
-class HatracVersionObserver (HatracTableObserver):
+class HatracVersionObserver (_HatracTableObserver):
     """Observer for Hatrac version directory.
     """
     hatrac_api = "version"
@@ -686,3 +686,18 @@ class HatracVersionObserver (HatracTableObserver):
         :param last_id: The "id" column of the last seen row.
         """
         return self.hatrac_store.get_bulk_versions(last_modified_at, last_id, page_size=self.pagesize)
+
+class HatracObserver (CompositeObserver):
+    """Observer for a remote HatracStore
+
+    Composes both HatracNameObserver and HatracVersionObserver.
+    """
+    def __init__(self, hatrac_store):
+        """Initialize a hatrac store polling observer.
+
+        :param hatrac_store: Bound instance of HatracStore
+        """
+        super(HatracObserver, self).__init__(
+            HatracNameObserver(hatrac_store),
+            HatracVersionObserver(hatrac_store),
+        )
