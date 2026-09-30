@@ -644,6 +644,7 @@ class HatracNameObserver (_HatracTableObserver):
         ("is_deleted", SqlType.BOOLEAN, SqlConstraint.NOTNULL),
         ("owner", SqlType.JSON, 0),
         ("create", SqlType.JSON, 0),
+        ("update", SqlType.JSON, 0),
         ("read", SqlType.JSON, 0),
         ("subtree-owner", SqlType.JSON, 0),
         ("subtree-create", SqlType.JSON, 0),
