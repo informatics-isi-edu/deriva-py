@@ -1510,10 +1510,14 @@ class ErmrestTableObserver (AbstractObserver):
     sort_pos0 = ["-infinity", ""]
 
     @classmethod
-    def type_ermrest2sqlite3(cls, typ):
-        if typ.get('is_domain', False):
-            typ = typ['base_type']
-        if typ.get('is_array', False):
+    def type_sqltype(cls, typ):
+        """Return SqlType enum for type.
+
+        :param typ: bound ermrest_model.Type instance
+        """
+        if typ.is_domain:
+            typ = typ.base_type
+        if typ.is_array:
             return SqlType.JSON
         return {
             "int4": SqlType.INT,
@@ -1522,39 +1526,56 @@ class ErmrestTableObserver (AbstractObserver):
             "float8": SqlType.REAL,
             "json": SqlType.JSON,
             "jsonb": SqlType.JSON,
-        }.get(typ["typename"], SqlType.TEXT)
+        }.get(typ.typename, SqlType.TEXT)
+
+    @classmethod
+    def column_sqlconstraints(cls, column):
+        """Return SqlConstraint composite enum for column.
+
+        :param column: bound ermrest_model.Column instance
+        """
+        if column.name == 'RID':
+            return SqlConstraint.NOTNULL | SqlConstraint.PRIMARYKEY
+
+        flags = 0
+        if not column.nullok:
+            flags = flags | SqlConstraint.NOTNULL
+        if column.table.key_by_columns([column], False):
+            flags = flags | SqlConstraint.UNIQUE
+
+        return flags
+
+    @classmethod
+    def column_cdef(cls, column):
+        """Return AbstractObserver column_def N-tuple for column.
+
+        :param column: bound ermrest_model.Column instance
+
+        """
+        return [
+            column.name,
+            cls.type_sqltype(column.type),
+            cls.column_sqlconstraints(column),
+        ]
     
-    def __init__(self, catalog, sname, tname):
-        r = catalog.get(f"/schema/{urlquote(sname)}/table/{urlquote(tname)}")
-        tdef = r.json()
+    def __init__(self, table):
+        """Initialize ErmrestTableObserver instance.
 
-        keys = set([
-            tuple(sorted(kdef["unique_columns"]))
-            for kdef in tdef["keys"]
-        ])
+        :param table: bound ermrest_model.Table instance
 
-        column_defs = {
-            cdef["name"]: [
-                cdef["name"],
-                self.type_ermrest2sqlite3(cdef["type"]),
-                (
-                    (SqlConstraint.NOTNULL if not cdef["nullok"] else 0)
-                    | (SqlConstraint.UNIQUE if (cdef["name"],) in keys else 0)
-                    | (SqlConstraint.PRIMARYKEY if cdef["name"] == "RID" else 0)
-                ),
-            ]
-            for cdef in tdef['column_definitions']
-        }
+        NOTE: currently, foreign key constraints are omitted
+        """
+        if "RID" not in table.columns.elements or "RMT" not in table.columns.elements:
+            raise ValueError(f"table {table} lacks required RID and RMT columns")
 
-        if "RID" not in column_defs or "RMT" not in column_defs:
-            raise ValueError(f"table {sname}.{tname} lacks required RID and RMT columns")
+        ridcol = table.columns["RID"]
+        if ridcol.nullok or not table.key_by_columns([ridcol,], False):
+            raise ValueError(f"table {table} lacks RID primary key constraint")
 
-        self.column_defs = list(column_defs.values())
-
-        super(ErmrestTableObserver, self).__init__(f"{sname}_{tname}")
-        self.catalog = catalog
-        self.ermrest_sname = sname
-        self.ermrest_tname = tname
+        self.column_defs = [ self.column_cdef(column) for column in table.columns ]
+        super(ErmrestTableObserver, self).__init__(f"{table.schema.name}_{table.name}")
+        self.catalog = table.schema.model.catalog
+        self.ermrest_table = table
 
     def _get_page(self, last_rmt, last_rid):
         """Return next page (array of row dicts) from last position.
@@ -1562,8 +1583,8 @@ class ErmrestTableObserver (AbstractObserver):
         :param last_rmt: The "RMT" column of the last seen row.
         :param last_rid: The "RID" column of the last seen row.
         """
-        url_sname = urlquote(self.ermrest_sname)
-        url_tname = urlquote(self.ermrest_tname)
+        url_sname = urlquote(self.ermrest_table.schema.name)
+        url_tname = urlquote(self.ermrest_table.name)
         url_last_rid = urlquote(str(last_rid))
         url_last_rmt = urlquote(str(last_rmt))
         r = self.catalog.get(f"/entity/{url_sname}:{url_tname}/RMT::gt::{url_last_rmt}/RID::gt::{url_last_rid}@sort(RMT,RID)?limit={self.pagesize}")
