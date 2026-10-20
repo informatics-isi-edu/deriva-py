@@ -16,7 +16,7 @@ from deriva.core import __version__ as VERSION, DEFAULT_CONFIG_PATH, DEFAULT_GLO
     read_config, format_exception, BaseCLI, get_oauth_scopes_for_host, get_new_requests_session
 from deriva.core.utils import eprint
 from globus_sdk import ConfidentialAppAuthClient, AuthClient, AccessTokenAuthorizer, RefreshTokenAuthorizer, \
-    GlobusError, GlobusAPIError, AuthAPIError
+    GlobusError, GlobusAPIError, AuthAPIError, NetworkError
 from fair_research_login.client import NativeClient, LoadError, NoSavedTokens, TokensExpired
 
 NATIVE_APP_CLIENT_ID = "8ef15ba9-2b4a-469c-a163-7fd910c9d111"
@@ -588,13 +588,31 @@ class GlobusNativeLogin:
             return None
         try:
             tokens = self.client.load_tokens(list(scopes))
-            return self.refresh_tokens_preemptively(tokens, time_before_expiry=86400)
+            valid_tokens = self.refresh_tokens_preemptively(tokens, time_before_expiry=86400)
+            if len(valid_tokens) < len(tokens):
+                # Every requested scope must have a usable token, matching load_tokens() semantics.
+                logging.debug("Expired tokens for resource server(s) [%s] could not be refreshed." %
+                              ", ".join(sorted(set(tokens) - set(valid_tokens))))
+                return None
+            return valid_tokens
         except LoadError as e:
             logging.debug("Unable to load or find tokens for specified scopes [%s]: %s" %
                           (scopes, format_exception(e)))
             return None
 
+    @staticmethod
+    def _unexpired_tokens(tokens):
+        now = int(time.time())
+        return {rs: ts for rs, ts in tokens.items() if ts['expires_at_seconds'] > now}
+
     def refresh_tokens_preemptively(self, tokens, time_before_expiry=0):
+        """Refresh tokens expiring within time_before_expiry seconds, and return only unexpired tokens.
+
+        Expired tokens are dropped rather than returned. fair_research_login's load_tokens() cannot be
+        relied on to have removed them: when a refresh fails with an error it does not recognize (under
+        globus_sdk 3.x an OAuth "invalid_grant" response does not populate AuthAPIError.message, which
+        is what it checks), it silently returns the token with its expired access token as if loaded.
+        """
         needs_refresh = {}
 
         for rs, ts in {t: ts for t, ts in tokens.items() if bool(ts['refresh_token'])}.items():
@@ -603,7 +621,7 @@ class GlobusNativeLogin:
                 needs_refresh.update({rs:ts})
 
         if not needs_refresh:
-            return tokens
+            return self._unexpired_tokens(tokens)
 
         for rs, ts in needs_refresh.items():
             authorizer = RefreshTokenAuthorizer(
@@ -619,14 +637,21 @@ class GlobusNativeLogin:
                 ts['access_token'] = authorizer.access_token
                 ts['expires_at_seconds'] = authorizer.expires_at
             except AuthAPIError as e:
-                if e.message == 'invalid_grant':
-                    logging.warning('Refresh Token expired for resource server: %s', rs)
+                # Any failure counts: a dead refresh token does not reliably surface as
+                # e.message == 'invalid_grant' under globus_sdk 3.x.
+                logging.warning('Unable to refresh token for resource server %s: HTTP %s %s',
+                                rs, e.http_status, e.raw_text)
+            except NetworkError as e:
+                # A failed attempt says nothing about the token itself: it stays usable until it
+                # expires, and the refresh is retried on the next call.
+                logging.warning('Unable to reach Globus Auth to refresh token for resource server %s: %s',
+                                rs, format_exception(e))
 
         self.client.save_tokens(needs_refresh)
         result = {rs: ts for rs, ts in tokens.items() if rs not in needs_refresh}
         result.update(needs_refresh)
 
-        return result
+        return self._unexpired_tokens(result)
 
     def hosts_to_scope_map(self,
                            hosts,
