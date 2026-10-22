@@ -9,6 +9,7 @@
 import logging
 import os
 import datetime
+import itertools
 import unittest
 from deriva.core import DerivaServer, get_credential, ermrest_model, tag
 from deriva.core import \
@@ -108,6 +109,165 @@ class ErmrestTimestampCodingTests (unittest.TestCase):
         for dt, ts, usecs, snap in self._basic_equivalents:
             self.assertEqual(ts, snaptime_to_timestamptz(snap), f"{ts=} {snap=}")
 
+class ErmrestModelTypeTests (unittest.TestCase):
+
+    _scalar_typenames = [
+        'boolean',
+        'date',
+        'float4', 'float8',
+        'json', 'jsonb',
+        'int2', 'int4', 'int8',
+        'text',
+        'timestamptz', 'timestamp',
+    ]
+
+    _serial_typenames = [
+        'serial2', 'serial4', 'serial8',
+    ]
+
+    _array_typenames = {
+        f'{typename}[]': typename
+        for typename in _scalar_typenames
+    }
+
+    _domain_typenames = {
+        'color_rgb_hex': 'text',
+        'ermrest_curie': 'text',
+        'ermrest_rid': 'text',
+        'ermrest_rcb': 'text',
+        'ermrest_rmb': 'text',
+        'ermrest_rct': 'timestamptz',
+        'ermrest_rmt': 'timestamptz',
+        'ermrest_uri': 'text',
+        'markdown': 'text',
+        'longtext': 'text',
+    }
+
+    def test_builtin_types(self):
+        for typename in itertools.chain(
+                self._scalar_typenames,
+                self._serial_typenames,
+                self._array_typenames,
+                self._domain_typenames,
+        ):
+            with self.subTest(typename=typename):
+                self.assertIn(typename, ermrest_model.builtin_types)
+                self.assertIsInstance(
+                    ermrest_model.builtin_types[typename],
+                    ermrest_model.Type,
+                )
+
+    def test_type_hierarchy(self):
+        for typename in itertools.chain(
+                self._scalar_typenames,
+                self._serial_typenames,
+        ):
+            with self.subTest(typename=typename):
+                typ = ermrest_model.builtin_types[typename]
+                self.assertNotIsInstance(typ, ermrest_model.ArrayType)
+                self.assertNotIsInstance(typ, ermrest_model.DomainType)
+                self.assertFalse(typ.is_array)
+                self.assertFalse(typ.is_domain)
+
+        for typename in self._array_typenames:
+            with self.subTest(typename=typename):
+                typ = ermrest_model.builtin_types[typename]
+                self.assertIsInstance(typ, ermrest_model.ArrayType)
+                self.assertNotIsInstance(typ, ermrest_model.DomainType)
+                self.assertTrue(typ.is_array)
+                self.assertFalse(typ.is_domain)
+
+        for typename in self._domain_typenames:
+            with self.subTest(typename=typename):
+                typ = ermrest_model.builtin_types[typename]
+                self.assertNotIsInstance(typ, ermrest_model.ArrayType)
+                self.assertIsInstance(typ, ermrest_model.DomainType)
+                self.assertFalse(typ.is_array)
+                self.assertTrue(typ.is_domain)
+
+    def test_base_types(self):
+        for typename in itertools.chain(
+                self._scalar_typenames,
+                self._serial_typenames,
+        ):
+            with self.subTest(typename=typename):
+                typ = ermrest_model.builtin_types[typename]
+                self.assertNotHasAttr(typ, 'base_type')
+
+        for typename, btypename in itertools.chain(
+                self._array_typenames.items(),
+                self._domain_typenames.items(),
+        ):
+            with self.subTest(typename=typename):
+                typ = ermrest_model.builtin_types[typename]
+                self.assertHasAttr(typ, 'base_type')
+                btyp = typ.base_type
+                self.assertEqual(btypename, btyp.typename)
+
+    def test_prejson(self):
+        for typename in itertools.chain(
+                self._scalar_typenames,
+                self._serial_typenames,
+                self._array_typenames,
+                self._domain_typenames,
+        ):
+            with self.subTest(typename=typename, scenario='typename'):
+                typ = ermrest_model.builtin_types[typename]
+                pj = typ.prejson()
+                self.assertIsInstance(pj, dict)
+                self.assertIn('typename', pj)
+                self.assertEqual(typename, pj['typename'])
+
+        for typename, btypename in itertools.chain(
+                self._array_typenames.items(),
+                self._domain_typenames.items(),
+        ):
+            with self.subTest(typename=typename, scenario='base_type'):
+                typ = ermrest_model.builtin_types[typename]
+                btyp = ermrest_model.builtin_types[typename]
+                pj = typ.prejson()
+                bpj = btyp.prejson()
+                self.assertIn('base_type', pj)
+                self.assertDictEqual(bpj, pj)
+
+    def test_sqlite3_ddl(self):
+        for typename in itertools.chain(
+                self._scalar_typenames,
+                self._serial_typenames,
+        ):
+            with self.subTest(typename=typename):
+                typ = ermrest_model.builtin_types[typename]
+                expect = {
+                    'boolean': 'boolean',
+                    'date': 'date',
+                    'float4': 'real',
+                    'float8': 'real',
+                    'int2': 'integer',
+                    'int4': 'integer',
+                    'int8': 'integer',
+                    'json': 'json',
+                    'jsonb': 'json',
+                    'serial2': 'integer',
+                    'serial4': 'integer',
+                    'serial8': 'integer',
+                    'timestamptz': 'datetime',
+                    'timestamp': 'datetime',
+                }.get(typename, 'text')
+                self.assertEqual(expect, typ.sqlite3_ddl())
+
+        for typename, btypename in self._array_typenames.items():
+            with self.subTest(typename=typename):
+                typ = ermrest_model.builtin_types[typename]
+                self.assertEqual('json', typ.sqlite3_ddl())
+
+        for typename, btypename in self._domain_typenames.items():
+            with self.subTest(typename=typename):
+                typ = ermrest_model.builtin_types[typename]
+                btyp = typ.base_type
+                self.assertEqual(
+                    btyp.sqlite3_ddl(),
+                    typ.sqlite3_ddl(),
+                )
 
 @unittest.skipUnless(hostname, "Test host not specified")
 class ErmrestModelTests (unittest.TestCase):

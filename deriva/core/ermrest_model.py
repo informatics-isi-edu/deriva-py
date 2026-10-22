@@ -3141,6 +3141,9 @@ class Type (object):
             'int2': 'integer',
             'int4': 'integer',
             'int8': 'integer',
+            'serial2': 'integer',
+            'serial4': 'integer',
+            'serial8': 'integer',
             'json': 'json',
             'jsonb': 'json',
             'timestamptz': 'datetime',
@@ -3172,7 +3175,7 @@ class ArrayType (Type):
     """
     def __init__(self, type_doc):
         super(ArrayType, self).__init__(type_doc)
-        is_array = True
+        self.is_array = True
         self.base_type = make_type(type_doc['base_type'])
 
     def prejson(self, prune=True):
