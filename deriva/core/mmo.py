@@ -136,7 +136,13 @@ def find(model, symbol):
                 if tag == tags.visible_columns or tag == tags.visible_foreign_keys:
                     for context in table.annotations[tag]:
                         if context == 'filter':
-                            vizsrcs = table.annotations[tag][context].get('and', [])
+                            # The 'filter' context is canonically {"and": [...]},
+                            # but Chaise also accepts a bare list of source
+                            # entries. Tolerate both so a single list-shaped
+                            # 'filter' anywhere in the catalog does not crash the
+                            # whole walk (issue #283).
+                            ctx = table.annotations[tag][context]
+                            vizsrcs = ctx.get('and', []) if isinstance(ctx, dict) else ctx
                         else:
                             vizsrcs = table.annotations[tag][context]
 
