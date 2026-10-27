@@ -11,6 +11,7 @@ import os
 import datetime
 import itertools
 import unittest
+import requests
 from deriva.core import DerivaServer, get_credential, ermrest_model, tag
 from deriva.core import \
     crockford_b32encode, crockford_b32decode, \
@@ -269,6 +270,91 @@ class ErmrestModelTypeTests (unittest.TestCase):
                     typ.sqlite3_ddl(),
                 )
 
+    def test_indexable(self):
+        for typename in itertools.chain(
+                self._scalar_typenames,
+                self._serial_typenames,
+                self._array_typenames,
+                self._domain_typenames,
+        ):
+            with self.subTest(typename=typename, indextype=ermrest_model.IndexType.trgm):
+                typ = ermrest_model.builtin_types[typename]
+                self.assertTrue(typ.indexable(ermrest_model.IndexType.trgm))
+
+        for typename in itertools.chain(
+                self._scalar_typenames,
+                self._serial_typenames,
+                self._domain_typenames,
+        ):
+            with self.subTest(typename=typename, indextype=ermrest_model.IndexType.gin_array):
+                typ = ermrest_model.builtin_types[typename]
+                self.assertFalse(typ.indexable(ermrest_model.IndexType.gin_array))
+
+        for typename in self._array_typenames:
+            with self.subTest(typename=typename, indextype=ermrest_model.IndexType.gin_array):
+                typ = ermrest_model.builtin_types[typename]
+                if typename == 'json[]':
+                    self.assertFalse(typ.indexable(ermrest_model.IndexType.gin_array))
+                else:
+                    self.assertTrue(typ.indexable(ermrest_model.IndexType.gin_array))
+
+        for typename in itertools.chain(
+                self._scalar_typenames,
+                self._serial_typenames,
+                self._array_typenames,
+                self._domain_typenames,
+        ):
+            with self.subTest(typename=typename, indextype=ermrest_model.IndexType.btree):
+                typ = ermrest_model.builtin_types[typename]
+                if typename in {'json', 'json[]'}:
+                    self.assertFalse(typ.indexable(ermrest_model.IndexType.btree))
+                else:
+                    self.assertTrue(typ.indexable(ermrest_model.IndexType.btree))
+
+    def test_history_indexable(self):
+        for typename in itertools.chain(
+                self._scalar_typenames,
+                self._serial_typenames,
+                self._array_typenames,
+                self._domain_typenames,
+        ):
+            with self.subTest(typename=typename, indextype=ermrest_model.IndexType.trgm):
+                typ = ermrest_model.builtin_types[typename]
+                if typename in {'timestamp', 'timestamp[]'}:
+                    self.assertFalse(typ.history_indexable(ermrest_model.IndexType.trgm))
+                else:
+                    self.assertTrue(typ.history_indexable(ermrest_model.IndexType.trgm))
+
+        for typename in itertools.chain(
+                self._scalar_typenames,
+                self._serial_typenames,
+                self._domain_typenames,
+        ):
+            with self.subTest(typename=typename, indextype=ermrest_model.IndexType.gin_array):
+                typ = ermrest_model.builtin_types[typename]
+                self.assertFalse(typ.history_indexable(ermrest_model.IndexType.gin_array))
+
+        for typename in self._array_typenames:
+            with self.subTest(typename=typename, indextype=ermrest_model.IndexType.gin_array):
+                typ = ermrest_model.builtin_types[typename]
+                if typename in {'timestamp[]', 'json[]'}:
+                    self.assertFalse(typ.history_indexable(ermrest_model.IndexType.gin_array))
+                else:
+                    self.assertTrue(typ.history_indexable(ermrest_model.IndexType.gin_array))
+
+        for typename in itertools.chain(
+                self._scalar_typenames,
+                self._serial_typenames,
+                self._array_typenames,
+                self._domain_typenames,
+        ):
+            with self.subTest(typename=typename, indextype=ermrest_model.IndexType.btree):
+                typ = ermrest_model.builtin_types[typename]
+                if typename in {'timestamp', 'timestamp[]', 'json', 'json[]'}:
+                    self.assertFalse(typ.history_indexable(ermrest_model.IndexType.btree))
+                else:
+                    self.assertTrue(typ.history_indexable(ermrest_model.IndexType.btree))
+
 @unittest.skipUnless(hostname, "Test host not specified")
 class ErmrestModelTests (unittest.TestCase):
 
@@ -351,6 +437,25 @@ class ErmrestModelTests (unittest.TestCase):
                     )
                 ]
             ),
+        }
+        self.catalog.post('/schema', json=[schema_def])
+        # refresh the local state of the model
+        self.model = self.catalog.getCatalogModel()
+
+    def _create_schema_for_indexing(self):
+        """Creates a simple schema with indexing target columns."""
+
+        # build a single, low-level catalog /schema POST operation
+        # should be (slightly) faster and avoids using the client APIs under test in this module
+        schema_def = ermrest_model.Schema.define('schema_for_indexing')
+        schema_def["tables"] = {
+            "target": ermrest_model.Table.define(
+                'target',
+                column_defs=[
+                    ermrest_model.Column.define(f'c_{typ.typename}', typ)
+                    for typ in ermrest_model.builtin_types.values()
+                ],
+            )
         }
         self.catalog.post('/schema', json=[schema_def])
         # refresh the local state of the model
@@ -1024,6 +1129,124 @@ class ErmrestModelTests (unittest.TestCase):
     def test_schema_drop_cascading(self):
         self._create_schema_with_fkeys()
         self.model.schemas['schema_with_fkeys'].drop(cascade=True)
+
+    def _skip_unless_index_mgmt_present(self):
+        if not hasattr(self, 'ermrest_features'):
+            self.ermrest_features = self.catalog.get("/").json()['features']
+        if 'index_management' not in self.ermrest_features:
+            self.skipTest('catalog does not advertise index_management!')
+
+    def test_index_management(self):
+        self._skip_unless_index_mgmt_present()
+        self._create_schema_for_indexing()
+
+        target = self.model.schemas['schema_for_indexing'].tables['target']
+
+        live_idx = None
+        with self.subTest(scenario='live index list'):
+            res = target.get_indexes()
+            self.assertIsInstance(res, list)
+            self.assertGreater(len(res), 0)
+            self.assertTrue(all([ isinstance(idx, ermrest_model.LiveIndex) for idx in res ]))
+            live_idx = res[0]
+
+        history_idx = None
+        with self.subTest(scenario='history index list'):
+            res = target.get_history_indexes()
+            self.assertIsInstance(res, list)
+            self.assertGreater(len(res), 0)
+            self.assertTrue(all([ isinstance(idx, ermrest_model.HistoryIndex) for idx in res ]))
+            history_idx = res[0]
+
+        with self.subTest(scenario='history index list low-level'):
+            res = self.model.get_history_indexes(target.rid)
+            self.assertIsInstance(res, list)
+            self.assertGreater(len(res), 0)
+            self.assertTrue(all([ isinstance(idx, ermrest_model.HistoryIndex) for idx in res ]))
+
+        if live_idx:
+            with self.subTest(indexname=live_idx, scenario='get live index'):
+                idx = target.get_index(live_idx.indexname)
+                self.assertIsInstance(idx, ermrest_model.LiveIndex)
+                self.assertEqual(live_idx.indexname, idx.indexname)
+
+        if history_idx:
+            with self.subTest(indexname=history_idx, scenario='get history index'):
+                idx = target.get_history_index(history_idx.indexname)
+                self.assertIsInstance(idx, ermrest_model.HistoryIndex)
+                self.assertEqual(history_idx.indexname, idx.indexname)
+
+        with self.subTest(scenario='get live notfound'):
+            with self.assertRaises(requests.HTTPError) as cm:
+                idx = target.get_index('nonexistant index')
+            self.assertEqual(cm.exception.response.status_code, 404)
+
+        with self.subTest(scenario='get history notfound'):
+            with self.assertRaises(requests.HTTPError) as cm:
+                idx = target.get_history_index('nonexistant index')
+            self.assertEqual(cm.exception.response.status_code, 404)
+
+        for indextype in [
+                ermrest_model.IndexType.btree,
+                ermrest_model.IndexType.trgm,
+                ermrest_model.IndexType.gin_array,
+        ]:
+            with self.subTest(indextype=indextype, scenario='empty live target'):
+                with self.assertRaises(ValueError):
+                    idx = target.create_index('invalid_empty1_idx', indextype, [])
+
+            with self.subTest(indextype=indextype, scenario='empty history target'):
+                with self.assertRaises(ValueError):
+                    idx = target.create_history_index('invalid_empty2_idx', indextype, [])
+
+            l_parity = 0
+            h_parity = 0
+            for column in target.columns:
+                cname = column.name
+                if not cname.startswith('c_'):
+                    continue
+
+                indexname1 = f'target_{column.type.typename}_{indextype}_idx'
+                indexname2 = f't{target.rid}_{column.type.typename}_{indextype}_idx'
+                if not column.type.indexable(indextype):
+                    with self.subTest(indexname=indexname1, scenario='create live nonindexable'):
+                        with self.assertRaises(ValueError):
+                            idx = target.create_index(indexname1, indextype, [column])
+                else:
+                    live_idx = None
+                    with self.subTest(indexname=indexname1, scenario='create live indexable'):
+                        idx = target.create_index(indexname1, indextype, [column])
+                        self.assertIsInstance(idx, ermrest_model.LiveIndex)
+                        self.assertEqual(indexname1, idx.indexname)
+                        live_idx = idx
+
+                    if live_idx:
+                        with self.subTest(indexname=indexname1, scenario='table delete live index'):
+                            if l_parity:
+                                live_idx.delete_index(really=True)
+                            else:
+                                target.delete_index(indexname1, really=True)
+                        l_parity = (l_parity + 1) % 2
+
+                if not column.type.history_indexable(indextype):
+                    with self.subTest(indexname=indexname2, scenario='create history nonindexable'):
+                        with self.assertRaises(ValueError):
+                            idx = target.create_history_index(indexname2, indextype, [column])
+                else:
+                    history_idx = None
+                    with self.subTest(indexname=indexname2, scenario='table create history indexable'):
+                        idx = target.create_history_index(indexname2, indextype, [column])
+                        self.assertIsInstance(idx, ermrest_model.HistoryIndex)
+                        self.assertEqual(indexname2, idx.indexname)
+                        history_idx = idx
+
+                    if history_idx:
+                        with self.subTest(indexname=indexname2, scenario='table delete history index'):
+                            if h_parity:
+                                history_idx.delete_index(really=True)
+                            else:
+                                target.delete_history_index(indexname2, really=True)
+                        h_parity = (h_parity + 1) % 2
 
 if __name__ == '__main__':
     unittest.main()
