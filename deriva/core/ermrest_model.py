@@ -2912,9 +2912,29 @@ class Column (object):
         return ' '.join(parts)
 
     def indexable(self, indextype: IndexType) -> bool:
+        """Return True if this column may be used as a target of the given live index type.
+
+        :param indextype: The desired index type for which the column is a candidate target.
+
+        This test is a heuristic based on column type, meant to mirror
+        and anticipate rules that the ERMrest server will enforce.
+
+        The server may reject candidates even when this heuristic returns True.
+
+        """
         return self.type.indexable(indextype)
 
     def history_indexable(self, indextype: IndexType) -> bool:
+        """Return True if this column may be used as a target of the given history index type.
+
+        :param indextype: The desired index type for which the column is a candidate target.
+
+        This test is a heuristic based on column type, meant to mirror
+        and anticipate rules that the ERMrest server will enforce.
+
+        The server may reject candidates even when this heuristic returns True.
+
+        """
         return self.type.history_indexable(indextype)
 
     @presence_annotation(tag.immutable)
@@ -3559,6 +3579,18 @@ class Type (object):
         }.get(self.typename, 'text')
 
     def indexable(self, indextype: IndexType) -> bool:
+        """Return True if columns of this type may be used as a target of the given live index type.
+
+        :param indextype: The desired index type for which a column of this type is a candidate target.
+
+        This test is a heuristic, meant to mirror and anticipate rules
+        that the ERMrest server will enforce:
+
+        1. only array types can be used with `gin_array` indexes
+        2. `json`/`json[]` types lack comparison operators needed for `btree` and `gin_array` indexes
+        3. all supported ERMrest types can be converted to text for use with `trgm` indexes
+
+        """
         if indextype == IndexType.gin_array:
             return False
         elif indextype == IndexType.btree:
@@ -3569,6 +3601,19 @@ class Type (object):
             raise NotImplementedError(f"unknown whether {self.typename} is {indextype} indexable")
 
     def history_indexable(self, indextype: IndexType) -> bool:
+        """Return True if columns of this type may be used as a target of the given history index type.
+
+        :param indextype: The desired index type for which a column of this type is a candidate target.
+
+        This test is a heuristic, meant to mirror and anticipate rules
+        that the ERMrest server will enforce:
+
+        1. only array types can be used with `gin_array` indexes
+        2. `json`/`json[]` types lack comparison operators needed for `btree` and `gin_array` indexes
+        3. `timestamp`/`timestamp[]` types lack stable semantics needed for any history indexing
+        4. all other supported ERMrest types can be converted to text for use with `trgm` indexes
+
+        """
         if indextype == IndexType.gin_array:
             return False
         elif indextype == IndexType.btree:
@@ -3599,9 +3644,21 @@ class DomainType (Type):
         return self.base_type.sqlite3_ddl()
 
     def indexable(self, indextype: IndexType) -> bool:
+        """Return True if columns of this type may be used as a target of the given live index type.
+
+        :param indextype: The desired index type for which a column of this type is a candidate target.
+
+        Domain types are indexable if their base_type is indexable.
+        """
         return self.base_type.indexable(indextype)
 
     def history_indexable(self, indextype: IndexType) -> bool:
+        """Return True if columns of this type may be used as a target of the given history index type.
+
+        :param indextype: The desired index type for which a column of this type is a candidate target.
+
+        Domain types are indexable if their base_type is indexable.
+        """
         return self.base_type.history_indexable(indextype)
 
 class ArrayType (Type):
@@ -3625,6 +3682,18 @@ class ArrayType (Type):
         return 'json'
 
     def indexable(self, indextype: IndexType) -> bool:
+        """Return True if columns of this type may be used as a target of the given live index type.
+
+        :param indextype: The desired index type for which a column of this type is a candidate target.
+
+        This test is a heuristic, meant to mirror and anticipate rules
+        that the ERMrest server will enforce:
+
+        1. only array types can be used with `gin_array` indexes
+        2. `json`/`json[]` types lack comparison operators needed for `btree` and `gin_array` indexes
+        3. all supported ERMrest types can be converted to text for use with `trgm` indexes
+
+        """
         typ = self
         while typ.is_array:
             typ = typ.base_type
@@ -3636,6 +3705,19 @@ class ArrayType (Type):
             raise NotImplementedError(f"unknown whether {self.typename} is {indextype} indexable")
 
     def history_indexable(self, indextype: IndexType) -> bool:
+        """Return True if columns of this type may be used as a target of the given history index type.
+
+        :param indextype: The desired index type for which a column of this type is a candidate target.
+
+        This test is a heuristic, meant to mirror and anticipate rules
+        that the ERMrest server will enforce:
+
+        1. only array types can be used with `gin_array` indexes
+        2. `json`/`json[]` types lack comparison operators needed for `btree` and `gin_array` indexes
+        3. `timestamp`/`timestamp[]` types lack stable semantics needed for any history indexing
+        4. all other supported ERMrest types can be converted to text for use with `trgm` indexes
+
+        """
         typ = self
         while typ.is_array:
             typ = typ.base_type
