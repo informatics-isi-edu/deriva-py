@@ -607,15 +607,25 @@ class DerivaUpload(object):
                         self.file_status[entry.path] = FileUploadState(UploadState.Success, "Complete", result).asdict()
                         completed += 1
                 except HatracJobPaused:
+                    # Transfer state only exists once at least one chunk has completed, so the status may be None.
+                    # Always record the state change so the entry is not left marked as in-progress.
                     status = self.getTransferStateStatus(entry.path)
-                    if status:
-                        self.file_status[entry.path] = FileUploadState(
-                            UploadState.Paused, "Paused: %s" % status).asdict()
+                    self.file_status[entry.path] = FileUploadState(
+                        UploadState.Paused, "Paused: %s" % status if status else "Paused").asdict()
                     continue
-                except HatracJobTimeout:
+                except HatracJobTimeout as e:
+                    # Transfer state only exists once at least one chunk has completed, so a timeout on the first
+                    # chunk has no status. Previously that case left the entry marked as in-progress, which excluded
+                    # it from both the success and failure counts and so the failure was silently dropped. Always
+                    # record the timeout so it is reported as a failure. Transfer state (if any) is retained so that
+                    # a subsequent run can resume the upload.
                     status = self.getTransferStateStatus(entry.path)
-                    if status:
-                        self.file_status[entry.path] = FileUploadState(UploadState.Timeout, "Timeout").asdict()
+                    detail = "Timeout (%s): %s" % (status, format_exception(e)) if status else \
+                        "Timeout: %s" % format_exception(e)
+                    logger.warning("Upload of file [%s] failed. %s" % (entry.path, detail))
+                    self.file_status[entry.path] = FileUploadState(UploadState.Timeout, detail).asdict()
+                    if status_callback:
+                        status_callback()
                     continue
                 except HatracJobAborted:
                     self.file_status[entry.path] = FileUploadState(UploadState.Aborted, "Aborted by user").asdict()
