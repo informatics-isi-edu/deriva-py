@@ -1326,6 +1326,19 @@ class ErmrestModelTests (unittest.TestCase):
         referent = self.model.schemas['schema_for_autoindex'].tables['referent']
         referrer = self.model.schemas['schema_for_autoindex'].tables['referrer']
 
+        with self.subTest(scenario="catalog-wide dry run"):
+            reports = self.model.create_indexes_auto(dry_run=True)
+            self.assertIsInstance(reports, dict)
+            for sname, sreport in reports.items():
+                self.assertIsInstance(sname, str)
+                self.assertIsInstance(sreport, dict)
+                for tname, treport in sreport.items():
+                    self.assertIsInstance(tname, str)
+                    self.assertIsInstance(treport, dict)
+                    self.assertIn('created', treport)
+                    self.assertIn('skipped', treport)
+                    self.assertIn('failed', treport)
+
         for dry_run in [ True, False ]:
             with self.subTest(dry_run=dry_run):
                 # first, sanity check idempotence when desired indexes exist

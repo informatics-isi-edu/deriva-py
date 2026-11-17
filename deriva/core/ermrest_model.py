@@ -528,6 +528,31 @@ class Model (object):
         else:
             return self.schemas[sname]._fkeys[cname]
 
+    def create_indexes_auto(self, dry_run:bool=False) -> dict:
+        """Attempt to backfill missing automatic indexes for tables in model, returning report data.
+
+        :param dry_run: Report on plans without acting when true.
+
+        This method simply broadcasts the same call to every
+        schema. See the documentation for Table.create_indexes_auto
+        for more information.
+
+        This method gathers per-table reports into a two-level dict:
+
+        {
+          schemaname: {
+            tablename: report,
+            ...
+          },
+          ...
+        }
+
+        """
+        return {
+            schema.name: schema.create_indexes_auto(dry_run)
+            for schema in self.schemas.values()
+        }
+
     @object_annotation(tag.bulk_upload)
     def bulk_upload(self): pass
 
@@ -1017,6 +1042,28 @@ class Schema (object):
         for table in self.tables.values():
             for fkey in table.foreign_keys:
                 fkey._cleanup()
+
+    def create_indexes_auto(self, dry_run:bool=False) -> dict:
+        """Attempt to backfill missing automatic indexes for tables in schema, returning report data.
+
+        :param dry_run: Report on plans without acting when true.
+
+        This method simply broadcasts the same call to every
+        table. See the documentation for Table.create_indexes_auto for
+        more information.
+
+        This method gathers per-table reports into a dict:
+
+        {
+          tablename: report,
+          ...
+        }
+
+        """
+        return {
+            table.name: table.create_indexes_auto(dry_run)
+            for table in self.tables.values()
+        }
 
     @object_annotation(tag.display)
     def display(self): pass
