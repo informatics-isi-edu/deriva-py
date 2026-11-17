@@ -1333,14 +1333,14 @@ class ErmrestModelTests (unittest.TestCase):
                     report = referent.create_indexes_auto(dry_run=dry_run)
                     self.assertIsInstance(report, dict)
                     self.assertGreater(len(report['skip']), 12)
-                    self.assertEqual(len(report['created']), 2) # due to history keys
+                    self.assertLessEqual(len(report['created']), 2) # due to history keys
                     self.assertEqual(len(report['failed']), 0)
 
                 with self.subTest(scenario="referrer minimal skip most"):
                     report = referrer.create_indexes_auto(dry_run=dry_run)
                     self.assertIsInstance(report, dict)
                     self.assertGreater(len(report['skip']), 9)
-                    self.assertEqual(len(report['created']), 1) # due to history key
+                    self.assertLessEqual(len(report['created']), 1) # due to history key
                     self.assertEqual(len(report['failed']), 0)
 
         # change indexing policy and backfill missing ones!

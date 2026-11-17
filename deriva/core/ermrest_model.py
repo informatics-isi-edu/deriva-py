@@ -2715,52 +2715,50 @@ CREATE TABLE IF NOT EXISTS %(tname)s (
             return n
 
         def create_index_idempotent(idx_type, idx_want, indexnames, indexes):
+            if indexes is live_indexes:
+                prefix = self.name
+                idx_want1 = [ col.name for col in  idx_want ]
+            else:
+                prefix = f't{self.rid}'
+                idx_want1 = [ col.rid for col in idx_want ]
+
             report1 = {
                 "definition": {
-                    idx_type.value: [ col.name for col in  idx_want ]
-                } if indexes is live_indexes else {
-                    idx_type.value: [ col.rid for col in idx_want ],
-                    "col_names": [ col.name for col in idx_want ]
-                },
+                    idx_type.value: idx_want1
+                }
             }
+            if indexes is live_indexes:
+                report1["definition"]["col_names"] = [ col.name for col in idx_want ]
+
             if found := have_index(indexes, idx_type, idx_want):
                 report1['suppressed_by'] = found
                 report['skip'].append(report1)
                 return None
 
-            if indexes is live_indexes:
-                prefix = self.name
-                nameparts = [ col.name for col in idx_want ]
-            else:
-                prefix = f't{self.rid}'
-                nameparts = [ col.rid for col in idx_want ]
-
             indexname = make_indexname(
                 indexnames,
                 prefix,
-                nameparts,
+                [ col.name for col in idx_want ],
                 '' if idx_type == 'btree' else idx_type,
                 'idx'
             )
             report1["indexname"] = indexname
 
-            if dry_run:
-                # fake it so planned action is reported as success
-                action = lambda iname, itype, iwant: report1
-            elif indexes is live_indexes:
-                action = self.create_index
-            else:
-                action = self.create_history_index
-
-            try:
-                idx = action(indexname, idx_type, idx_want)
+            try: 
+                if dry_run:
+                    pass
+                elif indexes is live_indexes:
+                    self.create_index(indexname, idx_type, idx_want)
+                else:
+                    self.create_history_index(indexname, idx_type, idx_want)
             except Exception as e:
                 report1['error'] = e
                 report['failed'].append(report1)
             else:
                 report['created'].append(report1)
+                # record for sibling tests in this same automatic batch
                 indexnames.add(indexname)
-                indexes.setdefault(idx_type.value, {})[tuple(nameparts)] = report1
+                indexes.setdefault(idx_type.value, {})[tuple(idx_want1)] = report1
 
         # key indexes help ERMrest joins
         for key in self.keys:
