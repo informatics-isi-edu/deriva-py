@@ -442,25 +442,6 @@ class ErmrestModelTests (unittest.TestCase):
         # refresh the local state of the model
         self.model = self.catalog.getCatalogModel()
 
-    def _create_schema_for_indexing(self):
-        """Creates a simple schema with indexing target columns."""
-
-        # build a single, low-level catalog /schema POST operation
-        # should be (slightly) faster and avoids using the client APIs under test in this module
-        schema_def = ermrest_model.Schema.define('schema_for_indexing')
-        schema_def["tables"] = {
-            "target": ermrest_model.Table.define(
-                'target',
-                column_defs=[
-                    ermrest_model.Column.define(f'c_{typ.typename}', typ)
-                    for typ in ermrest_model.builtin_types.values()
-                ],
-            )
-        }
-        self.catalog.post('/schema', json=[schema_def])
-        # refresh the local state of the model
-        self.model = self.catalog.getCatalogModel()
-
     def test_0a_schema_define_defaults(self):
         sname = "test_schema"
         sdef = ermrest_model.Schema.define(sname)
@@ -1136,11 +1117,30 @@ class ErmrestModelTests (unittest.TestCase):
         if 'index_management' not in self.ermrest_features:
             self.skipTest('catalog does not advertise index_management!')
 
+    def _create_schema_for_index_management(self):
+        """Creates a simple schema with indexing target columns."""
+
+        # build a single, low-level catalog /schema POST operation
+        # should be (slightly) faster and avoids using the client APIs under test
+        schema_def = ermrest_model.Schema.define('schema_for_index_mgmt')
+        schema_def["tables"] = {
+            "target": ermrest_model.Table.define(
+                'target',
+                column_defs=[
+                    ermrest_model.Column.define(f'c_{typ.typename}', typ)
+                    for typ in ermrest_model.builtin_types.values()
+                ],
+            ),
+        }
+        self.catalog.post('/schema', json=[schema_def])
+        # refresh the local state of the model
+        self.model = self.catalog.getCatalogModel()
+
     def test_index_management(self):
         self._skip_unless_index_mgmt_present()
-        self._create_schema_for_indexing()
+        self._create_schema_for_index_management()
 
-        target = self.model.schemas['schema_for_indexing'].tables['target']
+        target = self.model.schemas['schema_for_index_mgmt'].tables['target']
 
         live_idx = None
         with self.subTest(scenario='live index list'):
@@ -1247,6 +1247,124 @@ class ErmrestModelTests (unittest.TestCase):
                             else:
                                 target.delete_history_index(indexname2, really=True)
                         h_parity = (h_parity + 1) % 2
+
+    def _create_schema_for_autoindex(self):
+        """Creates a simple schema to test autoindexing routine."""
+
+        # a repeating set of columns to try in different scenarios
+        autoindex_col_defs = [
+            # regular data cols
+            ermrest_model.Column.define("d1", ermrest_model.builtin_types.int8),
+            ermrest_model.Column.define("d2", ermrest_model.builtin_types.jsonb),
+            ermrest_model.Column.define("d3", ermrest_model.builtin_types.timestamptz),
+            ermrest_model.Column.define("d4a", ermrest_model.builtin_types["int8[]"]),
+            # live but not history-indexable cols
+            ermrest_model.Column.define("h1", ermrest_model.builtin_types.interval),
+            ermrest_model.Column.define("h2a", ermrest_model.builtin_types["interval[]"]),
+            # non-indexable cols
+            ermrest_model.Column.define("x1", ermrest_model.builtin_types.json),
+            ermrest_model.Column.define("x2a", ermrest_model.builtin_types["json[]"]),
+        ]
+
+        # build a single, low-level catalog /schema POST operation
+        # should be (slightly) faster and avoids using the client APIs under test in this module
+        schema_def = ermrest_model.Schema.define('schema_for_autoindex')
+        schema_def["tables"] = {
+            "referent": ermrest_model.Table.define(
+                'referent',
+                [
+                    # key cols
+                    ermrest_model.Column.define("k1", ermrest_model.builtin_types.serial8, nullok=False),
+                    ermrest_model.Column.define("k2", ermrest_model.builtin_types.text, nullok=False),
+                ] + autoindex_col_defs,
+                [
+                    ermrest_model.Key.define(["k1"]),
+                    ermrest_model.Key.define(["RID", "k1"]),
+                    ermrest_model.Key.define(["k1", "k2"]),
+                ],
+                annotations={
+                    # maximize server-generated indexes to start with
+                    ermrest_model.tag.indexing_preferences: {
+                        "btree": True,
+                        "trgm": True,
+                        "gin_array": True,
+                    }
+                },
+            ),
+            "referrer": ermrest_model.Table.define(
+                'referrer',
+                [
+                    # fkey cols
+                    ermrest_model.Column.define("fk0", ermrest_model.builtin_types.text, nullok=False),
+                    ermrest_model.Column.define("fk1", ermrest_model.builtin_types.int8, nullok=False),
+                    ermrest_model.Column.define("fk2", ermrest_model.builtin_types.text, nullok=False),
+                ] + autoindex_col_defs,
+                [],
+                [
+                    ermrest_model.ForeignKey.define(["fk0"], "schema_for_autoindex", "referent", ["RID"]),
+                    ermrest_model.ForeignKey.define(["fk0", "fk1"], "schema_for_autoindex", "referent", ["RID", "k1"]),
+                    ermrest_model.ForeignKey.define(["fk1", "fk2"], "schema_for_autoindex", "referent", ["k1", "k2"]),
+                ],
+                annotations={
+                    # minimize server-generated indexes to start with
+                    ermrest_model.tag.indexing_preferences: {
+                        "btree": False,
+                        "trgm": False,
+                        "gin_array": False,
+                    }
+                },
+            ),
+        }
+        self.catalog.post('/schema', json=[schema_def])
+        # refresh the local state of the model
+        self.model = self.catalog.getCatalogModel()
+
+    def test_index_autoindex(self):
+        self._skip_unless_index_mgmt_present()
+        self._create_schema_for_autoindex()
+
+        referent = self.model.schemas['schema_for_autoindex'].tables['referent']
+        referrer = self.model.schemas['schema_for_autoindex'].tables['referrer']
+
+        for dry_run in [ True, False ]:
+            with self.subTest(dry_run=dry_run):
+                # first, sanity check idempotence when desired indexes exist
+                with self.subTest(scenario="referent maximal skip most"):
+                    report = referent.create_indexes_auto(dry_run=dry_run)
+                    self.assertIsInstance(report, dict)
+                    self.assertGreater(len(report['skip']), 12)
+                    self.assertEqual(len(report['created']), 2) # due to history keys
+                    self.assertEqual(len(report['failed']), 0)
+
+                with self.subTest(scenario="referrer minimal skip most"):
+                    report = referrer.create_indexes_auto(dry_run=dry_run)
+                    self.assertIsInstance(report, dict)
+                    self.assertGreater(len(report['skip']), 9)
+                    self.assertEqual(len(report['created']), 1) # due to history key
+                    self.assertEqual(len(report['failed']), 0)
+
+        # change indexing policy and backfill missing ones!
+        referrer.annotations[ermrest_model.tag.indexing_preferences] = {
+            "btree": True,
+            "trgm": True,
+            "gin_array": True,
+        }
+
+        # check that we create a bunch as expected
+        with self.subTest(scenario="referrer maximal backfill"):
+            report = referrer.create_indexes_auto(dry_run=dry_run)
+            self.assertIsInstance(report, dict)
+            self.assertGreater(len(report['skip']), 9)
+            self.assertGreater(len(report['created']), 40)
+            self.assertEqual(len(report['failed']), 0)
+
+        # check idempotence again
+        with self.subTest(scenario="referrer maximal skip all"):
+            report = referrer.create_indexes_auto(dry_run=dry_run)
+            self.assertIsInstance(report, dict)
+            self.assertGreater(len(report['skip']), 40)
+            self.assertEqual(len(report['created']), 0)
+            self.assertEqual(len(report['failed']), 0)
 
 if __name__ == '__main__':
     unittest.main()
