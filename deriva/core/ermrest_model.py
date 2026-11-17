@@ -3617,9 +3617,9 @@ class Type (object):
         if indextype == IndexType.gin_array:
             return False
         elif indextype == IndexType.btree:
-            return self.typename not in {'json', 'timestamp'}
+            return self.typename not in {'json', 'timestamp', 'interval', 'time', 'timetz'}
         elif indextype == IndexType.trgm:
-            return self.typename not in {'timestamp'}
+            return self.typename not in {'timestamp', 'interval', 'time', 'timetz'}
         else:
             raise NotImplementedError(f"unknown whether {self.typename} is {indextype} indexable")
 
@@ -3700,7 +3700,7 @@ class ArrayType (Type):
         if indextype == IndexType.trgm:
             return True
         elif indextype in {IndexType.gin_array, IndexType.btree}:
-            return typ.typename not in {'json'}
+            return typ.indexable(IndexType.btree)
         else:
             raise NotImplementedError(f"unknown whether {self.typename} is {indextype} indexable")
 
@@ -3721,10 +3721,10 @@ class ArrayType (Type):
         typ = self
         while typ.is_array:
             typ = typ.base_type
-        if indextype == IndexType.trgm:
-            return typ.typename not in {'timestamp'}
-        elif indextype in {IndexType.gin_array, IndexType.btree}:
-            return typ.typename not in {'json', 'timestamp'}
+        if indextype == IndexType.gin_array:
+            return typ.history_indexable(IndexType.btree)
+        elif indextype in {IndexType.btree, IndexType.trgm}:
+            return typ.history_indexable(indextype)
         else:
             raise NotImplementedError(f"unknown whether {self.typename} is {indextype} indexable")
 
@@ -3739,7 +3739,10 @@ builtin_types = AttrDict(
                 'int2', 'int4', 'int8',
                 'text',
                 'timestamptz', 'timestamp',
-                'boolean'
+                'boolean',
+                'timetz',
+                'uuid',
+                'interval',
         }
     }
 )
