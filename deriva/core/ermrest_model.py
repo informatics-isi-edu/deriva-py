@@ -323,7 +323,7 @@ class IndexType (str, Enum):
 
 class IndexProperties (object):
     """Base class of core index properties, to capture index representations served by ERMrest."""
-    def __init__(self, *, indexname, primary, unique, exclusion, sqldef, valid, ready, live):
+    def __init__(self, *, indexname, primary, unique, exclusion, sqldef, valid, ready, live, definition=None):
         self.indexname = indexname
         self.sqldef = sqldef
         self.primary = primary
@@ -332,14 +332,15 @@ class IndexProperties (object):
         self.valid = valid
         self.ready = ready
         self.live = live
+        self.definition = definition
 
 class LiveIndex (IndexProperties):
     """Wrapper for live table index representation, adding (schema-qualified) live table name."""
-    def __init__(self, table, *, schemaname, indexname, primary, unique, exclusion, sqldef, valid, ready, live):
+    def __init__(self, table, *, schemaname, indexname, primary, unique, exclusion, sqldef, valid, ready, live, definition=None):
         kwargs = {
             k: v
             for k, v in locals().items()
-            if k in {'indexname', 'primary', 'unique', 'exclusion', 'sqldef', 'valid', 'ready', 'live'}
+            if k in {'indexname', 'primary', 'unique', 'exclusion', 'sqldef', 'valid', 'ready', 'live', 'definition'}
         }
         assert(table.schema.name == schemaname)
         super(LiveIndex, self).__init__(**kwargs)
@@ -360,11 +361,11 @@ class LiveIndex (IndexProperties):
 
 class HistoryIndex (IndexProperties):
     """Wrapper for live table index representation, adding history table RID."""
-    def __init__(self, model, table_rid, *, indexname, primary, unique, exclusion, sqldef, valid, ready, live):
+    def __init__(self, model, table_rid, *, indexname, primary, unique, exclusion, sqldef, valid, ready, live, definition=None):
         kwargs = {
             k: v
             for k, v in locals().items()
-            if k in {'indexname', 'primary', 'unique', 'exclusion', 'sqldef', 'valid', 'ready', 'live'}
+            if k in {'indexname', 'primary', 'unique', 'exclusion', 'sqldef', 'valid', 'ready', 'live', 'definition'}
         }
         super(HistoryIndex, self).__init__(**kwargs)
         self.model = model
