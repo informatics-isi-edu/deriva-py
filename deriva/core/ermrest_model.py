@@ -2688,7 +2688,7 @@ CREATE TABLE IF NOT EXISTS %(tname)s (
             hist_indexnames = False
 
         report = {
-            'skip': [],
+            'skipped': [],
             'created': [],
             'failed': [],
         }
@@ -2732,7 +2732,7 @@ CREATE TABLE IF NOT EXISTS %(tname)s (
 
             if found := have_index(indexes, idx_type, idx_want):
                 report1['suppressed_by'] = found
-                report['skip'].append(report1)
+                report['skipped'].append(report1)
                 return None
 
             indexname = make_indexname(

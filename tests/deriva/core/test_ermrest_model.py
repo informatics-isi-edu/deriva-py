@@ -1332,14 +1332,14 @@ class ErmrestModelTests (unittest.TestCase):
                 with self.subTest(scenario="referent maximal skip most"):
                     report = referent.create_indexes_auto(dry_run=dry_run)
                     self.assertIsInstance(report, dict)
-                    self.assertGreater(len(report['skip']), 12)
+                    self.assertGreater(len(report['skipped']), 12)
                     self.assertLessEqual(len(report['created']), 2) # due to history keys
                     self.assertEqual(len(report['failed']), 0)
 
                 with self.subTest(scenario="referrer minimal skip most"):
                     report = referrer.create_indexes_auto(dry_run=dry_run)
                     self.assertIsInstance(report, dict)
-                    self.assertGreater(len(report['skip']), 9)
+                    self.assertGreater(len(report['skipped']), 9)
                     self.assertLessEqual(len(report['created']), 1) # due to history key
                     self.assertEqual(len(report['failed']), 0)
 
@@ -1354,7 +1354,7 @@ class ErmrestModelTests (unittest.TestCase):
         with self.subTest(scenario="referrer maximal backfill"):
             report = referrer.create_indexes_auto(dry_run=dry_run)
             self.assertIsInstance(report, dict)
-            self.assertGreater(len(report['skip']), 9)
+            self.assertGreater(len(report['skipped']), 9)
             self.assertGreater(len(report['created']), 40)
             self.assertEqual(len(report['failed']), 0)
 
@@ -1362,7 +1362,7 @@ class ErmrestModelTests (unittest.TestCase):
         with self.subTest(scenario="referrer maximal skip all"):
             report = referrer.create_indexes_auto(dry_run=dry_run)
             self.assertIsInstance(report, dict)
-            self.assertGreater(len(report['skip']), 40)
+            self.assertGreater(len(report['skipped']), 40)
             self.assertEqual(len(report['created']), 0)
             self.assertEqual(len(report['failed']), 0)
 
