@@ -2774,7 +2774,7 @@ CREATE TABLE IF NOT EXISTS %(tname)s (
                     idx_type.value: idx_want1
                 }
             }
-            if indexes is live_indexes:
+            if indexes is hist_indexes:
                 report1["definition"]["col_names"] = [ col.name for col in idx_want ]
 
             if found := have_index(indexes, idx_type, idx_want):
@@ -2841,7 +2841,7 @@ CREATE TABLE IF NOT EXISTS %(tname)s (
                 )
 
         # build table-level indexing preferences
-        prefs = self.schema.model.annotations.get(tag.indexing_preferences, dict())
+        prefs = dict(self.schema.model.annotations.get(tag.indexing_preferences, dict()))
         prefs |= self.schema.annotations.get(tag.indexing_preferences, dict())
         prefs |= self.annotations.get(tag.indexing_preferences, dict())
 
