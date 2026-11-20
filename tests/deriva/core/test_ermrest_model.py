@@ -1326,35 +1326,61 @@ class ErmrestModelTests (unittest.TestCase):
         referent = self.model.schemas['schema_for_autoindex'].tables['referent']
         referrer = self.model.schemas['schema_for_autoindex'].tables['referrer']
 
+        def struct_check(plan, stats, dry=True):
+            for k, src, srctype in [
+                ('wanted', plan.wanted, set),
+                ('unwanted', plan.unwanted, set),
+                ('created', plan.created, set),
+                ('pruned', plan.pruned, set),
+                ('create_errors', plan.create_errors, dict),
+                ('prune_errors', plan.prune_errors, dict),
+            ]:
+                self.assertIsInstance(stats.get(k, 0), int)
+                self.assertIsInstance(src, srctype)
+                self.assertEqual(stats.get(k, 0), len(src))
+            if dry:
+                # before perform, there should be no work results
+                for k in {'created', 'pruned'}:
+                    self.assertEqual(stats.get(k, 0), 0)
+            # for our tests, there should be no errors
+            for k in {'create_errors', 'prune_errors'}:
+                self.assertEqual(stats.get(k, 0), 0)
+
         with self.subTest(scenario="catalog-wide dry run"):
-            reports = self.model.create_indexes_auto(dry_run=True)
-            self.assertIsInstance(reports, dict)
-            for sname, sreport in reports.items():
-                self.assertIsInstance(sname, str)
-                self.assertIsInstance(sreport, dict)
-                for tname, treport in sreport.items():
-                    self.assertIsInstance(tname, str)
-                    self.assertIsInstance(treport, dict)
-                    self.assertIn('created', treport)
-                    self.assertIn('skipped', treport)
-                    self.assertIn('failed', treport)
+            plan = ermrest_model.IndexingPlan(self.model)
+            stats = plan.stats()
+            struct_check(plan, stats)
 
-        for dry_run in [ True, False ]:
-            with self.subTest(dry_run=dry_run):
-                # first, sanity check idempotence when desired indexes exist
-                with self.subTest(scenario="referent maximal skip most"):
-                    report = referent.create_indexes_auto(dry_run=dry_run)
-                    self.assertIsInstance(report, dict)
-                    self.assertGreater(len(report['skipped']), 12)
-                    self.assertLessEqual(len(report['created']), 2) # due to history keys
-                    self.assertEqual(len(report['failed']), 0)
+        with self.subTest(scenario="table direct plan"):
+            wanted, unwanted = referent.plan_indexes_auto()
+            for want in wanted:
+                # implicitly test that it is iterable here...
+                self.assertIsInstance(want, ermrest_model.IndexWantedABC)
+            for idx in unwanted:
+                # implicitly test that it is iterable here...
+                self.assertIsInstance(idx, ermrest_model.IndexProperties)
 
-                with self.subTest(scenario="referrer minimal skip most"):
-                    report = referrer.create_indexes_auto(dry_run=dry_run)
-                    self.assertIsInstance(report, dict)
-                    self.assertGreater(len(report['skipped']), 9)
-                    self.assertLessEqual(len(report['created']), 1) # due to history key
-                    self.assertEqual(len(report['failed']), 0)
+        with self.subTest(scenario="referent maximal skip most"):
+            plan = ermrest_model.IndexingPlan(referent)
+            stats1 = plan.stats()
+            struct_check(plan, stats1)
+            self.assertLessEqual(stats1.get('wanted', 0), 2) # temporarily tolerate missing hist key idxs
+            self.assertEqual(stats1.get('unwanted', 0), 0)
+            plan.perform(create=True, prune=False)
+            stats2 = plan.stats()
+            struct_check(plan, stats2, dry=False)
+            self.assertEqual(stats1.get('wanted', 0), stats2.get('created', 0))
+
+        with self.subTest(scenario="referrer minimal skip most"):
+            plan = ermrest_model.IndexingPlan(referrer)
+            stats1 = plan.stats()
+            struct_check(plan, stats1)
+            self.assertLessEqual(stats1.get('wanted', 0), 1) # temporarily tolerate 1 missing hist key idx
+            self.assertEqual(stats1.get('unwanted', 0), 0)
+            plan.perform(create=True, prune=False)
+            stats2 = plan.stats()
+            struct_check(plan, stats2, dry=False)
+            self.assertEqual(stats1.get('wanted', 0), stats2.get('created', 0))
 
         # change indexing policy and backfill missing ones!
         referrer.annotations[ermrest_model.tag.indexing_preferences] = {
@@ -1365,19 +1391,50 @@ class ErmrestModelTests (unittest.TestCase):
 
         # check that we create a bunch as expected
         with self.subTest(scenario="referrer maximal backfill"):
-            report = referrer.create_indexes_auto(dry_run=dry_run)
-            self.assertIsInstance(report, dict)
-            self.assertGreater(len(report['skipped']), 9)
-            self.assertGreater(len(report['created']), 40)
-            self.assertEqual(len(report['failed']), 0)
+            plan = ermrest_model.IndexingPlan(referrer)
+            stats1 = plan.stats()
+            struct_check(plan, stats1)
+            self.assertGreater(stats1.get('wanted', 0), 40)
+            self.assertEqual(stats1.get('unwanted', 0), 0)
+            plan.perform(create=True, prune=False)
+            stats2 = plan.stats()
+            struct_check(plan, stats2, dry=False)
+            self.assertEqual(stats1.get('wanted', 0), stats2.get('created', 0))
 
         # check idempotence again
-        with self.subTest(scenario="referrer maximal skip all"):
-            report = referrer.create_indexes_auto(dry_run=dry_run)
-            self.assertIsInstance(report, dict)
-            self.assertGreater(len(report['skipped']), 40)
-            self.assertEqual(len(report['created']), 0)
-            self.assertEqual(len(report['failed']), 0)
+        with self.subTest(scenario="referrer maximal idempotence"):
+            plan = ermrest_model.IndexingPlan(referrer)
+            stats1 = plan.stats()
+            struct_check(plan, stats1)
+            self.assertEqual(stats1.get('wanted', 0), 0)
+            self.assertEqual(stats1.get('unwanted', 0), 0)
+
+        # change indexing policy to prune excessive ones!
+        referrer.annotations[ermrest_model.tag.indexing_preferences] = {
+            "btree": False,
+            "trgm": False,
+            "gin_array": False,
+        }
+
+        # check that we prune a bunch as expected
+        with self.subTest(scenario="referrer minimal prune"):
+            plan = ermrest_model.IndexingPlan(referrer)
+            stats1 = plan.stats()
+            struct_check(plan, stats1)
+            self.assertGreater(stats1.get('unwanted', 0), 40)
+            self.assertEqual(stats1.get('wanted', 0), 0)
+            plan.perform(create=False, prune=True)
+            stats2 = plan.stats()
+            struct_check(plan, stats2, dry=False)
+            self.assertEqual(stats1.get('unwanted', 0), stats2.get('pruned', 0))
+
+        # check idempotence again
+        with self.subTest(scenario="referrer minimal idempotence"):
+            plan = ermrest_model.IndexingPlan(referrer)
+            stats1 = plan.stats()
+            struct_check(plan, stats1)
+            self.assertEqual(stats1.get('wanted', 0), 0)
+            self.assertEqual(stats1.get('unwanted', 0), 0)
 
 if __name__ == '__main__':
     unittest.main()

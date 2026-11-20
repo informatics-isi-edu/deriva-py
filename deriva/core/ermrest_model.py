@@ -7,7 +7,7 @@ import hashlib
 import json
 import re
 from collections import OrderedDict
-from collections.abc import Iterable
+from collections.abc import Iterable, Callable
 from enum import Enum
 
 from . import AttrDict, tag, urlquote, stob, mmo
@@ -321,7 +321,7 @@ class IndexType (str, Enum):
     trgm = 'trgm'
     gin_array = 'gin_array'
 
-class IndexProperties (object):
+class IndexProperties:
     """Base class of core index properties, to capture index representations served by ERMrest."""
     def __init__(self, *, indexname, primary, unique, exclusion, sqldef, valid, ready, live, definition=None):
         self.indexname = indexname
@@ -382,6 +382,218 @@ class HistoryIndex (IndexProperties):
             ).raise_for_status()
         else:
             raise ValueError(f"refusing to delete_index with {really=}")
+
+class IndexWantedABC:
+    """ABC to represent one desired index."""
+    def __init__(
+        self,
+        indextype:IndexType,
+        target:Iterable[Column],
+        indexname:str,
+    ):
+        """Initialize wanted index."""
+        self.indextype = indextype
+        self.target = list(target)
+        if not self.target:
+            raise ValueError(f"indexing target must have at least one column")
+        self.indexname = indexname
+
+class LiveIndexWanted (IndexWantedABC):
+    """Represent one desired live index."""
+    def create(self) -> LiveIndex:
+        """Create this desired index on the server."""
+        return self.target[0].table.create_index(
+            self.indexname,
+            self.indextype,
+            self.target,
+        )
+
+    @property
+    def definition(self):
+        return {
+            self.indextype.value: [ col.name for col in self.target ]
+        }
+
+class HistoryIndexWanted (IndexWantedABC):
+    """Represent one desired history index."""
+    def create(self) -> HistoryIndex:
+        """Create this desired index on the server."""
+        return self.target[0].table.create_history_index(
+            self.indexname,
+            self.indextype,
+            self.target,
+        )
+
+    @property
+    def definition(self):
+        return {
+            self.indextype.value: [ col.rid for col in self.target ],
+            "col_names": [ col.name for col in self.target ],
+        }
+
+class IndexingPlan:
+    """Represent a batch indexing plan."""
+    def __init__(
+        self,
+        scope:Model|Schema|Table,
+        default_prefs:dict[str, bool]={"btree": True, "trgm": True, "gin_array": True},
+    ):
+        """Initialize batch.
+
+        :param scope: the Model, Schema, or Table over which to plan.
+        :param default_prefs: a dict representing default indexing-preferences.
+
+        The scope selects which table(s) will have their indexes managed.
+          - a specific Table is the narrowest scope
+          - a specific Schema includes all tables in the schema
+          - a specific Model includes all tables in all schemas in the model
+
+        The default_prefs represents the baseline indexing strategy in
+        the absence of specific indexing-preferences annotations in
+        the catalog. The built-in default requests all optional indexes.
+
+        """
+        if isinstance(scope, Model):
+            self.model = scope
+            self.tables = [
+                table
+                for schema in scope.schemas.values()
+                for table in schema.tables.values()
+            ]
+        elif isinstance(scope, Schema):
+            self.model = scope.model
+            self.tables = [ table for table in scope.tables ]
+        elif isinstance(scope, Table):
+            self.model = scope.schema.model
+            self.tables = [ scope ]
+        else:
+            raise TypeError(f"{scope=} is not an instance of Model|Schema|Column")
+
+        self.wanted = set()
+        self.unwanted = set()
+        self.created = set()
+        self.pruned = set()
+        self.create_errors = {}
+        self.prune_errors = {}
+        self._plan(default_prefs)
+
+    def _plan(self, default_prefs):
+        for table in self.tables:
+            wanted, unwanted = table.plan_indexes_auto(default_prefs)
+            self.wanted |= set(wanted)
+            self.unwanted |= set(unwanted)
+
+    def perform(
+        self,
+        create:bool=True,
+        prune:bool=False,
+        pre_create:Callable[[IndexWantedABC], None]=lambda w: None,
+        post_create:Callable[[IndexWantedABC, IndexProperties|None, Exception|None], None]=lambda w, i, e: None,
+        pre_prune:Callable[[IndexProperties], None]=lambda i: None,
+        post_prune:Callable[[IndexProperties, Exception|None], None]=lambda i, e: None,
+    ):
+        """Perform planned actions.
+
+        :param create: when True, build new indexes in self.wanted.
+        :param prune: when True, delete existing indexes in self.unwanted.
+        :param pre_create: callback called before attempting to create a wanted index.
+        :param post_create: callback called after attempting to create a wanted index.
+        :param pre_prune: callback called before attempting to prune an existing index.
+        :param post_prune: callback called after attempting to prune an existing index.
+
+        If create is True, self.wanted will be drained. Successfully
+        created indexes will be recorded in self.created, whereas
+        errors will be recorded in self.create_errors, keyed by the
+        wanted index that produced the error.
+
+        If prune is True, self.unwanted will be drained. Succesfully
+        pruned indexes will be recorded in self.pruned, whereas
+        errors will be recorded in self.prune_errors, keyed by the
+        unwanted index that produced the error.
+
+        The pre_create and pre_prune callbacks are called with an
+        element from self.wanted or self.unwanted, respectively, to
+        announce the next upcoming operation.
+
+        The post_create and post_prube callbacks are called after the
+        operation, repeating the same wanted or unwanted
+        item. Dedicated parameters carry the resulting error (or None)
+        to both callbacks. The post_create callback has an additional
+        dedicated parameter to carry the successfully created index.
+        """
+        if create:
+            while self.wanted:
+                want = self.wanted.pop()
+                try:
+                    pre_create(want)
+                    idx = want.create()
+                except Exception as e:
+                    self.create_errors[want] = e
+                    post_create(want, None, e)
+                else:
+                    self.created.add(idx)
+                    post_create(want, idx, None)
+        if prune:
+            while self.unwanted:
+                idx = self.unwanted.pop()
+                try:
+                    pre_prune(idx)
+                    idx.delete_index(really=prune)
+                except Exception as e:
+                    self.prune_errors[idx] = e
+                    post_prune(idx, e)
+                else:
+                    self.pruned.add(idx)
+                    post_prune(idx, None)
+
+    def report(self):
+        """Return a structured summary."""
+        report = {}
+
+        def add_clause(dst, key, src):
+            if src:
+                dst.update({key: [
+                    {
+                        "indexname": elem.indexname,
+                        "definition": elem.definition,
+                    }
+                    for elem in src
+                ]})
+
+        def add_error_clause(dst, key, src):
+            if src:
+                dst.update({key: [
+                    {
+                        "indexname": elem.indexname,
+                        "definition": elem.definition,
+                        "error": err,
+                    }
+                    for elem, err in src.items()
+                ]})
+
+        add_clause(report, "wanted", self.wanted)
+        add_clause(report, "unwanted", self.unwanted)
+        add_clause(report, "created", self.created)
+        add_clause(report, "pruned", self.pruned)
+        add_error_clause(report, "create_errors", self.create_errors)
+        add_error_clause(report, "prune_errors", self.prune_errors)
+
+        return report
+
+    def stats(self):
+        """Return structured stats."""
+        return {
+            k: v
+            for k, v in {
+                "wanted": len(self.wanted),
+                "unwanted": len(self.unwanted),
+                "created": len(self.created),
+                "pruned": len(self.pruned),
+                "create_errors": len(self.create_errors),
+                "prune_errors": len(self.prune_errors),
+            }.items()
+            if v
+        }
 
 class Model (object):
     """Top-level catalog model.
@@ -527,31 +739,6 @@ class Model (object):
             return self._pseudo_fkeys[cname]
         else:
             return self.schemas[sname]._fkeys[cname]
-
-    def create_indexes_auto(self, dry_run:bool=False) -> dict:
-        """Attempt to backfill missing automatic indexes for tables in model, returning report data.
-
-        :param dry_run: Report on plans without acting when true.
-
-        This method simply broadcasts the same call to every
-        schema. See the documentation for Table.create_indexes_auto
-        for more information.
-
-        This method gathers per-table reports into a two-level dict:
-
-        {
-          schemaname: {
-            tablename: report,
-            ...
-          },
-          ...
-        }
-
-        """
-        return {
-            schema.name: schema.create_indexes_auto(dry_run)
-            for schema in self.schemas.values()
-        }
 
     @object_annotation(tag.bulk_upload)
     def bulk_upload(self): pass
@@ -1042,28 +1229,6 @@ class Schema (object):
         for table in self.tables.values():
             for fkey in table.foreign_keys:
                 fkey._cleanup()
-
-    def create_indexes_auto(self, dry_run:bool=False) -> dict:
-        """Attempt to backfill missing automatic indexes for tables in schema, returning report data.
-
-        :param dry_run: Report on plans without acting when true.
-
-        This method simply broadcasts the same call to every
-        table. See the documentation for Table.create_indexes_auto for
-        more information.
-
-        This method gathers per-table reports into a dict:
-
-        {
-          tablename: report,
-          ...
-        }
-
-        """
-        return {
-            table.name: table.create_indexes_auto(dry_run)
-            for table in self.tables.values()
-        }
 
     @object_annotation(tag.display)
     def display(self): pass
@@ -2646,10 +2811,10 @@ CREATE TABLE IF NOT EXISTS %(tname)s (
 
         return self.schema.model.create_history_index(self.rid, indexname, indextype, target)
 
-    def create_indexes_auto(self, dry_run:bool=False) -> dict:
-        """Attempt to backfill missing automatic indexes for table, returning report data.
+    def plan_indexes_auto(self, default_prefs:dict[str,bool]={}) -> tuple[Iterable[IndexWantedABC], IndexProperties]:
+        """Plan indexing changes for table, returning pair of iterables (wanted, unwanted).
 
-        :param dry_run: Report on plans without acting when true.
+        :param default_prefs: Default indexing-preferences.
 
         This method is a best-effort attempt to replicate
         index-creation heuristics that a modern ERMrest server would
@@ -2660,44 +2825,30 @@ CREATE TABLE IF NOT EXISTS %(tname)s (
         heuristic reporting of index "definitions", e.g. {"btree":
         ["col1",...]}  to approximate idempotent index creation.
 
-        The resulting dictionary is a semi-structured summary of plans
-        and outcomes:
+        The default_prefs parameter supplies an alternative policy in
+        the absence of explicit annotations in the catalog model. In
+        the absence of this parameter, the behavior is the equivalent
+        of passing {"btree": False, "trgm": False, "gin_array": False}.
 
-        {
-          "created": [ successreport, ...  ],
-          "skipped": [ skipreport, ... ],
-          "failed": [ failreport, ...]
-        }
+        The result is a pair of iterables (wanted, unwanted)
 
-        The embedded, per-index reports have common structure:
+        The wanted elements are of type LiveIndexWanted |
+        HistoryIndexWanted. The unwanted elements are of type
+        LiveIndex | HistoryIndex.
 
-        {
-          "indexname": str,
-          "defnition": {
-            index_type: [ col, ... ],
-            "col_names": [ str, ... ],
-          },
-          "suppressed_by": {
-            "indexname": str
-            "definition": ...,
-          },
-          "error": Exception
-        }
+        To build the wanted new indexes, the caller must iterate over
+        the wanted elements and invoke their create() method.
 
-        But some parts are only present for certain scenarios:
-
-        - indexname is absent for skip reports, since no new index is planned
-        - definition.index_type lists column names for live or column RIDs for history indexes
-        - definition.col_names is only present for history indexes to document column names
-        - suppressed_by is only present in skip reports
-        - error is only present in fail reports
+        To remove unwanted existing indexes, the caller must iterate
+        over the unwanted elements and invoke their delete_index()
+        method.
 
         """
         # build up a map of existing indexes to avoid duplication
-        live_indexes = {}
-        live_indexnames = set()
-        hist_indexes = {}
-        hist_indexnames = set()
+        live_indexdefs = {}
+        live_indexnames = {}
+        hist_indexdefs = {}
+        hist_indexnames = {}
 
         def itval(index_type):
             if isinstance(index_type, IndexType):
@@ -2707,49 +2858,44 @@ CREATE TABLE IF NOT EXISTS %(tname)s (
             else:
                 raise TypeError(f'index_type {index_type!r} should be str or IndexType!')
 
-        for idx in self.get_indexes():
-            live_indexnames.add(idx.indexname)
-            if idx.definition:
-                # there should only be one key, but this is a generic way to unpack
-                for idx_type, idx_want in idx.definition.items():
-                    idx_want = (idx_want,) if isinstance(idx_want, str) else tuple(idx_want)
-                    live_indexes.setdefault(itval(idx_type), dict())[idx_want] = {
-                        "indexname": idx.indexname,
-                        "definition": idx.definition,
-                    }
-
-        try:
-            for idx in self.get_history_indexes():
-                hist_indexnames.add(idx.indexname)
+        def load_existing(indexdefs, indexnames, source):
+            for idx in source:
+                indexnames[idx.indexname] = idx
                 if idx.definition:
                     # there should only be one key, but this is a generic way to unpack
                     for idx_type, idx_want in idx.definition.items():
                         idx_want = (idx_want,) if isinstance(idx_want, str) else tuple(idx_want)
-                        hist_indexes.setdefault(itval(idx_type), dict())[idx_want] = {
-                            "indexname": idx.indexname,
-                            "definition": idx.definition,
-                        }
+                        indexdefs.setdefault(itval(idx_type), dict())[idx_want] = idx
+
+        load_existing(live_indexdefs, live_indexnames, self.get_indexes())
+
+        try:
+            load_existing(hist_indexdefs, hist_indexnames, self.get_history_indexes())
         except Exception as e:
             # HACK: assume history indexing is not available
-            hist_indexes = False
+            hist_indexdefs = False
             hist_indexnames = False
 
-        report = {
-            'skipped': [],
-            'created': [],
-            'failed': [],
-        }
+        want_created = []
+        keep_live_indexnames = set()
+        keep_hist_indexnames = set()
 
-        def have_index(existing, idx_type, idx_want1):
+        def have_live_index(idx_type, idx_want1):
             # check if an existing index covers the desired columns
-            if existing is live_indexes:
-                idx_want1 = tuple([ col.name for col in idx_want1 ])
-            else:
-                idx_want1 = tuple([ col.rid for col in idx_want1 ])
-            for idx_want2 in existing.get(idx_type.value, dict()).keys():
+            idx_want1 = tuple([ col.name for col in idx_want1 ])
+            for idx_want2, found in live_indexdefs.get(idx_type.value, dict()).items():
                 if idx_want1 == idx_want2[:len(idx_want1)]:
                     # found a covering prefix
-                    return existing[idx_type.value][idx_want2]
+                    return found
+            return False
+
+        def have_hist_index(idx_type, idx_want1):
+            # check if an existing index covers the desired columns
+            idx_want1 = tuple([ col.rid for col in idx_want1 ])
+            for idx_want2, found in hist_indexdefs.get(idx_type.value, dict()).items():
+                if idx_want1 == idx_want2[:len(idx_want1)]:
+                    # found a covering prefix
+                    return found
             return False
 
         def make_indexname(existing, *parts):
@@ -2761,87 +2907,96 @@ CREATE TABLE IF NOT EXISTS %(tname)s (
                 i += 1
             return n
 
-        def create_index_idempotent(idx_type, idx_want, indexnames, indexes):
-            if indexes is live_indexes:
-                prefix = self.name
-                idx_want1 = [ col.name for col in  idx_want ]
-            else:
-                prefix = f't{self.rid}'
-                idx_want1 = [ col.rid for col in idx_want ]
+        def plan_live_index(idx_type, idx_want, indexname):
+            if found := have_live_index(idx_type, idx_want):
+                keep_live_indexnames.add(found.indexname)
+                return
 
-            report1 = {
-                "definition": {
-                    idx_type.value: idx_want1
-                }
-            }
-            if indexes is hist_indexes:
-                report1["definition"]["col_names"] = [ col.name for col in idx_want ]
-
-            if found := have_index(indexes, idx_type, idx_want):
-                report1['suppressed_by'] = found
-                report['skipped'].append(report1)
-                return None
-
-            indexname = make_indexname(
-                indexnames,
-                prefix,
-                [ col.name for col in idx_want ],
-                '' if idx_type == 'btree' else idx_type,
-                'idx'
+            cnames = [ col.name for col in idx_want ]
+            want1 = LiveIndexWanted(
+                idx_type,
+                idx_want,
+                indexname,
             )
-            report1["indexname"] = indexname
+            want_created.append(want1)
+            # pretend we have it to influence subsequent planning
+            live_indexdefs.setdefault(idx_type.value, {})[tuple(cnames)] = want1
+            live_indexnames[want1.indexname] = want1
+            keep_live_indexnames.add(want1.indexname)
 
-            try: 
-                if dry_run:
-                    pass
-                elif indexes is live_indexes:
-                    self.create_index(indexname, idx_type, idx_want)
-                else:
-                    self.create_history_index(indexname, idx_type, idx_want)
-            except Exception as e:
-                report1['error'] = e
-                report['failed'].append(report1)
-            else:
-                report['created'].append(report1)
-                # record for sibling tests in this same automatic batch
-                indexnames.add(indexname)
-                indexes.setdefault(idx_type.value, {})[tuple(idx_want1)] = report1
+        def plan_hist_index(idx_type, idx_want, indexname):
+            if found := have_hist_index(idx_type, idx_want):
+                keep_hist_indexnames.add(found.indexname)
+                return
+
+            cnames = [ col.name for col in idx_want ]
+            crids = [ col.rid for col in idx_want ]
+            want1 = HistoryIndexWanted(
+                idx_type,
+                idx_want,
+                make_indexname(
+                    hist_indexnames,
+                    f't{self.rid}',
+                    cnames,
+                    '' if idx_type == 'btree' else idx_type,
+                    'idx'
+                ),
+            )
+            want_created.append(want1)
+            # pretend we have it to influence subsequent planning
+            hist_indexdefs.setdefault(idx_type.value, {})[tuple(cnames)] = want1
+            hist_indexnames[want1.indexname] = want1
+            keep_hist_indexnames.add(want1.indexname)
 
         # key indexes help ERMrest joins
         for key in self.keys:
             # note: assume patched ERMrest is serving these in the right order!
             cols = key.unique_columns
             # key indexes are only potentially missing in history tables
-            if hist_indexes is not False:
-                create_index_idempotent(
+            if hist_indexdefs is not False:
+                plan_hist_index(
                     IndexType.btree,
                     cols,
-                    hist_indexnames,
-                    hist_indexes,
+                    make_indexname(
+                        hist_indexnames,
+                        f"t{self.rid}",
+                        [ col.name for col in cols ],
+                        'key_idx'
+                    ),
                 )
 
         # foreign key indexes help ERMrest joins
         for fkey in self.foreign_keys:
             # note: assume patched ERMrest is serving these in the right order!
             cols = fkey.foreign_key_columns
-            # live index
-            create_index_idempotent(
+            plan_live_index(
                 IndexType.btree,
                 cols,
-                live_indexnames,
-                live_indexes,
+                make_indexname(
+                    live_indexnames,
+                    self.name,
+                    [ col.name for col in cols ],
+                    'fkey_idx'
+                ),
+
             )
-            if hist_indexes is not False:
-                # hist index
-                create_index_idempotent(
+            if hist_indexdefs is not False:
+                plan_hist_index(
                     IndexType.btree,
                     cols,
-                    hist_indexnames,
-                    hist_indexes,
+                    make_indexname(
+                        hist_indexnames,
+                        f"t{self.rid}",
+                        [ col.name for col in cols ],
+                        'fkey_idx'
+                    ),
+
                 )
 
         # build table-level indexing preferences
-        prefs = dict(self.schema.model.annotations.get(tag.indexing_preferences, dict()))
+        prefs = {"btree": False, "trgm": False, "gin_array": False}
+        prefs |= default_prefs
+        prefs |= self.schema.model.annotations.get(tag.indexing_preferences, dict())
         prefs |= self.schema.annotations.get(tag.indexing_preferences, dict())
         prefs |= self.annotations.get(tag.indexing_preferences, dict())
 
@@ -2875,24 +3030,45 @@ CREATE TABLE IF NOT EXISTS %(tname)s (
                     continue
                 if not all([ col.indexable(idx_type) for col in want ]):
                     continue
-                create_index_idempotent(
+                plan_live_index(
                     idx_type,
                     want,
-                    live_indexnames,
-                    live_indexes
+                    make_indexname(
+                        live_indexnames,
+                        self.name,
+                        [ col.name for col in want ],
+                        '' if idx_type == 'btree' else idx_type,
+                        'idx'
+                    ),
                 )
                 if not all([ col.history_indexable(idx_type) for col in want ]):
                     continue
-                if hist_indexes is False:
+                if hist_indexdefs is False:
                     continue
-                create_index_idempotent(
+                plan_hist_index(
                     idx_type,
                     want,
-                    hist_indexnames,
-                    hist_indexes
+                    make_indexname(
+                        hist_indexnames,
+                        f"t{self.rid}",
+                        [ col.name for col in cols ],
+                        '' if idx_type == 'btree' else idx_type,
+                        'idx'
+                    ),
                 )
 
-        return report
+        want_deleted = [
+            idx
+            for idx in live_indexnames.values()
+            if idx.indexname not in keep_live_indexnames \
+            and not (idx.unique or idx.primary or idx.exclusion)
+        ] + [
+            idx
+            for idx in hist_indexnames.values()
+            if idx.indexname not in keep_hist_indexnames \
+            and not (idx.unique or idx.primary or idx.exclusion)
+        ]
+        return want_created, want_deleted
 
     @presence_annotation(tag.immutable)
     def immutable(self): pass
