@@ -246,6 +246,18 @@ class CredenzaAuthUtil:
         return credential.get("bearer-token")
 
 
+    def revoke_token(self, host: str, token: str):
+        """
+        POST /authn/revoke (RFC 7009) to end the session the token belongs to.
+        The token and client_id go in the form body, with no Authorization header; a public
+        client like deriva-py only supplies client_id. Raises HTTPError on a failed request.
+        """
+        url = host_to_url(host, "/authn/revoke")
+        session = get_new_requests_session(url)
+        response = session.post(url, data=[("token", token), ("client_id", CLIENT_ID)])
+        response.raise_for_status()
+
+
     def get_session(self, host: str, *, resources=None):
         """
         GET /authn/session with Authorization: Bearer <token>.
@@ -376,7 +388,8 @@ class CredenzaAuthUtilCLI(BaseCLI):
                             help="Non-default path to a bdbag keychain file.")
         parser.add_argument("--refresh", action="store_true",
                             help="Allow the session manager to automatically refresh access tokens on the user's behalf "
-                                 "until either the refresh token expires or the user logs out.")
+                                 "until either the refresh token expires or the user logs out. Always starts a new "
+                                 "login flow, since an existing session may not refresh automatically.")
         parser.add_argument("--force", action="store_true",
                             help="Force a login flow even if the current access token is valid.")
         parser.add_argument("--show-token", action="store_true",
@@ -495,12 +508,19 @@ class CredenzaAuthUtilCLI(BaseCLI):
         if not sys.stdin.isatty():
             raise RuntimeError("Interactive TTY required for device login.")
 
-        if not args.force:
+        # An existing valid session is reused unless a new one is asked for. --refresh always asks
+        # for one: the existing session may not refresh automatically, and reusing it would
+        # silently ignore the request.
+        if not args.force and not args.refresh:
             resp = self.get_session(args, check_only=True)
             if resp:
                 token = self.show_token(args)
                 token_display = f"Bearer token: {token}" if args.show_token else ""
                 return f"You are already logged in to host '{args.host}'. {token_display}"
+
+        # The token this login replaces. Its session is revoked once the new login succeeds, so it is
+        # not left running (and, with automatic refresh, refreshing) after its credential is gone.
+        previous_token = self.show_token(args)
 
         url = host_to_url(args.host, "/authn/device_authorization")
         session = get_new_requests_session(url)
@@ -558,6 +578,15 @@ class CredenzaAuthUtilCLI(BaseCLI):
             self.api.update_bdbag_keychain(host=args.host,
                                               token=token,
                                               keychain_file=args.bdbag_keychain_file or bdbkc.DEFAULT_KEYCHAIN_FILE)
+
+        # Revoking an unknown or expired token is harmless (RFC 7009 answers 200), so this runs
+        # whenever a different token was stored. A failure does not undo the new login.
+        if previous_token and previous_token != token:
+            try:
+                self.api.revoke_token(args.host, previous_token)
+            except (HTTPError, ConnectionError) as e:
+                logger.warning(f"Could not revoke the previous session for host '{args.host}': {e}")
+
         token_display = f"Bearer token: {token}" if args.show_token else ""
         return f"You have been successfully logged in to host '{args.host}'. {token_display}"
 
@@ -567,13 +596,7 @@ class CredenzaAuthUtilCLI(BaseCLI):
         if not credential:
             return "Credential not found. Not logged in."
         token = credential.get("bearer-token")
-
-        # RFC 7009: token and client_id go in the form body; no Authorization header.
-        # Public clients (like deriva-py) only need to supply client_id.
-        url = host_to_url(args.host, "/authn/revoke")
-        session = get_new_requests_session(url)
-        response = session.post(url, data=[("token", token), ("client_id", CLIENT_ID)])
-        response.raise_for_status()
+        self.api.revoke_token(args.host, token)
 
         self.api.save_credential(args.host, None)
         if not args.no_bdbag_keychain:
