@@ -27,15 +27,22 @@ class DerivaUploadCLI(BaseCLI):
                                       "containing file upload status and associated metadata.")
         self.parser.add_argument("--catalog", default=1, metavar="<1>", help="Catalog number. Default: 1")
         self.parser.add_argument("--connect-timeout", type=float, metavar="<seconds>",
-                                 help="Override the connection timeout, in seconds (default: %d). For uploads this "
-                                      "also bounds the time allowed to write each request body / chunk, so increase "
-                                      "it for slow or high-latency networks." % DEFAULT_REQUESTS_TIMEOUT[0])
+                                 help="Override the connection timeout, in seconds (default: %d). This also bounds "
+                                      "the time allowed to send each block of a request body (256KB with urllib3 "
+                                      "2.x, 8KB with urllib3 1.26), so increase it for very slow or unstable "
+                                      "networks." % DEFAULT_REQUESTS_TIMEOUT[0])
         self.parser.add_argument("--read-timeout", type=float, metavar="<seconds>",
                                  help="Override the read (response) timeout, in seconds (default: %d)."
                                       % DEFAULT_REQUESTS_TIMEOUT[1])
-        self.parser.add_argument("--chunk-size", type=int, metavar="<bytes>",
+        self.parser.add_argument("--chunk-size", type=self.positive_int, metavar="<bytes>",
                                  help="Override the chunked-upload chunk size, in bytes. Smaller chunks reduce the "
-                                      "amount of data resent on retry over unreliable networks.")
+                                      "amount of data resent when a chunk fails. The chunk size is raised "
+                                      "automatically if a file would need more than 10,000 chunks.")
+        self.parser.add_argument("--no-stream-chunks", action="store_true",
+                                 help="Send each chunk of a chunked upload as a single write instead of streaming it "
+                                      "in blocks. This can improve throughput on fast, reliable networks (notably "
+                                      "with urllib3 1.26), but the connect timeout then bounds the time allowed to "
+                                      "send each entire chunk, so uploads over slow networks may time out.")
         self.parser.add_argument("path", metavar="<input dir>", help="Path to an input directory.")
         self.uploader = uploader
 
@@ -53,7 +60,8 @@ class DerivaUploadCLI(BaseCLI):
                output_file=None,
                connect_timeout=None,
                read_timeout=None,
-               chunk_size=None):
+               chunk_size=None,
+               stream_chunks=True):
 
         if not issubclass(uploader, DerivaUpload):
             raise TypeError("DerivaUpload subclass required")
@@ -70,17 +78,18 @@ class DerivaUploadCLI(BaseCLI):
             server["host"] = hostname
 
         # Build session config overrides from any supplied timeout values, falling back to the library defaults for the
-        # component(s) not specified. These are applied per-invocation and do not modify the server/deployed config.
-        session_config_overrides = None
+        # component(s) not specified, and from the chunk streaming option. These are applied per-invocation and do not
+        # modify the server/deployed config.
+        session_config_overrides = dict()
         if connect_timeout is not None or read_timeout is not None:
             default_connect, default_read = DEFAULT_REQUESTS_TIMEOUT
-            session_config_overrides = {
-                "timeout": [connect_timeout if connect_timeout is not None else default_connect,
-                            read_timeout if read_timeout is not None else default_read]
-            }
+            session_config_overrides["timeout"] = [connect_timeout if connect_timeout is not None else default_connect,
+                                                   read_timeout if read_timeout is not None else default_read]
+        if not stream_chunks:
+            session_config_overrides["stream_chunked_uploads"] = False
 
         deriva_uploader = uploader(config_file, credential_file, server, dcctx_cid="cli/" + DerivaUploadCLI.__name__,
-                                   session_config_overrides=session_config_overrides, chunk_size=chunk_size)
+                                   session_config_overrides=session_config_overrides or None, chunk_size=chunk_size)
         if token:
             deriva_uploader.setCredentials(format_credential(token))
         if not config_file and not no_update:
@@ -121,7 +130,8 @@ class DerivaUploadCLI(BaseCLI):
                                    args.output_file,
                                    args.connect_timeout,
                                    args.read_timeout,
-                                   args.chunk_size)
+                                   args.chunk_size,
+                                   not args.no_stream_chunks)
         except (RuntimeError, FileNotFoundError, DerivaUploadError, DerivaUploadConfigurationError,
                 DerivaUploadCatalogCreateError, DerivaUploadCatalogUpdateError, DerivaUploadAuthenticationError) as e:
             sys.stderr.write(("\n" if not args.quiet else "") + format_exception(e))

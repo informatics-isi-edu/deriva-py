@@ -6,7 +6,7 @@ from requests.exceptions import HTTPError, ConnectionError
 import sys
 import traceback
 from deriva.core import __version__ as VERSION, BaseCLI, DerivaPathError, HatracStore, HatracHashMismatch, \
-    get_credential, format_credential, format_exception, DEFAULT_CHUNK_SIZE
+    get_credential, format_credential, format_exception, DEFAULT_CHUNK_SIZE, DEFAULT_SESSION_CONFIG
 from deriva.core.utils import eprint, mime_utils as mu
 
 
@@ -108,12 +108,21 @@ class DerivaHatracCLI (BaseCLI):
         putobj_parser.add_argument('infile', metavar="<infile>", type=str, help="input filename")
         putobj_parser.add_argument("resource", metavar="<path>", type=str, help="object path")
         putobj_parser.add_argument("--content-type", metavar="<type>", type=str, help="HTTP Content-Type header value")
-        putobj_parser.add_argument("--chunk-size", metavar="<bytes>", type=int, default=DEFAULT_CHUNK_SIZE,
-                                   help="Chunk size in bytes")
+        putobj_parser.add_argument("--chunk-size", metavar="<bytes>", type=self.positive_int,
+                                   default=DEFAULT_CHUNK_SIZE,
+                                   help="Chunk size in bytes (default: %d). Files larger than this are uploaded in "
+                                        "chunks. The chunk size is raised automatically if a file would need more "
+                                        "than 10,000 chunks." % DEFAULT_CHUNK_SIZE)
         putobj_parser.add_argument("--parents", action="store_true",
                                    help="Create intermediate parent namespaces as required")
         putobj_parser.add_argument("--force", action="store_true",
                                    help="Force upload even if same object content already exists")
+        putobj_parser.add_argument("--no-stream-chunks", action="store_true",
+                                   help="Send each chunk of a chunked upload as a single write instead of streaming "
+                                        "it in blocks. This can improve throughput on fast, reliable networks "
+                                        "(notably with urllib3 1.26), but the connect timeout then bounds the time "
+                                        "allowed to send each entire chunk, so uploads over slow networks may time "
+                                        "out.")
         putobj_parser.set_defaults(func=self.putobj)
 
         # delobj parser
@@ -140,9 +149,14 @@ class DerivaHatracCLI (BaseCLI):
         """
         self.host = args.host if args.host else 'localhost'
         self.resource = args.resource
+        # only the put sub-command defines --no-stream-chunks
+        session_config = None
+        if getattr(args, "no_stream_chunks", False):
+            session_config = dict(DEFAULT_SESSION_CONFIG, stream_chunked_uploads=False)
         self.store = HatracStore('https', self.host, DerivaHatracCLI._get_credential(self.host,
                                                                                      token=args.token,
-                                                                                     oauth2_token=args.oauth2_token))
+                                                                                     oauth2_token=args.oauth2_token),
+                                 session_config=session_config)
 
     def list(self, args):
         """Implements the list sub-command.

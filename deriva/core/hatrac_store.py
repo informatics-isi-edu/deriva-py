@@ -1,9 +1,10 @@
+import io
 import os
 import datetime
 import requests
 import logging
 from . import format_exception, NotModified, DEFAULT_HEADERS, DEFAULT_CHUNK_SIZE, DEFAULT_MAX_CHUNK_LIMIT, \
-    DEFAULT_MAX_REQUEST_SIZE, urlquote, Megabyte, get_transfer_summary, calculate_optimal_transfer_shape
+    DEFAULT_MAX_REQUEST_SIZE, urlquote, Megabyte, get_transfer_summary, calculate_optimal_transfer_shape, stob
 from .deriva_binding import DerivaBinding
 from .utils import hash_utils as hu, mime_utils as mu
 
@@ -390,6 +391,7 @@ class HatracStore(DerivaBinding):
         self.check_path(path)
         job_info = self.get_upload_job(path, job_id).json()
         chunk_size = job_info.get("chunk-length", chunk_size)
+        stream_chunks = stob(self.session_config.get("stream_chunked_uploads", True))
         logging.debug("Current chunk size: %d bytes. " % chunk_size)
         try:
             file_size = os.path.getsize(file_path)
@@ -410,7 +412,12 @@ class HatracStore(DerivaBinding):
                         break
                     url = '%s;upload/%s/%d' % (path, job_id, chunk)
                     headers = {'Content-Type': 'application/octet-stream', 'Content-Length': '%d' % len(data)}
-                    r = self.put(url, data=data, headers=headers)
+                    # Send the chunk as a stream rather than as a single bytes object. urllib3 applies the connect
+                    # timeout to sending the request body, and a bytes body is written in a single call, so the whole
+                    # chunk had to be sent within the connect timeout. A stream is sent in blocks, each subject to the
+                    # timeout on its own. urllib3 rewinds the stream (tell/seek) when it retries the request.
+                    # Streaming can be disabled with the "stream_chunked_uploads" session config setting.
+                    r = self.put(url, data=io.BytesIO(data) if stream_chunks else data, headers=headers)
                     self._response_raise_for_status(r)
                     total += len(data)
                     chunk += 1
@@ -448,18 +455,26 @@ class HatracStore(DerivaBinding):
                           content_type=None,
                           content_disposition=None):
         self.check_path(path)
-        max_chunk_size, chunk_count, remainder = \
-            calculate_optimal_transfer_shape(os.path.getsize(file_path),
-                                             self.session_config.get("max_chunk_limit", DEFAULT_MAX_CHUNK_LIMIT),
-                                             requested_chunk_size=chunk_size)
-        if chunk_size > max_chunk_size:
-            logging.warning("Requested chunk size of %d bytes is larger than the hard limit of %d bytes for this "
-                            "application. The chunk size will be reset to this maximum." % (chunk_size, max_chunk_size))
-            chunk_size = max_chunk_size
+        file_size = os.path.getsize(file_path)
+        chunk_limit = self.session_config.get("max_chunk_limit", DEFAULT_MAX_CHUNK_LIMIT)
+        # The returned chunk size is the requested size, capped at the hard maximum chunk size, and raised if needed so
+        # that the file fits within chunk_limit chunks (S3, for example, allows at most 10,000 multipart upload parts).
+        optimal_chunk_size, chunk_count, remainder = \
+            calculate_optimal_transfer_shape(file_size, chunk_limit, requested_chunk_size=chunk_size)
+        if file_size > 0 and optimal_chunk_size != chunk_size:
+            if optimal_chunk_size < chunk_size:
+                logging.warning("Requested chunk size of %d bytes is larger than the hard limit of %d bytes for this "
+                                "application. The chunk size will be reset to this maximum." %
+                                (chunk_size, optimal_chunk_size))
+            else:
+                logging.info("Requested chunk size of %d bytes would need more than the limit of %d chunks for file "
+                             "[%s] (%d bytes). The chunk size will be increased to %d bytes (%d chunks)." %
+                             (chunk_size, chunk_limit, file_path, file_size, optimal_chunk_size, chunk_count))
+            chunk_size = optimal_chunk_size
 
         url = '%s;upload%s' % (path, "" if not create_parents else "?parents=%s" % str(create_parents).lower())
         obj = {"chunk-length": chunk_size,
-               "content-length": os.path.getsize(file_path)}
+               "content-length": file_size}
         if md5:
             obj["content-md5"] = md5
         if sha256:

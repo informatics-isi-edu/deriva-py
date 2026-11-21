@@ -9,6 +9,7 @@ import datetime
 import platform
 import logging
 import requests
+import urllib3
 import portalocker
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -28,6 +29,15 @@ Megabyte = Kilobyte ** 2
 DEFAULT_CHUNK_SIZE = Megabyte * 25
 # 5GB is the max chunk limit imposed by AWS S3, also a (generous) hard limit.
 HARD_MAX_CHUNK_SIZE = Megabyte * 1000 * 5
+
+# Block size used when sending file-like request bodies (e.g. upload chunks). urllib3 applies the connect timeout to the
+# sending of the request body, so with a file-like body each block must be sent within the connect timeout, rather than
+# the entire body. Large blocks avoid the throughput cost of many small socket writes, while small enough blocks keep the
+# minimum sustained upload rate (blocksize / connect timeout) low: 256KB with a 6 second timeout is ~350 Kbit/s.
+DEFAULT_SEND_BLOCKSIZE = Kilobyte * 256
+# The send block size can only be configured with urllib3 2.x. With urllib3 1.26, the body is sent by http.client in its
+# default (8KB) blocks.
+URLLIB3_SUPPORTS_BLOCKSIZE = int(urllib3.__version__.split(".")[0]) >= 2
 # Max number of "parts" for AWS S3.
 DEFAULT_MAX_CHUNK_LIMIT = 10000
 # A practical default limit for single request body payload size, similar to AWS S3 recommendation for payload sizes.
@@ -39,7 +49,7 @@ DEFAULT_CREDENTIAL_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'credential.json')
 DEFAULT_GLOBUS_CREDENTIAL_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'globus-credential.json')
 DEFAULT_CONFIG_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'config.json')
 DEFAULT_COOKIE_JAR_FILE = os.path.join(DEFAULT_CONFIG_PATH, 'cookies.txt')
-DEFAULT_REQUESTS_TIMEOUT = (6, 63)  # (connect, read), integer in seconds
+DEFAULT_REQUESTS_TIMEOUT = (20, 63)  # (connect, read), integer in seconds
 DEFAULT_SESSION_CONFIG = {
     "timeout": DEFAULT_REQUESTS_TIMEOUT,
     "retry_connect": 2,
@@ -50,6 +60,10 @@ DEFAULT_SESSION_CONFIG = {
     "cookie_jar": DEFAULT_COOKIE_JAR_FILE,
     "max_request_size": DEFAULT_MAX_REQUEST_SIZE,
     "max_chunk_limit": DEFAULT_MAX_CHUNK_LIMIT,
+    # Send chunked upload bodies as streams, so the connect timeout bounds each block sent rather than the whole chunk.
+    # Set to False to send each chunk as a single bytes object (the previous behavior), e.g. for maximum throughput
+    # on fast, reliable links with urllib3 1.26, where streamed bodies are sent in small (8KB) blocks.
+    "stream_chunked_uploads": True,
     "bypass_cert_verify_host_list": ["localhost"]
 }
 OAUTH2_SCOPES_KEY = "oauth2_scopes"
@@ -182,7 +196,21 @@ class TimeoutHTTPAdapter(HTTPAdapter):
             timeout = kwargs["timeout"]
             self.timeout = tuple(timeout) if isinstance(timeout, list) else timeout
             del kwargs["timeout"]
+        # must be set before HTTPAdapter.__init__, which calls init_poolmanager
+        self.blocksize = kwargs.pop("blocksize", DEFAULT_SEND_BLOCKSIZE)
         super().__init__(*args, **kwargs)
+
+    def _add_blocksize(self, pool_kwargs):
+        blocksize = getattr(self, "blocksize", DEFAULT_SEND_BLOCKSIZE)
+        if blocksize and URLLIB3_SUPPORTS_BLOCKSIZE:
+            pool_kwargs.setdefault("blocksize", blocksize)
+        return pool_kwargs
+
+    def init_poolmanager(self, *args, **pool_kwargs):
+        super().init_poolmanager(*args, **self._add_blocksize(pool_kwargs))
+
+    def proxy_manager_for(self, proxy, **proxy_kwargs):
+        return super().proxy_manager_for(proxy, **self._add_blocksize(proxy_kwargs))
 
     def send(self, request, **kwargs):
         timeout = kwargs.get("timeout")

@@ -59,6 +59,17 @@ class BaseCLI(object):
         # Split the input by commas and convert to a tuple
         return tuple(map(float, value.split(',')))
 
+    # Function to convert CLI input into a positive (greater than zero) integer
+    @staticmethod
+    def positive_int(value):
+        try:
+            result = int(value)
+        except ValueError:
+            raise argparse.ArgumentTypeError("invalid integer value: '%s'" % value)
+        if result <= 0:
+            raise argparse.ArgumentTypeError("must be greater than zero: '%s'" % value)
+        return result
+
 class KeyValuePairArgs(argparse.Action):
     def __init__(self, option_strings, dest, nargs=None, **kwargs):
         self._nargs = nargs
