@@ -11,6 +11,7 @@ import os
 import datetime
 import itertools
 import unittest
+import requests
 from deriva.core import DerivaServer, get_credential, ermrest_model, tag
 from deriva.core import \
     crockford_b32encode, crockford_b32decode, \
@@ -268,6 +269,91 @@ class ErmrestModelTypeTests (unittest.TestCase):
                     btyp.sqlite3_ddl(),
                     typ.sqlite3_ddl(),
                 )
+
+    def test_indexable(self):
+        for typename in itertools.chain(
+                self._scalar_typenames,
+                self._serial_typenames,
+                self._array_typenames,
+                self._domain_typenames,
+        ):
+            with self.subTest(typename=typename, indextype=ermrest_model.IndexType.trgm):
+                typ = ermrest_model.builtin_types[typename]
+                self.assertTrue(typ.indexable(ermrest_model.IndexType.trgm))
+
+        for typename in itertools.chain(
+                self._scalar_typenames,
+                self._serial_typenames,
+                self._domain_typenames,
+        ):
+            with self.subTest(typename=typename, indextype=ermrest_model.IndexType.gin_array):
+                typ = ermrest_model.builtin_types[typename]
+                self.assertFalse(typ.indexable(ermrest_model.IndexType.gin_array))
+
+        for typename in self._array_typenames:
+            with self.subTest(typename=typename, indextype=ermrest_model.IndexType.gin_array):
+                typ = ermrest_model.builtin_types[typename]
+                if typename == 'json[]':
+                    self.assertFalse(typ.indexable(ermrest_model.IndexType.gin_array))
+                else:
+                    self.assertTrue(typ.indexable(ermrest_model.IndexType.gin_array))
+
+        for typename in itertools.chain(
+                self._scalar_typenames,
+                self._serial_typenames,
+                self._array_typenames,
+                self._domain_typenames,
+        ):
+            with self.subTest(typename=typename, indextype=ermrest_model.IndexType.btree):
+                typ = ermrest_model.builtin_types[typename]
+                if typename in {'json', 'json[]'}:
+                    self.assertFalse(typ.indexable(ermrest_model.IndexType.btree))
+                else:
+                    self.assertTrue(typ.indexable(ermrest_model.IndexType.btree))
+
+    def test_history_indexable(self):
+        for typename in itertools.chain(
+                self._scalar_typenames,
+                self._serial_typenames,
+                self._array_typenames,
+                self._domain_typenames,
+        ):
+            with self.subTest(typename=typename, indextype=ermrest_model.IndexType.trgm):
+                typ = ermrest_model.builtin_types[typename]
+                if typename in {'timestamp', 'timestamp[]'}:
+                    self.assertFalse(typ.history_indexable(ermrest_model.IndexType.trgm))
+                else:
+                    self.assertTrue(typ.history_indexable(ermrest_model.IndexType.trgm))
+
+        for typename in itertools.chain(
+                self._scalar_typenames,
+                self._serial_typenames,
+                self._domain_typenames,
+        ):
+            with self.subTest(typename=typename, indextype=ermrest_model.IndexType.gin_array):
+                typ = ermrest_model.builtin_types[typename]
+                self.assertFalse(typ.history_indexable(ermrest_model.IndexType.gin_array))
+
+        for typename in self._array_typenames:
+            with self.subTest(typename=typename, indextype=ermrest_model.IndexType.gin_array):
+                typ = ermrest_model.builtin_types[typename]
+                if typename in {'timestamp[]', 'json[]'}:
+                    self.assertFalse(typ.history_indexable(ermrest_model.IndexType.gin_array))
+                else:
+                    self.assertTrue(typ.history_indexable(ermrest_model.IndexType.gin_array))
+
+        for typename in itertools.chain(
+                self._scalar_typenames,
+                self._serial_typenames,
+                self._array_typenames,
+                self._domain_typenames,
+        ):
+            with self.subTest(typename=typename, indextype=ermrest_model.IndexType.btree):
+                typ = ermrest_model.builtin_types[typename]
+                if typename in {'timestamp', 'timestamp[]', 'json', 'json[]'}:
+                    self.assertFalse(typ.history_indexable(ermrest_model.IndexType.btree))
+                else:
+                    self.assertTrue(typ.history_indexable(ermrest_model.IndexType.btree))
 
 @unittest.skipUnless(hostname, "Test host not specified")
 class ErmrestModelTests (unittest.TestCase):
@@ -1024,6 +1110,331 @@ class ErmrestModelTests (unittest.TestCase):
     def test_schema_drop_cascading(self):
         self._create_schema_with_fkeys()
         self.model.schemas['schema_with_fkeys'].drop(cascade=True)
+
+    def _skip_unless_index_mgmt_present(self):
+        if not hasattr(self, 'ermrest_features'):
+            self.ermrest_features = self.catalog.get("/").json()['features']
+        if 'index_management' not in self.ermrest_features:
+            self.skipTest('catalog does not advertise index_management!')
+
+    def _create_schema_for_index_management(self):
+        """Creates a simple schema with indexing target columns."""
+
+        # build a single, low-level catalog /schema POST operation
+        # should be (slightly) faster and avoids using the client APIs under test
+        schema_def = ermrest_model.Schema.define('schema_for_index_mgmt')
+        schema_def["tables"] = {
+            "target": ermrest_model.Table.define(
+                'target',
+                column_defs=[
+                    ermrest_model.Column.define(f'c_{typ.typename}', typ)
+                    for typ in ermrest_model.builtin_types.values()
+                ],
+            ),
+        }
+        self.catalog.post('/schema', json=[schema_def])
+        # refresh the local state of the model
+        self.model = self.catalog.getCatalogModel()
+
+    def test_index_management(self):
+        self._skip_unless_index_mgmt_present()
+        self._create_schema_for_index_management()
+
+        target = self.model.schemas['schema_for_index_mgmt'].tables['target']
+
+        live_idx = None
+        with self.subTest(scenario='live index list'):
+            res = target.get_indexes()
+            self.assertIsInstance(res, list)
+            self.assertGreater(len(res), 0)
+            self.assertTrue(all([ isinstance(idx, ermrest_model.LiveIndex) for idx in res ]))
+            live_idx = res[0]
+
+        history_idx = None
+        with self.subTest(scenario='history index list'):
+            res = target.get_history_indexes()
+            self.assertIsInstance(res, list)
+            self.assertGreater(len(res), 0)
+            self.assertTrue(all([ isinstance(idx, ermrest_model.HistoryIndex) for idx in res ]))
+            history_idx = res[0]
+
+        with self.subTest(scenario='history index list low-level'):
+            res = self.model.get_history_indexes(target.rid)
+            self.assertIsInstance(res, list)
+            self.assertGreater(len(res), 0)
+            self.assertTrue(all([ isinstance(idx, ermrest_model.HistoryIndex) for idx in res ]))
+
+        if live_idx:
+            with self.subTest(indexname=live_idx, scenario='get live index'):
+                idx = target.get_index(live_idx.indexname)
+                self.assertIsInstance(idx, ermrest_model.LiveIndex)
+                self.assertEqual(live_idx.indexname, idx.indexname)
+
+        if history_idx:
+            with self.subTest(indexname=history_idx, scenario='get history index'):
+                idx = target.get_history_index(history_idx.indexname)
+                self.assertIsInstance(idx, ermrest_model.HistoryIndex)
+                self.assertEqual(history_idx.indexname, idx.indexname)
+
+        with self.subTest(scenario='get live notfound'):
+            with self.assertRaises(requests.HTTPError) as cm:
+                idx = target.get_index('nonexistant index')
+            self.assertEqual(cm.exception.response.status_code, 404)
+
+        with self.subTest(scenario='get history notfound'):
+            with self.assertRaises(requests.HTTPError) as cm:
+                idx = target.get_history_index('nonexistant index')
+            self.assertEqual(cm.exception.response.status_code, 404)
+
+        for indextype in [
+                ermrest_model.IndexType.btree,
+                ermrest_model.IndexType.trgm,
+                ermrest_model.IndexType.gin_array,
+        ]:
+            with self.subTest(indextype=indextype, scenario='empty live target'):
+                with self.assertRaises(ValueError):
+                    idx = target.create_index('invalid_empty1_idx', indextype, [])
+
+            with self.subTest(indextype=indextype, scenario='empty history target'):
+                with self.assertRaises(ValueError):
+                    idx = target.create_history_index('invalid_empty2_idx', indextype, [])
+
+            l_parity = 0
+            h_parity = 0
+            for column in target.columns:
+                cname = column.name
+                if not cname.startswith('c_'):
+                    continue
+
+                indexname1 = f'target_{column.type.typename}_{indextype}_idx'
+                indexname2 = f't{target.rid}_{column.type.typename}_{indextype}_idx'
+                if not column.type.indexable(indextype):
+                    with self.subTest(indexname=indexname1, scenario='create live nonindexable'):
+                        with self.assertRaises(ValueError):
+                            idx = target.create_index(indexname1, indextype, [column])
+                else:
+                    live_idx = None
+                    with self.subTest(indexname=indexname1, scenario='create live indexable'):
+                        idx = target.create_index(indexname1, indextype, [column])
+                        self.assertIsInstance(idx, ermrest_model.LiveIndex)
+                        self.assertEqual(indexname1, idx.indexname)
+                        live_idx = idx
+
+                    if live_idx:
+                        with self.subTest(indexname=indexname1, scenario='table delete live index'):
+                            if l_parity:
+                                live_idx.delete_index(really=True)
+                            else:
+                                target.delete_index(indexname1, really=True)
+                        l_parity = (l_parity + 1) % 2
+
+                if not column.type.history_indexable(indextype):
+                    with self.subTest(indexname=indexname2, scenario='create history nonindexable'):
+                        with self.assertRaises(ValueError):
+                            idx = target.create_history_index(indexname2, indextype, [column])
+                else:
+                    history_idx = None
+                    with self.subTest(indexname=indexname2, scenario='table create history indexable'):
+                        idx = target.create_history_index(indexname2, indextype, [column])
+                        self.assertIsInstance(idx, ermrest_model.HistoryIndex)
+                        self.assertEqual(indexname2, idx.indexname)
+                        history_idx = idx
+
+                    if history_idx:
+                        with self.subTest(indexname=indexname2, scenario='table delete history index'):
+                            if h_parity:
+                                history_idx.delete_index(really=True)
+                            else:
+                                target.delete_history_index(indexname2, really=True)
+                        h_parity = (h_parity + 1) % 2
+
+    def _create_schema_for_autoindex(self):
+        """Creates a simple schema to test autoindexing routine."""
+
+        # a repeating set of columns to try in different scenarios
+        autoindex_col_defs = [
+            # regular data cols
+            ermrest_model.Column.define("d1", ermrest_model.builtin_types.int8),
+            ermrest_model.Column.define("d2", ermrest_model.builtin_types.jsonb),
+            ermrest_model.Column.define("d3", ermrest_model.builtin_types.timestamptz),
+            ermrest_model.Column.define("d4a", ermrest_model.builtin_types["int8[]"]),
+            # live but not history-indexable cols
+            ermrest_model.Column.define("h1", ermrest_model.builtin_types.interval),
+            ermrest_model.Column.define("h2a", ermrest_model.builtin_types["interval[]"]),
+            # non-indexable cols
+            ermrest_model.Column.define("x1", ermrest_model.builtin_types.json),
+            ermrest_model.Column.define("x2a", ermrest_model.builtin_types["json[]"]),
+        ]
+
+        # build a single, low-level catalog /schema POST operation
+        # should be (slightly) faster and avoids using the client APIs under test in this module
+        schema_def = ermrest_model.Schema.define('schema_for_autoindex')
+        schema_def["tables"] = {
+            "referent": ermrest_model.Table.define(
+                'referent',
+                [
+                    # key cols
+                    ermrest_model.Column.define("k1", ermrest_model.builtin_types.serial8, nullok=False),
+                    ermrest_model.Column.define("k2", ermrest_model.builtin_types.text, nullok=False),
+                ] + autoindex_col_defs,
+                [
+                    ermrest_model.Key.define(["k1"]),
+                    ermrest_model.Key.define(["RID", "k1"]),
+                    ermrest_model.Key.define(["k1", "k2"]),
+                ],
+                annotations={
+                    # maximize server-generated indexes to start with
+                    ermrest_model.tag.indexing_preferences: {
+                        "btree": True,
+                        "trgm": True,
+                        "gin_array": True,
+                    }
+                },
+            ),
+            "referrer": ermrest_model.Table.define(
+                'referrer',
+                [
+                    # fkey cols
+                    ermrest_model.Column.define("fk0", ermrest_model.builtin_types.text, nullok=False),
+                    ermrest_model.Column.define("fk1", ermrest_model.builtin_types.int8, nullok=False),
+                    ermrest_model.Column.define("fk2", ermrest_model.builtin_types.text, nullok=False),
+                ] + autoindex_col_defs,
+                [],
+                [
+                    ermrest_model.ForeignKey.define(["fk0"], "schema_for_autoindex", "referent", ["RID"]),
+                    ermrest_model.ForeignKey.define(["fk0", "fk1"], "schema_for_autoindex", "referent", ["RID", "k1"]),
+                    ermrest_model.ForeignKey.define(["fk1", "fk2"], "schema_for_autoindex", "referent", ["k1", "k2"]),
+                ],
+                annotations={
+                    # minimize server-generated indexes to start with
+                    ermrest_model.tag.indexing_preferences: {
+                        "btree": False,
+                        "trgm": False,
+                        "gin_array": False,
+                    }
+                },
+            ),
+        }
+        self.catalog.post('/schema', json=[schema_def])
+        # refresh the local state of the model
+        self.model = self.catalog.getCatalogModel()
+
+    def test_index_autoindex(self):
+        self._skip_unless_index_mgmt_present()
+        self._create_schema_for_autoindex()
+
+        referent = self.model.schemas['schema_for_autoindex'].tables['referent']
+        referrer = self.model.schemas['schema_for_autoindex'].tables['referrer']
+
+        def struct_check(plan, stats, dry=True):
+            for k, src, srctype in [
+                ('wanted', plan.wanted, set),
+                ('unwanted', plan.unwanted, set),
+                ('created', plan.created, set),
+                ('pruned', plan.pruned, set),
+                ('create_errors', plan.create_errors, dict),
+                ('prune_errors', plan.prune_errors, dict),
+            ]:
+                self.assertIsInstance(stats.get(k, 0), int)
+                self.assertIsInstance(src, srctype)
+                self.assertEqual(stats.get(k, 0), len(src))
+            if dry:
+                # before perform, there should be no work results
+                for k in {'created', 'pruned'}:
+                    self.assertEqual(stats.get(k, 0), 0)
+            # for our tests, there should be no errors
+            for k in {'create_errors', 'prune_errors'}:
+                self.assertEqual(stats.get(k, 0), 0)
+
+        with self.subTest(scenario="catalog-wide dry run"):
+            plan = ermrest_model.IndexingPlan(self.model)
+            stats = plan.stats()
+            struct_check(plan, stats)
+
+        with self.subTest(scenario="table direct plan"):
+            wanted, unwanted = referent.plan_indexes_auto()
+            for want in wanted:
+                # implicitly test that it is iterable here...
+                self.assertIsInstance(want, ermrest_model.IndexWantedABC)
+            for idx in unwanted:
+                # implicitly test that it is iterable here...
+                self.assertIsInstance(idx, ermrest_model.IndexProperties)
+
+        with self.subTest(scenario="referent maximal skip most"):
+            plan = ermrest_model.IndexingPlan(referent)
+            stats1 = plan.stats()
+            struct_check(plan, stats1)
+            self.assertLessEqual(stats1.get('wanted', 0), 2) # temporarily tolerate missing hist key idxs
+            self.assertEqual(stats1.get('unwanted', 0), 0)
+            plan.perform(create=True, prune=False)
+            stats2 = plan.stats()
+            struct_check(plan, stats2, dry=False)
+            self.assertEqual(stats1.get('wanted', 0), stats2.get('created', 0))
+
+        with self.subTest(scenario="referrer minimal skip most"):
+            plan = ermrest_model.IndexingPlan(referrer)
+            stats1 = plan.stats()
+            struct_check(plan, stats1)
+            self.assertLessEqual(stats1.get('wanted', 0), 1) # temporarily tolerate 1 missing hist key idx
+            self.assertEqual(stats1.get('unwanted', 0), 0)
+            plan.perform(create=True, prune=False)
+            stats2 = plan.stats()
+            struct_check(plan, stats2, dry=False)
+            self.assertEqual(stats1.get('wanted', 0), stats2.get('created', 0))
+
+        # change indexing policy and backfill missing ones!
+        referrer.annotations[ermrest_model.tag.indexing_preferences] = {
+            "btree": True,
+            "trgm": True,
+            "gin_array": True,
+        }
+
+        # check that we create a bunch as expected
+        with self.subTest(scenario="referrer maximal backfill"):
+            plan = ermrest_model.IndexingPlan(referrer)
+            stats1 = plan.stats()
+            struct_check(plan, stats1)
+            self.assertGreater(stats1.get('wanted', 0), 40)
+            self.assertEqual(stats1.get('unwanted', 0), 0)
+            plan.perform(create=True, prune=False)
+            stats2 = plan.stats()
+            struct_check(plan, stats2, dry=False)
+            self.assertEqual(stats1.get('wanted', 0), stats2.get('created', 0))
+
+        # check idempotence again
+        with self.subTest(scenario="referrer maximal idempotence"):
+            plan = ermrest_model.IndexingPlan(referrer)
+            stats1 = plan.stats()
+            struct_check(plan, stats1)
+            self.assertEqual(stats1.get('wanted', 0), 0)
+            self.assertEqual(stats1.get('unwanted', 0), 0)
+
+        # change indexing policy to prune excessive ones!
+        referrer.annotations[ermrest_model.tag.indexing_preferences] = {
+            "btree": False,
+            "trgm": False,
+            "gin_array": False,
+        }
+
+        # check that we prune a bunch as expected
+        with self.subTest(scenario="referrer minimal prune"):
+            plan = ermrest_model.IndexingPlan(referrer)
+            stats1 = plan.stats()
+            struct_check(plan, stats1)
+            self.assertGreater(stats1.get('unwanted', 0), 40)
+            self.assertEqual(stats1.get('wanted', 0), 0)
+            plan.perform(create=False, prune=True)
+            stats2 = plan.stats()
+            struct_check(plan, stats2, dry=False)
+            self.assertEqual(stats1.get('unwanted', 0), stats2.get('pruned', 0))
+
+        # check idempotence again
+        with self.subTest(scenario="referrer minimal idempotence"):
+            plan = ermrest_model.IndexingPlan(referrer)
+            stats1 = plan.stats()
+            struct_check(plan, stats1)
+            self.assertEqual(stats1.get('wanted', 0), 0)
+            self.assertEqual(stats1.get('unwanted', 0), 0)
 
 if __name__ == '__main__':
     unittest.main()

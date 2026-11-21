@@ -7,7 +7,7 @@ import hashlib
 import json
 import re
 from collections import OrderedDict
-from collections.abc import Iterable
+from collections.abc import Iterable, Callable
 from enum import Enum
 
 from . import AttrDict, tag, urlquote, stob, mmo
@@ -50,7 +50,7 @@ def make_id(*components):
             expanded.append(e)
 
     # prefer to use naive name as requested
-    naive_result = '_'.join(expanded)
+    naive_result = '_'.join([ e for e in expanded if e ])
     naive_len = len(naive_result.encode('utf8'))
     if naive_len <= 63:
         return naive_result
@@ -314,6 +314,286 @@ def equivalent(doc1, doc2, method=None):
                 return False
         return True
     return doc1 == doc2
+
+class IndexType (str, Enum):
+    """Enumeration of index type labels currently understood by ERMrest."""
+    btree = 'btree'
+    trgm = 'trgm'
+    gin_array = 'gin_array'
+
+class IndexProperties:
+    """Base class of core index properties, to capture index representations served by ERMrest."""
+    def __init__(self, *, indexname, primary, unique, exclusion, sqldef, valid, ready, live, definition=None):
+        self.indexname = indexname
+        self.sqldef = sqldef
+        self.primary = primary
+        self.unique = unique
+        self.exclusion = exclusion
+        self.valid = valid
+        self.ready = ready
+        self.live = live
+        self.definition = definition
+
+class LiveIndex (IndexProperties):
+    """Wrapper for live table index representation, adding (schema-qualified) live table name."""
+    def __init__(self, table, *, schemaname, indexname, primary, unique, exclusion, sqldef, valid, ready, live, definition=None):
+        kwargs = {
+            k: v
+            for k, v in locals().items()
+            if k in {'indexname', 'primary', 'unique', 'exclusion', 'sqldef', 'valid', 'ready', 'live', 'definition'}
+        }
+        assert(table.schema.name == schemaname)
+        super(LiveIndex, self).__init__(**kwargs)
+        self.table = table
+        self.schemaname = schemaname
+
+    def delete_index(self, really:bool=False) -> None:
+        """Request the server to drop this index.
+
+        :param really: Must be True to proceed.
+        """
+        if really:
+            r = self.table.catalog.delete(
+                f"/schema/{urlquote(self.table.schema.name)}/table/{urlquote(self.table.name)}/index/{urlquote(self.indexname)}",
+            ).raise_for_status()
+        else:
+            raise ValueError(f"refusing to delete_index with {really=}")
+
+class HistoryIndex (IndexProperties):
+    """Wrapper for live table index representation, adding history table RID."""
+    def __init__(self, model, table_rid, *, indexname, primary, unique, exclusion, sqldef, valid, ready, live, definition=None):
+        kwargs = {
+            k: v
+            for k, v in locals().items()
+            if k in {'indexname', 'primary', 'unique', 'exclusion', 'sqldef', 'valid', 'ready', 'live', 'definition'}
+        }
+        super(HistoryIndex, self).__init__(**kwargs)
+        self.model = model
+        self.table_rid = table_rid
+
+    def delete_index(self, really:bool=False) -> None:
+        """Request the server to drop this index.
+
+        :param really: Must be True to proceed.
+        """
+        if really:
+            r = self.model.catalog.delete(
+                f"/history/table/{urlquote(self.table_rid)}/index/{urlquote(self.indexname)}",
+            ).raise_for_status()
+        else:
+            raise ValueError(f"refusing to delete_index with {really=}")
+
+class IndexWantedABC:
+    """ABC to represent one desired index."""
+    def __init__(
+        self,
+        indextype:IndexType,
+        target:Iterable[Column],
+        indexname:str,
+    ):
+        """Initialize wanted index."""
+        self.indextype = indextype
+        self.target = list(target)
+        if not self.target:
+            raise ValueError(f"indexing target must have at least one column")
+        self.indexname = indexname
+
+class LiveIndexWanted (IndexWantedABC):
+    """Represent one desired live index."""
+    def create(self) -> LiveIndex:
+        """Create this desired index on the server."""
+        return self.target[0].table.create_index(
+            self.indexname,
+            self.indextype,
+            self.target,
+        )
+
+    @property
+    def definition(self):
+        return {
+            self.indextype.value: [ col.name for col in self.target ]
+        }
+
+class HistoryIndexWanted (IndexWantedABC):
+    """Represent one desired history index."""
+    def create(self) -> HistoryIndex:
+        """Create this desired index on the server."""
+        return self.target[0].table.create_history_index(
+            self.indexname,
+            self.indextype,
+            self.target,
+        )
+
+    @property
+    def definition(self):
+        return {
+            self.indextype.value: [ col.rid for col in self.target ],
+            "col_names": [ col.name for col in self.target ],
+        }
+
+class IndexingPlan:
+    """Represent a batch indexing plan."""
+    def __init__(
+        self,
+        scope:Model|Schema|Table,
+        default_prefs:dict[str, bool]={"btree": True, "trgm": True, "gin_array": True},
+    ):
+        """Initialize batch.
+
+        :param scope: the Model, Schema, or Table over which to plan.
+        :param default_prefs: a dict representing default indexing-preferences.
+
+        The scope selects which table(s) will have their indexes managed.
+          - a specific Table is the narrowest scope
+          - a specific Schema includes all tables in the schema
+          - a specific Model includes all tables in all schemas in the model
+
+        The default_prefs represents the baseline indexing strategy in
+        the absence of specific indexing-preferences annotations in
+        the catalog. The built-in default requests all optional indexes.
+
+        """
+        if isinstance(scope, Model):
+            self.model = scope
+            self.tables = [
+                table
+                for schema in scope.schemas.values()
+                for table in schema.tables.values()
+            ]
+        elif isinstance(scope, Schema):
+            self.model = scope.model
+            self.tables = [ table for table in scope.tables ]
+        elif isinstance(scope, Table):
+            self.model = scope.schema.model
+            self.tables = [ scope ]
+        else:
+            raise TypeError(f"{scope=} is not an instance of Model|Schema|Column")
+
+        self.wanted = set()
+        self.unwanted = set()
+        self.created = set()
+        self.pruned = set()
+        self.create_errors = {}
+        self.prune_errors = {}
+        self._plan(default_prefs)
+
+    def _plan(self, default_prefs):
+        for table in self.tables:
+            wanted, unwanted = table.plan_indexes_auto(default_prefs)
+            self.wanted |= set(wanted)
+            self.unwanted |= set(unwanted)
+
+    def perform(
+        self,
+        create:bool=True,
+        prune:bool=False,
+        pre_create:Callable[[IndexWantedABC], None]=lambda w: None,
+        post_create:Callable[[IndexWantedABC, IndexProperties|None, Exception|None], None]=lambda w, i, e: None,
+        pre_prune:Callable[[IndexProperties], None]=lambda i: None,
+        post_prune:Callable[[IndexProperties, Exception|None], None]=lambda i, e: None,
+    ):
+        """Perform planned actions.
+
+        :param create: when True, build new indexes in self.wanted.
+        :param prune: when True, delete existing indexes in self.unwanted.
+        :param pre_create: callback called before attempting to create a wanted index.
+        :param post_create: callback called after attempting to create a wanted index.
+        :param pre_prune: callback called before attempting to prune an existing index.
+        :param post_prune: callback called after attempting to prune an existing index.
+
+        If create is True, self.wanted will be drained. Successfully
+        created indexes will be recorded in self.created, whereas
+        errors will be recorded in self.create_errors, keyed by the
+        wanted index that produced the error.
+
+        If prune is True, self.unwanted will be drained. Succesfully
+        pruned indexes will be recorded in self.pruned, whereas
+        errors will be recorded in self.prune_errors, keyed by the
+        unwanted index that produced the error.
+
+        The pre_create and pre_prune callbacks are called with an
+        element from self.wanted or self.unwanted, respectively, to
+        announce the next upcoming operation.
+
+        The post_create and post_prube callbacks are called after the
+        operation, repeating the same wanted or unwanted
+        item. Dedicated parameters carry the resulting error (or None)
+        to both callbacks. The post_create callback has an additional
+        dedicated parameter to carry the successfully created index.
+        """
+        if create:
+            while self.wanted:
+                want = self.wanted.pop()
+                try:
+                    pre_create(want)
+                    idx = want.create()
+                except Exception as e:
+                    self.create_errors[want] = e
+                    post_create(want, None, e)
+                else:
+                    self.created.add(idx)
+                    post_create(want, idx, None)
+        if prune:
+            while self.unwanted:
+                idx = self.unwanted.pop()
+                try:
+                    pre_prune(idx)
+                    idx.delete_index(really=prune)
+                except Exception as e:
+                    self.prune_errors[idx] = e
+                    post_prune(idx, e)
+                else:
+                    self.pruned.add(idx)
+                    post_prune(idx, None)
+
+    def report(self):
+        """Return a structured summary."""
+        report = {}
+
+        def add_clause(dst, key, src):
+            if src:
+                dst.update({key: [
+                    {
+                        "indexname": elem.indexname,
+                        "definition": elem.definition,
+                    }
+                    for elem in src
+                ]})
+
+        def add_error_clause(dst, key, src):
+            if src:
+                dst.update({key: [
+                    {
+                        "indexname": elem.indexname,
+                        "definition": elem.definition,
+                        "error": err,
+                    }
+                    for elem, err in src.items()
+                ]})
+
+        add_clause(report, "wanted", self.wanted)
+        add_clause(report, "unwanted", self.unwanted)
+        add_clause(report, "created", self.created)
+        add_clause(report, "pruned", self.pruned)
+        add_error_clause(report, "create_errors", self.create_errors)
+        add_error_clause(report, "prune_errors", self.prune_errors)
+
+        return report
+
+    def stats(self):
+        """Return structured stats."""
+        return {
+            k: v
+            for k, v in {
+                "wanted": len(self.wanted),
+                "unwanted": len(self.unwanted),
+                "created": len(self.created),
+                "pruned": len(self.pruned),
+                "create_errors": len(self.create_errors),
+                "prune_errors": len(self.prune_errors),
+            }.items()
+            if v
+        }
 
 class Model (object):
     """Top-level catalog model.
@@ -610,6 +890,126 @@ class Model (object):
             # Apply model changes
             self.apply()
 
+    def get_history_indexes(self, table_rid: str) -> list[HistoryIndex]:
+        """Retrieve list of indexes for table RID by querying the catalog.
+
+        :param table_rid: The RID by which the table is (or was) known in the catalog model.
+
+        This method passes the table RID to the server for server-side
+        validation. This allows inquiry of history indexes for tables
+        in the catalog's history even if when no longer present in the
+        live model.  However, for history indexing over currently live
+        tables, the Table.get_history_indexes() method may offer more
+        convenience.
+
+        """
+        return [
+            HistoryIndex(self, table_rid, **row)
+            for row in self.catalog.get(
+                f"/history/table/{urlquote(table_rid)}/index/"
+            ).json()
+        ]
+
+    def get_history_index(self, table_rid: str, indexname: str) -> HistoryIndex:
+        """Retrieve specific index for table RID by querying the catalog.
+
+        :param table_rid: The RID by which the table is (or was) known in the catalog model.
+        :param indexname: The name by which the index is known by ERMrest.
+
+        This method passes the table RID to the server for server-side
+        validation. This allows inquiry of history indexes for tables
+        in the catalog's history even if when no longer present in the
+        live model.  However, for history indexing over currently live
+        tables, the Table.get_history_index() method may offer more
+        convenience.
+
+        """
+        resource = self.catalog.get(
+            f"/history/table/{urlquote(table_rid)}/index/{urlquote(indexname)}"
+        ).json()
+        return HistoryIndex(self, table_rid, **resource)
+
+    def delete_history_index(self, table_rid: str, indexname: str, really: bool=False) -> None:
+        """Delete the specific index for table RID.
+
+        :param table_rid: The RID by which the table is (or was) known in the catalog model.
+        :param indexname: The name by which the index is known by ERMrest.
+        :param really: Must be True to proceed.
+
+        This method is merely a wrapper for the chained action:
+
+        self.get_history_index(table_rid, indexname).delete_index(really=really)
+
+        """
+        self.get_history_index(table_rid, indexname).delete_index(really=really)
+
+    def create_history_index(self, table_rid: str, indexname: str, indextype: IndexType, target: Iterable[str]) -> HistoryIndex:
+        """Provision named index of given type for given table RID and target column RID(s).
+
+        :param table_rid: The RID by which the table is (or was) known in the catalog model.
+        :param indexname: The name by which the index shall be known by ERMrest.
+        :param indextype: One of the numerated index-types understood by ERMrest.
+        :param target: An iterable of indexable RIDs by which columns are (or were) known in the table's model.
+
+        Most index types only accept a single target column RID, so an
+        iterable of length 1 is required. A longer iterable only makes
+        sense for composite indexes, such as a multi-column btree.
+
+        An indexname, like any identifier in PostgreSQL, is limited to
+        63 or fewer bytes of encoded UTF-8 content.
+
+        If an index already exists on the the same table with the same
+        name, ERMrest will implicitly delete it before creating the
+        requested index. This is a costly operation, not a message
+        deduplication feature.
+
+        This method passes table and target column RIDs to the server
+        for server-side validation. This allows construction of
+        history indexes for tables and/or columns in the catalog's
+        history even if they are no longer present in the live model.
+        However, for history indexing over currently live columns, the
+        Table.create_history_index() method may offer more
+        convenience.
+
+        Important considerations for history table indexes:
+
+        Because ERMrest supports renaming of schemas, tables, and
+        columns, the history mechanism identifies history tables and
+        columns by their immutable RID instead of by the mutable
+        identifiers used in the live model.
+
+        In practice, ERMrest manages a backing history table per live
+        table (unless history tracking is disabled). While live tables
+        exist in named schemas within the model, all history tables
+        live within a single database schema.
+
+        Because the database names indexes per schema, all history
+        index names must be unique across all history tables in the
+        unified history schema. We recommend naming each index with the
+        prefix f"t{table_rid}_". It is the caller's responsibility to
+        follow this or some other desired naming scheme.
+
+        """
+        if len(indexname.encode('utf8')) > 63:
+            raise ValueError(f"{indexname=} exceeds 63 UTF-8 octets")
+
+        if not target:
+            raise ValueError("index requires non-empty target")
+
+        limit = 32 if indextype == IndexType.btree else 1
+        if len(target) > limit:
+                raise ValueError(f"target length {len(target)} exceeds limit of {limit} for {indextype}")
+
+        if len(target) == 1:
+            target = target[0]
+
+        resource = self.catalog.put(
+            f"/history/table/{urlquote(table_rid)}/index/{urlquote(indexname)}",
+            json={ indextype: target }
+        ).json()
+
+        return HistoryIndex(self, table_rid, **resource)
+
 def strip_nochange(d):
     return {
         k: v
@@ -899,7 +1299,7 @@ class FindAssociationResult (object):
         self.schema = table.schema
         self.self_fkey = self_fkey
         self.other_fkeys = other_fkeys
-    
+
 class Table (object):
     """Named table.
     """
@@ -908,6 +1308,7 @@ class Table (object):
     def __init__(self, schema, tname, table_doc):
         self.schema = schema
         self.name = tname
+        self.rid = table_doc.get('RID')
         self.acls = AttrDict(table_doc.get('acls', {}))
         self.acl_bindings = AttrDict(table_doc.get('acl_bindings', {}))
         self.annotations = dict(table_doc.get('annotations', {}))
@@ -2197,6 +2598,478 @@ CREATE TABLE IF NOT EXISTS %(tname)s (
     'body': ',\n  '.join(parts),
 })
 
+    def get_indexes(self) -> list[LiveIndex]:
+        """Retrieve list of indexes for this table by querying the catalog."""
+        return [
+            LiveIndex(self, **row)
+            for row in self.catalog.get(
+                    f"/schema/{urlquote(self.schema.name)}/table/{urlquote(self.name)}/index/"
+            ).json()
+        ]
+
+    def get_index(self, indexname: str) -> LiveIndex:
+        """Retrieve specific index for this table by querying the catalog.
+
+        :param indexname: The name by which the index is known by ERMrest.
+        """
+        resource = self.catalog.get(
+            f"/schema/{urlquote(self.schema.name)}/table/{urlquote(self.name)}/index/{urlquote(indexname)}"
+        ).json()
+        return LiveIndex(self, **resource)
+
+    def delete_index(self, indexname: str, really: bool=False) -> None:
+        """Delete the specific index for table RID.
+
+        :param indexname: The name by which the index is known by ERMrest.
+        :param really: Must be True to proceed.
+
+        This method is merely a wrapper for the chained action:
+
+        self.get_index(indexname).delete_index(really=really)
+
+        """
+        self.get_index(indexname).delete_index(really=really)
+
+    def create_index(self, indexname: str, indextype: IndexType, target: Iterable[Column]) -> LiveIndex:
+        """Provision named index of given type and target column(s)
+
+        :param indexname: The name by which the index shall be known by ERMrest.
+        :param indextype: One of the numerated index-types understood by ERMrest.
+        :param target: An iterable of indexable column names known in the table's model.
+
+        Most index types only accept a single target column name, so an
+        iterable of length 1 is required. A longer iterable only makes
+        sense for composite indexes, such as a multi-column btree.
+
+        An indexname, like any identifier in PostgreSQL, is limited to
+        63 or fewer bytes of encoded UTF-8 content.
+
+        If an index already exists on the the same table with the same
+        name, ERMrest will implicitly delete it before creating the
+        requested index. This is a costly operation, not a message
+        deduplication feature.
+
+        Important considerations for live table indexes:
+
+        In practice, ERMrest manages live database schemas per ERMrest
+        catalog schema name and places live tables in these schemas.
+
+        Because the database names indexes per schema, all live index
+        names must be unique across all live tables in the same
+        schema.
+
+        An idiommatic naming scheme for indexes is to prefix them with
+        the table name and somehow encode the target column name(s)
+        and index type. However, table and column alteration can
+        rename live tables and columns. An index continues to function
+        the same way after such renames, but the name information
+        embedded in the index name would be stale and misleading.
+
+        There is no index-renaming action available, other than the
+        costly action to delete an index and create a new for the same
+        index type and target(s). It is the caller's responsibility
+        to follow a suitable index naming scheme.
+
+        Also, while it is a rare occurrence, if a table is altered to
+        move between schemas, its indexes must be unique in the new
+        schema as well.
+
+        An robust naming scheme is to use a prefix of f"t{table_rid}_"
+        and to also encode target info as f"{column_rid}". Such names
+        would be unique, stable, and coherent even in the face of
+        model renaming. But, such names lack human readability without
+        extra lookups.
+
+        It is the caller's responsibility to follow a suitable naming
+        scheme.
+
+        """
+        target = [ self._own_column(col) for col in target ]
+
+        if len(indexname.encode('utf8')) > 63:
+            raise ValueError(f"{indexname=} exceeds 63 UTF-8 octets")
+
+        if not target:
+            raise ValueError("index requires non-empty target")
+
+        limit = 32 if indextype == IndexType.btree else 1
+        if len(target) > limit:
+                raise ValueError(f"target length {len(target)} exceeds limit of {limit} for {indextype}")
+
+        for col in target:
+            if not col.indexable(indextype):
+                raise ValueError(f"column {col.name} is not {indextype} indexable")
+
+        target = [ col.name for col in target ]
+        if len(target) == 1:
+            target = target[0]
+
+        resource = self.catalog.put(
+            f"/schema/{urlquote(self.schema.name)}/table/{urlquote(self.name)}/index/{urlquote(indexname)}",
+            json={ indextype: target }
+        ).json()
+
+        return LiveIndex(self, **resource)
+
+    def get_history_indexes(self) -> list[HistoryIndex]:
+        """Retrieve list of history indexes for this table by querying the catalog.
+
+        This method works in terms of the current live model as a
+        convenience to determine the table RID. But, actual work is
+        delegated to Model.get_history_indexes(), which can be used
+        directly when table RID is known by the caller. Unlike this
+        method, the model-level method supports historical tables
+        which are no longer in the live model.
+
+        """
+        return self.schema.model.get_history_indexes(self.rid)
+
+    def get_history_index(self, indexname: str) -> HistoryIndex:
+        """Retrieve specific index for this table by querying the catalog.
+
+        :param indexname: The name by which the index is known by ERMrest.
+
+        This method works in terms of the current live model as a
+        convenience to determine the table RID. But, actual work is
+        delegated to Model.get_history_index(), which can be used
+        directly when table RID is known by the caller. Unlike this
+        method, the model-level method supports historical tables
+        which are no longer in the live model.
+
+        """
+        return self.schema.model.get_history_index(self.rid, indexname)
+
+    def delete_history_index(self, indexname: str, really: bool=False) -> None:
+        """Delete the specific index for table RID.
+
+        :param indexname: The name by which the index is known by ERMrest.
+        :param really: Must be True to proceed.
+
+        This method works in terms of the current live model as a
+        convenience to determine the table RID. But, actual work is
+        delegated to Model.delete_history_index(), which can be used
+        directly when table RID is known by the caller. Unlike this
+        method, the model-level method supports historical tables
+        which are no longer in the live model.
+
+        """
+        self.schema.model.delete_history_index(self.rid, indexname, really=really)
+
+    def create_history_index(self, indexname: str, indextype: IndexType, target: Iterable[Column]) -> HistoryIndex:
+        """Provision named history index on this table, using given type and target column(s).
+
+        :param indexname: The name by which the index shall be known by ERMrest.
+        :param indextype: One of the numerated index-types understood by ERMrest.
+        :param target: An iterable of indexable RIDs by which columns are (or were) known in the table's model.
+
+        Most index types only accept a single target column RID, so an
+        iterable of length 1 is required. A longer iterable only makes
+        sense for composite indexes, such as a multi-column btree.
+
+        An indexname, like any identifier in PostgreSQL, is limited to
+        63 or fewer bytes of encoded UTF-8 content.
+
+        If an index already exists on the the same table with the same
+        name, ERMrest will implicitly delete it before creating the
+        requested index. This is a costly operation, not a message
+        deduplication feature.
+
+        This method works in terms of the current live model as a
+        convenience to determine table and target column RIDs. But,
+        actual work is delegated to Model.create_history_index(),
+        which can be used directly when table and target column RIDs
+        are known by the caller. Unlike this method, the model-level
+        method supports creation of indexes for historical tables and
+        columns which are no longer in the live model.
+
+        Important considerations for history table indexes:
+
+        In practice, ERMrest manages a backing history table per live
+        table (unless history tracking is disabled). While live tables
+        exist in named schemas within the model, all history tables
+        live within a single database schema.
+
+        Because ERMrest supports renaming of schemas, tables, and
+        columns, the history mechanism identifies history tables and
+        columns by their immutable RID instead of by the mutable
+        identifiers used in the live model.
+
+        Because the database names indexes per schema, all history
+        index names must be unique across all history tables in the
+        unified history schema. We recommend naming each index with the
+        prefix f"t{table_rid}_". It is the caller's responsibility to
+        follow this or some other desired naming scheme.
+
+        """
+        target = [ self._own_column(col) for col in target ]
+
+        for col in target:
+            if not col.history_indexable(indextype):
+                raise ValueError(f"column {col.name} is not {indextype} indexable")
+
+        target = [ col.rid for col in target ]
+
+        return self.schema.model.create_history_index(self.rid, indexname, indextype, target)
+
+    def plan_indexes_auto(self, default_prefs:dict[str,bool]={}) -> tuple[Iterable[IndexWantedABC], IndexProperties]:
+        """Plan indexing changes for table, returning pair of iterables (wanted, unwanted).
+
+        :param default_prefs: Default indexing-preferences.
+
+        This method is a best-effort attempt to replicate
+        index-creation heuristics that a modern ERMrest server would
+        apply if creating this table with the current definition.
+
+        It considers the index-preferences annotation and current key
+        and foreign-key definitions. It relies upon the server's
+        heuristic reporting of index "definitions", e.g. {"btree":
+        ["col1",...]}  to approximate idempotent index creation.
+
+        The default_prefs parameter supplies an alternative policy in
+        the absence of explicit annotations in the catalog model. In
+        the absence of this parameter, the behavior is the equivalent
+        of passing {"btree": False, "trgm": False, "gin_array": False}.
+
+        The result is a pair of iterables (wanted, unwanted)
+
+        The wanted elements are of type LiveIndexWanted |
+        HistoryIndexWanted. The unwanted elements are of type
+        LiveIndex | HistoryIndex.
+
+        To build the wanted new indexes, the caller must iterate over
+        the wanted elements and invoke their create() method.
+
+        To remove unwanted existing indexes, the caller must iterate
+        over the unwanted elements and invoke their delete_index()
+        method.
+
+        """
+        # build up a map of existing indexes to avoid duplication
+        live_indexdefs = {}
+        live_indexnames = {}
+        hist_indexdefs = {}
+        hist_indexnames = {}
+
+        def itval(index_type):
+            if isinstance(index_type, IndexType):
+                return index_type.value
+            elif isinstance(index_type, str):
+                return index_type
+            else:
+                raise TypeError(f'index_type {index_type!r} should be str or IndexType!')
+
+        def load_existing(indexdefs, indexnames, source):
+            for idx in source:
+                indexnames[idx.indexname] = idx
+                if idx.definition:
+                    # there should only be one key, but this is a generic way to unpack
+                    for idx_type, idx_want in idx.definition.items():
+                        idx_want = (idx_want,) if isinstance(idx_want, str) else tuple(idx_want)
+                        indexdefs.setdefault(itval(idx_type), dict())[idx_want] = idx
+
+        load_existing(live_indexdefs, live_indexnames, self.get_indexes())
+
+        try:
+            load_existing(hist_indexdefs, hist_indexnames, self.get_history_indexes())
+        except Exception as e:
+            # HACK: assume history indexing is not available
+            hist_indexdefs = False
+            hist_indexnames = False
+
+        want_created = []
+        keep_live_indexnames = set()
+        keep_hist_indexnames = set()
+
+        def have_live_index(idx_type, idx_want1):
+            # check if an existing index covers the desired columns
+            idx_want1 = tuple([ col.name for col in idx_want1 ])
+            for idx_want2, found in live_indexdefs.get(idx_type.value, dict()).items():
+                if idx_want1 == idx_want2[:len(idx_want1)]:
+                    # found a covering prefix
+                    return found
+            return False
+
+        def have_hist_index(idx_type, idx_want1):
+            # check if an existing index covers the desired columns
+            idx_want1 = tuple([ col.rid for col in idx_want1 ])
+            for idx_want2, found in hist_indexdefs.get(idx_type.value, dict()).items():
+                if idx_want1 == idx_want2[:len(idx_want1)]:
+                    # found a covering prefix
+                    return found
+            return False
+
+        def make_indexname(existing, *parts):
+            assert isinstance(parts[-1], str)
+            n = make_id(*parts)
+            i = 2
+            while n in existing:
+                n = make_id(*parts[:-1], f"{parts[-1]}{i}")
+                i += 1
+            return n
+
+        def plan_live_index(idx_type, idx_want, indexname):
+            if found := have_live_index(idx_type, idx_want):
+                keep_live_indexnames.add(found.indexname)
+                return
+
+            cnames = [ col.name for col in idx_want ]
+            want1 = LiveIndexWanted(
+                idx_type,
+                idx_want,
+                indexname,
+            )
+            want_created.append(want1)
+            # pretend we have it to influence subsequent planning
+            live_indexdefs.setdefault(idx_type.value, {})[tuple(cnames)] = want1
+            live_indexnames[want1.indexname] = want1
+            keep_live_indexnames.add(want1.indexname)
+
+        def plan_hist_index(idx_type, idx_want, indexname):
+            if found := have_hist_index(idx_type, idx_want):
+                keep_hist_indexnames.add(found.indexname)
+                return
+
+            cnames = [ col.name for col in idx_want ]
+            crids = [ col.rid for col in idx_want ]
+            want1 = HistoryIndexWanted(
+                idx_type,
+                idx_want,
+                make_indexname(
+                    hist_indexnames,
+                    f't{self.rid}',
+                    cnames,
+                    '' if idx_type == 'btree' else idx_type,
+                    'idx'
+                ),
+            )
+            want_created.append(want1)
+            # pretend we have it to influence subsequent planning
+            hist_indexdefs.setdefault(idx_type.value, {})[tuple(cnames)] = want1
+            hist_indexnames[want1.indexname] = want1
+            keep_hist_indexnames.add(want1.indexname)
+
+        # key indexes help ERMrest joins
+        for key in self.keys:
+            # note: assume patched ERMrest is serving these in the right order!
+            cols = key.unique_columns
+            # key indexes are only potentially missing in history tables
+            if hist_indexdefs is not False:
+                plan_hist_index(
+                    IndexType.btree,
+                    cols,
+                    make_indexname(
+                        hist_indexnames,
+                        f"t{self.rid}",
+                        [ col.name for col in cols ],
+                        'key_idx'
+                    ),
+                )
+
+        # foreign key indexes help ERMrest joins
+        for fkey in self.foreign_keys:
+            # note: assume patched ERMrest is serving these in the right order!
+            cols = fkey.foreign_key_columns
+            plan_live_index(
+                IndexType.btree,
+                cols,
+                make_indexname(
+                    live_indexnames,
+                    self.name,
+                    [ col.name for col in cols ],
+                    'fkey_idx'
+                ),
+
+            )
+            if hist_indexdefs is not False:
+                plan_hist_index(
+                    IndexType.btree,
+                    cols,
+                    make_indexname(
+                        hist_indexnames,
+                        f"t{self.rid}",
+                        [ col.name for col in cols ],
+                        'fkey_idx'
+                    ),
+
+                )
+
+        # build table-level indexing preferences
+        prefs = {"btree": False, "trgm": False, "gin_array": False}
+        prefs |= default_prefs
+        prefs |= self.schema.model.annotations.get(tag.indexing_preferences, dict())
+        prefs |= self.schema.annotations.get(tag.indexing_preferences, dict())
+        prefs |= self.annotations.get(tag.indexing_preferences, dict())
+
+        def check_want(colprefs, idx_type, default=None):
+            want = colprefs.get(idx_type, default)
+            if not want:
+                return False
+            elif isinstance(want, str) \
+               and want in self.columns:
+               return [ self.columns[want] ]
+            elif isinstance(want, list) \
+                 and all([ isinstance(cname, str) for cname in want ]) \
+                 and all([ cname in self.columns for cname in want ]):
+                if idx_type == IndexType.btree \
+                   or len(want) == 1:
+                    return [ self.columns[cname] for cname in want ]
+                else:
+                    return False
+            elif want is True:
+                return [ col ]
+            else:
+                return False
+
+        for col in self.columns:
+            # build column-level indexing preferences
+            colprefs = prefs | col.annotations.get(tag.indexing_preferences, dict())
+
+            for idx_type in [ IndexType.btree, IndexType.gin_array, IndexType.trgm ]:
+                want = check_want(colprefs, idx_type)
+                if not want:
+                    continue
+                if not all([ col.indexable(idx_type) for col in want ]):
+                    continue
+                plan_live_index(
+                    idx_type,
+                    want,
+                    make_indexname(
+                        live_indexnames,
+                        self.name,
+                        [ col.name for col in want ],
+                        '' if idx_type == 'btree' else idx_type,
+                        'idx'
+                    ),
+                )
+                if not all([ col.history_indexable(idx_type) for col in want ]):
+                    continue
+                if hist_indexdefs is False:
+                    continue
+                plan_hist_index(
+                    idx_type,
+                    want,
+                    make_indexname(
+                        hist_indexnames,
+                        f"t{self.rid}",
+                        [ col.name for col in cols ],
+                        '' if idx_type == 'btree' else idx_type,
+                        'idx'
+                    ),
+                )
+
+        want_deleted = [
+            idx
+            for idx in live_indexnames.values()
+            if idx.indexname not in keep_live_indexnames \
+            and not (idx.unique or idx.primary or idx.exclusion)
+        ] + [
+            idx
+            for idx in hist_indexnames.values()
+            if idx.indexname not in keep_hist_indexnames \
+            and not (idx.unique or idx.primary or idx.exclusion)
+        ]
+        return want_created, want_deleted
+
     @presence_annotation(tag.immutable)
     def immutable(self): pass
 
@@ -2285,6 +3158,7 @@ class Column (object):
     def __init__(self, table, column_doc):
         self.table = table
         self.name = column_doc['name']
+        self.rid = column_doc.get('RID')
         self.acls = AttrDict(column_doc.get('acls', {}))
         self.acl_bindings = AttrDict(column_doc.get('acl_bindings', {}))
         self.annotations = dict(column_doc.get('annotations', {}))
@@ -2508,6 +3382,32 @@ class Column (object):
         if not self.nullok:
             parts.append('NOT NULL')
         return ' '.join(parts)
+
+    def indexable(self, indextype: IndexType) -> bool:
+        """Return True if this column may be used as a target of the given live index type.
+
+        :param indextype: The desired index type for which the column is a candidate target.
+
+        This test is a heuristic based on column type, meant to mirror
+        and anticipate rules that the ERMrest server will enforce.
+
+        The server may reject candidates even when this heuristic returns True.
+
+        """
+        return self.type.indexable(indextype)
+
+    def history_indexable(self, indextype: IndexType) -> bool:
+        """Return True if this column may be used as a target of the given history index type.
+
+        :param indextype: The desired index type for which the column is a candidate target.
+
+        This test is a heuristic based on column type, meant to mirror
+        and anticipate rules that the ERMrest server will enforce.
+
+        The server may reject candidates even when this heuristic returns True.
+
+        """
+        return self.type.history_indexable(indextype)
 
     @presence_annotation(tag.immutable)
     def immutable(self): pass
@@ -3150,6 +4050,51 @@ class Type (object):
             'timestamp': 'datetime',
         }.get(self.typename, 'text')
 
+    def indexable(self, indextype: IndexType) -> bool:
+        """Return True if columns of this type may be used as a target of the given live index type.
+
+        :param indextype: The desired index type for which a column of this type is a candidate target.
+
+        This test is a heuristic, meant to mirror and anticipate rules
+        that the ERMrest server will enforce:
+
+        1. only array types can be used with `gin_array` indexes
+        2. `json`/`json[]` types lack comparison operators needed for `btree` and `gin_array` indexes
+        3. all supported ERMrest types can be converted to text for use with `trgm` indexes
+
+        """
+        if indextype == IndexType.gin_array:
+            return False
+        elif indextype == IndexType.btree:
+            return self.typename not in {'json'}
+        elif indextype == IndexType.trgm:
+            return True
+        else:
+            raise NotImplementedError(f"unknown whether {self.typename} is {indextype} indexable")
+
+    def history_indexable(self, indextype: IndexType) -> bool:
+        """Return True if columns of this type may be used as a target of the given history index type.
+
+        :param indextype: The desired index type for which a column of this type is a candidate target.
+
+        This test is a heuristic, meant to mirror and anticipate rules
+        that the ERMrest server will enforce:
+
+        1. only array types can be used with `gin_array` indexes
+        2. `json`/`json[]` types lack comparison operators needed for `btree` and `gin_array` indexes
+        3. `timestamp`/`timestamp[]` types lack stable semantics needed for any history indexing
+        4. all other supported ERMrest types can be converted to text for use with `trgm` indexes
+
+        """
+        if indextype == IndexType.gin_array:
+            return False
+        elif indextype == IndexType.btree:
+            return self.typename not in {'json', 'timestamp', 'interval', 'time', 'timetz'}
+        elif indextype == IndexType.trgm:
+            return self.typename not in {'timestamp', 'interval', 'time', 'timetz'}
+        else:
+            raise NotImplementedError(f"unknown whether {self.typename} is {indextype} indexable")
+
 class DomainType (Type):
     """Named domain type.
     """
@@ -3169,6 +4114,24 @@ class DomainType (Type):
     def sqlite3_ddl(self) -> str:
         """Return a SQLite3 column type DDL fragment for this type"""
         return self.base_type.sqlite3_ddl()
+
+    def indexable(self, indextype: IndexType) -> bool:
+        """Return True if columns of this type may be used as a target of the given live index type.
+
+        :param indextype: The desired index type for which a column of this type is a candidate target.
+
+        Domain types are indexable if their base_type is indexable.
+        """
+        return self.base_type.indexable(indextype)
+
+    def history_indexable(self, indextype: IndexType) -> bool:
+        """Return True if columns of this type may be used as a target of the given history index type.
+
+        :param indextype: The desired index type for which a column of this type is a candidate target.
+
+        Domain types are indexable if their base_type is indexable.
+        """
+        return self.base_type.history_indexable(indextype)
 
 class ArrayType (Type):
     """Named domain type.
@@ -3190,6 +4153,53 @@ class ArrayType (Type):
         """Return a SQLite3 column type DDL fragment for this type"""
         return 'json'
 
+    def indexable(self, indextype: IndexType) -> bool:
+        """Return True if columns of this type may be used as a target of the given live index type.
+
+        :param indextype: The desired index type for which a column of this type is a candidate target.
+
+        This test is a heuristic, meant to mirror and anticipate rules
+        that the ERMrest server will enforce:
+
+        1. only array types can be used with `gin_array` indexes
+        2. `json`/`json[]` types lack comparison operators needed for `btree` and `gin_array` indexes
+        3. all supported ERMrest types can be converted to text for use with `trgm` indexes
+
+        """
+        typ = self
+        while typ.is_array:
+            typ = typ.base_type
+        if indextype == IndexType.trgm:
+            return True
+        elif indextype in {IndexType.gin_array, IndexType.btree}:
+            return typ.indexable(IndexType.btree)
+        else:
+            raise NotImplementedError(f"unknown whether {self.typename} is {indextype} indexable")
+
+    def history_indexable(self, indextype: IndexType) -> bool:
+        """Return True if columns of this type may be used as a target of the given history index type.
+
+        :param indextype: The desired index type for which a column of this type is a candidate target.
+
+        This test is a heuristic, meant to mirror and anticipate rules
+        that the ERMrest server will enforce:
+
+        1. only array types can be used with `gin_array` indexes
+        2. `json`/`json[]` types lack comparison operators needed for `btree` and `gin_array` indexes
+        3. `timestamp`/`timestamp[]` types lack stable semantics needed for any history indexing
+        4. all other supported ERMrest types can be converted to text for use with `trgm` indexes
+
+        """
+        typ = self
+        while typ.is_array:
+            typ = typ.base_type
+        if indextype == IndexType.gin_array:
+            return typ.history_indexable(IndexType.btree)
+        elif indextype in {IndexType.btree, IndexType.trgm}:
+            return typ.history_indexable(indextype)
+        else:
+            raise NotImplementedError(f"unknown whether {self.typename} is {indextype} indexable")
+
 builtin_types = AttrDict(
     # first define standard scalar types
     {
@@ -3201,7 +4211,10 @@ builtin_types = AttrDict(
                 'int2', 'int4', 'int8',
                 'text',
                 'timestamptz', 'timestamp',
-                'boolean'
+                'boolean',
+                'timetz',
+                'uuid',
+                'interval',
         }
     }
 )
